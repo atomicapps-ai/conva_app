@@ -79,7 +79,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: ${{ github.ref_type == 'tag' && format('convasist {0}', github.ref_name) || '' }}
+          releaseName: ${{ github.ref_type == 'tag' && format('conva {0}', github.ref_name) || '' }}
           releaseDraft: true
           args: ${{ matrix.args }}
 

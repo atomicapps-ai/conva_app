@@ -16,7 +16,7 @@ pub const TRANSCRIPT_CHAR_BUDGET: usize = 16_000;
 /// Character budget for retrieved reference chunks.
 pub const RAG_CHAR_BUDGET: usize = 8_000;
 
-pub const SYSTEM_PROMPT: &str = "You are convasist, a real-time conversation \
+pub const SYSTEM_PROMPT: &str = "You are conva, a real-time conversation \
 assistant. The user is in a live conversation: THEM lines are what the other \
 party said (system audio), YOU lines are what the user said (microphone). \
 Transcripts come from speech recognition and may contain small errors — read \

@@ -1,7 +1,7 @@
 /**
  * Typed mirror of the Rust IPC contract.
  *
- * Source of truth: crates/convasist-core/src/ipc.rs — if that file changes,
+ * Source of truth: crates/conva-core/src/ipc.rs — if that file changes,
  * this one changes in the same commit (ts-rs codegen replaces this hand
  * mirror later in Phase 1).
  */
@@ -9,14 +9,14 @@
 export type StreamSide = "inbound" | "outbound";
 
 export const EVENTS = {
-  transcriptSegment: "convasist://transcript-segment",
-  audioLevel: "convasist://audio-level",
-  sessionState: "convasist://session-state",
-  assistChunk: "convasist://assist-chunk",
-  modelStatus: "convasist://model-status",
-  assistSources: "convasist://assist-sources",
-  radar: "convasist://radar",
-  tracker: "convasist://tracker",
+  transcriptSegment: "conva://transcript-segment",
+  audioLevel: "conva://audio-level",
+  sessionState: "conva://session-state",
+  assistChunk: "conva://assist-chunk",
+  modelStatus: "conva://model-status",
+  assistSources: "conva://assist-sources",
+  radar: "conva://radar",
+  tracker: "conva://tracker",
 } as const;
 
 export interface TranscriptSegment {
@@ -51,7 +51,7 @@ export interface AssistChunkEvent {
   error: string | null;
 }
 
-/** Mirror of convasist-core prompt::AssistKind. */
+/** Mirror of conva-core prompt::AssistKind. */
 export type AssistKind = "suggest_reply" | "summarize" | "question";
 
 export interface ModelInfo {
@@ -82,7 +82,7 @@ export interface AssistSourcesEvent {
   sources: AssistSource[];
 }
 
-/** Mirror of convasist-core rag::RagDocument. */
+/** Mirror of conva-core rag::RagDocument. */
 export interface RagDocument {
   id: string;
   file_name: string;
@@ -166,7 +166,7 @@ export type ModelStatusEvent =
   | { state: "ready"; model: string }
   | { state: "error"; model: string; message: string };
 
-/** Mirror of convasist-core llm::ProviderId (snake_case serde). */
+/** Mirror of conva-core llm::ProviderId (snake_case serde). */
 export type ProviderId =
   | "anthropic"
   | "openai"
@@ -202,7 +202,7 @@ export interface AppConfig {
   vad_sensitivity: number;
 }
 
-/** Mirror of convasist-core audio::AudioDevice. */
+/** Mirror of conva-core audio::AudioDevice. */
 export interface AudioDevice {
   id: string;
   name: string;

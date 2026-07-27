@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["crates/convasist-core", "src-tauri"]
+members = ["crates/conva-core", "src-tauri"]
 # Only the pure-logic core builds everywhere (CI lint/test on any OS).
 # src-tauri needs a desktop GUI toolchain and is built on Windows.
-default-members = ["crates/convasist-core"]
+default-members = ["crates/conva-core"]
 
 [workspace.package]
 version = "0.1.0"

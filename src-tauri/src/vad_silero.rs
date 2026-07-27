@@ -26,7 +26,7 @@ use std::path::Path;
 use ort::session::Session;
 use ort::value::Tensor;
 
-use convasist_core::vad::SpeechGate;
+use conva_core::vad::SpeechGate;
 
 /// Silero v5 window size at 16 kHz.
 const CHUNK: usize = 512;
@@ -147,22 +147,22 @@ mod tests {
 
     /// End-to-end check of the ort API + Silero I/O contract against the real
     /// model. Ignored by default (needs the model); run with:
-    ///   CONVASIST_SILERO_MODEL=/tmp/silero_vad.onnx \
-    ///     cargo test -p convasist-app --lib vad_silero -- --ignored --nocapture
+    ///   CONVA_SILERO_MODEL=/tmp/silero_vad.onnx \
+    ///     cargo test -p conva-app --lib vad_silero -- --ignored --nocapture
     /// Definitive positive-path check: real speech (a 16 kHz mono WAV, e.g.
     /// whisper.cpp's jfk.wav) must open the gate at the default threshold —
     /// and the same audio attenuated to a quiet-mic level shows how far the
     /// score drops. Run with:
-    ///   CONVASIST_SILERO_MODEL=... CONVASIST_SPEECH_WAV=... \
-    ///     cargo test -p convasist-app --lib vad_silero -- --ignored --nocapture
+    ///   CONVA_SILERO_MODEL=... CONVA_SPEECH_WAV=... \
+    ///     cargo test -p conva-app --lib vad_silero -- --ignored --nocapture
     #[test]
     #[ignore]
     fn real_speech_opens_the_gate() {
         let (Ok(model), Ok(wav)) = (
-            std::env::var("CONVASIST_SILERO_MODEL"),
-            std::env::var("CONVASIST_SPEECH_WAV"),
+            std::env::var("CONVA_SILERO_MODEL"),
+            std::env::var("CONVA_SPEECH_WAV"),
         ) else {
-            eprintln!("set CONVASIST_SILERO_MODEL and CONVASIST_SPEECH_WAV to run");
+            eprintln!("set CONVA_SILERO_MODEL and CONVA_SPEECH_WAV to run");
             return;
         };
         let reader = hound::WavReader::open(&wav).expect("open wav");
@@ -201,8 +201,8 @@ mod tests {
     #[test]
     #[ignore]
     fn silence_scores_low_and_tone_scores_higher() {
-        let Ok(path) = std::env::var("CONVASIST_SILERO_MODEL") else {
-            eprintln!("set CONVASIST_SILERO_MODEL to run");
+        let Ok(path) = std::env::var("CONVA_SILERO_MODEL") else {
+            eprintln!("set CONVA_SILERO_MODEL to run");
             return;
         };
         let mut gate = SileroGate::load(Path::new(&path), 0.5).expect("load model");

@@ -1,10 +1,10 @@
-# CLAUDE.md — convasist
+# CLAUDE.md — conva
 
 > Brief for AI assistants (and humans) working in this repo. Read this, then
 > [`README.md`](README.md) for the run guide and [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md)
 > for the full design (architecture, latency budgets, milestones, §9 decisions).
 
-## What convasist is
+## What conva is
 
 A real-time AI conversation assistant. It intercepts **both** sides of the host
 computer's audio — your microphone (outbound) and the system output / other
@@ -37,19 +37,19 @@ swap a layer without asking the owner.**
 | Path | What |
 |---|---|
 | `docs/` | Blueprints/specs — design doc lives here; new design docs go here. |
-| `crates/convasist-core/` | Shell-agnostic domain layer: types, traits, IPC contract, pure logic (DSP, VAD, chunking, BM25, RRF, prompt/tracker/radar). **Builds + tests on any OS** — this is where unit tests live. |
+| `crates/conva-core/` | Shell-agnostic domain layer: types, traits, IPC contract, pure logic (DSP, VAD, chunking, BM25, RRF, prompt/tracker/radar). **Builds + tests on any OS** — this is where unit tests live. |
 | `src-tauri/` | Tauri 2 shell: platform implementations (audio, ASR, models, LLM clients, RAG store, sessions, tracker) + the `#[tauri::command]` surface. |
 | `src/` | React UI. `lib/ipc.ts` mirrors the Rust IPC contract; `lib/commands.ts` wraps the Tauri commands; `state/*` is Zustand. |
 | `models/` | gitignored; ASR + embedding models auto-download on first run. |
 
 ## Architecture rules — do not break
 
-1. **Core stays platform-agnostic.** `crates/convasist-core` has no GUI/OS deps.
+1. **Core stays platform-agnostic.** `crates/conva-core` has no GUI/OS deps.
    Anything touching cpal/whisper/keyring/tauri/fs lives in `src-tauri`. Pure,
    testable logic belongs in core (and gets a unit test there).
-2. **The IPC contract is mirrored by hand.** `crates/convasist-core/src/ipc.rs`
+2. **The IPC contract is mirrored by hand.** `crates/conva-core/src/ipc.rs`
    (Rust) ↔ `src/lib/ipc.ts` (TypeScript). Change one, change the other **in the
-   same commit**. Events are namespaced `convasist://*`.
+   same commit**. Events are namespaced `conva://*`.
 3. **Every Tauri command has a typed wrapper** in `src/lib/commands.ts` and its
    types in `src/lib/ipc.ts`. Adding a command = update both sides.
 4. **Audio threading contract (§2.4).** The cpal device callback ONLY copies
@@ -62,7 +62,7 @@ swap a layer without asking the owner.**
    plaintext files/config. Empty submission clears the key. They may optionally
    be exported to a **passphrase-encrypted** file (`*.secrets.enc`, cocoon) that
    is safe to commit to git and travels to another machine; the passphrase comes
-   from the `CONVASIST_SECRETS_PASSPHRASE` env var (never committed), and on
+   from the `CONVA_SECRETS_PASSPHRASE` env var (never committed), and on
    startup missing keys are seeded from that file. See `src-tauri/src/secrets.rs`.
 7. **RAG is best-effort hybrid.** Retrieval fuses BM25 + cosine (RRF) and
    **degrades to BM25-only** when the embedder isn't ready — hybrid is an
@@ -87,20 +87,20 @@ dedicated script — passing `--features` through `npm run tauri dev --` gets
 mangled by npm) — see README "GPU-accelerated whisper". The log line
 `[asr] whisper backend: …` tells you which backend a running build uses.
 
-Default settings live in the repo-committed `convasist.config.json` — a fresh
+Default settings live in the repo-committed `conva.config.json` — a fresh
 machine seeds its config from it (Settings → "Export settings…" writes the
 current values back for committing). LLM API keys are NEVER in that file —
 they are entered in-app (Settings). To carry keys to
-another machine, set `CONVASIST_SECRETS_PASSPHRASE` (any strong passphrase),
-Settings → **Export encrypted…**, commit the resulting `convasist.secrets.enc`,
+another machine, set `CONVA_SECRETS_PASSPHRASE` (any strong passphrase),
+Settings → **Export encrypted…**, commit the resulting `conva.secrets.enc`,
 then on the other machine set the same env var and the keys load on startup.
 
 ## Checks (run before pushing)
 
 | What | Command |
 |---|---|
-| Core lint + tests (any OS) | `cargo fmt --check` · `cargo clippy -p convasist-core --all-targets` · `cargo test -p convasist-core` |
-| Shell tests + lint (Windows) | `cargo test -p convasist-app` · `cargo clippy -p convasist-app --all-targets` |
+| Core lint + tests (any OS) | `cargo fmt --check` · `cargo clippy -p conva-core --all-targets` · `cargo test -p conva-core` |
+| Shell tests + lint (Windows) | `cargo test -p conva-app` · `cargo clippy -p conva-app --all-targets` |
 | UI typecheck + build | `npm run build` |
 
 CI (`.github/workflows/ci.yml`) runs core lint+test on ubuntu, UI typecheck+build

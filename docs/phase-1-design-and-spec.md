@@ -1,4 +1,4 @@
-# convasist — Phase 1 Design & Specification
+# conva — Phase 1 Design & Specification
 
 **Status:** DRAFT — awaiting owner review. No application code is written until the tech stack (§2) and feature list (§4) are explicitly approved.
 **Scope:** Phase 1 — audio interception, real-time dual-channel transcription UI, inline AI processing, local RAG engine.
@@ -8,7 +8,7 @@
 
 ## 1. Executive summary
 
-convasist is a real-time AI conversation assistant that listens to both sides of any conversation happening on the host computer (mic = what you say, system audio = what you hear), transcribes both streams live into a dual-column chat UI, and lets an AI agent — grounded by a local RAG corpus of your reference documents — jump in on any part of the conversation at any moment.
+conva is a real-time AI conversation assistant that listens to both sides of any conversation happening on the host computer (mic = what you say, system audio = what you hear), transcribes both streams live into a dual-column chat UI, and lets an AI agent — grounded by a local RAG corpus of your reference documents — jump in on any part of the conversation at any moment.
 
 **The single decision that shapes everything else: this cannot be a browser app.** Browsers have no API to capture system output audio (the "what you hear" stream). That capability alone forces a native desktop architecture. Full contrast in §2.2.
 
@@ -93,7 +93,7 @@ Phase 1 requires capturing **two** streams:
 **Proposed repository layout** (per the mandated structure — `docs/` + app codebase root):
 
 ```
-convasist/
+conva/
 ├── docs/                        # blueprints, specs, phase docs (this file)
 ├── src-tauri/                   # Rust core
 │   ├── src/
@@ -224,7 +224,7 @@ Legend: **[C]** core — Phase 1 ships with it; **[S]** stretch — in scope if 
 | R4 | Retrieval API used by the orchestrator: `retrieve(query, k=8)` in <15 ms, with source attribution (doc, page/section) | C |
 | R5 | "Peek" UI: every AI answer shows which chunks grounded it; click-through to the source doc | C |
 | R6 | Reranker stage (cross-encoder, ONNX) for precision on large corpora | S |
-| R7 | Ingest past convasist sessions into the corpus (see §6.4) | S |
+| R7 | Ingest past conva sessions into the corpus (see §6.4) | S |
 | R8 | Folder watch (auto-ingest a synced directory) | D |
 
 ### 4.5 AI Orchestration Layer
@@ -335,7 +335,7 @@ Lighter-weight sibling of 6.1: detect questions/asks in the inbound stream and s
 A haiku pass over finalized segments extracts and pins to a side panel: names, companies, dollar amounts, dates, deadlines, and *commitments* ("I'll send the contract Friday"). At session end these become the action-item list. Solves the universal "what did I promise?" problem and costs almost nothing (batched, one call per ~30 s of speech).
 
 ### 6.4 Conversation memory (sessions become RAG corpus)
-Every finished session is summarized, chunked, and ingested into LanceDB alongside uploaded documents. Next call with the same person/company, the context builder retrieves *"last time, they objected to the SLA terms"* automatically. This compounds: convasist gets smarter every conversation. (R7 is the ingestion half; this adds the auto-summarize + entity-link half.)
+Every finished session is summarized, chunked, and ingested into LanceDB alongside uploaded documents. Next call with the same person/company, the context builder retrieves *"last time, they objected to the SLA terms"* automatically. This compounds: conva gets smarter every conversation. (R7 is the ingestion half; this adds the auto-summarize + entity-link half.)
 
 **Recommendation:** ship **6.2 + 6.3** in Phase 1 core (cheap, high utility), **6.1** as the Phase 1 stretch flagship, **6.4** as Phase 1.5 — it needs a few weeks of accumulated sessions to shine anyway.
 
@@ -345,7 +345,7 @@ Every finished session is summarized, chunked, and ingested into LanceDB alongsi
 
 | # | Risk / question | Impact | Mitigation / decision needed |
 |---|---|---|---|
-| 1 | **Recording-consent law.** California (and ~10 other states) requires *all-party consent* to record/intercept a conversation. convasist transcribes both sides by design. | Legal — highest severity | Phase 1 must ship a consent posture: first-run consent acknowledgment, visible REC indicator, and easy pause. Owner decision on positioning (personal note-taking tool vs. anything marketed for covert use — the latter is a hard no). Not legal advice; worth 30 min with counsel before public release. |
+| 1 | **Recording-consent law.** California (and ~10 other states) requires *all-party consent* to record/intercept a conversation. conva transcribes both sides by design. | Legal — highest severity | Phase 1 must ship a consent posture: first-run consent acknowledgment, visible REC indicator, and easy pause. Owner decision on positioning (personal note-taking tool vs. anything marketed for covert use — the latter is a hard no). Not legal advice; worth 30 min with counsel before public release. |
 | 2 | Echo/crosstalk: open speakers leak inbound audio into the mic → duplicated transcripts | UX quality | Phase 1: headset-recommended banner + simple cross-correlation suppression; A7 (AEC3) as stretch |
 | 3 | Local ASR accuracy vs. latency (whisper base vs. small vs. cloud) | Core UX | The engine trait + a built-in A/B latency HUD make this an empirical, per-machine choice instead of a bet |
 | 4 | GPU absence on low-end machines | Perf | CPU fallback auto-selects `tiny.en`/distil; settings surface the tradeoff honestly; Deepgram opt-in as the escape hatch |

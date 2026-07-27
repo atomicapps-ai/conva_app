@@ -16,8 +16,8 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
-      - run: cargo clippy -p convasist-core --all-targets -- -D warnings
-      - run: cargo test -p convasist-core
+      - run: cargo clippy -p conva-core --all-targets -- -D warnings
+      - run: cargo test -p conva-core
 
   ui:
     name: UI (typecheck + build)
@@ -47,4 +47,4 @@ jobs:
       # generate_context! embeds the built frontend, so build the UI first.
       - run: npm ci
       - run: npm run build
-      - run: cargo clippy -p convasist-app --all-targets -- -D warnings
+      - run: cargo clippy -p conva-app --all-targets -- -D warnings

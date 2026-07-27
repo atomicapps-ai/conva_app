@@ -17,8 +17,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use convasist_core::asr::TranscriptSegment;
-use convasist_core::CoreError;
+use conva_core::asr::TranscriptSegment;
+use conva_core::CoreError;
 
 use crate::session::now_unix_ms;
 
@@ -183,7 +183,7 @@ pub fn list(app: &AppHandle) -> Result<Vec<ConversationSummary>, CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use convasist_core::audio::StreamSide;
+    use conva_core::audio::StreamSide;
 
     fn seg(text: &str, is_final: bool) -> TranscriptSegment {
         TranscriptSegment {

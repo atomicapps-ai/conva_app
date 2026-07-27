@@ -65,7 +65,7 @@ export function UpdateBanner() {
       {state.phase === "available" && (
         <>
           <span className="text-fg">
-            Update available: convasist {state.version}
+            Update available: conva {state.version}
           </span>
           <button
             type="button"

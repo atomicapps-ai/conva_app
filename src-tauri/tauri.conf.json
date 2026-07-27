@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "convasist",
+  "productName": "conva",
   "version": "0.1.0",
-  "identifier": "ai.atomicapps.convasist",
+  "identifier": "ai.atomicapps.conva",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "convasist",
+        "title": "conva",
         "width": 1280,
         "height": 820,
         "minWidth": 900,
@@ -28,7 +28,7 @@
     "targets": "all",
     "category": "Productivity",
     "shortDescription": "Real-time AI conversation assistant",
-    "longDescription": "convasist transcribes both sides of a call live and grounds AI answers in your reference library — all on your machine.",
+    "longDescription": "conva transcribes both sides of a call live and grounds AI answers in your reference library — all on your machine.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -45,7 +45,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEwNzhGRTlEM0E2Mzc2OTQKUldTVWRtTTZuZjU0RUtCZW9iYTFNYytjK3pFaWxrY0svQjB2RGJweDV2K0hBZ1BncUY0ZnVnWFUK",
       "endpoints": [
-        "https://github.com/atomicapps-ai/convasist/releases/latest/download/latest.json"
+        "https://github.com/atomicapps-ai/conva/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

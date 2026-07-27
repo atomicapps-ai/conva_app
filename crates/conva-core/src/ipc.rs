@@ -13,21 +13,21 @@ use crate::audio::StreamSide;
 /// Event channel names (Tauri `emit` topics).
 pub mod events {
     /// Payload: [`super::TranscriptSegment`]
-    pub const TRANSCRIPT_SEGMENT: &str = "convasist://transcript-segment";
+    pub const TRANSCRIPT_SEGMENT: &str = "conva://transcript-segment";
     /// Payload: [`super::AudioLevelEvent`]
-    pub const AUDIO_LEVEL: &str = "convasist://audio-level";
+    pub const AUDIO_LEVEL: &str = "conva://audio-level";
     /// Payload: [`super::SessionStateEvent`]
-    pub const SESSION_STATE: &str = "convasist://session-state";
+    pub const SESSION_STATE: &str = "conva://session-state";
     /// Payload: [`super::AssistChunkEvent`]
-    pub const ASSIST_CHUNK: &str = "convasist://assist-chunk";
+    pub const ASSIST_CHUNK: &str = "conva://assist-chunk";
     /// Payload: [`super::ModelStatusEvent`]
-    pub const MODEL_STATUS: &str = "convasist://model-status";
+    pub const MODEL_STATUS: &str = "conva://model-status";
     /// Payload: [`super::AssistSourcesEvent`]
-    pub const ASSIST_SOURCES: &str = "convasist://assist-sources";
+    pub const ASSIST_SOURCES: &str = "conva://assist-sources";
     /// Payload: [`super::RadarEvent`]
-    pub const RADAR: &str = "convasist://radar";
+    pub const RADAR: &str = "conva://radar";
     /// Payload: [`super::TrackerEvent`]
-    pub const TRACKER: &str = "convasist://tracker";
+    pub const TRACKER: &str = "conva://tracker";
 }
 
 /// Re-exported so the IPC module is a one-stop description of the wire.
@@ -140,7 +140,7 @@ mod tests {
             events::SESSION_STATE,
             events::ASSIST_CHUNK,
         ] {
-            assert!(name.starts_with("convasist://"), "{name}");
+            assert!(name.starts_with("conva://"), "{name}");
         }
     }
 }

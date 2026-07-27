@@ -12,15 +12,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use convasist_core::asr::{TranscriptSegment, TranscriptionEngine};
-use convasist_core::audio::{AudioFrame, AudioSource, StreamSide};
-use convasist_core::config::AppConfig;
-use convasist_core::dsp::rms_dbfs;
-use convasist_core::ipc::{events, AudioLevelEvent, RadarEvent, SessionStateEvent};
-use convasist_core::radar::looks_like_question;
-use convasist_core::CoreError;
+use conva_core::asr::{TranscriptSegment, TranscriptionEngine};
+use conva_core::audio::{AudioFrame, AudioSource, StreamSide};
+use conva_core::config::AppConfig;
+use conva_core::dsp::rms_dbfs;
+use conva_core::ipc::{events, AudioLevelEvent, RadarEvent, SessionStateEvent};
+use conva_core::radar::looks_like_question;
+use conva_core::CoreError;
 
-use convasist_core::asr::AsrEngineId;
+use conva_core::asr::AsrEngineId;
 
 use crate::asr::{SharedWhisper, VadSetup, WhisperEngine};
 use crate::asr_deepgram::DeepgramEngine;
@@ -241,7 +241,7 @@ impl SessionManager {
             // text" is answerable at a glance: engine + speech gate in use.
             match &engine {
                 Engine::Whisper(_) => eprintln!(
-                    "[convasist] {side:?}: local whisper '{}', gate={}",
+                    "[conva] {side:?}: local whisper '{}', gate={}",
                     config.whisper_model,
                     if vad.silero_model.is_some() {
                         format!("silero (threshold {:.2})", vad.threshold)
@@ -250,7 +250,7 @@ impl SessionManager {
                     }
                 ),
                 Engine::Deepgram(_) => {
-                    eprintln!("[convasist] {side:?}: deepgram cloud streaming")
+                    eprintln!("[conva] {side:?}: deepgram cloud streaming")
                 }
             }
             let frames_tx = engine.frame_sender()?;

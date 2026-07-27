@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{AppHandle, Emitter, Manager};
 
-use convasist_core::ipc::{events, ModelStatusEvent};
-use convasist_core::CoreError;
+use conva_core::ipc::{events, ModelStatusEvent};
+use conva_core::CoreError;
 
 /// ggml checkpoints published by the whisper.cpp project.
 const MODEL_BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";

@@ -225,7 +225,7 @@ function NoiseFilterControls() {
   );
 }
 
-/** Config file sync: settings live in `convasist.config.json`, committed to
+/** Config file sync: settings live in `conva.config.json`, committed to
  *  the repo — a fresh machine seeds from it automatically; these buttons
  *  push/pull your current settings to/from that file. Keys are NOT in this
  *  file (they use the encrypted secrets flow below). */
@@ -237,7 +237,7 @@ function ConfigFileControls() {
     try {
       const { save } = await import("@tauri-apps/plugin-dialog");
       const dest = await save({
-        defaultPath: "convasist.config.json",
+        defaultPath: "conva.config.json",
         filters: [{ name: "Config", extensions: ["json"] }],
       });
       if (!dest) return;
@@ -271,7 +271,7 @@ function ConfigFileControls() {
         Settings file
       </h3>
       <p className="mt-1 text-[11px] text-fg-faint">
-        Defaults live in <code className="font-mono">convasist.config.json</code>{" "}
+        Defaults live in <code className="font-mono">conva.config.json</code>{" "}
         in the repo — a fresh machine starts from it. Export your tuned
         settings there and commit; API keys are never in this file.
       </p>
@@ -327,7 +327,7 @@ function SecretsSettings() {
     try {
       const { save } = await import("@tauri-apps/plugin-dialog");
       const dest = await save({
-        defaultPath: "convasist.secrets.enc",
+        defaultPath: "conva.secrets.enc",
         filters: [{ name: "Encrypted secrets", extensions: ["enc"] }],
       });
       if (!dest) return;
@@ -366,7 +366,7 @@ function SecretsSettings() {
       <p className="mt-1 text-[11px] text-fg-faint">
         Export your API keys to an encrypted file you can commit to git and pull
         on another computer. Unlocks from the{" "}
-        <code className="font-mono">{status?.passphrase_env ?? "CONVASIST_SECRETS_PASSPHRASE"}</code>{" "}
+        <code className="font-mono">{status?.passphrase_env ?? "CONVA_SECRETS_PASSPHRASE"}</code>{" "}
         environment variable — set that once per machine and keys load on
         startup, no re-typing.
       </p>
