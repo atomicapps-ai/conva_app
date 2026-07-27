@@ -1,3 +1,4 @@
+import { Core, coreStateFrom } from "@/components/ui/Core";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 import { useConversationStore } from "@/state/conversation";
@@ -55,22 +56,32 @@ export function StatusBar({
     lastError === "consent_required" ||
     (lastError !== null && !lastError.includes("model_downloading"));
 
+  const coreState = coreStateFrom(session.state, recording);
+  const coreLabel = preparing
+    ? "PREP"
+    : recording
+      ? "REC"
+      : listening
+        ? "LIVE"
+        : "IDLE";
+
   return (
-    <header className="flex h-10 shrink-0 items-center gap-3 border-b border-border bg-panel px-4">
-      <span className="flex items-center gap-1.5 font-mono text-xs">
+    <header className="glass flex h-11 shrink-0 items-center gap-3 px-4">
+      <span className="flex items-center gap-2 font-mono text-[11px] tracking-widest">
+        <Core state={coreState} size={20} />
         <span
           className={
-            listening
-              ? "h-2 w-2 animate-pulse rounded-full bg-rec"
-              : "h-2 w-2 rounded-full bg-fg-faint"
+            recording
+              ? "text-rec"
+              : listening
+                ? "text-inbound"
+                : "text-fg-faint"
           }
-          aria-hidden
-        />
-        <span className={listening ? "text-rec" : "text-fg-faint"}>
-          {listening ? "REC" : "IDLE"}
+        >
+          {coreLabel}
         </span>
       </span>
-      <h1 className="text-sm font-semibold tracking-tight">conva</h1>
+      <h1 className="font-display text-sm font-semibold tracking-tight">conva</h1>
       {conversationTitle && (
         <span className="max-w-[16rem] truncate rounded-full border border-ai/40 px-2 py-0.5 text-[11px] text-ai">
           {conversationTitle}

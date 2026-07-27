@@ -11,31 +11,35 @@
  * .elevated, …). Never raw hex in components.
  */
 :root {
-  /* Base surfaces — layered near-blacks with a cool undertone for depth */
-  --color-bg: #070a12;
-  --color-bg-2: #0b0f1c;
-  --color-panel: #10162a;
-  --color-panel-raised: #161e38;
-  --color-border: #232c47;
-  --color-border-strong: #33406a;
+  /* Base surfaces — deep space-black void with a cool undertone for depth */
+  --color-bg: #04060d;
+  --color-bg-2: #070b16;
+  --color-panel: #0f1524;
+  --color-panel-raised: #151d33;
+  --color-border: #232f4d;
+  --color-border-strong: #35446e;
+  /* Luminous instrument edge (space-age rim light) */
+  --color-edge: rgba(180, 210, 255, 0.28);
 
   /* Text */
-  --color-fg: #eef2fb;
-  --color-fg-muted: #9aa6c6;
-  --color-fg-faint: #5d6b8f;
+  --color-fg: #eaf0ff;
+  --color-fg-muted: #9fb0d6;
+  --color-fg-faint: #5c6d95;
 
   /* Per-stream accents — these do the spatial work (them vs. you) */
-  --color-inbound: #2fe0e6; /* cyan — THEM (system audio) */
-  --color-outbound: #a78bfa; /* violet — YOU (microphone) */
-  --color-ai: #f7b64b; /* amber — AI assist */
+  --color-inbound: #22e6d6; /* cyan — THEM (system audio) */
+  --color-outbound: #8b7bff; /* violet — YOU (microphone) */
+  --color-ai: #ffd27a; /* gold — AI insight */
+  --color-iris: #ff5cc8; /* magenta — aurora / iris tail only */
 
   /* State */
   --color-rec: #ff5468;
-  --color-ok: #34d6a2;
+  --color-ok: #58e0b0;
 
-  /* Brand signature: the two voices meeting */
+  /* Brand signature: the aurora "iris" — the two voices meeting + AI light */
   --brand-from: var(--color-inbound);
   --brand-to: var(--color-outbound);
+  --iris: linear-gradient(120deg, #22e6d6, #8b7bff 55%, #ff5cc8);
 
   /* Elevation — soft, layered, cool-tinted shadows */
   --shadow-sm: 0 1px 2px rgba(2, 4, 10, 0.4);
@@ -69,6 +73,8 @@
   --color-inbound: var(--color-inbound);
   --color-outbound: var(--color-outbound);
   --color-ai: var(--color-ai);
+  --color-iris: var(--color-iris);
+  --color-edge: var(--color-edge);
   --color-rec: var(--color-rec);
   --color-ok: var(--color-ok);
 
@@ -114,13 +120,18 @@ body {
   pointer-events: none;
   background:
     radial-gradient(
-      60rem 40rem at 12% -8%,
-      color-mix(in oklab, var(--color-inbound) 12%, transparent),
+      52rem 38rem at 8% -6%,
+      color-mix(in oklab, var(--color-inbound) 15%, transparent),
       transparent 60%
     ),
     radial-gradient(
-      55rem 38rem at 92% 108%,
-      color-mix(in oklab, var(--color-outbound) 12%, transparent),
+      56rem 40rem at 98% 6%,
+      color-mix(in oklab, var(--color-outbound) 16%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      44rem 44rem at 82% 110%,
+      color-mix(in oklab, var(--color-iris) 10%, transparent),
       transparent 60%
     ),
     linear-gradient(180deg, var(--color-bg), var(--color-bg-2));
@@ -163,13 +174,19 @@ body {
     box-shadow: var(--shadow-glow);
   }
 
-  /* Brand signature gradient — the two voices meeting. */
+  /* Brand signature gradient — the aurora iris (two voices + AI light). */
   .brand-gradient {
-    background: linear-gradient(
-      135deg,
-      var(--brand-from),
-      var(--brand-to)
-    );
+    background: var(--iris);
+  }
+  .iris-gradient {
+    background: var(--iris);
+  }
+  /* Luminous instrument rim — a gradient hairline around glass/pods. */
+  .edge-lit {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--color-panel), var(--color-panel)) padding-box,
+      linear-gradient(150deg, var(--color-edge), transparent 60%) border-box;
   }
   .brand-text {
     background: linear-gradient(120deg, var(--brand-from), var(--brand-to));
@@ -272,7 +289,47 @@ body {
   animation: conva-pulse-ring 2s var(--ease-out) infinite;
 }
 
+/* The sonar Core (listening instrument): a rotating sweep, an orbiting node,
+   and a breathing center. Used by the <Core> component at every size. */
+@keyframes conva-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes conva-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.09);
+  }
+}
+.core-sweep {
+  transform-origin: center;
+  animation: conva-sweep 3.4s linear infinite;
+}
+.core-orbit {
+  transform-origin: center;
+  animation: conva-sweep 8s linear infinite reverse;
+}
+.core-breathe {
+  animation: conva-breathe 2.8s var(--ease-out) infinite;
+}
+.core-breathe-fast {
+  animation: conva-breathe 1.4s var(--ease-out) infinite;
+}
+.core-spin {
+  transform-origin: center;
+  animation: conva-sweep 1s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .core-sweep,
+  .core-orbit,
+  .core-breathe,
+  .core-breathe-fast,
+  .core-spin,
   .segment-final,
   .animate-rise,
   .animate-fade,
