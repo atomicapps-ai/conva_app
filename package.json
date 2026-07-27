@@ -10,7 +10,8 @@
     "typecheck": "tsc -b",
     "tauri": "tauri",
     "tauri:gpu": "tauri dev --features gpu-vulkan",
-    "tauri:gpu:cuda": "tauri dev --features gpu-cuda"
+    "tauri:gpu:cuda": "tauri dev --features gpu-cuda",
+    "tauri:build:gpu": "tauri build --features gpu-vulkan"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

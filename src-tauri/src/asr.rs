@@ -36,6 +36,8 @@ pub const WHISPER_BACKEND: &str = if cfg!(feature = "gpu-vulkan") {
     "vulkan (GPU)"
 } else if cfg!(feature = "gpu-cuda") {
     "cuda (GPU)"
+} else if cfg!(feature = "gpu-metal") {
+    "metal (GPU)"
 } else {
     "cpu"
 };
