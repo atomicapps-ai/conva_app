@@ -705,11 +705,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "convasist-app"
+name = "conva-app"
 version = "0.1.0"
 dependencies = [
  "cocoon",
- "convasist-core",
+ "conva-core",
  "cpal",
  "fastembed",
  "hound",
@@ -732,7 +732,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "convasist-core"
+name = "conva-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",

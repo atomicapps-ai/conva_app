@@ -3,7 +3,7 @@
 //! API keys still live in the OS keyring at runtime (design §4.6). This
 //! module adds an *opt-in* way to carry them (and arbitrary values) to
 //! another machine via git: a single passphrase-encrypted file that is safe
-//! to commit. The passphrase is read from the `CONVASIST_SECRETS_PASSPHRASE`
+//! to commit. The passphrase is read from the `CONVA_SECRETS_PASSPHRASE`
 //! environment variable — so no plaintext secret ever lands in the repo, and
 //! nothing is typed on each launch. On startup, if the passphrase is set and
 //! the file is present, keys seed the keyring only where one is missing (so
@@ -18,13 +18,13 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use convasist_core::llm::{provider_registry, ProviderId};
+use conva_core::llm::{provider_registry, ProviderId};
 
 use crate::llm::{load_api_key, store_api_key};
 
-pub const PASSPHRASE_ENV: &str = "CONVASIST_SECRETS_PASSPHRASE";
-pub const SECRETS_FILE_ENV: &str = "CONVASIST_SECRETS_FILE";
-pub const DEFAULT_SECRETS_FILE: &str = "convasist.secrets.enc";
+pub const PASSPHRASE_ENV: &str = "CONVA_SECRETS_PASSPHRASE";
+pub const SECRETS_FILE_ENV: &str = "CONVA_SECRETS_FILE";
+pub const DEFAULT_SECRETS_FILE: &str = "conva.secrets.enc";
 
 /// The decrypted payload. `values` is a free-form escape hatch for non-key
 /// settings the user wants to carry; `keys` maps a provider id string
@@ -48,8 +48,8 @@ fn str_to_pid(s: &str) -> Option<ProviderId> {
     serde_json::from_str(&format!("\"{s}\"")).ok()
 }
 
-/// The configured secrets-file path: `CONVASIST_SECRETS_FILE` if set, else
-/// `convasist.secrets.enc` in the current directory (the repo root in dev).
+/// The configured secrets-file path: `CONVA_SECRETS_FILE` if set, else
+/// `conva.secrets.enc` in the current directory (the repo root in dev).
 pub fn default_path() -> PathBuf {
     match std::env::var(SECRETS_FILE_ENV) {
         Ok(p) if !p.trim().is_empty() => PathBuf::from(p),

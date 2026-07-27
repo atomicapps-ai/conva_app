@@ -22,7 +22,7 @@ export function ConsentGate() {
           Before you start listening
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-fg-muted">
-          convasist transcribes both sides of conversations on this computer.
+          conva transcribes both sides of conversations on this computer.
           Many jurisdictions (including California) require{" "}
           <strong className="text-fg">consent from every participant</strong>{" "}
           before recording or transcribing a conversation. You are responsible

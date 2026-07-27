@@ -1,4 +1,4 @@
-# convasist
+# conva
 
 A real-time AI conversation assistant: intercepts both sides of the host computer's audio (microphone + system output), transcribes them live into a dual-column chat UI, and lets a RAG-grounded AI agent process the conversation inline at any moment.
 
@@ -11,9 +11,9 @@ Tauri 2 shell · Rust core (WASAPI capture → whisper.cpp ASR → LanceDB RAG �
 ## Layout
 
 ```
-convasist/
+conva/
 ├── docs/                    # Blueprints, specs, phase docs
-├── crates/convasist-core/   # Shell-agnostic domain layer: types, traits, IPC contract.
+├── crates/conva-core/   # Shell-agnostic domain layer: types, traits, IPC contract.
 │                            # No GUI/OS deps — builds and tests on any platform.
 ├── src-tauri/               # Tauri 2 shell: wires UI ↔ core, platform implementations
 ├── src/                     # React UI (Operator theme, dual-column transcript)
@@ -43,7 +43,7 @@ WebView2 is preinstalled on Windows 11. Open a fresh terminal after installs so 
 | `fatal error: 'stdio.h' file not found` | clang can't locate the MSVC/Windows SDK includes from a plain shell (common with Build-Tools-only installs) | Build from **Developer PowerShell for VS 2022** (Start menu), or run `& "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64` first |
 | `is 'cmake' not installed?` | CMake not on PATH | Prereq 3, then a fresh terminal |
 
-The `output filename collision … convasist_app.pdb` warnings are harmless cargo noise (same-named bin and lib targets).
+The `output filename collision … conva_app.pdb` warnings are harmless cargo noise (same-named bin and lib targets).
 
 ```powershell
 npm install
@@ -126,24 +126,24 @@ device in Settings.
 
 | What | Command |
 |---|---|
-| Core lint + tests (any OS) | `cargo fmt --check` · `cargo clippy -p convasist-core --all-targets` · `cargo test -p convasist-core` |
+| Core lint + tests (any OS) | `cargo fmt --check` · `cargo clippy -p conva-core --all-targets` · `cargo test -p conva-core` |
 | UI typecheck + build | `npm run build` |
-| Tauri shell | `cargo clippy -p convasist-app --all-targets` (needs the UI built first) |
+| Tauri shell | `cargo clippy -p conva-app --all-targets` (needs the UI built first) |
 
 CI runs all three on every PR (`.github/workflows/ci.yml`); the shell job runs on `windows-latest`.
 
 ## Status
 
-Phase 1 **hybrid retrieval** built: BGE-small embeddings via fastembed/ONNX (`src-tauri/src/embed.rs`, model auto-downloads on a startup warm thread) stored inline per chunk; retrieval fuses BM25 and cosine rankings with reciprocal-rank fusion (`convasist-core/src/fuse.rs`, unit-tested) and degrades to BM25-only until the model is ready. Pre-existing documents are backfilled automatically at startup.
+Phase 1 **hybrid retrieval** built: BGE-small embeddings via fastembed/ONNX (`src-tauri/src/embed.rs`, model auto-downloads on a startup warm thread) stored inline per chunk; retrieval fuses BM25 and cosine rankings with reciprocal-rank fusion (`conva-core/src/fuse.rs`, unit-tested) and degrades to BM25-only until the model is ready. Pre-existing documents are backfilled automatically at startup.
 
-Earlier: **M5b (commitment & entity tracker)** — a per-session worker (`src-tauri/src/tracker.rs`) batches finalized speech and runs fast-slot LLM extraction passes (≥5 new finals, or ≥2 after 45 s idle) — entities and commitments dedupe into a session-scoped state rendered in a collapsible right rail (who / what / due). Prompt + defensive JSON parsing live in `convasist-core/src/tracker.rs` (unit-tested); everything is best-effort and skips silently without a key. Toggle in Settings (`tracker_enabled`, default on). Remaining for Phase 1 polish: hybrid-retrieval embeddings, sidecar mode, AEC.
+Earlier: **M5b (commitment & entity tracker)** — a per-session worker (`src-tauri/src/tracker.rs`) batches finalized speech and runs fast-slot LLM extraction passes (≥5 new finals, or ≥2 after 45 s idle) — entities and commitments dedupe into a session-scoped state rendered in a collapsible right rail (who / what / due). Prompt + defensive JSON parsing live in `conva-core/src/tracker.rs` (unit-tested); everything is best-effort and skips silently without a key. Toggle in Settings (`tracker_enabled`, default on). Remaining for Phase 1 polish: hybrid-retrieval embeddings, sidecar mode, AEC.
 
-Earlier: **M5a (sessions + Question Radar + export)** — every live session persists its finalized segments to `<app-data>/sessions/<id>.jsonl`; the Sessions panel lists and reopens past transcripts and exports the shown transcript as Markdown via the native save dialog. The **Question Radar** (design §6.2) watches inbound finals — when the other party asks something the reference library can answer, the matching chunks appear instantly (zero LLM cost, `convasist-core/src/radar.rs` heuristic) with a one-click ✦ Elaborate. Remaining for M5b: commitment/entity tracker (§6.3), latency HUD, hybrid-retrieval embeddings.
+Earlier: **M5a (sessions + Question Radar + export)** — every live session persists its finalized segments to `<app-data>/sessions/<id>.jsonl`; the Sessions panel lists and reopens past transcripts and exports the shown transcript as Markdown via the native save dialog. The **Question Radar** (design §6.2) watches inbound finals — when the other party asks something the reference library can answer, the matching chunks appear instantly (zero LLM cost, `conva-core/src/radar.rs` heuristic) with a one-click ✦ Elaborate. Remaining for M5b: commitment/entity tracker (§6.3), latency HUD, hybrid-retrieval embeddings.
 
-Earlier: **M4 (RAG engine)** — drag-drop / file-picker document ingestion (PDF, DOCX, MD, TXT, HTML) → structure-aware chunking with heading breadcrumbs (`convasist-core/src/chunk.rs`) → persistent per-document store under app-data with BM25 retrieval (`convasist-core/src/bm25.rs`, `src-tauri/src/rag.rs`) wired into every assist: top-8 chunks ground the prompt and each answer card shows its sources (R5 "peek"). The Library panel manages documents (enable/disable toggle, delete). The vector/embedding half of hybrid retrieval (fastembed + ANN + reciprocal-rank fusion) is the next layer behind the same `RagStore` seam.
+Earlier: **M4 (RAG engine)** — drag-drop / file-picker document ingestion (PDF, DOCX, MD, TXT, HTML) → structure-aware chunking with heading breadcrumbs (`conva-core/src/chunk.rs`) → persistent per-document store under app-data with BM25 retrieval (`conva-core/src/bm25.rs`, `src-tauri/src/rag.rs`) wired into every assist: top-8 chunks ground the prompt and each answer card shows its sources (R5 "peek"). The Library panel manages documents (enable/disable toggle, delete). The vector/embedding half of hybrid retrieval (fastembed + ANN + reciprocal-rank fusion) is the next layer behind the same `RagStore` seam.
 
-Earlier: **M3 (manual AI assist)** — the assist dock's Suggest reply (`Ctrl+Space`) / Summarize / free-form question actions build a budgeted context from the finalized transcript (`convasist-core/src/prompt.rs`, unit-tested) and stream the answer as cards via `ASSIST_CHUNK` events. Provider clients (`src-tauri/src/llm.rs`): Anthropic native (default), an OpenAI-compatible adapter (OpenAI / xAI / DeepSeek / local Ollama), and Gemini — all SSE-normalized; keys live in the OS credential vault (`keyring`), with per-provider Save/Test (measured first-token latency) and live model lists merged into the §4.6 dropdowns.
+Earlier: **M3 (manual AI assist)** — the assist dock's Suggest reply (`Ctrl+Space`) / Summarize / free-form question actions build a budgeted context from the finalized transcript (`conva-core/src/prompt.rs`, unit-tested) and stream the answer as cards via `ASSIST_CHUNK` events. Provider clients (`src-tauri/src/llm.rs`): Anthropic native (default), an OpenAI-compatible adapter (OpenAI / xAI / DeepSeek / local Ollama), and Gemini — all SSE-normalized; keys live in the OS credential vault (`keyring`), with per-provider Save/Test (measured first-token latency) and live model lists merged into the §4.6 dropdowns.
 
-Earlier: **M2 (streaming transcription)** — each side's 16 kHz frames flow through an energy-VAD utterance segmenter (`convasist-core/src/vad.rs`, unit-tested) into a per-side whisper.cpp engine (`src-tauri/src/asr.rs`) sharing one loaded model. Partials re-decode the open utterance every ~1.2 s (greedy) and stream to the UI as replaceable segments; silence-close finalizes with a small beam. The ggml model auto-downloads on first start with progress events (`src-tauri/src/models.rs`). M1 delivered the dual capture (cpal/WASAPI loopback, VU meters, watchdog, hot-swap, consent gate); M0 the workspace + typed IPC contract (`crates/convasist-core/src/ipc.rs` mirrored by `src/lib/ipc.ts` — change both in the same commit) + provider registry with Claude default.
+Earlier: **M2 (streaming transcription)** — each side's 16 kHz frames flow through an energy-VAD utterance segmenter (`conva-core/src/vad.rs`, unit-tested) into a per-side whisper.cpp engine (`src-tauri/src/asr.rs`) sharing one loaded model. Partials re-decode the open utterance every ~1.2 s (greedy) and stream to the UI as replaceable segments; silence-close finalizes with a small beam. The ggml model auto-downloads on first start with progress events (`src-tauri/src/models.rs`). M1 delivered the dual capture (cpal/WASAPI loopback, VU meters, watchdog, hot-swap, consent gate); M0 the workspace + typed IPC contract (`crates/conva-core/src/ipc.rs` mirrored by `src/lib/ipc.ts` — change both in the same commit) + provider registry with Claude default.
 
 Real capture + transcription require Windows (loopback is WASAPI-only) — pending hands-on validation there. Next: **M5 — Phase 1 enhancements + polish** (Question Radar, commitment tracker, latency HUD, export — design §6/§8), plus the embedding upgrade to hybrid retrieval.

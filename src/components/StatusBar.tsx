@@ -70,7 +70,7 @@ export function StatusBar({
           {listening ? "REC" : "IDLE"}
         </span>
       </span>
-      <h1 className="text-sm font-semibold tracking-tight">convasist</h1>
+      <h1 className="text-sm font-semibold tracking-tight">conva</h1>
       {conversationTitle && (
         <span className="max-w-[16rem] truncate rounded-full border border-ai/40 px-2 py-0.5 text-[11px] text-ai">
           {conversationTitle}

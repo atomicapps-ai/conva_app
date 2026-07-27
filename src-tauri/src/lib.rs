@@ -1,4 +1,4 @@
-//! convasist Tauri shell — wires the UI to the core layers.
+//! conva Tauri shell — wires the UI to the core layers.
 //!
 //! M3 state: dual capture (mic + WASAPI loopback) → per-side whisper.cpp
 //! transcription → manual AI assist streaming through the provider
@@ -26,15 +26,15 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use std::sync::Arc;
 
-use convasist_core::asr::TranscriptSegment;
-use convasist_core::audio::AudioDevice;
-use convasist_core::config::AppConfig;
-use convasist_core::ipc::{
+use conva_core::asr::TranscriptSegment;
+use conva_core::audio::AudioDevice;
+use conva_core::config::AppConfig;
+use conva_core::ipc::{
     events, AssistChunkEvent, AssistSource, AssistSourcesEvent, SessionStateEvent,
 };
-use convasist_core::llm::{provider_registry, ModelInfo, ProviderId, ProviderInfo};
-use convasist_core::prompt::{build_assist_request, AssistKind};
-use convasist_core::rag::{IngestReport, RagDocument};
+use conva_core::llm::{provider_registry, ModelInfo, ProviderId, ProviderInfo};
+use conva_core::prompt::{build_assist_request, AssistKind};
+use conva_core::rag::{IngestReport, RagDocument};
 
 use rag::RagStore;
 use session::SessionManager;
@@ -58,13 +58,13 @@ fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 /// runs the app with cwd = `src-tauri/`, so the repo root is one level up.
 fn repo_config_candidates() -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
-    if let Ok(p) = std::env::var("CONVASIST_CONFIG_FILE") {
+    if let Ok(p) = std::env::var("CONVA_CONFIG_FILE") {
         if !p.trim().is_empty() {
             out.push(std::path::PathBuf::from(p));
         }
     }
-    out.push(std::path::PathBuf::from("convasist.config.json"));
-    out.push(std::path::PathBuf::from("../convasist.config.json"));
+    out.push(std::path::PathBuf::from("conva.config.json"));
+    out.push(std::path::PathBuf::from("../conva.config.json"));
     out
 }
 
@@ -81,7 +81,7 @@ fn load_config(app: &AppHandle) -> AppConfig {
         if existing.whisper_model == "base.en" {
             let new_default = AppConfig::default().whisper_model;
             eprintln!(
-                "[convasist] migrating whisper model 'base.en' (stale default) -> '{new_default}'"
+                "[conva] migrating whisper model 'base.en' (stale default) -> '{new_default}'"
             );
             existing.whisper_model = new_default;
             let _ = persist_config(app, &existing);
@@ -95,7 +95,7 @@ fn load_config(app: &AppHandle) -> AppConfig {
             .ok()
             .and_then(|s| serde_json::from_str::<AppConfig>(&s).ok())
         {
-            eprintln!("[convasist] seeded config from {}", candidate.display());
+            eprintln!("[conva] seeded config from {}", candidate.display());
             let _ = persist_config(app, &config);
             return config;
         }
@@ -104,7 +104,7 @@ fn load_config(app: &AppHandle) -> AppConfig {
 }
 
 /// Write the current config as pretty JSON to `path` — meant for committing
-/// `convasist.config.json` to the repo as the cross-machine defaults.
+/// `conva.config.json` to the repo as the cross-machine defaults.
 #[tauri::command]
 fn export_config(state: State<AppState>, path: String) -> Result<(), String> {
     let config = state.config.lock().expect("config lock").clone();
@@ -207,8 +207,8 @@ fn session_load(app: AppHandle, id: String) -> Result<Vec<TranscriptSegment>, St
 /// obtains `path` from the native save dialog.
 #[tauri::command]
 fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(), String> {
-    use convasist_core::audio::StreamSide;
-    let mut out = String::from("# convasist transcript\n\n");
+    use conva_core::audio::StreamSide;
+    let mut out = String::from("# conva transcript\n\n");
     for s in segments.iter().filter(|s| s.is_final) {
         let speaker = match s.side {
             StreamSide::Inbound => "Them",
@@ -275,7 +275,7 @@ fn provider_key_status() -> Vec<ProviderKeyStatus> {
 
 fn resolve_key(provider: ProviderId) -> Result<String, String> {
     llm::resolve_key(provider).map_err(|e| match e {
-        convasist_core::CoreError::Llm(msg) if msg == "api_key_missing" => msg,
+        conva_core::CoreError::Llm(msg) if msg == "api_key_missing" => msg,
         other => other.to_string(),
     })
 }
@@ -679,5 +679,5 @@ pub fn run() {
             rag_sync_library,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running convasist");
+        .expect("error while running conva");
 }

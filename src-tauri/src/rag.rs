@@ -19,10 +19,10 @@ use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
-use convasist_core::bm25::Bm25Index;
-use convasist_core::chunk::chunk_text;
-use convasist_core::rag::{IngestReport, RagDocument, ScoredChunk};
-use convasist_core::CoreError;
+use conva_core::bm25::Bm25Index;
+use conva_core::chunk::chunk_text;
+use conva_core::rag::{IngestReport, RagDocument, ScoredChunk};
+use conva_core::CoreError;
 
 #[derive(Serialize, Deserialize)]
 struct StoredDocument {
@@ -73,10 +73,10 @@ const SUPPORTED_EXTS: [&str; 7] = ["pdf", "docx", "md", "markdown", "txt", "html
 /// Candidate locations of the repo-committed `library/` folder (git-synced
 /// library, owner request: add a document once and it travels to other
 /// machines via git). `tauri dev` runs with cwd = `src-tauri/`, so the repo
-/// root is one level up — same convention as `convasist.config.json`.
+/// root is one level up — same convention as `conva.config.json`.
 pub fn repo_library_candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
-    if let Ok(p) = std::env::var("CONVASIST_LIBRARY_DIR") {
+    if let Ok(p) = std::env::var("CONVA_LIBRARY_DIR") {
         if !p.trim().is_empty() {
             out.push(PathBuf::from(p));
         }
@@ -89,13 +89,13 @@ pub fn repo_library_candidates() -> Vec<PathBuf> {
 /// Where to CREATE the repo library folder: next to the repo-committed
 /// config file, so it lands in the git checkout, not some arbitrary cwd.
 fn repo_library_create_dir() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("CONVASIST_LIBRARY_DIR") {
+    if let Ok(p) = std::env::var("CONVA_LIBRARY_DIR") {
         if !p.trim().is_empty() {
             return Some(PathBuf::from(p));
         }
     }
     for parent in [".", ".."] {
-        if Path::new(parent).join("convasist.config.json").exists() {
+        if Path::new(parent).join("conva.config.json").exists() {
             return Some(Path::new(parent).join("library"));
         }
     }
@@ -233,8 +233,8 @@ impl RagStore {
     pub fn sync_to_repo_library(&self) -> Result<(PathBuf, usize), CoreError> {
         let dir = repo_library_create_dir().ok_or_else(|| {
             CoreError::Rag(
-                "repo folder not found — run the app from the convasist checkout \
-                 (convasist.config.json must be present)"
+                "repo folder not found — run the app from the conva checkout \
+                 (conva.config.json must be present)"
                     .into(),
             )
         })?;
@@ -450,7 +450,7 @@ impl RagStore {
             .collect();
 
         let semantic: Option<Vec<usize>> = crate::embed::embed_query(query).map(|qvec| {
-            convasist_core::fuse::top_k_cosine(
+            conva_core::fuse::top_k_cosine(
                 &qvec,
                 inner.entries.iter().enumerate().filter_map(|(i, entry)| {
                     let doc = inner.documents.get(entry.document_index)?;
@@ -466,9 +466,9 @@ impl RagStore {
 
         let fused: Vec<(usize, f32)> = match semantic {
             Some(semantic) if !semantic.is_empty() => {
-                convasist_core::fuse::rrf_fuse(&[lexical, semantic], k)
+                conva_core::fuse::rrf_fuse(&[lexical, semantic], k)
             }
-            _ => convasist_core::fuse::rrf_fuse(&[lexical], k),
+            _ => conva_core::fuse::rrf_fuse(&[lexical], k),
         };
 
         fused
@@ -686,7 +686,7 @@ mod tests {
         // Build a minimal real .docx (a zip whose word/document.xml carries
         // <w:p> paragraphs of <w:t> runs) and prove we recover the text —
         // this is exactly the shape a resume exported from Word produces.
-        let dir = std::env::temp_dir().join(format!("convasist-docx-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("conva-docx-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("resume.docx");
@@ -718,7 +718,7 @@ mod tests {
 
     #[test]
     fn ingest_text_stores_pasted_note_as_txt() {
-        let dir = std::env::temp_dir().join(format!("convasist-paste-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("conva-paste-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -744,7 +744,7 @@ mod tests {
 
     #[test]
     fn retains_and_exports_original_bytes() {
-        let dir = std::env::temp_dir().join(format!("convasist-orig-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("conva-orig-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -792,7 +792,7 @@ mod tests {
 
     #[test]
     fn store_roundtrip_ingest_list_retrieve_delete() {
-        let dir = std::env::temp_dir().join(format!("convasist-rag-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("conva-rag-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 

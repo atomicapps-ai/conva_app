@@ -12,8 +12,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use convasist_core::llm::{LlmRequest, ModelInfo, ProviderId};
-use convasist_core::CoreError;
+use conva_core::llm::{LlmRequest, ModelInfo, ProviderId};
+use conva_core::CoreError;
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -241,7 +241,7 @@ fn gemini_stream(
 
 // -------------------------------------------------------------- key vault
 
-const KEYRING_SERVICE: &str = "convasist";
+const KEYRING_SERVICE: &str = "conva";
 
 fn keyring_entry(provider: ProviderId) -> Result<keyring::Entry, CoreError> {
     let user = format!(
@@ -279,7 +279,7 @@ pub fn load_api_key(provider: ProviderId) -> Result<Option<String>, CoreError> {
 /// Resolve the key a request must use: the stored key, an empty string for
 /// keyless local providers, or `api_key_missing`.
 pub fn resolve_key(provider: ProviderId) -> Result<String, CoreError> {
-    let requires_key = convasist_core::llm::provider_registry()
+    let requires_key = conva_core::llm::provider_registry()
         .into_iter()
         .find(|p| p.id == provider)
         .map(|p| p.requires_api_key)

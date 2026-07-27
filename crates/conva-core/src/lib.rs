@@ -1,4 +1,4 @@
-//! convasist-core — shell-agnostic domain layer.
+//! conva-core — shell-agnostic domain layer.
 //!
 //! Everything in this crate is pure logic: types, traits, and the IPC
 //! contract. It has no Tauri, GUI, or OS-audio dependency, so it builds and

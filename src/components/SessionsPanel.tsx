@@ -38,7 +38,7 @@ export function SessionsPanel({ onClose }: { onClose: () => void }) {
     try {
       const { save } = await import("@tauri-apps/plugin-dialog");
       const path = await save({
-        defaultPath: "convasist-transcript.md",
+        defaultPath: "conva-transcript.md",
         filters: [{ name: "Markdown", extensions: ["md"] }],
       });
       if (!path) return;

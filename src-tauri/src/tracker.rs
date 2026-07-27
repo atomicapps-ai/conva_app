@@ -14,10 +14,10 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter};
 
-use convasist_core::asr::TranscriptSegment;
-use convasist_core::ipc::{events, TrackerEvent};
-use convasist_core::llm::ModelSelection;
-use convasist_core::tracker::{
+use conva_core::asr::TranscriptSegment;
+use conva_core::ipc::{events, TrackerEvent};
+use conva_core::llm::ModelSelection;
+use conva_core::tracker::{
     build_tracker_request, parse_tracker_reply, TrackedCommitment, TrackedEntity,
 };
 
@@ -55,7 +55,7 @@ impl TrackerState {
         }
     }
 
-    fn merge(&mut self, extraction: convasist_core::tracker::TrackerExtraction) -> bool {
+    fn merge(&mut self, extraction: conva_core::tracker::TrackerExtraction) -> bool {
         let mut changed = false;
         for entity in extraction.entities {
             let key = format!("e:{}", entity.label.trim().to_lowercase());

@@ -22,11 +22,9 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::FromSample;
 use rtrb::{Consumer, Producer, RingBuffer};
 
-use convasist_core::audio::{
-    AudioDevice, AudioFrame, AudioSource, StreamSide, TARGET_SAMPLE_RATE_HZ,
-};
-use convasist_core::dsp::{downmix_interleaved_to_mono, LinearResampler};
-use convasist_core::CoreError;
+use conva_core::audio::{AudioDevice, AudioFrame, AudioSource, StreamSide, TARGET_SAMPLE_RATE_HZ};
+use conva_core::dsp::{downmix_interleaved_to_mono, LinearResampler};
+use conva_core::CoreError;
 
 const DRAIN_INTERVAL: Duration = Duration::from_millis(50);
 const REOPEN_RETRY: Duration = Duration::from_millis(1000);

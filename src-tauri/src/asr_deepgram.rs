@@ -25,11 +25,11 @@ use tungstenite::client::IntoClientRequest;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 
-use convasist_core::asr::TranscriptSegment;
-use convasist_core::audio::{AudioFrame, StreamSide, TARGET_SAMPLE_RATE_HZ};
-use convasist_core::CoreError;
+use conva_core::asr::TranscriptSegment;
+use conva_core::audio::{AudioFrame, StreamSide, TARGET_SAMPLE_RATE_HZ};
+use conva_core::CoreError;
 
-const KEYRING_SERVICE: &str = "convasist";
+const KEYRING_SERVICE: &str = "conva";
 const KEYRING_USER: &str = "api-key-deepgram";
 
 /// Live-streaming endpoint tuned for conversation: interim results on,

@@ -6,8 +6,8 @@
 <plist version="1.0">
   <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>convasist transcribes your side of the conversation from the microphone.</string>
+    <string>conva transcribes your side of the conversation from the microphone.</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>convasist transcribes the other side of the conversation from system audio.</string>
+    <string>conva transcribes the other side of the conversation from system audio.</string>
   </dict>
 </plist>

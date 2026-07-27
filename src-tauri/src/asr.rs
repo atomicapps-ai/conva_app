@@ -19,10 +19,10 @@ use std::time::Instant;
 
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use convasist_core::asr::{AsrEngineId, TranscriptSegment, TranscriptionEngine};
-use convasist_core::audio::{AudioFrame, StreamSide, TARGET_SAMPLE_RATE_HZ};
-use convasist_core::vad::{SegmentEvent, SegmenterConfig, UtteranceSegmenter};
-use convasist_core::CoreError;
+use conva_core::asr::{AsrEngineId, TranscriptSegment, TranscriptionEngine};
+use conva_core::audio::{AudioFrame, StreamSide, TARGET_SAMPLE_RATE_HZ};
+use conva_core::vad::{SegmentEvent, SegmenterConfig, UtteranceSegmenter};
+use conva_core::CoreError;
 
 /// Loaded model shared by both per-side engines.
 pub struct SharedWhisper {

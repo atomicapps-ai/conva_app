@@ -20,8 +20,8 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use convasist_core::audio::{StreamSide, TARGET_SAMPLE_RATE_HZ};
-use convasist_core::CoreError;
+use conva_core::audio::{StreamSide, TARGET_SAMPLE_RATE_HZ};
+use conva_core::CoreError;
 
 const FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn records_stereo_wav_with_both_channels() {
-        let dir = std::env::temp_dir().join(format!("convasist-rec-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("conva-rec-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("call.wav");
