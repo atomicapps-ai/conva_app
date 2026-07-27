@@ -80,6 +80,39 @@ means the feature did NOT apply). On success the log prints
 device it picked. If no usable GPU exists at runtime it silently falls back
 to CPU — the flag is safe to use everywhere.
 
+## Release installers (any PC / Mac)
+
+Installers are built by CI — no toolchain needed on the target machine:
+
+1. Tag a version and push it:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+2. The **Release** workflow (`.github/workflows/release.yml`) builds on
+   GitHub's Windows and macOS runners and attaches everything to a **draft
+   GitHub Release**: Windows `.msi` + `.exe` installers (GPU/Vulkan whisper —
+   falls back to CPU at runtime on machines without a usable GPU) and a macOS
+   `.dmg` (GPU/Metal whisper, Apple Silicon). Review the draft under the
+   repo's Releases page and publish it.
+3. Install on any Windows 10/11 PC by running the installer (WebView2
+   auto-installs on Win10). Models download on first launch.
+
+Not yet wired: code signing. Windows shows a SmartScreen "unrecognized app"
+prompt (More info → Run anyway); macOS needs right-click → Open the first
+time. An updater and signing/notarization are the next packaging steps.
+
+Local release build (needs the full dev toolchain + Vulkan SDK):
+`npm run tauri:build:gpu` — bundles land in `target/release/bundle/`.
+
+macOS notes: whisper uses the Metal backend (`--features gpu-metal`); API
+keys live in the macOS Keychain; the mic permission prompt comes from
+`src-tauri/Info.plist`. System-audio ("them") capture on macOS needs a
+loopback device such as BlackHole for now — pick it as the system-audio
+device in Settings.
+
 ## Checks
 
 | What | Command |

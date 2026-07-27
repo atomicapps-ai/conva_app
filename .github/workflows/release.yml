@@ -1,0 +1,85 @@
+name: Release
+
+# Tag a version to ship installers:
+#   git tag v0.1.0 && git push origin v0.1.0
+# Builds the Windows installers (MSI + NSIS, GPU/Vulkan whisper) and the
+# macOS app/dmg (Metal whisper, Apple Silicon), and attaches everything to a
+# DRAFT GitHub Release for the owner to review and publish.
+#
+# Code signing is not wired yet: Windows installs show a SmartScreen
+# "unrecognized app" prompt, and macOS users must right-click → Open the
+# first time (unsigned/un-notarized build).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            name: Windows (GPU / Vulkan)
+            args: --features gpu-vulkan
+          - platform: macos-latest # Apple Silicon runner
+            name: macOS (GPU / Metal)
+            args: --features gpu-metal
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # whisper.cpp's Vulkan backend needs the SDK (glslc + headers) at
+      # BUILD time only; end users just need a normal graphics driver.
+      - name: Install Vulkan SDK (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ver = "1.4.313.2"
+          $url = "https://sdk.lunarg.com/sdk/download/$ver/windows/VulkanSDK-$ver-Installer.exe"
+          curl.exe --retry 3 -L -o "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" $url
+          Start-Process -FilePath "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" `
+            -ArgumentList "--accept-licenses","--default-answer","--confirm-command","install" -Wait
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$ver"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$ver\Bin"
+
+      - run: npm ci
+
+      - name: Build and attach installers to a draft release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: ${{ github.ref_type == 'tag' && format('convasist {0}', github.ref_name) || '' }}
+          releaseDraft: true
+          args: ${{ matrix.args }}
+
+      # workflow_dispatch runs (no tag) still produce inspectable bundles.
+      - name: Upload bundles as workflow artifacts
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.platform }}
+          path: |
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/macos/*.app/**
+          if-no-files-found: warn

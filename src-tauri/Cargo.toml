@@ -40,8 +40,13 @@ log = "0.4"
 # client — always driven from dedicated threads, never the UI or audio path.
 ureq = { version = "2", features = ["json"] }
 # API keys live in the OS credential vault (design §4.6) — Windows
-# Credential Manager on the Phase 1 target.
-keyring = { version = "3", features = ["windows-native", "linux-native"] }
+# Credential Manager on the Phase 1 target, macOS Keychain, Secret Service
+# on Linux.
+keyring = { version = "3", features = [
+    "windows-native",
+    "linux-native",
+    "apple-native",
+] }
 # Portable encrypted-secrets file (owner request): keys/values encrypted with
 # a passphrase (from an env var) so the file is safe to commit to git and
 # travels to another machine. cocoon = PBKDF2 + ChaCha20-Poly1305, salt+nonce
@@ -70,6 +75,8 @@ tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 # binary still falls back to CPU at runtime if no usable GPU is found.
 #   npm run tauri dev -- --features gpu-vulkan
 # Vulkan works on NVIDIA, AMD, and Intel GPUs; prefer it unless you
-# specifically want CUDA on NVIDIA.
+# specifically want CUDA on NVIDIA. gpu-metal is the macOS backend (needs
+# only Xcode, present on any Mac build machine / CI runner).
 gpu-vulkan = ["whisper-rs/vulkan"]
 gpu-cuda = ["whisper-rs/cuda"]
+gpu-metal = ["whisper-rs/metal"]

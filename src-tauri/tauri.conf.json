@@ -25,13 +25,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis"],
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Real-time AI conversation assistant",
+    "longDescription": "convasist transcribes both sides of a call live and grounds AI answers in your reference library — all on your machine.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
   }
 }

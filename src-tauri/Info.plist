@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the macOS bundle's Info.plist by Tauri. macOS refuses
+     microphone access (and crashes the requesting API) unless the app
+     declares why it needs it. -->
+<plist version="1.0">
+  <dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>convasist transcribes your side of the conversation from the microphone.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>convasist transcribes the other side of the conversation from system audio.</string>
+  </dict>
+</plist>

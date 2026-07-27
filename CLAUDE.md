@@ -107,6 +107,11 @@ CI (`.github/workflows/ci.yml`) runs core lint+test on ubuntu, UI typecheck+buil
 on ubuntu, and the shell clippy `-D warnings` on windows-latest. Clippy runs with
 `-D warnings` — keep it clean.
 
+Releases: pushing a `v*` tag runs `.github/workflows/release.yml`, which
+builds Windows MSI/NSIS installers (GPU/Vulkan) and a macOS dmg (GPU/Metal)
+on GitHub runners and drafts a GitHub Release — see README "Release
+installers". Signing/notarization and the auto-updater are not wired yet.
+
 ## Workflow
 
 - Develop on the assigned feature branch; don't commit to `main` locally.
