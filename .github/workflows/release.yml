@@ -51,13 +51,20 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          $ver = "1.4.313.2"
-          $url = "https://sdk.lunarg.com/sdk/download/$ver/windows/VulkanSDK-$ver-Installer.exe"
-          curl.exe --retry 3 -L -o "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" $url
-          Start-Process -FilePath "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" `
+          # LunarG's "latest" alias — pinned version URLs rot as releases
+          # cycle (a stale pin returns a tiny error body, not an installer).
+          $url = "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe"
+          $exe = "$env:RUNNER_TEMP\vulkan_sdk.exe"
+          curl.exe --retry 3 -L -o $exe $url
+          $size = (Get-Item $exe).Length
+          if ($size -lt 50MB) { throw "Vulkan SDK download looks wrong ($size bytes) — not an installer" }
+          Start-Process -FilePath $exe `
             -ArgumentList "--accept-licenses","--default-answer","--confirm-command","install" -Wait
-          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\$ver"
-          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\$ver\Bin"
+          $sdk = (Get-ChildItem "C:\VulkanSDK" -Directory | Sort-Object Name | Select-Object -Last 1).FullName
+          if (-not $sdk) { throw "Vulkan SDK install dir not found under C:\VulkanSDK" }
+          Write-Host "Vulkan SDK at $sdk"
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=$sdk"
+          Add-Content $env:GITHUB_PATH "$sdk\Bin"
 
       - run: npm ci
 
