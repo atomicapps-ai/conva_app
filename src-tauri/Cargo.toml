@@ -58,11 +58,6 @@ pdf-extract = "0.7"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # Native file-picker for the RAG library "Add documents" button.
 tauri-plugin-dialog = "2"
-# Auto-updater: installed copies check the GitHub Release feed and update
-# in place (signed with the Tauri updater keypair); process powers the
-# relaunch after an update installs.
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
 fastembed = "4"
 # Neural VAD (Silero v5) runs on the same ONNX runtime fastembed already
 # pulls in — pin the exact ort version so there's a single onnxruntime link.
@@ -73,6 +68,15 @@ hound = "3"
 # Deepgram cloud streaming STT (opt-in engine): sync WebSocket driven from a
 # dedicated thread per side, per the blocking-I/O-off-the-UI-path rule.
 tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+
+# Desktop-only dependencies (updater + process-restart have no mobile
+# equivalent — app stores own updates on iOS/Android). Cargo can't key on
+# Tauri's `desktop` cfg, so gate by OS: everything that isn't Android/iOS.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# Auto-updater: installed copies check the GitHub Release feed and update in
+# place (signed with the Tauri updater keypair); process powers the relaunch.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [features]
 # GPU acceleration for local whisper — opt-in because building them needs the

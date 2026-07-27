@@ -112,9 +112,23 @@ builds Windows MSI/NSIS installers (GPU/Vulkan) and a macOS dmg (GPU/Metal)
 on GitHub runners and drafts a GitHub Release — see README "Release
 installers". Signing/notarization and the auto-updater are not wired yet.
 
+## One codebase, desktop + mobile
+
+conva is a **single project for desktop and mobile**, not separate apps —
+treat every change as multi-platform. `crates/conva-core` is shared, pure,
+and must stay GUI/OS-free so it compiles for phones; platform-specific
+capability lives in `src-tauri` behind `#[cfg(desktop)]` / `#[cfg(mobile)]`
+gates (deps gated by OS in `Cargo.toml`). One `run()` in `src-tauri/src/lib.rs`
+(`#[cfg_attr(mobile, tauri::mobile_entry_point)]`) drives all platforms.
+Desktop is the product today; a light **mobile companion** is the first
+mobile target. Full conventions + how to add iOS/Android targets:
+[`docs/multiplatform.md`](docs/multiplatform.md).
+
 ## Workflow
 
 - Develop on the assigned feature branch; don't commit to `main` locally.
 - Commit/push only when the owner asks. Keep the IPC Rust↔TS mirror and the
   command wrappers in lockstep within a commit.
 - Prefer adding pure logic to core with a unit test over untested shell code.
+- New platform-specific feature? Gate it (`#[cfg(desktop)]`/`mobile`) and make
+  the UI degrade when a desktop-only command is absent — see multiplatform doc.
