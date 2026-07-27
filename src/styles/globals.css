@@ -1,36 +1,68 @@
 @import "tailwindcss";
 
 /*
- * Operator theme (design §5.3 direction a) — dark-first.
- * All colors live here as variables; components use the semantic aliases
- * below, never raw hex. Light mode ships later as a derived token block.
+ * conva design system — "intelligent instrument": refined, atmospheric,
+ * dark-first. Deep near-black with ambient depth, glass surfaces with
+ * hairline highlights, and a signature cyan→violet "conversation" gradient
+ * (the two voices — them + you — meeting).
+ *
+ * Components consume the semantic aliases (bg-bg, bg-panel, text-fg,
+ * text-ai, …) and the utility classes below (.glass, .brand-gradient,
+ * .elevated, …). Never raw hex in components.
  */
 :root {
-  /* Base surfaces */
-  --color-bg: #0b1220;
-  --color-panel: #111a2b;
-  --color-panel-raised: #16213505;
-  --color-border: #1e293b;
+  /* Base surfaces — layered near-blacks with a cool undertone for depth */
+  --color-bg: #070a12;
+  --color-bg-2: #0b0f1c;
+  --color-panel: #10162a;
+  --color-panel-raised: #161e38;
+  --color-border: #232c47;
+  --color-border-strong: #33406a;
 
   /* Text */
-  --color-fg: #e2e8f0;
-  --color-fg-muted: #94a3b8;
-  --color-fg-faint: #64748b;
+  --color-fg: #eef2fb;
+  --color-fg-muted: #9aa6c6;
+  --color-fg-faint: #5d6b8f;
 
-  /* Per-stream accents — these do the spatial work (§5.1 principle 2) */
-  --color-inbound: #22d3ee; /* cyan — THEM (system audio) */
+  /* Per-stream accents — these do the spatial work (them vs. you) */
+  --color-inbound: #2fe0e6; /* cyan — THEM (system audio) */
   --color-outbound: #a78bfa; /* violet — YOU (microphone) */
-  --color-ai: #f59e0b; /* amber — AI assist */
+  --color-ai: #f7b64b; /* amber — AI assist */
 
   /* State */
-  --color-rec: #ef4444;
-  --color-ok: #34d399;
+  --color-rec: #ff5468;
+  --color-ok: #34d6a2;
+
+  /* Brand signature: the two voices meeting */
+  --brand-from: var(--color-inbound);
+  --brand-to: var(--color-outbound);
+
+  /* Elevation — soft, layered, cool-tinted shadows */
+  --shadow-sm: 0 1px 2px rgba(2, 4, 10, 0.4);
+  --shadow-md: 0 6px 20px -6px rgba(2, 4, 10, 0.55);
+  --shadow-lg: 0 24px 60px -18px rgba(2, 4, 10, 0.7);
+  --shadow-glow: 0 0 0 1px rgba(120, 190, 255, 0.06),
+    0 20px 50px -20px rgba(47, 224, 230, 0.14);
+
+  /* Radii — generous, modern rounding */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 26px;
+
+  /* Motion — quick, springy, never bouncy */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
+  --dur: 200ms;
 }
 
 @theme inline {
   --color-bg: var(--color-bg);
+  --color-bg-2: var(--color-bg-2);
   --color-panel: var(--color-panel);
+  --color-panel-raised: var(--color-panel-raised);
   --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
   --color-fg: var(--color-fg);
   --color-fg-muted: var(--color-fg-muted);
   --color-fg-faint: var(--color-fg-faint);
@@ -40,8 +72,19 @@
   --color-rec: var(--color-rec);
   --color-ok: var(--color-ok);
 
-  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, monospace;
+  --radius-sm: var(--radius-sm);
+  --radius-DEFAULT: var(--radius);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+
+  /* Distinctive, offline-safe type stack (no Inter/Roboto/CDN — CSP-locked,
+     local-first). Segoe UI Variable is genuinely refined on the Win target;
+     graceful fallbacks elsewhere. A bundled display face is a later polish. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text",
+    system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "SF Pro Display", "Segoe UI",
+    system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
 }
 
 html,
@@ -54,20 +97,187 @@ body {
   background: var(--color-bg);
   color: var(--color-fg);
   font-family: var(--font-sans);
+  font-feature-settings: "cv01", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   overflow: hidden;
 }
 
-/* Partial transcript segments render at reduced opacity and "settle" when
-   finalized (§5.1 principle 3). Reduced-motion users get no transition. */
+/* Ambient atmosphere: two faint brand-colored glows bleeding in from the
+   corners, fixed behind everything. This is what makes flat surfaces read
+   as depth rather than a solid fill. */
+#root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      60rem 40rem at 12% -8%,
+      color-mix(in oklab, var(--color-inbound) 12%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      55rem 38rem at 92% 108%,
+      color-mix(in oklab, var(--color-outbound) 12%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(180deg, var(--color-bg), var(--color-bg-2));
+}
+#root > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------------------------------------------------------------- utilities */
+@layer utilities {
+  /* Glass surface: translucent panel + hairline top highlight + blur of
+     whatever sits behind it inside the app. The modern "smooth" look. */
+  .glass {
+    background: color-mix(in oklab, var(--color-panel) 78%, transparent);
+    backdrop-filter: blur(18px) saturate(1.4);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
+    border: 1px solid var(--color-border);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      var(--shadow-md);
+  }
+  .glass-raised {
+    background: color-mix(in oklab, var(--color-panel-raised) 82%, transparent);
+    backdrop-filter: blur(22px) saturate(1.5);
+    -webkit-backdrop-filter: blur(22px) saturate(1.5);
+    border: 1px solid var(--color-border-strong);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      var(--shadow-lg);
+  }
+
+  .elevated {
+    box-shadow: var(--shadow-md);
+  }
+  .elevated-lg {
+    box-shadow: var(--shadow-lg);
+  }
+  .glow {
+    box-shadow: var(--shadow-glow);
+  }
+
+  /* Brand signature gradient — the two voices meeting. */
+  .brand-gradient {
+    background: linear-gradient(
+      135deg,
+      var(--brand-from),
+      var(--brand-to)
+    );
+  }
+  .brand-text {
+    background: linear-gradient(120deg, var(--brand-from), var(--brand-to));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .brand-ring {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--color-panel), var(--color-panel)) padding-box,
+      linear-gradient(135deg, var(--brand-from), var(--brand-to)) border-box;
+  }
+
+  .hairline {
+    border: 1px solid var(--color-border);
+  }
+}
+
+/* --------------------------------------------------------------- primitives */
+
+/* Custom scrollbars — slim, unobtrusive, brand-tinted on hover. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-inbound);
+  background-clip: content-box;
+}
+
+/* Consistent, on-brand focus ring for keyboard users. */
+:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-inbound) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-outbound) 40%, transparent);
+  color: var(--color-fg);
+}
+
+/* Transcript "settle": partials render soft, snap to full on finalization. */
 .segment-partial {
-  opacity: 0.55;
+  opacity: 0.5;
 }
 .segment-final {
   opacity: 1;
-  transition: opacity 200ms ease-out;
+  transition: opacity var(--dur) var(--ease-out);
 }
+
+/* Shared entrance animations — one orchestrated reveal beats scattered ones. */
+@keyframes conva-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes conva-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes conva-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-rec) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.animate-rise {
+  animation: conva-rise var(--dur) var(--ease-out) both;
+}
+.animate-fade {
+  animation: conva-fade var(--dur) var(--ease-out) both;
+}
+.pulse-ring {
+  animation: conva-pulse-ring 2s var(--ease-out) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .segment-final {
+  .segment-final,
+  .animate-rise,
+  .animate-fade,
+  .pulse-ring {
     transition: none;
+    animation: none;
   }
 }
