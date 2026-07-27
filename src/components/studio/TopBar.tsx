@@ -1,20 +1,19 @@
 import { Core, coreStateFrom } from "@/components/ui/Core";
+import { Icon } from "@/components/ui/Icon";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 import { useConversationStore } from "@/state/conversation";
 import { useTranscriptStore } from "@/state/transcript";
 
-export function StatusBar({
-  onToggleSettings,
-  onToggleLibrary,
-  onToggleSessions,
-  onToggleConversations,
-}: {
-  onToggleSettings: () => void;
-  onToggleLibrary: () => void;
-  onToggleSessions: () => void;
-  onToggleConversations: () => void;
-}) {
+/**
+ * The Studio top bar (UI overhaul M2) — the curved instrument crown. Left lobe
+ * carries the sonar Core + state readout; the right lobe carries the primary
+ * Start/Stop control with Record + Sidecar. The former StatusBar's panel
+ * buttons moved to the NavRail, so this bar is now purely the live control
+ * surface. Its silhouette curves asymmetrically at the foot (a larger radius on
+ * the left) to echo the pod language.
+ */
+export function TopBar() {
   const session = useTranscriptStore((s) => s.session);
   const conversationTitle = useConversationStore((s) => s.title);
   const sidecar = useAppStore((s) => s.sidecar);
@@ -66,9 +65,9 @@ export function StatusBar({
         : "IDLE";
 
   return (
-    <header className="glass flex h-11 shrink-0 items-center gap-3 px-4">
+    <header className="glass flex h-14 shrink-0 items-center gap-3 rounded-bl-[26px] rounded-br-[14px] border-t-0 px-4">
       <span className="flex items-center gap-2 font-mono text-[11px] tracking-widest">
-        <Core state={coreState} size={20} />
+        <Core state={coreState} size={26} />
         <span
           className={
             recording
@@ -81,7 +80,9 @@ export function StatusBar({
           {coreLabel}
         </span>
       </span>
-      <h1 className="font-display text-sm font-semibold tracking-tight">conva</h1>
+      <h1 className="font-display text-sm font-semibold tracking-tight">
+        conva
+      </h1>
       {conversationTitle && (
         <span className="max-w-[16rem] truncate rounded-full border border-ai/40 px-2 py-0.5 text-[11px] text-ai">
           {conversationTitle}
@@ -89,7 +90,7 @@ export function StatusBar({
       )}
 
       <span
-        className={`ml-auto max-w-[50%] truncate text-xs ${isError ? "text-rec" : "text-fg-muted"}`}
+        className={`ml-auto max-w-[40%] truncate text-xs ${isError ? "text-rec" : "text-fg-muted"}`}
         role="status"
         aria-live="polite"
       >
@@ -97,20 +98,7 @@ export function StatusBar({
       </span>
 
       {isTauri() && (
-        <>
-          <button
-            type="button"
-            disabled={busy || preparing}
-            onClick={() => void (listening ? stop() : start())}
-            className={[
-              "rounded-md px-3 py-1 text-xs font-semibold disabled:opacity-50",
-              listening
-                ? "border border-rec/50 text-rec hover:bg-rec/10"
-                : "bg-ok/90 text-bg hover:bg-ok",
-            ].join(" ")}
-          >
-            {listening ? "Stop" : preparing ? "Preparing…" : "Start listening"}
-          </button>
+        <div className="flex items-center gap-2">
           {listening && (
             <button
               type="button"
@@ -119,7 +107,9 @@ export function StatusBar({
               }
               aria-pressed={recording}
               aria-label={
-                recording ? "Stop recording the call" : "Record the call to a stereo audio file"
+                recording
+                  ? "Stop recording the call"
+                  : "Record the call to a stereo audio file"
               }
               title={
                 recording
@@ -127,7 +117,7 @@ export function StatusBar({
                   : "Record the call (stereo WAV: you left, them right)"
               }
               className={[
-                "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs",
+                "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition",
                 recording
                   ? "border-rec/60 text-rec hover:bg-rec/10"
                   : "border-border text-fg-muted hover:text-fg",
@@ -144,52 +134,38 @@ export function StatusBar({
               {recording ? "Stop recording" : "Record"}
             </button>
           )}
+
           <button
             type="button"
             onClick={() => void toggleSidecar()}
             aria-pressed={sidecar}
             aria-label="Toggle sidecar mode (narrow always-on-top)"
-            className={`rounded-md border px-2 py-1 text-xs ${
+            title="Sidecar — narrow always-on-top strip beside a call window"
+            className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition ${
               sidecar
                 ? "border-ai/50 text-ai"
                 : "border-border text-fg-muted hover:text-fg"
             }`}
           >
+            <Icon name="sidecar" size={15} />
             Sidecar
           </button>
+
+          {/* Primary control — the Start/Stop instrument switch. */}
           <button
             type="button"
-            onClick={onToggleConversations}
-            aria-label="Open or save a conversation"
-            className="rounded-md border border-border px-2 py-1 text-xs text-fg-muted hover:text-fg"
+            disabled={busy || preparing}
+            onClick={() => void (listening ? stop() : start())}
+            className={[
+              "rounded-full px-4 py-1.5 text-xs font-semibold transition disabled:opacity-50",
+              listening
+                ? "border border-rec/50 text-rec hover:bg-rec/10"
+                : "iris-gradient glow text-bg hover:brightness-110",
+            ].join(" ")}
           >
-            Conversations
+            {listening ? "Stop" : preparing ? "Preparing…" : "Start listening"}
           </button>
-          <button
-            type="button"
-            onClick={onToggleSessions}
-            aria-label="Past sessions and export"
-            className="rounded-md border border-border px-2 py-1 text-xs text-fg-muted hover:text-fg"
-          >
-            Sessions
-          </button>
-          <button
-            type="button"
-            onClick={onToggleLibrary}
-            aria-label="Reference document library"
-            className="rounded-md border border-border px-2 py-1 text-xs text-fg-muted hover:text-fg"
-          >
-            Library
-          </button>
-          <button
-            type="button"
-            onClick={onToggleSettings}
-            aria-label="Devices and AI settings"
-            className="rounded-md border border-border px-2 py-1 text-xs text-fg-muted hover:text-fg"
-          >
-            Settings
-          </button>
-        </>
+        </div>
       )}
     </header>
   );

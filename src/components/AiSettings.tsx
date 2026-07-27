@@ -55,10 +55,10 @@ function SlotEditor({
 
   return (
     <div className="flex min-w-0 flex-1 items-end gap-2">
-      <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-fg-muted">
+      <label className="field flex-1">
         {label} — provider
         <select
-          className="rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-fg"
+          className="select"
           value={value.provider}
           onChange={(e) => onProviderChange(e.target.value as ProviderId)}
         >
@@ -70,10 +70,10 @@ function SlotEditor({
           ))}
         </select>
       </label>
-      <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-fg-muted">
+      <label className="field flex-1">
         model
         <select
-          className="rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-fg"
+          className="select"
           value={value.model}
           onChange={(e) => onChange({ ...value, model: e.target.value })}
         >
@@ -133,8 +133,8 @@ export function AiSettings() {
   };
 
   return (
-    <div className="mt-3 border-t border-border pt-3">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-fg-muted">
+    <div>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">
         AI — answers &amp; suggestions
       </h3>
       <div className="flex flex-col gap-2">
@@ -176,7 +176,7 @@ export function AiSettings() {
         )}
 
         <div className="flex items-end gap-2">
-          <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-fg-muted">
+          <label className="field flex-1">
             {provider?.name ?? "Provider"} API key{" "}
             {provider?.requires_api_key === false
               ? "(not required)"
@@ -188,14 +188,14 @@ export function AiSettings() {
               value={keyInput}
               onChange={(e) => setKeyInput(e.target.value)}
               placeholder={hasKey ? "Replace stored key…" : "Paste API key…"}
-              className="rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-fg placeholder:text-fg-faint"
+              className="input"
             />
           </label>
           <button
             type="button"
             disabled={keyBusy || keyInput.trim() === ""}
             onClick={() => void saveKey()}
-            className="rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted hover:text-fg disabled:opacity-50"
+            className="btn shrink-0"
           >
             Save key
           </button>
@@ -203,7 +203,7 @@ export function AiSettings() {
             type="button"
             disabled={keyBusy || (!hasKey && provider?.requires_api_key !== false)}
             onClick={() => void runTest()}
-            className="rounded-md border border-ok/40 px-3 py-1.5 text-xs text-ok hover:bg-ok/10 disabled:opacity-50"
+            className="btn btn-ok shrink-0"
           >
             Test
           </button>

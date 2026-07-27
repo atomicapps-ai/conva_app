@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import { exportTranscript, sessionList, sessionLoad } from "@/lib/commands";
 import type { SessionSummary } from "@/lib/ipc";
 import { useTranscriptStore } from "@/state/transcript";
@@ -50,50 +51,48 @@ export function SessionsPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="border-b border-border bg-panel px-4 py-3">
-      <div className="flex items-center gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
-          Sessions
-        </h3>
-        {viewing && (
-          <span className="text-[11px] text-ai">viewing past session</span>
-        )}
-        <button
-          type="button"
-          disabled={segments.length === 0}
-          onClick={() => void exportCurrent()}
-          className="ml-auto rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted hover:text-fg disabled:opacity-50"
-        >
-          Export shown transcript…
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md border border-border px-3 py-1 text-xs text-fg-muted hover:text-fg"
-        >
-          Close
-        </button>
-      </div>
-
-      {notice && (
-        <p className="mt-2 text-[11px] text-fg-muted" role="status">
-          {notice}
-        </p>
-      )}
+    <ViewShell
+      icon="sessions"
+      title="Sessions"
+      subtitle="Every listening run is saved automatically — reopen or export a transcript."
+      badge={
+        viewing ? (
+          <span className="rounded-full border border-ai/40 px-2 py-0.5 text-[10px] text-ai">
+            viewing past session
+          </span>
+        ) : undefined
+      }
+      actions={
+        <>
+          <button
+            type="button"
+            disabled={segments.length === 0}
+            onClick={() => void exportCurrent()}
+            className="btn"
+          >
+            Export shown transcript…
+          </button>
+          <button type="button" onClick={onClose} className="btn">
+            Done
+          </button>
+        </>
+      }
+    >
+      {notice && <Notice>{notice}</Notice>}
 
       {sessions.length === 0 ? (
-        <p className="mt-3 text-xs text-fg-faint">
+        <div className="card grid place-items-center px-6 py-16 text-center text-xs text-fg-faint">
           No recorded sessions yet — transcripts are saved automatically while
           you listen.
-        </p>
+        </div>
       ) : (
-        <ul className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto">
+        <ul className="flex flex-col gap-1.5">
           {sessions.map((s) => (
             <li key={s.id}>
               <button
                 type="button"
                 onClick={() => void open(s.id)}
-                className="flex w-full items-center gap-3 rounded-md border border-border bg-bg px-3 py-1.5 text-left hover:border-fg-faint"
+                className="row w-full"
               >
                 <span className="font-mono text-[11px] text-fg-muted">
                   {formatDate(s.started_at_unix_ms)}
@@ -109,6 +108,6 @@ export function SessionsPanel({ onClose }: { onClose: () => void }) {
           ))}
         </ul>
       )}
-    </div>
+    </ViewShell>
   );
 }

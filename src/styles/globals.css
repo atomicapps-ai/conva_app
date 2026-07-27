@@ -206,6 +206,133 @@ body {
   }
 }
 
+/* --------------------------------------------------------------- components */
+/* Shared instrument controls so every view speaks one visual language:
+   pill buttons, hairline inputs, glass section cards. Consume the design
+   tokens directly (never raw hex). Utilities still win in the cascade. */
+@layer components {
+  /* Pill buttons — the default is a quiet hairline; variants add intent. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    padding: 0.35rem 0.85rem;
+    font-size: 0.75rem;
+    line-height: 1;
+    color: var(--color-fg-muted);
+    background: transparent;
+    transition:
+      color var(--dur) var(--ease-out),
+      border-color var(--dur) var(--ease-out),
+      background-color var(--dur) var(--ease-out),
+      filter var(--dur) var(--ease-out);
+  }
+  .btn:hover {
+    color: var(--color-fg);
+    border-color: var(--color-border-strong);
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  /* Primary action — the aurora iris; used sparingly (one per view). */
+  .btn-primary {
+    border-color: transparent;
+    color: var(--color-bg);
+    font-weight: 600;
+    background: var(--iris);
+    box-shadow: var(--shadow-glow);
+  }
+  .btn-primary:hover {
+    color: var(--color-bg);
+    border-color: transparent;
+    filter: brightness(1.1);
+  }
+  /* AI-accented action (gold) — save/confirm inside AI-flavored surfaces. */
+  .btn-accent {
+    border-color: color-mix(in oklab, var(--color-ai) 55%, transparent);
+    color: var(--color-ai);
+  }
+  .btn-accent:hover {
+    color: var(--color-ai);
+    border-color: var(--color-ai);
+    background: color-mix(in oklab, var(--color-ai) 12%, transparent);
+  }
+  /* Positive/test action (mint). */
+  .btn-ok {
+    border-color: color-mix(in oklab, var(--color-ok) 45%, transparent);
+    color: var(--color-ok);
+  }
+  .btn-ok:hover {
+    color: var(--color-ok);
+    border-color: var(--color-ok);
+    background: color-mix(in oklab, var(--color-ok) 12%, transparent);
+  }
+  /* Text-only danger affordance (delete links in list rows). */
+  .btn-danger {
+    color: var(--color-fg-faint);
+  }
+  .btn-danger:hover {
+    color: var(--color-rec);
+  }
+
+  /* Hairline form controls. */
+  .input,
+  .select {
+    width: 100%;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: color-mix(in oklab, var(--color-bg) 70%, transparent);
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+    color: var(--color-fg);
+    transition: border-color var(--dur) var(--ease-out);
+  }
+  .input::placeholder {
+    color: var(--color-fg-faint);
+  }
+  .input:hover,
+  .select:hover {
+    border-color: var(--color-border-strong);
+  }
+  .field {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    color: var(--color-fg-muted);
+  }
+
+  /* Glass section card — the grouping surface inside a view. */
+  .card {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+    background: color-mix(in oklab, var(--color-panel) 55%, transparent);
+    box-shadow: var(--shadow-sm);
+  }
+  /* A selectable list row — quiet until hovered/active. */
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--color-border);
+    background: color-mix(in oklab, var(--color-bg) 55%, transparent);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    transition:
+      border-color var(--dur) var(--ease-out),
+      background-color var(--dur) var(--ease-out);
+  }
+  .row:hover {
+    border-color: var(--color-border-strong);
+    background: color-mix(in oklab, var(--color-panel) 55%, transparent);
+  }
+}
+
 /* --------------------------------------------------------------- primitives */
 
 /* Custom scrollbars — slim, unobtrusive, brand-tinted on hover. */

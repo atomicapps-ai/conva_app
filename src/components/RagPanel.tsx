@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import {
   ragDelete,
   ragDownload,
@@ -169,59 +170,55 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div
-      className={`border-b border-border bg-panel px-4 py-3 ${dragOver ? "outline outline-2 -outline-offset-2 outline-ai/60" : ""}`}
+    <ViewShell
+      icon="library"
+      title="Reference library"
+      subtitle="Drop files anywhere — enabled documents ground every AI assist and get cited."
+      className={
+        dragOver ? "outline outline-2 -outline-offset-2 outline-ai/60" : ""
+      }
+      actions={
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void pickFiles()}
+            className="btn"
+          >
+            Add documents…
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setPasteOpen((v) => !v);
+              setNotice(null);
+            }}
+            className="btn"
+          >
+            Paste text…
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void ragSyncLibrary()
+                .then(setNotice)
+                .catch((e) => setNotice(String(e)))
+            }
+            title="Copy every document into the repo's library/ folder — commit it and the library appears on your other machines"
+            className="btn"
+          >
+            Sync to repo…
+          </button>
+          <button type="button" onClick={onClose} className="btn">
+            Done
+          </button>
+        </>
+      }
     >
-      <div className="flex items-center gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
-          Reference library
-        </h3>
-        <span className="text-[11px] text-fg-faint">
-          drop files anywhere, or
-        </span>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void pickFiles()}
-          className="rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted hover:text-fg disabled:opacity-50"
-        >
-          Add documents…
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            setPasteOpen((v) => !v);
-            setNotice(null);
-          }}
-          className="rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted hover:text-fg disabled:opacity-50"
-        >
-          Paste text…
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() =>
-            void ragSyncLibrary()
-              .then(setNotice)
-              .catch((e) => setNotice(String(e)))
-          }
-          title="Copy every document into the repo's library/ folder — commit it and the library appears on your other machines"
-          className="rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted hover:text-fg disabled:opacity-50"
-        >
-          Sync to repo…
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="ml-auto rounded-md border border-border px-3 py-1 text-xs text-fg-muted hover:text-fg"
-        >
-          Close
-        </button>
-      </div>
-
       {pasteOpen && (
-        <div className="mt-3 rounded-md border border-border bg-bg p-2">
+        <div className="card p-3">
           <div className="mb-2 flex items-center gap-2">
             <span className="text-[11px] text-fg-faint">
               Paste (Ctrl+V) or type — saved as a .txt in the library
@@ -229,7 +226,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               onClick={() => void readClipboard()}
-              className="ml-auto rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-muted hover:text-fg"
+              className="btn ml-auto px-2 py-0.5 text-[11px]"
             >
               Paste from clipboard
             </button>
@@ -241,14 +238,14 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
             autoFocus
             rows={5}
             placeholder="Paste notes, a snippet, an email… the AI will ground answers in it."
-            className="w-full resize-y rounded-md border border-border bg-panel px-2 py-1.5 text-xs text-fg placeholder:text-fg-faint"
+            className="input resize-y"
           />
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
               disabled={busy || pasteText.trim().length === 0}
               onClick={() => void savePaste()}
-              className="rounded-md border border-ai/60 px-2.5 py-1 text-xs text-fg hover:bg-ai/10 disabled:opacity-50"
+              className="btn btn-accent"
             >
               Add to library
             </button>
@@ -258,7 +255,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
                 setPasteOpen(false);
                 setPasteText("");
               }}
-              className="rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted hover:text-fg"
+              className="btn"
             >
               Cancel
             </button>
@@ -266,24 +263,17 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {notice && (
-        <p className="mt-2 text-[11px] text-fg-muted" role="status">
-          {notice}
-        </p>
-      )}
+      {notice && <Notice>{notice}</Notice>}
 
       {documents.length === 0 ? (
-        <p className="mt-3 text-xs text-fg-faint">
-          No documents yet. Add pricing sheets, product docs, or notes — the
-          AI grounds its answers in them and cites the source.
-        </p>
+        <div className="card grid place-items-center px-6 py-16 text-center text-xs text-fg-faint">
+          No documents yet. Add pricing sheets, product docs, or notes — the AI
+          grounds its answers in them and cites the source.
+        </div>
       ) : (
-        <ul className="mt-2 flex flex-col gap-1">
+        <ul className="flex flex-col gap-1.5">
           {documents.map((doc) => (
-            <li
-              key={doc.id}
-              className="flex items-center gap-3 rounded-md border border-border bg-bg px-3 py-1.5"
-            >
+            <li key={doc.id} className="row">
               <label className="flex items-center gap-2 text-xs">
                 <input
                   type="checkbox"
@@ -293,7 +283,11 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
                   }
                   aria-label={`Include ${doc.file_name} in retrieval`}
                 />
-                <span className={doc.enabled ? "text-fg" : "text-fg-faint line-through"}>
+                <span
+                  className={
+                    doc.enabled ? "text-fg" : "text-fg-faint line-through"
+                  }
+                >
                   {doc.file_name}
                 </span>
               </label>
@@ -331,7 +325,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
               <button
                 type="button"
                 onClick={() => void ragDelete(doc.id).then(refresh)}
-                className="text-[11px] text-fg-faint hover:text-rec"
+                className="btn-danger text-[11px]"
                 aria-label={`Delete ${doc.file_name}`}
               >
                 Delete
@@ -340,6 +334,6 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
           ))}
         </ul>
       )}
-    </div>
+    </ViewShell>
   );
 }
