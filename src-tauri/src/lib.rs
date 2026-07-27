@@ -586,6 +586,12 @@ impl log::Log for AsrLogFilter {
 
 static ASR_LOG_FILTER: AsrLogFilter = AsrLogFilter;
 
+/// Single shared entry point for every platform. `main.rs` (desktop) calls
+/// this; on mobile Tauri generates the platform shell and the
+/// `mobile_entry_point` attribute exposes `run` as its native entry. Keeping
+/// one `run()` for desktop + iOS + Android is the Tauri-2 multi-platform
+/// convention — see `docs/multiplatform.md`.
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Install before anything touches whisper/ggml so their C-side stderr
     // chatter is level-filtered from the first model load.
@@ -594,10 +600,19 @@ pub fn run() {
     }
     whisper_rs::install_logging_hooks();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+
+    // Desktop-only plugins: the auto-updater and process-restart have no
+    // mobile equivalent (app stores own updates there). Gating them behind
+    // `desktop` is the pattern for every platform-specific capability —
+    // audio-loopback capture and the screen-capture-exclusion overlay will
+    // follow the same shape when the mobile companion lands.
+    #[cfg(desktop)]
+    let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+
+    builder
         .setup(|app| {
             let config = load_config(app.handle());
             let data_dir = app
