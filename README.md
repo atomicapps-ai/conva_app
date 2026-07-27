@@ -102,7 +102,16 @@ git push origin v0.1.0
 
 Not yet wired: code signing. Windows shows a SmartScreen "unrecognized app"
 prompt (More info → Run anyway); macOS needs right-click → Open the first
-time. An updater and signing/notarization are the next packaging steps.
+time (deliberately deferred until market-ready).
+
+**Auto-updates:** installed copies check the latest GitHub Release's
+`latest.json` a few seconds after startup and show an "Update & restart"
+banner when a newer version exists (`src/components/UpdateBanner.tsx`,
+`tauri-plugin-updater`). Update packages are signed with the Tauri updater
+keypair: the public key lives in `tauri.conf.json`; the private key must be
+in the repo's Actions secret `TAURI_SIGNING_PRIVATE_KEY` (no password) for
+the release build to produce update artifacts + `latest.json`. Releases must
+be **published** (not draft) for the update feed URL to resolve.
 
 Local release build (needs the full dev toolchain + Vulkan SDK):
 `npm run tauri:build:gpu` — bundles land in `target/release/bundle/`.

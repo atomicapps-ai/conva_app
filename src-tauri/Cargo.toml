@@ -58,6 +58,11 @@ pdf-extract = "0.7"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 # Native file-picker for the RAG library "Add documents" button.
 tauri-plugin-dialog = "2"
+# Auto-updater: installed copies check the GitHub Release feed and update
+# in place (signed with the Tauri updater keypair); process powers the
+# relaunch after an update installs.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 fastembed = "4"
 # Neural VAD (Silero v5) runs on the same ONNX runtime fastembed already
 # pulls in — pin the exact ort version so there's a single onnxruntime link.

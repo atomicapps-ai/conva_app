@@ -12,6 +12,7 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { StatusBar } from "@/components/StatusBar";
 import { TrackerRail } from "@/components/TrackerRail";
 import { TranscriptView } from "@/components/transcript/TranscriptView";
+import { UpdateBanner } from "@/components/UpdateBanner";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAppStore } from "@/state/app";
 
@@ -30,6 +31,7 @@ export default function App() {
 
   return (
     <div className="relative flex h-full flex-col">
+      <UpdateBanner />
       <StatusBar
         onToggleSettings={() => toggle("settings")}
         onToggleLibrary={() => toggle("library")}
