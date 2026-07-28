@@ -1,12 +1,11 @@
+import mark from "@/assets/brand/conva-mark-white.svg";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useNavStore, type View } from "@/state/nav";
 
 /**
- * The Studio's left instrument rail (UI overhaul M2). A fixed column of view
- * selectors with the brand logo slot up top and the ⌘K palette trigger at the
- * foot. The active view gets an iris rail-light down its leading edge; the rail
- * itself is a curved glass lobe (larger radius corners on the outer edge) so it
- * reads as part of one instrument rather than a chrome sidebar.
+ * The Studio's left instrument rail (64px). View selectors with the conva mark
+ * up top and the ⌘K palette trigger at the foot. The active view gets a 3px
+ * violet indicator on its leading edge and a violet-tinted chip (brand v2).
  */
 
 const NAV_ITEMS: { view: View; icon: IconName; label: string }[] = [
@@ -36,17 +35,17 @@ function RailButton({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={[
-        "group relative flex h-11 w-11 items-center justify-center rounded-xl transition",
+        "group relative flex h-11 w-11 items-center justify-center rounded-xl border transition",
         active
-          ? "glow bg-panel-raised text-fg"
-          : "text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
+          ? "border-outbound/34 bg-outbound/[0.14] text-[var(--voice-you-text)]"
+          : "border-transparent text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
       ].join(" ")}
     >
-      {/* Iris rail-light on the leading edge of the active view. */}
+      {/* 3px violet indicator on the leading edge of the active view. */}
       <span
         className={[
-          "absolute -left-2 h-6 w-1 rounded-full transition-all",
-          active ? "iris-gradient opacity-100" : "opacity-0",
+          "absolute -left-3 h-5 w-[3px] rounded-full bg-outbound transition-opacity",
+          active ? "opacity-100" : "opacity-0",
         ].join(" ")}
         aria-hidden
       />
@@ -65,14 +64,14 @@ export function NavRail() {
       aria-label="Primary"
       className="glass z-10 flex w-16 shrink-0 flex-col items-center gap-1 rounded-r-[26px] border-l-0 py-3"
     >
-      {/* Brand logo slot — dashed placeholder until the branded mark lands. */}
-      <div
-        className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl border border-dashed border-border-strong text-[8px] font-semibold tracking-widest text-fg-faint"
-        aria-label="conva logo"
+      {/* Brand mark. */}
+      <img
+        src={mark}
+        alt="conva"
         title="conva"
-      >
-        LOGO
-      </div>
+        draggable={false}
+        className="mb-2.5 h-[26px] w-[26px]"
+      />
 
       {NAV_ITEMS.map((item) => (
         <RailButton

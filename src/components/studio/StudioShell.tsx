@@ -9,6 +9,7 @@ import { SessionsPanel } from "@/components/SessionsPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { CommandPalette } from "@/components/studio/CommandPalette";
 import { NavRail } from "@/components/studio/NavRail";
+import { StatusBar } from "@/components/studio/StatusBar";
 import { TopBar } from "@/components/studio/TopBar";
 import { TranscriptView } from "@/components/transcript/TranscriptView";
 import { UpdateBanner } from "@/components/UpdateBanner";
@@ -61,6 +62,7 @@ export function StudioShell() {
               <ConversationsPanel onClose={backToLive} />
             )}
           </main>
+          <StatusBar />
         </div>
       </div>
 
