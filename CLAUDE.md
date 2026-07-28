@@ -186,3 +186,6 @@ mobile target. Full conventions + how to add iOS/Android targets:
 - Prefer adding pure logic to core with a unit test over untested shell code.
 - New platform-specific feature? Gate it (`#[cfg(desktop)]`/`mobile`) and make
   the UI degrade when a desktop-only command is absent — see multiplatform doc.
+- **When asking the owner a question, always lead with a recommended option and
+  the reasoning behind it** — never present bare choices. State the trade-offs
+  and which one you'd pick and why, so a decision can be made in one glance.
