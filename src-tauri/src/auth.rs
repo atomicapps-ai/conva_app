@@ -24,7 +24,7 @@ use sha2::{Digest, Sha256};
 // embed; fill `DEFAULT_ANON_KEY` from Supabase → Project Settings → API → anon
 // public. Both are overridable via env for dev / a second project.
 const DEFAULT_SUPABASE_URL: &str = "https://hbxftjyooblxiiapaeei.supabase.co";
-const DEFAULT_ANON_KEY: &str = "";
+const DEFAULT_ANON_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhieGZ0anlvb2JseGlpYXBhZWVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTQ3MzksImV4cCI6MjEwMDgzMDczOX0.KkvrtUOubjv8DUym7Qj_W_YyYezkVtueKdg9LyQGqQU";
 
 const KEYRING_SERVICE: &str = "conva";
 const KR_REFRESH: &str = "auth-refresh-token";
