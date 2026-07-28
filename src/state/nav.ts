@@ -3,7 +3,7 @@ import { create } from "zustand";
 /**
  * Studio navigation state (UI overhaul M2). The app is a single instrument
  * with a left icon rail selecting the active {@link View}; "live" is the
- * transcript/assist cockpit, the rest are the former dropdown panels promoted
+ * transcript/Ally cockpit, the rest are the former dropdown panels promoted
  * to first-class routed views. The ⌘K command palette floats over any view.
  */
 export type View =

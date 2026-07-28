@@ -9,10 +9,10 @@ import {
 import { Icon } from "@/components/ui/Icon";
 import type { TranscriptSegment } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
-import { useAssistStore, type AssistCard } from "@/state/assist";
+import { useAllyStore, type AllyCard } from "@/state/ally";
 import { useTranscriptStore } from "@/state/transcript";
 
-/** Stable identity for a transcript bubble (also the AI-card link key). */
+/** Stable identity for a transcript bubble (also the Ally-card link key). */
 function segmentKey(seg: TranscriptSegment): string {
   return `${seg.side}-${seg.seq}`;
 }
@@ -162,8 +162,8 @@ function ResearchButton({
       type="button"
       disabled={busy}
       onClick={onClick}
-      title="Research this message with AI"
-      aria-label={`Research this ${side === "inbound" ? "received" : "sent"} message with AI`}
+      title="Research with Ally"
+      aria-label={`Research this ${side === "inbound" ? "received" : "sent"} message with Ally`}
       className="mb-1 shrink-0 rounded-full border border-ai/40 px-1.5 py-0.5 text-[11px] text-ai opacity-0 transition-opacity hover:bg-ai/10 focus:opacity-100 group-hover:opacity-100 disabled:opacity-30"
     >
       ✦
@@ -173,16 +173,16 @@ function ResearchButton({
 
 const COLLAPSE_CHARS = 380;
 
-function cardLabel(card: AssistCard): string {
+function cardLabel(card: AllyCard): string {
   if (card.kind === "suggest_reply") return "Suggested reply";
   if (card.kind === "summarize") return "Summary";
   return card.sourceQuote ? "Research" : (card.question ?? "Question");
 }
 
-/** AI answer card. Collapsed → just the label + one-line preview. Expanded →
+/** Ally answer card. Collapsed → just the label + one-line preview. Expanded →
  *  full text (very long answers still get an inner Show more). Hover/inspect
  *  ties it to its source bubble via the spine. */
-function AiCard({
+function AllyCardView({
   card,
   registerEl,
   highlighted,
@@ -190,7 +190,7 @@ function AiCard({
   onToggleCollapse,
   onHover,
 }: {
-  card: AssistCard;
+  card: AllyCard;
   registerEl: (id: string, el: HTMLElement | null) => void;
   highlighted: boolean;
   collapsed: boolean;
@@ -286,7 +286,7 @@ function AiCard({
 }
 
 /**
- * The relationship spine — the center panel. One clickable dot per AI entry,
+ * The relationship spine — the center panel. One clickable dot per Ally entry,
  * stacked in order down a hairline rail; the dot echoes the source bubble's
  * side color (cyan/violet) or reads gold when the entry is derived from the
  * whole conversation. Hovering a dot reveals a connector line to its source
@@ -301,7 +301,7 @@ function Spine({
   onInspect,
   pingNewest,
 }: {
-  cards: AssistCard[];
+  cards: AllyCard[];
   registerDot: (id: string, el: HTMLElement | null) => void;
   active: Active | null;
   onHover: (active: Active | null) => void;
@@ -339,8 +339,8 @@ function Spine({
               }
               aria-label={
                 card.sourceKey
-                  ? "Show the message this AI entry came from"
-                  : "Show this AI entry"
+                  ? "Show the message this Ally entry came from"
+                  : "Show this Ally entry"
               }
               className="relative grid h-6 w-6 place-items-center rounded-full"
             >
@@ -458,8 +458,8 @@ function SidecarFeed({ segments }: { segments: TranscriptSegment[] }) {
     merged[merged.length - 1],
   );
   const noop = useCallback(() => {}, []);
-  const request = useAssistStore((s) => s.request);
-  const busy = useAssistStore((s) => s.busy);
+  const request = useAllyStore((s) => s.request);
+  const busy = useAllyStore((s) => s.busy);
   return (
     <main className="relative flex min-h-0 flex-1 flex-col">
       <div
@@ -509,8 +509,8 @@ function SidecarFeed({ segments }: { segments: TranscriptSegment[] }) {
 
 /**
  * Conversation workspace: left — the live conversation as SMS-style bubbles;
- * center — the relationship spine (a dot per AI entry, click to bring its
- * source into context); right — the AI output column. Every bubble and card
+ * center — the relationship spine (a dot per Ally entry, click to bring its
+ * source into context); right — the Ally output column. Every bubble and card
  * collapses; the header carries expand-all / collapse-all. Clicking a spine dot
  * enters "inspect": both columns un-pin, the pair centers, live content keeps
  * arriving below without yanking the view, and a "N new" pill offers the way
@@ -520,9 +520,9 @@ export function TranscriptView() {
   const liveSegments = useTranscriptStore((s) => s.segments);
   const archived = useTranscriptStore((s) => s.archived);
   const sidecar = useAppStore((s) => s.sidecar);
-  const cards = useAssistStore((s) => s.cards);
-  const busy = useAssistStore((s) => s.busy);
-  const request = useAssistStore((s) => s.request);
+  const cards = useAllyStore((s) => s.cards);
+  const busy = useAllyStore((s) => s.busy);
+  const request = useAllyStore((s) => s.request);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const bubbleEls = useRef(new Map<string, HTMLElement>());
@@ -555,7 +555,7 @@ export function TranscriptView() {
     ...[...liveSegments].sort((a, b) => a.start_ms - b.start_ms),
   ];
   const convo = useAutoScroll(merged[merged.length - 1]);
-  const aiCol = useAutoScroll(cards[0]?.id);
+  const allyCol = useAutoScroll(cards[0]?.id);
 
   useEffect(() => {
     window.addEventListener("resize", bump);
@@ -590,11 +590,11 @@ export function TranscriptView() {
     (link: Link) => {
       setInspected({ cardId: link.cardId, sourceKey: link.sourceKey });
       convo.setPinned(false);
-      aiCol.setPinned(false);
+      allyCol.setPinned(false);
       requestAnimationFrame(() => {
         const cardEl = cardEls.current.get(link.cardId);
-        if (cardEl && aiCol.ref.current)
-          centerInScroller(aiCol.ref.current, cardEl);
+        if (cardEl && allyCol.ref.current)
+          centerInScroller(allyCol.ref.current, cardEl);
         if (link.sourceKey) {
           const b = bubbleEls.current.get(link.sourceKey);
           if (b && convo.ref.current) centerInScroller(convo.ref.current, b);
@@ -602,18 +602,18 @@ export function TranscriptView() {
         bump();
       });
     },
-    [aiCol, convo, bump],
+    [allyCol, convo, bump],
   );
 
   const jumpToLive = useCallback(() => {
     setInspected(null);
     convo.setPinned(true);
-    aiCol.setPinned(true);
+    allyCol.setPinned(true);
     if (convo.ref.current)
       convo.ref.current.scrollTop = convo.ref.current.scrollHeight;
-    if (aiCol.ref.current)
-      aiCol.ref.current.scrollTop = aiCol.ref.current.scrollHeight;
-  }, [convo, aiCol]);
+    if (allyCol.ref.current)
+      allyCol.ref.current.scrollTop = allyCol.ref.current.scrollHeight;
+  }, [convo, allyCol]);
 
   const research = useCallback(
     (seg: TranscriptSegment) =>
@@ -675,7 +675,7 @@ export function TranscriptView() {
           {merged.length === 0 ? (
             <p className="mt-8 text-center text-xs text-fg-faint">
               The conversation appears here — them on the left, you on the
-              right. Hover a message and press ✦ to have AI research it.
+              right. Hover a message and press ✦ to have Ally research it.
             </p>
           ) : (
             merged.map((seg) => {
@@ -713,31 +713,31 @@ export function TranscriptView() {
         active={active}
         onHover={setHover}
         onInspect={inspect}
-        pingNewest={!aiCol.pinned}
+        pingNewest={!allyCol.pinned}
       />
 
-      {/* AI output — right */}
+      {/* Ally output — right */}
       <section className="flex min-w-0 flex-[2] flex-col">
         <h2 className="shrink-0 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-ai">
-          ✦ AI
+          ✦ ALLY
         </h2>
         <div
-          ref={aiCol.ref}
+          ref={allyCol.ref}
           onScroll={() => {
-            aiCol.onScroll();
+            allyCol.onScroll();
             bump();
           }}
           className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4"
-          aria-label="AI output"
+          aria-label="Ally output"
         >
           {cards.length === 0 ? (
             <p className="mt-8 text-center text-xs text-fg-faint">
-              AI output lands here — press ✦ on any message, or use Suggest
+              Ally output lands here — press ✦ on any message, or use Suggest
               reply / Summarize below.
             </p>
           ) : (
             cards.map((card) => (
-              <AiCard
+              <AllyCardView
                 key={card.id}
                 card={card}
                 registerEl={registerCard}

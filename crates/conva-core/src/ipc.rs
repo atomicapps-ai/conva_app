@@ -18,12 +18,12 @@ pub mod events {
     pub const AUDIO_LEVEL: &str = "conva://audio-level";
     /// Payload: [`super::SessionStateEvent`]
     pub const SESSION_STATE: &str = "conva://session-state";
-    /// Payload: [`super::AssistChunkEvent`]
-    pub const ASSIST_CHUNK: &str = "conva://assist-chunk";
+    /// Payload: [`super::AllyChunkEvent`]
+    pub const ALLY_CHUNK: &str = "conva://ally-chunk";
     /// Payload: [`super::ModelStatusEvent`]
     pub const MODEL_STATUS: &str = "conva://model-status";
-    /// Payload: [`super::AssistSourcesEvent`]
-    pub const ASSIST_SOURCES: &str = "conva://assist-sources";
+    /// Payload: [`super::AllySourcesEvent`]
+    pub const ALLY_SOURCES: &str = "conva://ally-sources";
     /// Payload: [`super::RadarEvent`]
     pub const RADAR: &str = "conva://radar";
     /// Payload: [`super::TrackerEvent`]
@@ -66,16 +66,16 @@ pub enum SessionStateEvent {
     },
 }
 
-/// Which reference chunks grounded an assist answer (R5 "peek" — emitted
+/// Which reference chunks grounded an Ally answer (R5 "peek" — emitted
 /// once per request, before the first token).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AssistSourcesEvent {
+pub struct AllySourcesEvent {
     pub request_id: String,
-    pub sources: Vec<AssistSource>,
+    pub sources: Vec<AllySource>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AssistSource {
+pub struct AllySource {
     pub file_name: String,
     pub location: String,
 }
@@ -106,9 +106,9 @@ pub enum ModelStatusEvent {
     Error { model: String, message: String },
 }
 
-/// One streamed piece of an AI assist answer (U4/O2).
+/// One streamed piece of an Ally answer (U4/O2).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AssistChunkEvent {
+pub struct AllyChunkEvent {
     /// Correlates chunks to the request that produced them.
     pub request_id: String,
     pub token: String,
@@ -138,7 +138,7 @@ mod tests {
             events::TRANSCRIPT_SEGMENT,
             events::AUDIO_LEVEL,
             events::SESSION_STATE,
-            events::ASSIST_CHUNK,
+            events::ALLY_CHUNK,
         ] {
             assert!(name.starts_with("conva://"), "{name}");
         }

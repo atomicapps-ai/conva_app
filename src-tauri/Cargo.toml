@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "conva — real-time AI conversation assistant (Tauri shell)"
+description = "conva — real-time strategic intelligence ally (Tauri shell)"
 
 # Windows is the Phase 1 target (design §9 row 4). This crate needs a desktop
 # GUI toolchain; CI builds it on windows-latest. The pure-logic core builds

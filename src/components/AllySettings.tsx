@@ -5,7 +5,7 @@ import type { ModelSelection, ProviderId } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 
 /**
- * AI provider configuration (design §4.6): provider + model dropdown pairs
+ * Ally provider configuration (design §4.6): provider + model dropdown pairs
  * for the quality and fast slots (fast collapses to "same as quality"),
  * per-provider API key stored in the OS vault, and a Test button that
  * reports measured first-token latency.
@@ -88,7 +88,7 @@ function SlotEditor({
   );
 }
 
-export function AiSettings() {
+export function AllySettings() {
   const config = useAppStore((s) => s.config);
   const registry = useAppStore((s) => s.registry);
   const keyStatus = useAppStore((s) => s.keyStatus);
@@ -135,11 +135,11 @@ export function AiSettings() {
   return (
     <div>
       <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-fg-muted">
-        AI — answers &amp; suggestions
+        Ally — answers &amp; suggestions
       </h3>
       <div className="flex flex-col gap-2">
         <SlotEditor
-          label="Quality slot (on-demand assists)"
+          label="Quality slot (on-demand Ally answers)"
           value={quality}
           onChange={(next) => {
             void updateConfig({
@@ -229,8 +229,8 @@ export function AiSettings() {
         </label>
         <p className="text-[11px] text-fg-faint">
           Keys are stored in the Windows Credential Manager, never in files.
-          Transcript text is sent to the selected provider when you ask for
-          an assist, and periodically while the tracker is enabled.
+          Transcript text is sent to the selected provider when you ask Ally,
+          and periodically while the tracker is enabled.
         </p>
       </div>
     </div>

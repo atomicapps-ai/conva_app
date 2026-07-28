@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { AiSettings } from "@/components/AiSettings";
+import { AllySettings } from "@/components/AllySettings";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import {
   deepgramKeyStatus,
@@ -417,7 +417,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     <ViewShell
       icon="settings"
       title="Settings"
-      subtitle="Devices, transcription, AI providers, and portable config."
+      subtitle="Devices, transcription, Ally providers, and portable config."
       actions={
         <button type="button" onClick={onClose} className="btn">
           Done
@@ -470,7 +470,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       </Section>
 
       <Section>
-        <AiSettings />
+        <AllySettings />
       </Section>
 
       <Section

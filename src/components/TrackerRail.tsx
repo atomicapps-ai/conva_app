@@ -1,14 +1,14 @@
 import { useState } from "react";
 
 import { useAppStore } from "@/state/app";
-import { useAssistStore } from "@/state/assist";
+import { useAllyStore } from "@/state/ally";
 
 /**
  * Pinned commitments & entities rail (design §6.3). Renders only once the
  * tracker has produced something; collapsible to a thin edge tab.
  */
 export function TrackerRail() {
-  const tracker = useAssistStore((s) => s.tracker);
+  const tracker = useAllyStore((s) => s.tracker);
   const sidecar = useAppStore((s) => s.sidecar);
   const [collapsed, setCollapsed] = useState(false);
 

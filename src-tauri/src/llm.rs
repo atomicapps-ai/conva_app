@@ -1,6 +1,6 @@
 //! LLM provider clients (design §4.6): one small SSE client per provider,
 //! all normalized to a token callback. Blocking `ureq` driven from worker
-//! threads — the UI receives tokens as ASSIST_CHUNK events.
+//! threads — the UI receives tokens as ALLY_CHUNK events.
 //!
 //! Providers:
 //! - Anthropic (native Messages API) — the default

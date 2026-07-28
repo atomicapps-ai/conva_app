@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { AssistDock } from "@/components/AssistDock";
+import { AllyDock } from "@/components/AllyDock";
 import { ConsentGate } from "@/components/ConsentGate";
 import { ConversationsPanel } from "@/components/ConversationsPanel";
 import { HealthStrip } from "@/components/HealthStrip";
@@ -17,7 +17,7 @@ import { TranscriptView } from "@/components/transcript/TranscriptView";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { useNavStore } from "@/state/nav";
 
-/** The live cockpit: dual-column transcript + tracker rail, assist dock, meters. */
+/** The live cockpit: dual-column transcript + tracker rail, Ally dock, meters. */
 function LiveView() {
   return (
     <div className="flex h-full flex-col">
@@ -25,7 +25,7 @@ function LiveView() {
         <TranscriptView />
         <TrackerRail />
       </div>
-      <AssistDock />
+      <AllyDock />
       <HealthStrip />
     </div>
   );

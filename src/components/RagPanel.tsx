@@ -27,8 +27,8 @@ function deriveNoteName(text: string): string {
 
 /**
  * Reference-document library (design §4.4 U5/R1): drag-drop or pick files,
- * per-document enable toggle, delete. Enabled documents ground every AI
- * assist via BM25 retrieval with source attribution.
+ * per-document enable toggle, delete. Enabled documents ground every Ally
+ * answer via BM25 retrieval with source attribution.
  */
 export function RagPanel({ onClose }: { onClose: () => void }) {
   const [documents, setDocuments] = useState<RagDocument[]>([]);
@@ -173,7 +173,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
     <ViewShell
       icon="library"
       title="Reference library"
-      subtitle="Drop files anywhere — enabled documents ground every AI assist and get cited."
+      subtitle="Drop files anywhere — enabled documents ground every Ally answer and get cited."
       className={
         dragOver ? "outline outline-2 -outline-offset-2 outline-ai/60" : ""
       }
@@ -237,7 +237,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
             // eslint-disable-next-line jsx-a11y/no-autofocus
             autoFocus
             rows={5}
-            placeholder="Paste notes, a snippet, an email… the AI will ground answers in it."
+            placeholder="Paste notes, a snippet, an email… Ally will ground answers in it."
             className="input resize-y"
           />
           <div className="mt-2 flex items-center gap-2">
@@ -267,7 +267,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
 
       {documents.length === 0 ? (
         <div className="card grid place-items-center px-6 py-16 text-center text-xs text-fg-faint">
-          No documents yet. Add pricing sheets, product docs, or notes — the AI
+          No documents yet. Add pricing sheets, product docs, or notes — Ally
           grounds its answers in them and cites the source.
         </div>
       ) : (

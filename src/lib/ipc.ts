@@ -12,9 +12,9 @@ export const EVENTS = {
   transcriptSegment: "conva://transcript-segment",
   audioLevel: "conva://audio-level",
   sessionState: "conva://session-state",
-  assistChunk: "conva://assist-chunk",
+  allyChunk: "conva://ally-chunk",
   modelStatus: "conva://model-status",
-  assistSources: "conva://assist-sources",
+  allySources: "conva://ally-sources",
   radar: "conva://radar",
   tracker: "conva://tracker",
 } as const;
@@ -44,15 +44,15 @@ export type SessionStateEvent =
   | { state: "paused"; session_id: string }
   | { state: "error"; message: string };
 
-export interface AssistChunkEvent {
+export interface AllyChunkEvent {
   request_id: string;
   token: string;
   done: boolean;
   error: string | null;
 }
 
-/** Mirror of conva-core prompt::AssistKind. */
-export type AssistKind = "suggest_reply" | "summarize" | "question";
+/** Mirror of conva-core prompt::AllyKind. */
+export type AllyKind = "suggest_reply" | "summarize" | "question";
 
 export interface ModelInfo {
   id: string;
@@ -72,14 +72,14 @@ export interface ProviderKeyStatus {
   has_key: boolean;
 }
 
-export interface AssistSource {
+export interface AllySource {
   file_name: string;
   location: string;
 }
 
-export interface AssistSourcesEvent {
+export interface AllySourcesEvent {
   request_id: string;
-  sources: AssistSource[];
+  sources: AllySource[];
 }
 
 /** Mirror of conva-core rag::RagDocument. */
