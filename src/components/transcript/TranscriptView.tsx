@@ -541,8 +541,10 @@ export function TranscriptView() {
   const convo = useAutoScroll(merged[merged.length - 1]);
   const allyCol = useAutoScroll(cards[0]?.id);
 
-  // Below 1180px the Ally column becomes an overlay drawer (spine stays,
-  // its nodes open it); ≥1180px all three columns show inline.
+  // Keep all three columns inline until the container is genuinely too narrow
+  // to fit them at their floors (2×MIN_COL + spine ≈ 508px). Only below ~640px
+  // does the Ally column fold into an overlay drawer (the spine's nodes open
+  // it). This keeps the 3-column instrument visible at normal window sizes.
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const el = containerRef.current;
@@ -555,8 +557,49 @@ export function TranscriptView() {
     setWidth(el.getBoundingClientRect().width);
     return () => ro.disconnect();
   }, []);
-  const drawer = width > 0 && width < 1180;
+  const drawer = width > 0 && width < 640;
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // User-adjustable split between the transcript (left) and Ally (right)
+  // columns. The centre spine IS the divider: drag it to reallocate space.
+  // Stored as the transcript's fraction of the flexible area, so the chosen
+  // proportion holds as the window resizes. Persisted across launches.
+  const SPINE_W = 28; // px — keep in sync with the spine column width (w-7)
+  const MIN_COL = 240; // px — floor for both flexible columns
+  const [splitRatio, setSplitRatio] = useState(() => {
+    const v = Number(localStorage.getItem("conva.layout.split"));
+    return v > 0.2 && v < 0.8 ? v : 0.608; // default ≈ the old 1.55 : 1
+  });
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    localStorage.setItem("conva.layout.split", String(splitRatio));
+  }, [splitRatio]);
+  const startSplitDrag = useCallback(
+    (e: React.PointerEvent) => {
+      if (drawer) return; // Ally is an overlay here — nothing to resize against
+      e.preventDefault();
+      const container = containerRef.current;
+      if (!container) return;
+      setDragging(true);
+      const move = (ev: PointerEvent) => {
+        const base = container.getBoundingClientRect();
+        const avail = base.width - SPINE_W;
+        if (avail <= MIN_COL * 2) return;
+        let tw = ev.clientX - base.left - SPINE_W / 2;
+        tw = Math.max(MIN_COL, Math.min(avail - MIN_COL, tw));
+        setSplitRatio(tw / avail);
+        bump();
+      };
+      const up = () => {
+        setDragging(false);
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+    },
+    [drawer, bump],
+  );
 
   // sourceKey → newest card that derived from it (drives the bubble's chip).
   const linkBySource = useMemo(() => {
@@ -764,12 +807,15 @@ export function TranscriptView() {
   return (
     <main
       ref={containerRef}
-      className="relative flex h-full min-h-0 min-w-0 flex-1"
+      className={`relative flex h-full min-h-0 min-w-0 flex-1${
+        dragging ? " cursor-col-resize select-none" : ""
+      }`}
     >
       {/* Transcript — left (flexes proportionally with the Ally column) */}
       <section
         data-col="transcript"
-        className="relative flex min-w-[320px] flex-[1.55] flex-col border-r border-border"
+        style={drawer ? undefined : { flexGrow: splitRatio, flexBasis: 0 }}
+        className="relative flex min-w-[240px] flex-1 flex-col border-r border-border"
       >
         <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-5">
           <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-fg-faint">
@@ -865,19 +911,28 @@ export function TranscriptView() {
         )}
       </section>
 
-      {/* Relationship spine — centre (visual rail; nodes float in the overlay) */}
+      {/* Relationship spine — centre. Doubles as the draggable divider between
+          the transcript and Ally columns (visual rail; nodes float in the
+          overlay). */}
       <div
         ref={spineColRef}
         data-col="spine"
-        className="relative flex w-14 shrink-0 flex-col items-center border-r border-border bg-bg-2/40"
+        onPointerDown={startSplitDrag}
+        title={drawer ? undefined : "Drag to resize columns"}
+        className={`group relative flex w-7 shrink-0 flex-col items-center border-r border-border bg-bg-2/40${
+          drawer ? "" : " cursor-col-resize"
+        }`}
       >
-        <div className="grid h-11 w-full shrink-0 place-items-center border-b border-border">
-          <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-fg-faint">
-            Spine
-          </span>
-        </div>
+        <div className="h-11 w-full shrink-0 border-b border-border" />
         <div className="relative w-full flex-1">
           <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[linear-gradient(180deg,transparent,var(--spine-line)_4%,var(--spine-line)_92%,transparent)]" />
+          {!drawer && (
+            <div
+              className={`absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 rounded-full transition-colors ${
+                dragging ? "bg-ai/60" : "bg-transparent group-hover:bg-ai/30"
+              }`}
+            />
+          )}
           <span className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-bg-2/80 px-1 font-mono text-[9px] text-fg-faint">
             {nodes.length}
           </span>
@@ -895,10 +950,11 @@ export function TranscriptView() {
       )}
       <section
         data-col="ally"
+        style={drawer ? undefined : { flexGrow: 1 - splitRatio, flexBasis: 0 }}
         className={
           drawer
             ? `absolute right-0 top-0 z-30 flex h-full w-[min(452px,88%)] flex-col border-l border-border bg-panel-raised shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
-            : "flex min-w-[320px] max-w-[620px] flex-1 flex-col bg-panel/40"
+            : "flex min-w-[240px] flex-1 flex-col bg-panel/40"
         }
       >
         <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-5">
