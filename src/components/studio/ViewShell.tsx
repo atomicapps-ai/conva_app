@@ -37,7 +37,7 @@ export function ViewShell({
         </span>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="font-display text-base font-semibold tracking-tight text-fg">
+            <h2 className="text-base font-extrabold tracking-tight text-fg">
               {title}
             </h2>
             {badge}

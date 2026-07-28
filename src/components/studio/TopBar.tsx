@@ -80,7 +80,7 @@ export function TopBar() {
           {coreLabel}
         </span>
       </span>
-      <h1 className="font-display text-sm font-semibold tracking-tight">
+      <h1 className="text-sm font-extrabold tracking-tight">
         conva
       </h1>
       {conversationTitle && (

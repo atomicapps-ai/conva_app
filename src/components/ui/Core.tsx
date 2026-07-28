@@ -53,9 +53,9 @@ export function Core({
       <svg viewBox="0 0 40 40" width={size} height={size} aria-hidden="true">
         <defs>
           <linearGradient id="coreIris" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#22e6d6" />
-            <stop offset="0.55" stopColor="#8b7bff" />
-            <stop offset="1" stopColor="#ff5cc8" />
+            <stop offset="0" stopColor="#22e4f5" />
+            <stop offset="0.52" stopColor="#7b5cff" />
+            <stop offset="1" stopColor="#ff4fd8" />
           </linearGradient>
           <radialGradient id="coreRec" cx="0.4" cy="0.35" r="0.7">
             <stop offset="0" stopColor="#ff8a97" />
@@ -63,8 +63,8 @@ export function Core({
           </radialGradient>
           <radialGradient id="coreSweep" cx="0" cy="0" r="1"
             gradientTransform="translate(20 20) rotate(90) scale(18)">
-            <stop stopColor="#22e6d6" stopOpacity="0.5" />
-            <stop offset="1" stopColor="#22e6d6" stopOpacity="0" />
+            <stop stopColor="#22e4f5" stopOpacity="0.5" />
+            <stop offset="1" stopColor="#22e4f5" stopOpacity="0" />
           </radialGradient>
         </defs>
 
@@ -87,7 +87,7 @@ export function Core({
               <path d="M20 20 L20 2 A18 18 0 0 1 34 12 Z" fill="url(#coreSweep)" />
             </g>
             <g className="core-orbit">
-              <circle cx="20" cy="2" r="1.6" fill="#8b7bff" />
+              <circle cx="20" cy="2" r="1.6" fill="#8b6bff" />
             </g>
           </>
         )}
@@ -98,7 +98,7 @@ export function Core({
             <path
               d="M20 8 A12 12 0 0 1 32 20"
               fill="none"
-              stroke="#22e6d6"
+              stroke="#22e4f5"
               strokeWidth="2.5"
               strokeLinecap="round"
             />
