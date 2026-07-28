@@ -71,34 +71,45 @@ swap a layer without asking the owner.**
 
 ## Build & run
 
+> **Dev-environment defaults (read this — it saves hours).** The primary dev
+> machine is **Windows with the Vulkan SDK already installed**. The default run
+> command is **`npm run tauri:gpu`**. Do **not** recommend or fall back to CPU
+> whisper (`npm run tauri dev`) — it is too slow to be usable and is *not* a fix
+> for anything. Never use `tauri:gpu:metal` here (Metal is macOS-only; it fails
+> to build on Windows in `ggml-metal/CMakeLists.txt`).
+
 Prereqs + a Windows build-troubleshooting table (libclang, the LLVM-20 layout
 assert → **pin LLVM 18.1.8**, stdbool.h/stdio.h, cmake) are in
 [`README.md`](README.md). From a fresh terminal after prereqs:
 
 ```
 npm install
-npm run tauri dev      # first launch downloads the whisper + embedding models
+npm run tauri:gpu      # Windows + Vulkan (the default here); first launch
+                       # downloads the whisper + embedding models
 ```
 
-### Run commands — pick the right one per platform ⚠️
+### Run commands — match the script to the OS ⚠️
 
-Local whisper runs on **CPU by default** (works everywhere, just slower). For
-conversation-speed transcription run the **GPU** build — but the GPU backend is
-**platform-specific**, and the wrong script wastes real time (the build fails or
-silently falls back and you end up staring at a stale app):
+whisper runs on the **GPU** for conversation speed. The GPU backend is
+**platform-specific** — the wrong script wastes real time (the build fails, or
+falls back to unusably slow CPU, and you end up staring at a stale app). CPU is a
+last resort, never a recommendation.
 
 | Platform | GPU dev command | Backend | Needs |
 |---|---|---|---|
-| **Windows** | `npm run tauri:gpu` | Vulkan | Vulkan SDK |
-| **macOS** | `npm run tauri:gpu:metal` | Metal | Xcode (present on any Mac) |
+| **Windows (default here)** | `npm run tauri:gpu` | Vulkan | Vulkan SDK (installed) |
+| **macOS** | `npm run tauri:gpu:metal` | Metal | Xcode |
 | **NVIDIA (opt-in)** | `npm run tauri:gpu:cuda` | CUDA | CUDA Toolkit |
-| any | `npm run tauri dev` | CPU | nothing extra |
+| last resort only | `npm run tauri dev` | CPU (slow) | nothing extra |
 
-- **`npm run tauri:gpu` is Vulkan and DOES NOT build on macOS** — on a Mac use
-  **`npm run tauri:gpu:metal`**. This is the #1 time-waster; don't repeat it.
+- **Vulkan builds only on Windows/Linux; Metal only on macOS.** `tauri:gpu:metal`
+  on Windows dies in `ggml-metal/CMakeLists.txt`; `tauri:gpu` (Vulkan) does not
+  build on macOS. Match the script to the OS — this is the #1 time-waster.
 - Do **not** pass `--features` through `npm run tauri dev -- …` — npm mangles the
   args. Use the dedicated scripts above.
 - `[asr] whisper backend: …` at model load prints which backend is actually live.
+- Faster STT without leaving the device is the **GPU** build (above). Cloud speed
+  is opt-in **Deepgram** (`asr_engine=deepgram_cloud` + key). CPU is not a path.
 
 ### Which build am I running? (stop debugging stale binaries)
 
