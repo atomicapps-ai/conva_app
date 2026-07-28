@@ -443,7 +443,7 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
     merged[merged.length - 1],
   );
   return (
-    <main className="relative flex min-h-0 flex-1 flex-col">
+    <main className="relative flex h-full min-h-0 flex-1 flex-col">
       <div
         ref={ref}
         onScroll={onScroll}
@@ -762,7 +762,10 @@ export function TranscriptView() {
       : "";
 
   return (
-    <main ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1">
+    <main
+      ref={containerRef}
+      className="relative flex h-full min-h-0 min-w-0 flex-1"
+    >
       {/* Transcript — left */}
       <section className="relative flex min-w-[420px] flex-1 flex-col border-r border-border">
         <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-5">
@@ -862,19 +865,19 @@ export function TranscriptView() {
       {/* Relationship spine — centre (visual rail; nodes float in the overlay) */}
       <div
         ref={spineColRef}
-        className="relative flex w-[72px] shrink-0 flex-col items-center border-r border-border bg-bg-2/40"
+        className="relative flex w-14 shrink-0 flex-col items-center border-r border-border bg-bg-2/40"
       >
         <div className="grid h-11 w-full shrink-0 place-items-center border-b border-border">
           <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-fg-faint">
             Spine
           </span>
         </div>
-        <div className="relative flex-1">
-          <div className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-[linear-gradient(180deg,transparent,var(--spine-line)_12%,var(--spine-line)_88%,transparent)]" />
+        <div className="relative w-full flex-1">
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[linear-gradient(180deg,transparent,var(--spine-line)_4%,var(--spine-line)_92%,transparent)]" />
+          <span className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-bg-2/80 px-1 font-mono text-[9px] text-fg-faint">
+            {nodes.length}
+          </span>
         </div>
-        <span className="absolute bottom-2 font-mono text-[9px] text-fg-faint">
-          {nodes.length} link{nodes.length === 1 ? "" : "s"}
-        </span>
       </div>
 
       {/* Ally — right (inline ≥1180px, else an overlay drawer) */}
@@ -959,12 +962,12 @@ export function TranscriptView() {
             ))
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2 border-t border-border p-3">
+        <div className="flex shrink-0 items-center gap-2 border-t border-border px-3 py-2.5">
           <button
             type="button"
             disabled={busy}
             onClick={() => void request("suggest_reply")}
-            className="flex h-9 items-center rounded-lg border border-ai/40 px-3 text-[12px] font-semibold text-ai hover:bg-ai/10 disabled:opacity-40"
+            className="flex h-7 items-center rounded-md border border-ai/40 px-2.5 text-[12px] font-semibold text-ai hover:bg-ai/10 disabled:opacity-40"
           >
             Suggest reply
           </button>
@@ -972,11 +975,11 @@ export function TranscriptView() {
             type="button"
             disabled={busy}
             onClick={() => void request("summarize")}
-            className="flex h-9 items-center rounded-lg border border-border px-3 text-[12px] font-semibold text-fg-muted hover:text-fg disabled:opacity-40"
+            className="flex h-7 items-center rounded-md border border-border px-2.5 text-[12px] font-semibold text-fg-muted hover:text-fg disabled:opacity-40"
           >
             Summarize
           </button>
-          <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-white/[0.03] px-3">
+          <label className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-white/[0.03] px-2.5">
             <input
               value={ask}
               onChange={(e) => setAsk(e.target.value)}
