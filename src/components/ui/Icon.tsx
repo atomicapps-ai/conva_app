@@ -19,7 +19,10 @@ export type IconName =
   | "sidecar"
   | "search"
   | "command"
-  | "close";
+  | "close"
+  | "chevron"
+  | "unfoldMore"
+  | "unfoldLess";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -77,6 +80,12 @@ const PATHS: Record<IconName, ReactNode> = {
     <path d="M9 9V7.5A2.5 2.5 0 1 0 6.5 10H9m0 0v5m0-5h6m0 0V7.5A2.5 2.5 0 1 1 17.5 10H15m0 0v5m0 0v1.5A2.5 2.5 0 1 0 17.5 14H15m0 0H9m0 0v1.5A2.5 2.5 0 1 1 6.5 14H9" />
   ),
   close: <path d="M6 6l12 12M18 6L6 18" />,
+  // Single chevron (points down; rotate via CSS for an expand/collapse caret).
+  chevron: <path d="M6 9l6 6 6-6" />,
+  // Expand-all — chevrons pointing apart.
+  unfoldMore: <path d="M8 9l4-4 4 4M8 15l4 4 4-4" />,
+  // Collapse-all — chevrons pointing together.
+  unfoldLess: <path d="M8 5l4 4 4-4M8 19l4-4 4 4" />,
 };
 
 export function Icon({

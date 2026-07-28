@@ -6,6 +6,7 @@ import {
   useState,
 } from "react";
 
+import { Icon } from "@/components/ui/Icon";
 import type { TranscriptSegment } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 import { useAssistStore, type AssistCard } from "@/state/assist";
@@ -14,6 +15,13 @@ import { useTranscriptStore } from "@/state/transcript";
 /** Stable identity for a transcript bubble (also the AI-card link key). */
 function segmentKey(seg: TranscriptSegment): string {
   return `${seg.side}-${seg.seq}`;
+}
+
+/** The stream a `sourceKey` points at ("inbound-3" → "inbound"). */
+function sideOfKey(key: string | null): "inbound" | "outbound" | null {
+  if (key?.startsWith("inbound")) return "inbound";
+  if (key?.startsWith("outbound")) return "outbound";
+  return null;
 }
 
 function formatMs(ms: number): string {
@@ -29,19 +37,62 @@ function researchPrompt(text: string): string {
   return `Research this statement from the conversation. Give concise, immediately useful context — key facts, definitions, and anything I should know or verify: "${text}"`;
 }
 
+/** The relationship a spine dot represents. */
+interface Link {
+  cardId: string;
+  sourceKey: string | null;
+}
+
+/** Which link is currently emphasized (clicked = inspected, else hovered). */
+interface Active {
+  cardId: string;
+  sourceKey: string | null;
+}
+
+/** A small caret that toggles a bubble/card between collapsed and expanded. */
+function CollapseToggle({
+  collapsed,
+  onToggle,
+  label,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
+      title={collapsed ? "Expand" : "Collapse"}
+      className="shrink-0 rounded text-fg-faint transition-colors hover:text-fg"
+    >
+      <Icon
+        name="chevron"
+        size={14}
+        className={`transition-transform ${collapsed ? "-rotate-90" : ""}`}
+      />
+    </button>
+  );
+}
+
 /** One SMS-style bubble: them left, you right. Final bubbles carry the ✦
- *  research action that sends this message to the AI (answer appears in the
- *  right column, linked back here). */
+ *  research action + a collapse caret. Collapsed → single-line preview. */
 function Bubble({
   segment,
   registerEl,
   highlighted,
+  collapsed,
+  onToggleCollapse,
   onResearch,
   busy,
 }: {
   segment: TranscriptSegment;
   registerEl: (key: string, el: HTMLElement | null) => void;
   highlighted: boolean;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   onResearch: (segment: TranscriptSegment) => void;
   busy: boolean;
 }) {
@@ -51,7 +102,6 @@ function Bubble({
     <div
       className={`group flex w-full items-end gap-1.5 ${inbound ? "justify-start" : "justify-end"}`}
     >
-      {/* Research affordance sits outside the bubble, on its outer edge. */}
       {!inbound && segment.is_final && (
         <ResearchButton
           onClick={() => onResearch(segment)}
@@ -70,7 +120,18 @@ function Bubble({
           highlighted ? "ring-2 ring-ai/70" : "",
         ].join(" ")}
       >
-        {segment.text}
+        <div className="flex items-start gap-2">
+          <span className={collapsed ? "line-clamp-1 flex-1" : "flex-1"}>
+            {segment.text}
+          </span>
+          {segment.is_final && (
+            <CollapseToggle
+              collapsed={collapsed}
+              onToggle={onToggleCollapse}
+              label={inbound ? "received message" : "sent message"}
+            />
+          )}
+        </div>
         <div className="mt-1 flex items-center gap-2 font-mono text-[10px] text-fg-faint">
           <span>{inbound ? "Them" : "You"}</span>
           <span>{formatMs(segment.start_ms)}</span>
@@ -112,26 +173,32 @@ function ResearchButton({
 
 const COLLAPSE_CHARS = 380;
 
-/** AI answer card. Long answers collapse so the column stays scannable —
- *  "Show more" expands in place. Hovering highlights the source bubble. */
+function cardLabel(card: AssistCard): string {
+  if (card.kind === "suggest_reply") return "Suggested reply";
+  if (card.kind === "summarize") return "Summary";
+  return card.sourceQuote ? "Research" : (card.question ?? "Question");
+}
+
+/** AI answer card. Collapsed → just the label + one-line preview. Expanded →
+ *  full text (very long answers still get an inner Show more). Hover/inspect
+ *  ties it to its source bubble via the spine. */
 function AiCard({
   card,
   registerEl,
+  highlighted,
+  collapsed,
+  onToggleCollapse,
   onHover,
 }: {
   card: AssistCard;
   registerEl: (id: string, el: HTMLElement | null) => void;
-  onHover: (key: string | null) => void;
+  highlighted: boolean;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  onHover: (active: Active | null) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const label =
-    card.kind === "suggest_reply"
-      ? "Suggested reply"
-      : card.kind === "summarize"
-        ? "Summary"
-        : card.sourceQuote
-          ? "Research"
-          : (card.question ?? "Question");
+  const label = cardLabel(card);
   const long = card.text.length > COLLAPSE_CHARS;
   const shown =
     long && !expanded ? `${card.text.slice(0, COLLAPSE_CHARS)}…` : card.text;
@@ -139,11 +206,14 @@ function AiCard({
   return (
     <div
       ref={(el) => registerEl(card.id, el)}
-      onMouseEnter={() => onHover(card.sourceKey)}
+      onMouseEnter={() => onHover({ cardId: card.id, sourceKey: card.sourceKey })}
       onMouseLeave={() => onHover(null)}
-      className="rounded-md border border-ai/25 bg-ai/5 px-3 py-2"
+      className={[
+        "rounded-md border bg-ai/5 px-3 py-2 transition-shadow",
+        highlighted ? "border-ai/70 ring-2 ring-ai/40" : "border-ai/25",
+      ].join(" ")}
     >
-      <div className="mb-1 flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-ai">
           {label}
         </span>
@@ -159,109 +229,200 @@ function AiCard({
         >
           Copy
         </button>
+        <CollapseToggle
+          collapsed={collapsed}
+          onToggle={onToggleCollapse}
+          label={`${label} answer`}
+        />
       </div>
-      {card.sourceQuote && (
-        <p className="mb-1 border-l-2 border-ai/40 pl-2 text-[11px] italic text-fg-muted">
-          “
-          {card.sourceQuote.length > 100
-            ? `${card.sourceQuote.slice(0, 100)}…`
-            : card.sourceQuote}
-          ”
+
+      {collapsed ? (
+        <p className="mt-1 line-clamp-1 text-xs text-fg-muted">
+          {card.error ?? card.text ?? "…"}
         </p>
-      )}
-      {card.error ? (
-        <p className="text-xs text-rec">{card.error}</p>
       ) : (
-        <p className="whitespace-pre-wrap text-sm leading-relaxed">
-          {shown || "…"}
-        </p>
-      )}
-      {long && (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="mt-1 text-[11px] font-semibold text-ai hover:underline"
-        >
-          {expanded ? "Show less" : "Show more"}
-        </button>
-      )}
-      {card.sources.length > 0 && (
-        <p className="mt-1.5 text-[11px] text-fg-faint">
-          sources:{" "}
-          {[...new Set(card.sources.map((s) => `${s.file_name} · ${s.location}`))]
-            .slice(0, 3)
-            .join("  ·  ")}
-        </p>
+        <>
+          {card.sourceQuote && (
+            <p className="mb-1 mt-1 border-l-2 border-ai/40 pl-2 text-[11px] italic text-fg-muted">
+              “
+              {card.sourceQuote.length > 100
+                ? `${card.sourceQuote.slice(0, 100)}…`
+                : card.sourceQuote}
+              ”
+            </p>
+          )}
+          {card.error ? (
+            <p className="mt-1 text-xs text-rec">{card.error}</p>
+          ) : (
+            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">
+              {shown || "…"}
+            </p>
+          )}
+          {long && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="mt-1 text-[11px] font-semibold text-ai hover:underline"
+            >
+              {expanded ? "Show less" : "Show more"}
+            </button>
+          )}
+          {card.sources.length > 0 && (
+            <p className="mt-1.5 text-[11px] text-fg-faint">
+              sources:{" "}
+              {[
+                ...new Set(
+                  card.sources.map((s) => `${s.file_name} · ${s.location}`),
+                ),
+              ]
+                .slice(0, 3)
+                .join("  ·  ")}
+            </p>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-interface Link {
-  cardId: string;
-  sourceKey: string;
+/**
+ * The relationship spine — the center panel. One clickable dot per AI entry,
+ * stacked in order down a hairline rail; the dot echoes the source bubble's
+ * side color (cyan/violet) or reads gold when the entry is derived from the
+ * whole conversation. Hovering a dot reveals a connector line to its source
+ * bubble; clicking brings the pair into context. The newest dot pings while
+ * the user is away inspecting an earlier moment.
+ */
+function Spine({
+  cards,
+  registerDot,
+  active,
+  onHover,
+  onInspect,
+  pingNewest,
+}: {
+  cards: AssistCard[];
+  registerDot: (id: string, el: HTMLElement | null) => void;
+  active: Active | null;
+  onHover: (active: Active | null) => void;
+  onInspect: (link: Link) => void;
+  pingNewest: boolean;
+}) {
+  return (
+    <div className="relative flex w-9 shrink-0 flex-col items-center">
+      {/* the rail */}
+      <div
+        className="absolute bottom-2 top-9 w-px bg-border"
+        aria-hidden
+      />
+      <div className="mt-9 flex flex-col items-center gap-3 pt-1">
+        {cards.map((card, i) => {
+          const side = sideOfKey(card.sourceKey);
+          const isActive = active?.cardId === card.id;
+          const dotColor =
+            side === "inbound"
+              ? "bg-inbound border-inbound"
+              : side === "outbound"
+                ? "bg-outbound border-outbound"
+                : "bg-transparent border-ai";
+          return (
+            <button
+              key={card.id}
+              type="button"
+              ref={(el) => registerDot(card.id, el)}
+              onMouseEnter={() =>
+                onHover({ cardId: card.id, sourceKey: card.sourceKey })
+              }
+              onMouseLeave={() => onHover(null)}
+              onClick={() =>
+                onInspect({ cardId: card.id, sourceKey: card.sourceKey })
+              }
+              aria-label={
+                card.sourceKey
+                  ? "Show the message this AI entry came from"
+                  : "Show this AI entry"
+              }
+              className="relative grid h-6 w-6 place-items-center rounded-full"
+            >
+              <span
+                className={[
+                  "h-2.5 w-2.5 rounded-full border transition-transform",
+                  dotColor,
+                  isActive ? "scale-150" : "",
+                  pingNewest && i === 0 && !isActive ? "spine-ping" : "",
+                ].join(" ")}
+              />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
-/** Connector lines from each AI card to the bubble it researched. Drawn in
- *  an overlay SVG; recomputed on scroll/resize/content changes. */
-function Connectors({
+/** Connector lines drawn on hover/inspect: source bubble → spine dot → card.
+ *  Only the active link is drawn, and only while its bubble is on-screen. */
+function Connector({
   container,
-  links,
+  active,
   bubbleEls,
+  dotEls,
   cardEls,
-  activeKey,
   tick,
 }: {
   container: HTMLElement | null;
-  links: Link[];
+  active: Active | null;
   bubbleEls: Map<string, HTMLElement>;
+  dotEls: Map<string, HTMLElement>;
   cardEls: Map<string, HTMLElement>;
-  activeKey: string | null;
   tick: number;
 }) {
-  const [paths, setPaths] = useState<
-    Array<{ d: string; active: boolean; key: string }>
-  >([]);
+  const [path, setPath] = useState<string | null>(null);
 
   useLayoutEffect(() => {
-    if (!container) return;
-    const base = container.getBoundingClientRect();
-    const next: Array<{ d: string; active: boolean; key: string }> = [];
-    for (const link of links) {
-      const bubble = bubbleEls.get(link.sourceKey);
-      const card = cardEls.get(link.cardId);
-      if (!bubble || !card) continue;
-      const b = bubble.getBoundingClientRect();
-      const c = card.getBoundingClientRect();
-      const x1 = b.right - base.left;
-      const y1 = b.top + b.height / 2 - base.top;
-      const x2 = c.left - base.left;
-      const y2 = c.top + c.height / 2 - base.top;
-      const mid = (x1 + x2) / 2;
-      next.push({
-        d: `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`,
-        active: activeKey === link.sourceKey,
-        key: `${link.cardId}-${link.sourceKey}`,
-      });
+    if (!container || !active) {
+      setPath(null);
+      return;
     }
-    setPaths(next);
-  }, [container, links, bubbleEls, cardEls, activeKey, tick]);
+    const base = container.getBoundingClientRect();
+    const dot = dotEls.get(active.cardId);
+    if (!dot) {
+      setPath(null);
+      return;
+    }
+    const d = dot.getBoundingClientRect();
+    const dx = d.left + d.width / 2 - base.left;
+    const dy = d.top + d.height / 2 - base.top;
 
+    let dPath = "";
+    // Left leg: dot → source bubble (only if the bubble is on-screen).
+    const bubble = active.sourceKey ? bubbleEls.get(active.sourceKey) : null;
+    if (bubble) {
+      const b = bubble.getBoundingClientRect();
+      const by = b.top + b.height / 2 - base.top;
+      // Skip if the bubble scrolled out of the visible area.
+      if (b.bottom > base.top && b.top < base.bottom) {
+        const bx = b.right - base.left;
+        const mid = (bx + dx) / 2;
+        dPath += `M ${bx} ${by} C ${mid} ${by}, ${mid} ${dy}, ${dx} ${dy} `;
+      }
+    }
+    // Right leg: dot → card.
+    const card = cardEls.get(active.cardId);
+    if (card) {
+      const c = card.getBoundingClientRect();
+      const cx = c.left - base.left;
+      const cy = c.top + c.height / 2 - base.top;
+      const mid = (dx + cx) / 2;
+      dPath += `M ${dx} ${dy} C ${mid} ${dy}, ${mid} ${cy}, ${cx} ${cy}`;
+    }
+    setPath(dPath || null);
+  }, [container, active, bubbleEls, dotEls, cardEls, tick]);
+
+  if (!path) return null;
   return (
-    <svg
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      aria-hidden
-    >
-      {paths.map((p) => (
-        <path
-          key={p.key}
-          d={p.d}
-          fill="none"
-          className={p.active ? "stroke-ai" : "stroke-ai/35"}
-          strokeWidth={p.active ? 2 : 1.25}
-          strokeDasharray={p.active ? "none" : "4 3"}
-        />
-      ))}
+    <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
+      <path d={path} fill="none" className="stroke-ai" strokeWidth={1.75} />
     </svg>
   );
 }
@@ -282,7 +443,15 @@ function useAutoScroll(dep: unknown) {
   return { ref, pinned, setPinned, onScroll };
 }
 
-/** Sidecar fallback: single merged feed that fits a 380 px strip. */
+/** Smoothly bring an element to the vertical center of its scroll container. */
+function centerInScroller(scroller: HTMLElement, el: HTMLElement) {
+  const s = scroller.getBoundingClientRect();
+  const e = el.getBoundingClientRect();
+  const delta = e.top - s.top - (scroller.clientHeight / 2 - e.height / 2);
+  scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: "smooth" });
+}
+
+/** Sidecar fallback: single merged feed that fits a 380 px strip (no spine). */
 function SidecarFeed({ segments }: { segments: TranscriptSegment[] }) {
   const merged = [...segments].sort((a, b) => a.start_ms - b.start_ms);
   const { ref, pinned, setPinned, onScroll } = useAutoScroll(
@@ -312,6 +481,8 @@ function SidecarFeed({ segments }: { segments: TranscriptSegment[] }) {
               segment={seg}
               registerEl={noop}
               highlighted={false}
+              collapsed={false}
+              onToggleCollapse={noop}
               busy={busy}
               onResearch={(s) =>
                 void request("question", researchPrompt(s.text), {
@@ -337,11 +508,13 @@ function SidecarFeed({ segments }: { segments: TranscriptSegment[] }) {
 }
 
 /**
- * Conversation workspace: left — the live conversation as SMS-style bubbles
- * (them left, you right) with a per-message ✦ research action; right — the
- * AI output column (research answers, suggested replies, summaries), long
- * answers collapsed. Connector lines tie each research answer back to its
- * bubble. Sidecar mode (U9) keeps the single merged feed.
+ * Conversation workspace: left — the live conversation as SMS-style bubbles;
+ * center — the relationship spine (a dot per AI entry, click to bring its
+ * source into context); right — the AI output column. Every bubble and card
+ * collapses; the header carries expand-all / collapse-all. Clicking a spine dot
+ * enters "inspect": both columns un-pin, the pair centers, live content keeps
+ * arriving below without yanking the view, and a "N new" pill offers the way
+ * back to the live edge. Sidecar mode (U9) keeps the single merged feed.
  */
 export function TranscriptView() {
   const liveSegments = useTranscriptStore((s) => s.segments);
@@ -354,24 +527,50 @@ export function TranscriptView() {
   const containerRef = useRef<HTMLDivElement>(null);
   const bubbleEls = useRef(new Map<string, HTMLElement>());
   const cardEls = useRef(new Map<string, HTMLElement>());
-  const [activeKey, setActiveKey] = useState<string | null>(null);
-  // Bumped on scroll/resize so connector geometry follows the content.
+  const dotEls = useRef(new Map<string, HTMLElement>());
+
+  // Hover previews a link; a click "inspects" (sticky) it. Inspected wins.
+  const [hover, setHover] = useState<Active | null>(null);
+  const [inspected, setInspected] = useState<Active | null>(null);
+  const active = inspected ?? hover;
+
+  // Collapsed bubble keys + card ids (they never collide).
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const isCollapsed = useCallback((k: string) => collapsed.has(k), [collapsed]);
+  const toggleCollapse = useCallback((k: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }, []);
+
+  // Bumped on scroll/resize/content/collapse so connector geometry follows.
   const [tick, setTick] = useState(0);
   const bump = useCallback(() => setTick((t) => t + 1), []);
 
-  // Archived material (earlier runs of the open conversation / a loaded
-  // conversation) renders above the live run, which is merged by time.
   const merged = [
     ...archived,
     ...[...liveSegments].sort((a, b) => a.start_ms - b.start_ms),
   ];
   const convo = useAutoScroll(merged[merged.length - 1]);
-  const aiCol = useAutoScroll(null);
+  const aiCol = useAutoScroll(cards[0]?.id);
 
   useEffect(() => {
     window.addEventListener("resize", bump);
     return () => window.removeEventListener("resize", bump);
   }, [bump]);
+
+  // "N new" tracking for the conversation column: freeze a baseline whenever
+  // we're pinned to the live edge; the delta while un-pinned is what's new.
+  const convoBaseline = useRef(merged.length);
+  useEffect(() => {
+    if (convo.pinned) convoBaseline.current = merged.length;
+  }, [convo.pinned, merged.length]);
+  const newCount = convo.pinned
+    ? 0
+    : Math.max(0, merged.length - convoBaseline.current);
 
   const registerBubble = useCallback((key: string, el: HTMLElement | null) => {
     if (el) bubbleEls.current.set(key, el);
@@ -381,28 +580,87 @@ export function TranscriptView() {
     if (el) cardEls.current.set(id, el);
     else cardEls.current.delete(id);
   }, []);
+  const registerDot = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) dotEls.current.set(id, el);
+    else dotEls.current.delete(id);
+  }, []);
+
+  // Bring a link's pair into context: un-pin both columns and center each.
+  const inspect = useCallback(
+    (link: Link) => {
+      setInspected({ cardId: link.cardId, sourceKey: link.sourceKey });
+      convo.setPinned(false);
+      aiCol.setPinned(false);
+      requestAnimationFrame(() => {
+        const cardEl = cardEls.current.get(link.cardId);
+        if (cardEl && aiCol.ref.current)
+          centerInScroller(aiCol.ref.current, cardEl);
+        if (link.sourceKey) {
+          const b = bubbleEls.current.get(link.sourceKey);
+          if (b && convo.ref.current) centerInScroller(convo.ref.current, b);
+        }
+        bump();
+      });
+    },
+    [aiCol, convo, bump],
+  );
+
+  const jumpToLive = useCallback(() => {
+    setInspected(null);
+    convo.setPinned(true);
+    aiCol.setPinned(true);
+    if (convo.ref.current)
+      convo.ref.current.scrollTop = convo.ref.current.scrollHeight;
+    if (aiCol.ref.current)
+      aiCol.ref.current.scrollTop = aiCol.ref.current.scrollHeight;
+  }, [convo, aiCol]);
+
+  const research = useCallback(
+    (seg: TranscriptSegment) =>
+      void request("question", researchPrompt(seg.text), {
+        key: segmentKey(seg),
+        quote: seg.text,
+      }),
+    [request],
+  );
+
+  const allKeys = [...merged.map(segmentKey), ...cards.map((c) => c.id)];
+  const collapseAll = () => setCollapsed(new Set(allKeys));
+  const expandAll = () => setCollapsed(new Set());
 
   if (sidecar) {
     return <SidecarFeed segments={merged} />;
   }
 
-  const links: Link[] = cards
-    .filter((c): c is AssistCard & { sourceKey: string } => !!c.sourceKey)
-    .map((c) => ({ cardId: c.id, sourceKey: c.sourceKey }));
-
-  const research = (seg: TranscriptSegment) =>
-    void request("question", researchPrompt(seg.text), {
-      key: segmentKey(seg),
-      quote: seg.text,
-    });
-
   return (
     <main ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1">
       {/* Conversation — left */}
       <section className="relative flex min-w-0 flex-[3] flex-col">
-        <h2 className="shrink-0 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-fg-muted">
-          Conversation
-        </h2>
+        <div className="flex shrink-0 items-center gap-2 px-4 py-2">
+          <h2 className="text-xs font-semibold uppercase tracking-widest text-fg-muted">
+            Conversation
+          </h2>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={expandAll}
+              title="Expand all"
+              aria-label="Expand all messages"
+              className="rounded p-1 text-fg-faint hover:text-fg"
+            >
+              <Icon name="unfoldMore" size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={collapseAll}
+              title="Collapse all"
+              aria-label="Collapse all messages"
+              className="rounded p-1 text-fg-faint hover:text-fg"
+            >
+              <Icon name="unfoldLess" size={16} />
+            </button>
+          </div>
+        </div>
         <div
           ref={convo.ref}
           onScroll={() => {
@@ -420,30 +678,43 @@ export function TranscriptView() {
               right. Hover a message and press ✦ to have AI research it.
             </p>
           ) : (
-            merged.map((seg) => (
-              <Bubble
-                key={segmentKey(seg)}
-                segment={seg}
-                registerEl={registerBubble}
-                highlighted={activeKey === segmentKey(seg)}
-                onResearch={research}
-                busy={busy}
-              />
-            ))
+            merged.map((seg) => {
+              const key = segmentKey(seg);
+              return (
+                <Bubble
+                  key={key}
+                  segment={seg}
+                  registerEl={registerBubble}
+                  highlighted={active?.sourceKey === key}
+                  collapsed={isCollapsed(key)}
+                  onToggleCollapse={() => toggleCollapse(key)}
+                  onResearch={research}
+                  busy={busy}
+                />
+              );
+            })
           )}
         </div>
         {!convo.pinned && (
           <button
             type="button"
-            onClick={() => convo.setPinned(true)}
+            onClick={jumpToLive}
             className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-border bg-panel px-3 py-1 text-[11px] text-fg-muted shadow hover:text-fg"
           >
-            ↓ Jump to live
+            {newCount > 0 ? `↓ ${newCount} new` : "↓ Jump to live"}
           </button>
         )}
       </section>
 
-      <div className="w-px shrink-0 bg-border" aria-hidden />
+      {/* Relationship spine — center */}
+      <Spine
+        cards={cards}
+        registerDot={registerDot}
+        active={active}
+        onHover={setHover}
+        onInspect={inspect}
+        pingNewest={!aiCol.pinned}
+      />
 
       {/* AI output — right */}
       <section className="flex min-w-0 flex-[2] flex-col">
@@ -470,19 +741,22 @@ export function TranscriptView() {
                 key={card.id}
                 card={card}
                 registerEl={registerCard}
-                onHover={setActiveKey}
+                highlighted={active?.cardId === card.id}
+                collapsed={isCollapsed(card.id)}
+                onToggleCollapse={() => toggleCollapse(card.id)}
+                onHover={setHover}
               />
             ))
           )}
         </div>
       </section>
 
-      <Connectors
+      <Connector
         container={containerRef.current}
-        links={links}
+        active={active}
         bubbleEls={bubbleEls.current}
+        dotEls={dotEls.current}
         cardEls={cardEls.current}
-        activeKey={activeKey}
         tick={tick + cards.length + merged.length}
       />
     </main>

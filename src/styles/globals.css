@@ -451,6 +451,23 @@ body {
   animation: conva-sweep 1s linear infinite;
 }
 
+/* Relationship spine: a new AI entry's dot pings once-ish while the user is
+   away inspecting an earlier moment, so live activity is felt, not forced. */
+@keyframes conva-ping {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-ai) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.spine-ping {
+  animation: conva-ping 1.8s var(--ease-out) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .core-sweep,
   .core-orbit,
@@ -460,7 +477,8 @@ body {
   .segment-final,
   .animate-rise,
   .animate-fade,
-  .pulse-ring {
+  .pulse-ring,
+  .spine-ping {
     transition: none;
     animation: none;
   }
