@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "tauri:gpu": "tauri dev --features gpu-vulkan",
     "tauri:gpu:cuda": "tauri dev --features gpu-cuda",
+    "tauri:gpu:metal": "tauri dev --features gpu-metal",
     "tauri:build:gpu": "tauri build --features gpu-vulkan"
   },
   "dependencies": {

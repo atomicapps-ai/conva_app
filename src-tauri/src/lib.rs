@@ -456,6 +456,22 @@ async fn auth_signout(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?
 }
 
+// -------------------------------------------------------------- Diagnostics
+
+/// Write a debug report to `<app-config>/conva-debug.log` and return its path.
+/// Backs the StatusBar "debug" action so users can share diagnostics as a file.
+#[tauri::command]
+fn save_debug_log(app: AppHandle, contents: String) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("no app config dir: {e}"))?;
+    let _ = fs::create_dir_all(&dir);
+    let path = dir.join("conva-debug.log");
+    fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
+}
+
 // ------------------------------------------------------------ Conversations
 
 /// Create or update a named conversation (Stop → "save this conversation?").
@@ -725,6 +741,7 @@ pub fn run() {
             auth_start,
             auth_status,
             auth_signout,
+            save_debug_log,
             session_list,
             session_load,
             export_transcript,

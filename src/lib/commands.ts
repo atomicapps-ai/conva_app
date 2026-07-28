@@ -177,6 +177,11 @@ export function authSignout(): Promise<void> {
   return invoke("auth_signout");
 }
 
+/** Write a diagnostics report to a log file; resolves to the saved path. */
+export function saveDebugLog(contents: string): Promise<string> {
+  return invoke<string>("save_debug_log", { contents });
+}
+
 /**
  * Create or update a named conversation. Passing an existing `id` replaces
  * the stored record with this (fuller) transcript — append semantics.

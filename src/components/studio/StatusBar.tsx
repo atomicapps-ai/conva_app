@@ -1,3 +1,5 @@
+import { saveDebugLog } from "@/lib/commands";
+import { BUILD, collectDebugReport } from "@/lib/debug";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 import { useConversationStore } from "@/state/conversation";
@@ -10,6 +12,28 @@ import { useConversationStore } from "@/state/conversation";
  */
 function Sep() {
   return <span className="h-3 w-px bg-border" aria-hidden />;
+}
+
+/** Copy a diagnostics snapshot to the clipboard and, in the app, write it to a
+ *  log file too — so "it didn't work" comes with real, shareable data. */
+async function dumpDebug() {
+  const report = collectDebugReport();
+  try {
+    await navigator.clipboard.writeText(report);
+  } catch {
+    /* clipboard may be blocked; the file write below is the fallback */
+  }
+  if (isTauri()) {
+    try {
+      const path = await saveDebugLog(report);
+      window.alert(`Debug report copied to clipboard and saved to:\n${path}`);
+      return;
+    } catch (e) {
+      window.alert(`Debug report copied. (Saving a file failed: ${String(e)})`);
+      return;
+    }
+  }
+  window.alert("Debug report copied to clipboard.");
 }
 
 export function StatusBar() {
@@ -57,9 +81,17 @@ export function StatusBar() {
         </>
       )}
 
-      {/* Right side reserved for the latency HUD + credits/account once wired. */}
+      {/* Right side: build stamp + one-click diagnostics. */}
       <span className="ml-auto" />
       {!isTauri() && <span className="text-fg-faint">preview</span>}
+      <button
+        type="button"
+        onClick={() => void dumpDebug()}
+        title="Copy a diagnostics snapshot (and save a log file) for sharing"
+        className="rounded px-1.5 py-0.5 font-mono text-[10px] text-fg-faint transition hover:bg-white/[0.06] hover:text-fg"
+      >
+        build {BUILD.sha} · debug ⧉
+      </button>
     </footer>
   );
 }
