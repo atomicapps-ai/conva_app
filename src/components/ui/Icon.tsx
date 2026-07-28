@@ -22,7 +22,9 @@ export type IconName =
   | "close"
   | "chevron"
   | "unfoldMore"
-  | "unfoldLess";
+  | "unfoldLess"
+  | "mic"
+  | "system";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -86,6 +88,15 @@ const PATHS: Record<IconName, ReactNode> = {
   unfoldMore: <path d="M8 9l4-4 4 4M8 15l4 4 4-4" />,
   // Collapse-all — chevrons pointing together.
   unfoldLess: <path d="M8 5l4 4 4-4M8 19l4-4 4 4" />,
+  // Microphone — the "you" stream.
+  mic: (
+    <>
+      <path d="M12 4a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V7a3 3 0 0 1 3-3z" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </>
+  ),
+  // System audio bars — the "them" stream.
+  system: <path d="M5 9v6M9 5v14M15 7v10M19 10v4" />,
 };
 
 export function Icon({
