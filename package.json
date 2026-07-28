@@ -1,7 +1,7 @@
 {
   "name": "conva",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,10 +15,12 @@
     "tauri:build:gpu": "tauri build --features gpu-vulkan"
   },
   "dependencies": {
+    "@imagemagick/magick-wasm": "^0.0.41",
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
+    "magick": "^0.0.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "zustand": "^5.0.8"
@@ -34,6 +36,7 @@
     "vite": "^7.2.7"
   },
   "allowScripts": {
-    "esbuild@0.28.1": true
+    "esbuild@0.28.1": true,
+    "magick@0.0.1": true
   }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import mark from "@/assets/brand/conva-mark-white.svg";
+import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { authStatus } from "@/lib/commands";
 import { isTauri, type AuthStatus } from "@/lib/ipc";
