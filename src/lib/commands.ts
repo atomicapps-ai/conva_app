@@ -167,6 +167,23 @@ export function authStart(provider?: string): Promise<AuthStatus> {
   return invoke<AuthStatus>("auth_start", { provider: provider ?? null });
 }
 
+/** Sign in with email + password (same account as Google / the website). */
+export function authSigninPassword(
+  email: string,
+  password: string,
+): Promise<AuthStatus> {
+  return invoke<AuthStatus>("auth_signin_password", { email, password });
+}
+
+/** Create an account with email + password. Rejects with
+ *  `email_confirmation_required` when the email must be confirmed first. */
+export function authSignupPassword(
+  email: string,
+  password: string,
+): Promise<AuthStatus> {
+  return invoke<AuthStatus>("auth_signup_password", { email, password });
+}
+
 /** Current signed-in snapshot ("signed in as…"), read offline. */
 export function authStatus(): Promise<AuthStatus> {
   return invoke<AuthStatus>("auth_status");

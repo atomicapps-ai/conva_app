@@ -218,6 +218,28 @@ fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String,
 
 // ------------------------------------------------------------- token exchange
 
+/// Turn a `ureq` failure into a human-readable message. On an HTTP error status
+/// Supabase returns a JSON body (`error_description` / `msg` / `message`); pull
+/// that out so the UI can show "Invalid login credentials" rather than "400".
+fn friendly_err(e: ureq::Error) -> String {
+    match e {
+        ureq::Error::Status(code, resp) => {
+            let body = resp.into_string().unwrap_or_default();
+            serde_json::from_str::<serde_json::Value>(&body)
+                .ok()
+                .and_then(|v| {
+                    v.get("error_description")
+                        .or_else(|| v.get("msg"))
+                        .or_else(|| v.get("message"))
+                        .and_then(|m| m.as_str().map(str::to_string))
+                })
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| format!("request failed ({code})"))
+        }
+        ureq::Error::Transport(t) => t.to_string(),
+    }
+}
+
 fn exchange_code(
     base: &str,
     key: &str,
@@ -297,6 +319,56 @@ pub fn sign_in(provider: &str, auth_dir: &Path) -> Result<AuthStatus, String> {
     let tokens = exchange_code(&base, &key, &code, &verifier)?;
     persist(&tokens, auth_dir)?;
     Ok(status(auth_dir))
+}
+
+/// Sign in with an email + password (Supabase `grant_type=password`). Blocking —
+/// call from `spawn_blocking`. The account is the *same* identity used for
+/// Google / the website, so a user who signed up either way can sign in here.
+pub fn sign_in_password(email: &str, password: &str, auth_dir: &Path) -> Result<AuthStatus, String> {
+    let base = supabase_url();
+    let key = anon_key();
+    if key.is_empty() {
+        return Err("supabase_not_configured".to_string());
+    }
+    let url = format!("{base}/auth/v1/token?grant_type=password");
+    let tokens = ureq::post(&url)
+        .set("apikey", &key)
+        .set("Content-Type", "application/json")
+        .send_json(serde_json::json!({ "email": email, "password": password }))
+        .map_err(friendly_err)?
+        .into_json::<TokenResponse>()
+        .map_err(|e| e.to_string())?;
+    persist(&tokens, auth_dir)?;
+    Ok(status(auth_dir))
+}
+
+/// Create an account with an email + password (Supabase `/signup`). If the
+/// project requires email confirmation, no session is returned yet — surface
+/// `email_confirmation_required` so the UI can tell the user to confirm, then
+/// sign in. Blocking — call from `spawn_blocking`.
+pub fn sign_up_password(email: &str, password: &str, auth_dir: &Path) -> Result<AuthStatus, String> {
+    let base = supabase_url();
+    let key = anon_key();
+    if key.is_empty() {
+        return Err("supabase_not_configured".to_string());
+    }
+    let url = format!("{base}/auth/v1/signup");
+    let val: serde_json::Value = ureq::post(&url)
+        .set("apikey", &key)
+        .set("Content-Type", "application/json")
+        .send_json(serde_json::json!({ "email": email, "password": password }))
+        .map_err(friendly_err)?
+        .into_json()
+        .map_err(|e| e.to_string())?;
+
+    // A session (access_token) is present only when email confirmation is off.
+    if val.get("access_token").and_then(|v| v.as_str()).is_some() {
+        let tokens: TokenResponse = serde_json::from_value(val).map_err(|e| e.to_string())?;
+        persist(&tokens, auth_dir)?;
+        Ok(status(auth_dir))
+    } else {
+        Err("email_confirmation_required".to_string())
+    }
 }
 
 /// Renew the access/refresh pair from the stored refresh token. Wired into the

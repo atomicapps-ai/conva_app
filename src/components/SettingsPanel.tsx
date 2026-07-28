@@ -3,7 +3,9 @@ import { useCallback, useEffect, useState } from "react";
 import { AllySettings } from "@/components/AllySettings";
 import { Notice, Section, ViewShell } from "@/components/studio/ViewShell";
 import {
+  authSigninPassword,
   authSignout,
+  authSignupPassword,
   authStart,
   authStatus,
   deepgramKeyStatus,
@@ -405,10 +407,45 @@ function SecretsSettings() {
 /** Account sign-in (M0). OAuth via Supabase — identity only; audio,
  *  transcripts, and the library never leave the device. Tokens live in the OS
  *  keyring; the browser handles Google, so we never see IdP credentials. */
+/** Official multi-colour Google "G". Rendered at the size Google's branding
+ *  guidelines expect inside a sign-in button. */
+function GoogleG({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 48 48"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <path
+        fill="#4285F4"
+        d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M11.69 28.18C11.25 26.86 11 25.45 11 24s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24s.85 6.91 2.34 9.88l7.35-5.7z"
+      />
+      <path
+        fill="#EA4335"
+        d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"
+      />
+    </svg>
+  );
+}
+
 function AccountSettings() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   const refresh = useCallback(() => {
     if (!isTauri()) return;
@@ -421,9 +458,10 @@ function AccountSettings() {
     refresh();
   }, [refresh]);
 
-  const signIn = async () => {
+  const signInGoogle = async () => {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       setStatus(await authStart("google"));
     } catch (e) {
@@ -433,9 +471,37 @@ function AccountSettings() {
     }
   };
 
+  const submitPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      if (mode === "signup") {
+        setStatus(await authSignupPassword(email.trim(), password));
+      } else {
+        setStatus(await authSigninPassword(email.trim(), password));
+      }
+      setPassword("");
+    } catch (err) {
+      const msg = String(err);
+      if (msg.includes("email_confirmation_required")) {
+        setNotice("Account created. Check your email to confirm, then sign in.");
+        setMode("signin");
+        setPassword("");
+      } else {
+        setError(msg.replace(/^Error:\s*/, ""));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const signOut = async () => {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       await authSignout();
       refresh();
@@ -475,26 +541,84 @@ function AccountSettings() {
   }
 
   return (
-    <div className="flex items-center gap-3">
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] leading-relaxed text-fg-faint">
-          Sign in to sync your preferences and manage your plan. Your audio,
-          transcripts, and reference library stay on this device.
-        </p>
-        {error && (
-          <p className="mt-1 text-[11px] text-fg-muted" role="status">
-            {error}
-          </p>
-        )}
-      </div>
+    <div className="flex flex-col gap-3">
+      <p className="text-[11px] leading-relaxed text-fg-faint">
+        Sign in to sync your preferences and manage your plan — the same account
+        works on the website. Your audio, transcripts, and reference library stay
+        on this device.
+      </p>
+
+      {/* Branded Google sign-in button (Google guidelines: white surface, the
+          multi-colour G, "Sign in with Google"). */}
       <button
         type="button"
         disabled={busy}
-        onClick={() => void signIn()}
-        className="btn shrink-0"
+        onClick={() => void signInGoogle()}
+        className="flex h-10 w-full items-center justify-center gap-2.5 rounded-lg border border-[#dadce0] bg-white px-4 text-sm font-medium text-[#3c4043] shadow-sm transition hover:bg-[#f8f9fa] disabled:opacity-60 dark:border-[#5f6368] dark:bg-[#131314] dark:text-[#e3e3e3] dark:hover:bg-[#1e1f20]"
       >
+        <GoogleG size={18} />
         {busy ? "Opening browser…" : "Sign in with Google"}
       </button>
+
+      <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-fg-faint">
+        <span className="h-px flex-1 bg-border" />
+        or
+        <span className="h-px flex-1 bg-border" />
+      </div>
+
+      <form onSubmit={submitPassword} className="flex flex-col gap-2">
+        <input
+          type="email"
+          autoComplete="email"
+          required
+          placeholder="you@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="input"
+        />
+        <input
+          type="password"
+          autoComplete={mode === "signup" ? "new-password" : "current-password"}
+          required
+          minLength={6}
+          placeholder={mode === "signup" ? "Create a password (6+ chars)" : "Password"}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="input"
+        />
+        <button type="submit" disabled={busy} className="btn btn-primary">
+          {busy
+            ? "…"
+            : mode === "signup"
+              ? "Create account"
+              : "Sign in with email"}
+        </button>
+      </form>
+
+      <button
+        type="button"
+        onClick={() => {
+          setMode((m) => (m === "signin" ? "signup" : "signin"));
+          setError(null);
+          setNotice(null);
+        }}
+        className="self-start text-[11px] text-ai hover:underline"
+      >
+        {mode === "signin"
+          ? "New to conva? Create an account"
+          : "Already have an account? Sign in"}
+      </button>
+
+      {notice && (
+        <p className="text-[11px] text-ai" role="status">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p className="text-[11px] text-rec" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

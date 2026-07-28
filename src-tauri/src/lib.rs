@@ -441,6 +441,38 @@ async fn auth_start(app: AppHandle, provider: Option<String>) -> Result<auth::Au
         .map_err(|e| e.to_string())?
 }
 
+/// Sign in with an email + password (Supabase). Same identity as Google / the
+/// website. Runs the blocking HTTP off the UI thread.
+#[tauri::command]
+async fn auth_signin_password(
+    app: AppHandle,
+    email: String,
+    password: String,
+) -> Result<auth::AuthStatus, String> {
+    let dir = auth_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        auth::sign_in_password(email.trim(), &password, &dir)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Create an account with an email + password (Supabase). Errors with
+/// `email_confirmation_required` when the project needs an email confirmation.
+#[tauri::command]
+async fn auth_signup_password(
+    app: AppHandle,
+    email: String,
+    password: String,
+) -> Result<auth::AuthStatus, String> {
+    let dir = auth_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        auth::sign_up_password(email.trim(), &password, &dir)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Non-secret, offline snapshot of the current session ("signed in as…").
 #[tauri::command]
 fn auth_status(app: AppHandle) -> Result<auth::AuthStatus, String> {
@@ -739,6 +771,8 @@ pub fn run() {
             secrets_export,
             secrets_import,
             auth_start,
+            auth_signin_password,
+            auth_signup_password,
             auth_status,
             auth_signout,
             save_debug_log,
