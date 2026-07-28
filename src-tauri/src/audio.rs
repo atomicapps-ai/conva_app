@@ -195,6 +195,12 @@ fn open_stream(
     let channels = config.channels() as usize;
     let sample_rate = config.sample_rate().0;
     let sample_format = config.sample_format();
+    // Diagnostics: prove which device actually opened and in what format —
+    // the fastest way to tell "no signal" apart from "wrong/silent device".
+    eprintln!(
+        "[audio] {side:?} opened device='{}' {sample_rate}Hz {channels}ch {sample_format:?}",
+        device.name().unwrap_or_else(|_| "<unknown>".into())
+    );
     let stream_config: cpal::StreamConfig = config.into();
 
     let (producer, consumer) = RingBuffer::<f32>::new(RING_CAPACITY);
@@ -274,6 +280,10 @@ fn worker_main(
 
     let mut interleaved = Vec::new();
     let mut mono = Vec::new();
+    // Diagnostics: count delivered frames and periodically report peak level so
+    // "no transcription" can be split into no-frames (capture dead / device
+    // wrong) vs silent-frames (mic muted or blocked by Windows privacy).
+    let mut frame_count: u64 = 0;
 
     loop {
         match ctrl_rx.recv_timeout(DRAIN_INTERVAL) {
@@ -323,6 +333,17 @@ fn worker_main(
                 stream.resampler.process(&mono, &mut samples);
                 if samples.is_empty() {
                     continue;
+                }
+
+                // Log the first frame immediately, then ~every 2 s (20 drains
+                // at the 100 ms interval). peak≈0 across seconds ⇒ silent input.
+                frame_count += 1;
+                if frame_count == 1 || frame_count.is_multiple_of(20) {
+                    let peak = samples.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+                    eprintln!(
+                        "[audio] {side:?} frame #{frame_count}: {} samples, peak={peak:.4}",
+                        samples.len()
+                    );
                 }
 
                 sink(AudioFrame {
