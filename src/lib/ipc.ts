@@ -104,6 +104,16 @@ export interface SecretsStatus {
   passphrase_env: string;
 }
 
+/** Mirror of the shell's AuthStatus (account sign-in via Supabase OAuth). */
+export interface AuthStatus {
+  signed_in: boolean;
+  email: string | null;
+  user_id: string | null;
+  expires_at_unix: number | null;
+  /** False when no Supabase anon key is configured — sign-in unavailable. */
+  configured: boolean;
+}
+
 export interface ScoredChunk {
   document_id: string;
   file_name: string;

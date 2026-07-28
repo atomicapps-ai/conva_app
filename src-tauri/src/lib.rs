@@ -7,6 +7,7 @@
 mod asr;
 mod asr_deepgram;
 mod audio;
+mod auth;
 mod conversations;
 mod embed;
 mod llm;
@@ -416,6 +417,45 @@ async fn secrets_import(src: Option<String>, overwrite: bool) -> Result<String, 
     .map_err(|e| e.to_string())?
 }
 
+// -------------------------------------------------------------- Account auth
+
+/// App-data dir that holds the non-secret `auth.json` session snapshot (tokens
+/// themselves live in the OS keyring, never here).
+fn auth_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("no app config dir: {e}"))?;
+    let _ = fs::create_dir_all(&dir);
+    Ok(dir)
+}
+
+/// Begin interactive OAuth sign-in (PKCE + loopback). Opens the system browser
+/// and blocks on the redirect off the UI thread. `provider` defaults to google.
+#[tauri::command]
+async fn auth_start(app: AppHandle, provider: Option<String>) -> Result<auth::AuthStatus, String> {
+    let dir = auth_dir(&app)?;
+    let provider = provider.unwrap_or_else(|| "google".to_string());
+    tauri::async_runtime::spawn_blocking(move || auth::sign_in(&provider, &dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Non-secret, offline snapshot of the current session ("signed in as…").
+#[tauri::command]
+fn auth_status(app: AppHandle) -> Result<auth::AuthStatus, String> {
+    Ok(auth::status(&auth_dir(&app)?))
+}
+
+/// Revoke server-side (best-effort) and clear local tokens + metadata.
+#[tauri::command]
+async fn auth_signout(app: AppHandle) -> Result<(), String> {
+    let dir = auth_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || auth::sign_out(&dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 // ------------------------------------------------------------ Conversations
 
 /// Create or update a named conversation (Stop → "save this conversation?").
@@ -682,6 +722,9 @@ pub fn run() {
             secrets_status,
             secrets_export,
             secrets_import,
+            auth_start,
+            auth_status,
+            auth_signout,
             session_list,
             session_load,
             export_transcript,

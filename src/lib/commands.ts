@@ -9,6 +9,7 @@ import type {
   AppConfig,
   AllyKind,
   AudioDevice,
+  AuthStatus,
   Conversation,
   ConversationSummary,
   IngestReport,
@@ -159,6 +160,21 @@ export function secretsImport(
   overwrite = false,
 ): Promise<string> {
   return invoke<string>("secrets_import", { src: src ?? null, overwrite });
+}
+
+/** Begin OAuth sign-in (opens the system browser; resolves when complete). */
+export function authStart(provider?: string): Promise<AuthStatus> {
+  return invoke<AuthStatus>("auth_start", { provider: provider ?? null });
+}
+
+/** Current signed-in snapshot ("signed in as…"), read offline. */
+export function authStatus(): Promise<AuthStatus> {
+  return invoke<AuthStatus>("auth_status");
+}
+
+/** Sign out: revoke server-side (best-effort) and clear local tokens. */
+export function authSignout(): Promise<void> {
+  return invoke("auth_signout");
 }
 
 /**

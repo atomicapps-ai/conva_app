@@ -52,6 +52,13 @@ keyring = { version = "3", features = [
 # travels to another machine. cocoon = PBKDF2 + ChaCha20-Poly1305, salt+nonce
 # handled internally.
 cocoon = "0.4"
+# Account sign-in (OAuth via Supabase, PKCE + loopback — src/auth.rs). PKCE
+# needs a SHA-256 challenge + base64url; state/verifier need OS randomness;
+# the authorize URL needs percent-encoding. All tiny, pure-Rust.
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+urlencoding = "2"
 # RAG ingestion (design §4.4 R1): PDF text extraction (pure Rust) and DOCX
 # (a zip of XML — we unzip and strip tags ourselves).
 pdf-extract = "0.7"
