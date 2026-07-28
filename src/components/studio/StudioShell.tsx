@@ -1,9 +1,7 @@
 import { useEffect } from "react";
 
-import { AllyDock } from "@/components/AllyDock";
 import { ConsentGate } from "@/components/ConsentGate";
 import { ConversationsPanel } from "@/components/ConversationsPanel";
-import { HealthStrip } from "@/components/HealthStrip";
 import { PreparingOverlay } from "@/components/PreparingOverlay";
 import { RagPanel } from "@/components/RagPanel";
 import { SaveConversationDialog } from "@/components/SaveConversationDialog";
@@ -12,23 +10,14 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { CommandPalette } from "@/components/studio/CommandPalette";
 import { NavRail } from "@/components/studio/NavRail";
 import { TopBar } from "@/components/studio/TopBar";
-import { TrackerRail } from "@/components/TrackerRail";
 import { TranscriptView } from "@/components/transcript/TranscriptView";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { useNavStore } from "@/state/nav";
 
-/** The live cockpit: dual-column transcript + tracker rail, Ally dock, meters. */
+/** The live cockpit is the whole three-column instrument (transcript · spine ·
+ *  Ally). Meters live in the top bar; Ally actions live in the Ally column. */
 function LiveView() {
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex min-h-0 flex-1">
-        <TranscriptView />
-        <TrackerRail />
-      </div>
-      <AllyDock />
-      <HealthStrip />
-    </div>
-  );
+  return <TranscriptView />;
 }
 
 /**

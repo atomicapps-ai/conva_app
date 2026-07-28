@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -17,40 +18,33 @@ function segmentKey(seg: TranscriptSegment): string {
   return `${seg.side}-${seg.seq}`;
 }
 
-/** The stream a `sourceKey` points at ("inbound-3" → "inbound"). */
-function sideOfKey(key: string | null): "inbound" | "outbound" | null {
-  if (key?.startsWith("inbound")) return "inbound";
-  if (key?.startsWith("outbound")) return "outbound";
-  return null;
-}
-
 function formatMs(ms: number): string {
   const total = Math.floor(ms / 1000);
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
 function researchPrompt(text: string): string {
   return `Research this statement from the conversation. Give concise, immediately useful context — key facts, definitions, and anything I should know or verify: "${text}"`;
 }
 
-/** The relationship a spine dot represents. */
-interface Link {
-  cardId: string;
-  sourceKey: string | null;
+function cardLabel(card: AllyCard): string {
+  if (card.kind === "suggest_reply") return "Suggested reply";
+  if (card.kind === "summarize") return "Summary";
+  return card.sourceQuote ? "Research" : "Answer";
 }
 
-/** Which link is currently emphasized (clicked = inspected, else hovered). */
+/** Which link is emphasized (clicked = inspected, else hovered). */
 interface Active {
   cardId: string;
   sourceKey: string | null;
 }
 
-/** A small caret that toggles a bubble/card between collapsed and expanded. */
-function CollapseToggle({
+/** A caret that toggles a bubble/card between collapsed and expanded. */
+function Caret({
   collapsed,
   onToggle,
   label,
@@ -77,8 +71,8 @@ function CollapseToggle({
   );
 }
 
-/** One SMS-style bubble: them left, you right. Final bubbles carry the ✦
- *  research action + a collapse caret. Collapsed → single-line preview. */
+/** One transcript turn: them = cyan left, you = violet right, with a 4px corner
+ *  on the speaker's side, a label row, collapse, and an action row on finals. */
 function Bubble({
   segment,
   registerEl,
@@ -86,6 +80,8 @@ function Bubble({
   collapsed,
   onToggleCollapse,
   onResearch,
+  linkedSeq,
+  onJumpLink,
   busy,
 }: {
   segment: TranscriptSegment;
@@ -93,95 +89,104 @@ function Bubble({
   highlighted: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onResearch: (segment: TranscriptSegment) => void;
+  onResearch: () => void;
+  linkedSeq: number | null;
+  onJumpLink: () => void;
   busy: boolean;
 }) {
   const inbound = segment.side === "inbound";
   const key = segmentKey(segment);
+  const final = segment.is_final;
+  const name = inbound ? "Them" : "You";
+
+  const label = (
+    <div
+      className={`flex items-center gap-2 ${inbound ? "" : "flex-row-reverse"}`}
+    >
+      <span
+        className={`text-[10px] font-bold uppercase tracking-[0.2em] ${inbound ? "text-inbound" : "text-[var(--voice-you-text)]"}`}
+      >
+        {name}
+      </span>
+      <span className="font-mono text-[11px] text-fg-faint">
+        {final ? formatMs(segment.start_ms) : "now"}
+      </span>
+    </div>
+  );
+
   return (
     <div
-      className={`group flex w-full items-end gap-1.5 ${inbound ? "justify-start" : "justify-end"}`}
+      ref={(el) => registerEl(key, el)}
+      className={`flex max-w-[88%] flex-col gap-1.5 ${inbound ? "items-start self-start" : "items-end self-end"}`}
     >
-      {!inbound && segment.is_final && (
-        <ResearchButton
-          onClick={() => onResearch(segment)}
-          busy={busy}
-          side="outbound"
-        />
-      )}
+      {label}
       <div
-        ref={(el) => registerEl(key, el)}
         className={[
-          "max-w-[78%] rounded-2xl border px-3 py-2 text-sm leading-relaxed",
-          segment.is_final ? "segment-final" : "segment-partial border-dashed",
+          "border px-4 py-3 text-sm leading-relaxed transition-shadow",
           inbound
-            ? "rounded-bl-sm border-inbound/30 bg-inbound/10"
-            : "rounded-br-sm border-outbound/30 bg-outbound/10",
-          highlighted ? "ring-2 ring-ai/70" : "",
+            ? "rounded-2xl rounded-bl-[4px] border-inbound/28 bg-inbound/[0.09]"
+            : "rounded-2xl rounded-br-[4px] border-outbound/30 bg-outbound/10 text-right",
+          !final ? "border-dashed text-fg-muted" : "",
+          highlighted ? "ring-2 ring-ai/60" : "",
         ].join(" ")}
       >
-        <div className="flex items-start gap-2">
+        <div
+          className={`flex items-start gap-2 ${inbound ? "" : "flex-row-reverse"}`}
+        >
           <span className={collapsed ? "line-clamp-1 flex-1" : "flex-1"}>
-            {segment.text}
+            {segment.text || (!final ? "…" : "")}
           </span>
-          {segment.is_final && (
-            <CollapseToggle
+          {final && (
+            <Caret
               collapsed={collapsed}
               onToggle={onToggleCollapse}
               label={inbound ? "received message" : "sent message"}
             />
           )}
         </div>
-        <div className="mt-1 flex items-center gap-2 font-mono text-[10px] text-fg-faint">
-          <span>{inbound ? "Them" : "You"}</span>
-          <span>{formatMs(segment.start_ms)}</span>
-        </div>
+
+        {final && !collapsed && (
+          <div
+            className={[
+              "mt-3 flex items-center gap-2.5 border-t pt-2.5",
+              inbound
+                ? "border-inbound/18"
+                : "flex-row-reverse border-outbound/20",
+            ].join(" ")}
+          >
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onResearch}
+              className={[
+                "flex h-[26px] items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-bold transition disabled:opacity-40",
+                inbound
+                  ? "border-inbound/40 text-inbound hover:bg-inbound/10"
+                  : "border-outbound/40 text-[var(--voice-you-text)] hover:bg-outbound/10",
+              ].join(" ")}
+            >
+              <Icon name="search" size={11} />
+              Research with Ally
+            </button>
+            {linkedSeq !== null && (
+              <button
+                type="button"
+                onClick={onJumpLink}
+                title={`Jump to A${linkedSeq}`}
+                className="flex items-center gap-1.5 text-[11px] font-semibold text-ai hover:underline"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-ai" />
+                Linked to A{linkedSeq}
+              </button>
+            )}
+          </div>
+        )}
       </div>
-      {inbound && segment.is_final && (
-        <ResearchButton
-          onClick={() => onResearch(segment)}
-          busy={busy}
-          side="inbound"
-        />
-      )}
     </div>
   );
 }
 
-function ResearchButton({
-  onClick,
-  busy,
-  side,
-}: {
-  onClick: () => void;
-  busy: boolean;
-  side: "inbound" | "outbound";
-}) {
-  return (
-    <button
-      type="button"
-      disabled={busy}
-      onClick={onClick}
-      title="Research with Ally"
-      aria-label={`Research this ${side === "inbound" ? "received" : "sent"} message with Ally`}
-      className="mb-1 shrink-0 rounded-full border border-ai/40 px-1.5 py-0.5 text-[11px] text-ai opacity-0 transition-opacity hover:bg-ai/10 focus:opacity-100 group-hover:opacity-100 disabled:opacity-30"
-    >
-      ✦
-    </button>
-  );
-}
-
-const COLLAPSE_CHARS = 380;
-
-function cardLabel(card: AllyCard): string {
-  if (card.kind === "suggest_reply") return "Suggested reply";
-  if (card.kind === "summarize") return "Summary";
-  return card.sourceQuote ? "Research" : (card.question ?? "Question");
-}
-
-/** Ally answer card. Collapsed → just the label + one-line preview. Expanded →
- *  full text (very long answers still get an inner Show more). Hover/inspect
- *  ties it to its source bubble via the spine. */
+/** One Ally card: A# badge + typed treatment + collapse + docs-hover citation. */
 function AllyCardView({
   card,
   registerEl,
@@ -189,19 +194,22 @@ function AllyCardView({
   collapsed,
   onToggleCollapse,
   onHover,
+  onInspect,
 }: {
   card: AllyCard;
   registerEl: (id: string, el: HTMLElement | null) => void;
   highlighted: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onHover: (active: Active | null) => void;
+  onHover: (a: Active | null) => void;
+  onInspect: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const label = cardLabel(card);
-  const long = card.text.length > COLLAPSE_CHARS;
-  const shown =
-    long && !expanded ? `${card.text.slice(0, COLLAPSE_CHARS)}…` : card.text;
+  const suggest = card.kind === "suggest_reply";
+  const summary = card.kind === "summarize";
+  const sources = [
+    ...new Set(card.sources.map((s) => `${s.file_name} · ${s.location}`)),
+  ];
 
   return (
     <div
@@ -209,12 +217,28 @@ function AllyCardView({
       onMouseEnter={() => onHover({ cardId: card.id, sourceKey: card.sourceKey })}
       onMouseLeave={() => onHover(null)}
       className={[
-        "rounded-md border bg-ai/5 px-3 py-2 transition-shadow",
-        highlighted ? "border-ai/70 ring-2 ring-ai/40" : "border-ai/25",
+        "overflow-hidden rounded-2xl border transition-shadow",
+        suggest ? "border-ai/34 bg-ai/[0.08]" : "border-border bg-panel",
+        highlighted ? "ring-2 ring-ai/40" : "",
       ].join(" ")}
     >
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-ai">
+      <div
+        className={`flex items-center gap-2.5 px-4 py-2 ${suggest ? "border-b border-ai/18" : "border-b border-border"}`}
+      >
+        <button
+          type="button"
+          onClick={onInspect}
+          title={`A${card.seq}`}
+          className={[
+            "grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 font-mono text-[9px] font-bold",
+            suggest
+              ? "bg-ai text-bg"
+              : "border border-ai/50 bg-ai/24 text-ai",
+          ].join(" ")}
+        >
+          A{card.seq}
+        </button>
+        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
           {label}
         </span>
         {!card.done && (
@@ -222,208 +246,92 @@ function AllyCardView({
             thinking…
           </span>
         )}
-        <button
-          type="button"
-          onClick={() => void navigator.clipboard.writeText(card.text)}
-          className="ml-auto text-[11px] text-fg-faint hover:text-fg"
-        >
-          Copy
-        </button>
-        <CollapseToggle
-          collapsed={collapsed}
-          onToggle={onToggleCollapse}
-          label={`${label} answer`}
-        />
+        <div className="ml-auto flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => void navigator.clipboard.writeText(card.text)}
+            className="text-[11px] text-fg-faint hover:text-fg"
+          >
+            Copy
+          </button>
+          <Caret
+            collapsed={collapsed}
+            onToggle={onToggleCollapse}
+            label={`${label} answer`}
+          />
+        </div>
       </div>
 
-      {collapsed ? (
-        <p className="mt-1 line-clamp-1 text-xs text-fg-muted">
-          {card.error ?? card.text ?? "…"}
-        </p>
-      ) : (
-        <>
+      {!collapsed && !(summary && card.done) && (
+        <div className="flex flex-col gap-2.5 px-4 py-3">
           {card.sourceQuote && (
-            <p className="mb-1 mt-1 border-l-2 border-ai/40 pl-2 text-[11px] italic text-fg-muted">
+            <p className="border-l-2 border-ai/40 pl-2 text-[11px] italic text-fg-muted">
               “
-              {card.sourceQuote.length > 100
-                ? `${card.sourceQuote.slice(0, 100)}…`
+              {card.sourceQuote.length > 90
+                ? `${card.sourceQuote.slice(0, 90)}…`
                 : card.sourceQuote}
               ”
             </p>
           )}
           {card.error ? (
-            <p className="mt-1 text-xs text-rec">{card.error}</p>
+            <p className="text-xs text-rec">{card.error}</p>
           ) : (
-            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">
-              {shown || "…"}
+            <p className="whitespace-pre-wrap text-sm leading-relaxed">
+              {card.text || "…"}
             </p>
           )}
-          {long && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className="mt-1 text-[11px] font-semibold text-ai hover:underline"
-            >
-              {expanded ? "Show less" : "Show more"}
-            </button>
+
+          {(suggest || sources.length > 0) && (
+            <div className="flex items-center gap-2">
+              {suggest && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="flex h-6 items-center gap-1.5 rounded-lg bg-ai px-2 text-[11px] font-bold text-bg">
+                    <Icon name="chevron" size={11} className="-rotate-90" />
+                    Use it
+                  </span>
+                  <span className="flex h-6 items-center rounded-lg px-2 text-[11px] font-semibold text-ai">
+                    Rephrase
+                  </span>
+                  <span className="flex h-6 items-center rounded-lg px-2 text-[11px] font-semibold text-fg-muted">
+                    More detail
+                  </span>
+                </div>
+              )}
+              {sources.length > 0 && (
+                <span
+                  tabIndex={0}
+                  className="group/docs relative ml-auto flex cursor-default items-center gap-1.5 text-[11px] font-semibold text-fg-faint hover:text-fg-muted"
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  >
+                    <rect x="8" y="4" width="11" height="14" rx="2" />
+                    <path d="M5 8v10a2 2 0 0 0 2 2h8" />
+                  </svg>
+                  {sources.length}
+                  <span className="pointer-events-none absolute bottom-[calc(100%+7px)] right-0 z-10 hidden min-w-[210px] rounded-xl border border-border-strong bg-panel-raised p-2.5 shadow-lg group-hover/docs:block group-focus/docs:block">
+                    {sources.slice(0, 5).map((s) => (
+                      <span
+                        key={s}
+                        className="block truncate py-0.5 text-[11px] text-fg-muted"
+                      >
+                        {s}
+                      </span>
+                    ))}
+                  </span>
+                </span>
+              )}
+            </div>
           )}
-          {card.sources.length > 0 && (
-            <p className="mt-1.5 text-[11px] text-fg-faint">
-              sources:{" "}
-              {[
-                ...new Set(
-                  card.sources.map((s) => `${s.file_name} · ${s.location}`),
-                ),
-              ]
-                .slice(0, 3)
-                .join("  ·  ")}
-            </p>
-          )}
-        </>
+        </div>
       )}
     </div>
-  );
-}
-
-/**
- * The relationship spine — the center panel. One clickable dot per Ally entry,
- * stacked in order down a hairline rail; the dot echoes the source bubble's
- * side color (cyan/violet) or reads gold when the entry is derived from the
- * whole conversation. Hovering a dot reveals a connector line to its source
- * bubble; clicking brings the pair into context. The newest dot pings while
- * the user is away inspecting an earlier moment.
- */
-function Spine({
-  cards,
-  registerDot,
-  active,
-  onHover,
-  onInspect,
-  pingNewest,
-}: {
-  cards: AllyCard[];
-  registerDot: (id: string, el: HTMLElement | null) => void;
-  active: Active | null;
-  onHover: (active: Active | null) => void;
-  onInspect: (link: Link) => void;
-  pingNewest: boolean;
-}) {
-  return (
-    <div className="relative flex w-9 shrink-0 flex-col items-center">
-      {/* the rail */}
-      <div
-        className="absolute bottom-2 top-9 w-px bg-border"
-        aria-hidden
-      />
-      <div className="mt-9 flex flex-col items-center gap-3 pt-1">
-        {cards.map((card, i) => {
-          const side = sideOfKey(card.sourceKey);
-          const isActive = active?.cardId === card.id;
-          const dotColor =
-            side === "inbound"
-              ? "bg-inbound border-inbound"
-              : side === "outbound"
-                ? "bg-outbound border-outbound"
-                : "bg-transparent border-ai";
-          return (
-            <button
-              key={card.id}
-              type="button"
-              ref={(el) => registerDot(card.id, el)}
-              onMouseEnter={() =>
-                onHover({ cardId: card.id, sourceKey: card.sourceKey })
-              }
-              onMouseLeave={() => onHover(null)}
-              onClick={() =>
-                onInspect({ cardId: card.id, sourceKey: card.sourceKey })
-              }
-              aria-label={
-                card.sourceKey
-                  ? "Show the message this Ally entry came from"
-                  : "Show this Ally entry"
-              }
-              className="relative grid h-6 w-6 place-items-center rounded-full"
-            >
-              <span
-                className={[
-                  "h-2.5 w-2.5 rounded-full border transition-transform",
-                  dotColor,
-                  isActive ? "scale-150" : "",
-                  pingNewest && i === 0 && !isActive ? "spine-ping" : "",
-                ].join(" ")}
-              />
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/** Connector lines drawn on hover/inspect: source bubble → spine dot → card.
- *  Only the active link is drawn, and only while its bubble is on-screen. */
-function Connector({
-  container,
-  active,
-  bubbleEls,
-  dotEls,
-  cardEls,
-  tick,
-}: {
-  container: HTMLElement | null;
-  active: Active | null;
-  bubbleEls: Map<string, HTMLElement>;
-  dotEls: Map<string, HTMLElement>;
-  cardEls: Map<string, HTMLElement>;
-  tick: number;
-}) {
-  const [path, setPath] = useState<string | null>(null);
-
-  useLayoutEffect(() => {
-    if (!container || !active) {
-      setPath(null);
-      return;
-    }
-    const base = container.getBoundingClientRect();
-    const dot = dotEls.get(active.cardId);
-    if (!dot) {
-      setPath(null);
-      return;
-    }
-    const d = dot.getBoundingClientRect();
-    const dx = d.left + d.width / 2 - base.left;
-    const dy = d.top + d.height / 2 - base.top;
-
-    let dPath = "";
-    // Left leg: dot → source bubble (only if the bubble is on-screen).
-    const bubble = active.sourceKey ? bubbleEls.get(active.sourceKey) : null;
-    if (bubble) {
-      const b = bubble.getBoundingClientRect();
-      const by = b.top + b.height / 2 - base.top;
-      // Skip if the bubble scrolled out of the visible area.
-      if (b.bottom > base.top && b.top < base.bottom) {
-        const bx = b.right - base.left;
-        const mid = (bx + dx) / 2;
-        dPath += `M ${bx} ${by} C ${mid} ${by}, ${mid} ${dy}, ${dx} ${dy} `;
-      }
-    }
-    // Right leg: dot → card.
-    const card = cardEls.get(active.cardId);
-    if (card) {
-      const c = card.getBoundingClientRect();
-      const cx = c.left - base.left;
-      const cy = c.top + c.height / 2 - base.top;
-      const mid = (dx + cx) / 2;
-      dPath += `M ${dx} ${dy} C ${mid} ${dy}, ${mid} ${cy}, ${cx} ${cy}`;
-    }
-    setPath(dPath || null);
-  }, [container, active, bubbleEls, dotEls, cardEls, tick]);
-
-  if (!path) return null;
-  return (
-    <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
-      <path d={path} fill="none" className="stroke-ai" strokeWidth={1.75} />
-    </svg>
   );
 }
 
@@ -431,9 +339,7 @@ function useAutoScroll(dep: unknown) {
   const ref = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
   useEffect(() => {
-    if (pinned && ref.current) {
-      ref.current.scrollTop = ref.current.scrollHeight;
-    }
+    if (pinned && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [pinned, dep]);
   const onScroll = useCallback(() => {
     const el = ref.current;
@@ -443,7 +349,6 @@ function useAutoScroll(dep: unknown) {
   return { ref, pinned, setPinned, onScroll };
 }
 
-/** Smoothly bring an element to the vertical center of its scroll container. */
 function centerInScroller(scroller: HTMLElement, el: HTMLElement) {
   const s = scroller.getBoundingClientRect();
   const e = el.getBoundingClientRect();
@@ -451,15 +356,19 @@ function centerInScroller(scroller: HTMLElement, el: HTMLElement) {
   scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: "smooth" });
 }
 
-/** Compact fallback: single merged feed that fits a 380 px strip (no spine). */
+interface NodePos {
+  cardId: string;
+  seq: number;
+  sourceKey: string | null;
+  y: number;
+}
+
+/** Compact fallback: one merged chronological feed with a voice-coloured edge. */
 function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
   const merged = [...segments].sort((a, b) => a.start_ms - b.start_ms);
   const { ref, pinned, setPinned, onScroll } = useAutoScroll(
     merged[merged.length - 1],
   );
-  const noop = useCallback(() => {}, []);
-  const request = useAllyStore((s) => s.request);
-  const busy = useAllyStore((s) => s.busy);
   return (
     <main className="relative flex min-h-0 flex-1 flex-col">
       <div
@@ -475,23 +384,26 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
             Both sides of the conversation appear here.
           </p>
         ) : (
-          merged.map((seg) => (
-            <Bubble
-              key={segmentKey(seg)}
-              segment={seg}
-              registerEl={noop}
-              highlighted={false}
-              collapsed={false}
-              onToggleCollapse={noop}
-              busy={busy}
-              onResearch={(s) =>
-                void request("question", researchPrompt(s.text), {
-                  key: segmentKey(s),
-                  quote: s.text,
-                })
-              }
-            />
-          ))
+          merged.map((seg) => {
+            const inbound = seg.side === "inbound";
+            return (
+              <div
+                key={segmentKey(seg)}
+                className={`rounded-xl border-l-2 px-3 py-2 text-[13px] leading-snug ${
+                  inbound
+                    ? "border-inbound bg-inbound/[0.09]"
+                    : "border-outbound bg-outbound/10"
+                }`}
+              >
+                <div
+                  className={`mb-1 text-[9px] font-bold uppercase tracking-[0.18em] ${inbound ? "text-inbound" : "text-[var(--voice-you-text)]"}`}
+                >
+                  {inbound ? "Them" : "You"} · {formatMs(seg.start_ms)}
+                </div>
+                {seg.text}
+              </div>
+            );
+          })
         )}
       </div>
       {!pinned && (
@@ -508,13 +420,11 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
 }
 
 /**
- * Conversation workspace: left — the live conversation as SMS-style bubbles;
- * center — the relationship spine (a dot per Ally entry, click to bring its
- * source into context); right — the Ally output column. Every bubble and card
- * collapses; the header carries expand-all / collapse-all. Clicking a spine dot
- * enters "inspect": both columns un-pin, the pair centers, live content keeps
- * arriving below without yanking the view, and a "N new" pill offers the way
- * back to the live edge. Compact mode (U9) keeps the single merged feed.
+ * The live cockpit (v2): transcript left, a 72px relationship spine centre, the
+ * Ally column right. Each Ally entry gets one spine node (A1/A2/A3…) aligned to
+ * the bubble it was derived from; hovering reveals a preview + connectors,
+ * clicking brings the pair into view. Everything collapses; new lines never
+ * yank the view. Compact mode keeps the single merged feed.
  */
 export function TranscriptView() {
   const liveSegments = useTranscriptStore((s) => s.segments);
@@ -525,18 +435,15 @@ export function TranscriptView() {
   const request = useAllyStore((s) => s.request);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const spineColRef = useRef<HTMLDivElement>(null);
   const bubbleEls = useRef(new Map<string, HTMLElement>());
   const cardEls = useRef(new Map<string, HTMLElement>());
-  const dotEls = useRef(new Map<string, HTMLElement>());
 
-  // Hover previews a link; a click "inspects" (sticky) it. Inspected wins.
   const [hover, setHover] = useState<Active | null>(null);
   const [inspected, setInspected] = useState<Active | null>(null);
   const active = inspected ?? hover;
 
-  // Collapsed bubble keys + card ids (they never collide).
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const isCollapsed = useCallback((k: string) => collapsed.has(k), [collapsed]);
   const toggleCollapse = useCallback((k: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -546,24 +453,32 @@ export function TranscriptView() {
     });
   }, []);
 
-  // Bumped on scroll/resize/content/collapse so connector geometry follows.
   const [tick, setTick] = useState(0);
   const bump = useCallback(() => setTick((t) => t + 1), []);
+  const [ask, setAsk] = useState("");
 
-  const merged = [
-    ...archived,
-    ...[...liveSegments].sort((a, b) => a.start_ms - b.start_ms),
-  ];
+  const merged = useMemo(
+    () => [
+      ...archived,
+      ...[...liveSegments].sort((a, b) => a.start_ms - b.start_ms),
+    ],
+    [archived, liveSegments],
+  );
   const convo = useAutoScroll(merged[merged.length - 1]);
   const allyCol = useAutoScroll(cards[0]?.id);
+
+  // sourceKey → newest card that derived from it (drives the bubble's chip).
+  const linkBySource = useMemo(() => {
+    const m = new Map<string, AllyCard>();
+    for (const c of cards) if (c.sourceKey && !m.has(c.sourceKey)) m.set(c.sourceKey, c);
+    return m;
+  }, [cards]);
 
   useEffect(() => {
     window.addEventListener("resize", bump);
     return () => window.removeEventListener("resize", bump);
   }, [bump]);
 
-  // "N new" tracking for the conversation column: freeze a baseline whenever
-  // we're pinned to the live edge; the delta while un-pinned is what's new.
   const convoBaseline = useRef(merged.length);
   useEffect(() => {
     if (convo.pinned) convoBaseline.current = merged.length;
@@ -580,23 +495,63 @@ export function TranscriptView() {
     if (el) cardEls.current.set(id, el);
     else cardEls.current.delete(id);
   }, []);
-  const registerDot = useCallback((id: string, el: HTMLElement | null) => {
-    if (el) dotEls.current.set(id, el);
-    else dotEls.current.delete(id);
-  }, []);
 
-  // Bring a link's pair into context: un-pin both columns and center each.
+  // Spine node positions: each node aligns to its source bubble (clamped into
+  // the visible band); unlinked entries stack near the foot.
+  const [nodes, setNodes] = useState<NodePos[]>([]);
+  const [spineX, setSpineX] = useState(0);
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const base = container.getBoundingClientRect();
+    if (spineColRef.current) {
+      const s = spineColRef.current.getBoundingClientRect();
+      setSpineX(s.left + s.width / 2 - base.left);
+    }
+    const top = 56;
+    const bottom = base.height - 20;
+    let stack = bottom;
+    const next: NodePos[] = cards.map((c) => {
+      let y = bottom;
+      if (c.sourceKey) {
+        const b = bubbleEls.current.get(c.sourceKey);
+        if (b) {
+          const r = b.getBoundingClientRect();
+          y = r.top + r.height / 2 - base.top;
+        } else {
+          y = (stack -= 30);
+        }
+      } else {
+        y = (stack -= 30);
+      }
+      return {
+        cardId: c.id,
+        seq: c.seq,
+        sourceKey: c.sourceKey,
+        y: Math.max(top, Math.min(bottom, y)),
+      };
+    });
+    setNodes(next);
+  }, [cards, tick, merged.length]);
+
   const inspect = useCallback(
-    (link: Link) => {
-      setInspected({ cardId: link.cardId, sourceKey: link.sourceKey });
+    (cardId: string, sourceKey: string | null) => {
+      setInspected({ cardId, sourceKey });
+      // Expand both if collapsed.
+      setCollapsed((prev) => {
+        const n = new Set(prev);
+        n.delete(cardId);
+        if (sourceKey) n.delete(sourceKey);
+        return n;
+      });
       convo.setPinned(false);
       allyCol.setPinned(false);
       requestAnimationFrame(() => {
-        const cardEl = cardEls.current.get(link.cardId);
+        const cardEl = cardEls.current.get(cardId);
         if (cardEl && allyCol.ref.current)
           centerInScroller(allyCol.ref.current, cardEl);
-        if (link.sourceKey) {
-          const b = bubbleEls.current.get(link.sourceKey);
+        if (sourceKey) {
+          const b = bubbleEls.current.get(sourceKey);
           if (b && convo.ref.current) centerInScroller(convo.ref.current, b);
         }
         bump();
@@ -611,8 +566,6 @@ export function TranscriptView() {
     allyCol.setPinned(true);
     if (convo.ref.current)
       convo.ref.current.scrollTop = convo.ref.current.scrollHeight;
-    if (allyCol.ref.current)
-      allyCol.ref.current.scrollTop = allyCol.ref.current.scrollHeight;
   }, [convo, allyCol]);
 
   const research = useCallback(
@@ -624,29 +577,72 @@ export function TranscriptView() {
     [request],
   );
 
+  const submitAsk = () => {
+    const q = ask.trim();
+    if (!q) return;
+    setAsk("");
+    void request("question", q);
+  };
+
   const allKeys = [...merged.map(segmentKey), ...cards.map((c) => c.id)];
   const collapseAll = () => setCollapsed(new Set(allKeys));
   const expandAll = () => setCollapsed(new Set());
 
-  if (compact) {
-    return <CompactFeed segments={merged} />;
-  }
+  if (compact) return <CompactFeed segments={merged} />;
+
+  const activeNode = active
+    ? nodes.find((n) => n.cardId === active.cardId)
+    : undefined;
+  const activeBubbleEl = active?.sourceKey
+    ? bubbleEls.current.get(active.sourceKey)
+    : undefined;
+  const activeCardEl = active ? cardEls.current.get(active.cardId) : undefined;
+  const base = containerRef.current?.getBoundingClientRect();
+  const connector =
+    active && activeNode && base
+      ? (() => {
+          let d = "";
+          if (activeBubbleEl) {
+            const b = activeBubbleEl.getBoundingClientRect();
+            const bx = b.right - base.left;
+            const by = b.top + b.height / 2 - base.top;
+            const mid = (bx + spineX) / 2;
+            d += `M ${bx} ${by} C ${mid} ${by}, ${mid} ${activeNode.y}, ${spineX} ${activeNode.y} `;
+          }
+          if (activeCardEl) {
+            const c = activeCardEl.getBoundingClientRect();
+            const cx = c.left - base.left;
+            const cy = c.top + c.height / 2 - base.top;
+            const mid = (spineX + cx) / 2;
+            d += `M ${spineX} ${activeNode.y} C ${mid} ${activeNode.y}, ${mid} ${cy}, ${cx} ${cy}`;
+          }
+          return d;
+        })()
+      : "";
 
   return (
     <main ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1">
-      {/* Conversation — left */}
-      <section className="relative flex min-w-0 flex-[3] flex-col">
-        <div className="flex shrink-0 items-center gap-2 px-4 py-2">
-          <h2 className="text-xs font-semibold uppercase tracking-widest text-fg-muted">
+      {/* Transcript — left */}
+      <section className="relative flex min-w-[420px] flex-1 flex-col border-r border-border">
+        <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-5">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-fg-faint">
             Conversation
-          </h2>
-          <div className="ml-auto flex items-center gap-1">
+          </span>
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-inbound">
+            <span className="h-[7px] w-[7px] rounded-full bg-inbound" />
+            Them
+          </span>
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--voice-you-text)]">
+            <span className="h-[7px] w-[7px] rounded-full bg-outbound" />
+            You
+          </span>
+          <div className="ml-auto flex items-center gap-0.5 text-fg-faint">
             <button
               type="button"
               onClick={expandAll}
               title="Expand all"
               aria-label="Expand all messages"
-              className="rounded p-1 text-fg-faint hover:text-fg"
+              className="rounded p-1 hover:text-fg"
             >
               <Icon name="unfoldMore" size={16} />
             </button>
@@ -655,7 +651,7 @@ export function TranscriptView() {
               onClick={collapseAll}
               title="Collapse all"
               aria-label="Collapse all messages"
-              className="rounded p-1 text-fg-faint hover:text-fg"
+              className="rounded p-1 hover:text-fg"
             >
               <Icon name="unfoldLess" size={16} />
             </button>
@@ -667,7 +663,7 @@ export function TranscriptView() {
             convo.onScroll();
             bump();
           }}
-          className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4"
+          className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-5 py-5"
           role="log"
           aria-live="polite"
           aria-label="Conversation transcript"
@@ -675,20 +671,23 @@ export function TranscriptView() {
           {merged.length === 0 ? (
             <p className="mt-8 text-center text-xs text-fg-faint">
               The conversation appears here — them on the left, you on the
-              right. Hover a message and press ✦ to have Ally research it.
+              right. Hover a message and use Research with Ally.
             </p>
           ) : (
             merged.map((seg) => {
               const key = segmentKey(seg);
+              const link = linkBySource.get(key);
               return (
                 <Bubble
                   key={key}
                   segment={seg}
                   registerEl={registerBubble}
                   highlighted={active?.sourceKey === key}
-                  collapsed={isCollapsed(key)}
+                  collapsed={collapsed.has(key)}
                   onToggleCollapse={() => toggleCollapse(key)}
-                  onResearch={research}
+                  onResearch={() => research(seg)}
+                  linkedSeq={link ? link.seq : null}
+                  onJumpLink={() => link && inspect(link.id, key)}
                   busy={busy}
                 />
               );
@@ -699,41 +698,74 @@ export function TranscriptView() {
           <button
             type="button"
             onClick={jumpToLive}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-border bg-panel px-3 py-1 text-[11px] text-fg-muted shadow hover:text-fg"
+            className="glass-raised absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2.5 rounded-full px-4 py-1.5 text-[12px]"
           >
-            {newCount > 0 ? `↓ ${newCount} new` : "↓ Jump to live"}
+            <span className="h-[7px] w-[7px] rounded-full bg-rec" />
+            <span className="font-bold">{newCount > 0 ? `${newCount} new` : "Live"}</span>
+            <span className="h-3.5 w-px bg-border-strong" />
+            <span className="font-semibold text-inbound">Jump to live</span>
           </button>
         )}
       </section>
 
-      {/* Relationship spine — center */}
-      <Spine
-        cards={cards}
-        registerDot={registerDot}
-        active={active}
-        onHover={setHover}
-        onInspect={inspect}
-        pingNewest={!allyCol.pinned}
-      />
+      {/* Relationship spine — centre (visual rail; nodes float in the overlay) */}
+      <div
+        ref={spineColRef}
+        className="relative flex w-[72px] shrink-0 flex-col items-center border-r border-border bg-bg-2/40"
+      >
+        <div className="grid h-11 w-full shrink-0 place-items-center border-b border-border">
+          <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-fg-faint">
+            Spine
+          </span>
+        </div>
+        <div className="relative flex-1">
+          <div className="absolute inset-y-2 left-1/2 w-px -translate-x-1/2 bg-[linear-gradient(180deg,transparent,var(--spine-line)_12%,var(--spine-line)_88%,transparent)]" />
+        </div>
+        <span className="absolute bottom-2 font-mono text-[9px] text-fg-faint">
+          {nodes.length} link{nodes.length === 1 ? "" : "s"}
+        </span>
+      </div>
 
-      {/* Ally output — right */}
-      <section className="flex min-w-0 flex-[2] flex-col">
-        <h2 className="shrink-0 px-4 py-2 text-xs font-semibold uppercase tracking-widest text-ai">
-          ✦ ALLY
-        </h2>
+      {/* Ally — right */}
+      <section className="flex w-[452px] shrink-0 flex-col bg-panel/40">
+        <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-5">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-ai">
+            Ally
+          </span>
+          <div className="ml-auto flex items-center gap-0.5 text-fg-faint">
+            <button
+              type="button"
+              onClick={expandAll}
+              title="Expand all"
+              aria-label="Expand all Ally cards"
+              className="rounded p-1 hover:text-fg"
+            >
+              <Icon name="unfoldMore" size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={collapseAll}
+              title="Collapse all"
+              aria-label="Collapse all Ally cards"
+              className="rounded p-1 hover:text-fg"
+            >
+              <Icon name="unfoldLess" size={16} />
+            </button>
+          </div>
+        </div>
         <div
           ref={allyCol.ref}
           onScroll={() => {
             allyCol.onScroll();
             bump();
           }}
-          className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 pb-4"
+          className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-5"
           aria-label="Ally output"
         >
           {cards.length === 0 ? (
             <p className="mt-8 text-center text-xs text-fg-faint">
-              Ally output lands here — press ✦ on any message, or use Suggest
-              reply / Summarize below.
+              Ally's answers land here — use Research with Ally on any message,
+              or ask below.
             </p>
           ) : (
             cards.map((card) => (
@@ -742,23 +774,98 @@ export function TranscriptView() {
                 card={card}
                 registerEl={registerCard}
                 highlighted={active?.cardId === card.id}
-                collapsed={isCollapsed(card.id)}
+                collapsed={collapsed.has(card.id)}
                 onToggleCollapse={() => toggleCollapse(card.id)}
                 onHover={setHover}
+                onInspect={() => inspect(card.id, card.sourceKey)}
               />
             ))
           )}
         </div>
+        <div className="flex shrink-0 items-center gap-2 border-t border-border p-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void request("suggest_reply")}
+            className="flex h-9 items-center rounded-lg border border-ai/40 px-3 text-[12px] font-semibold text-ai hover:bg-ai/10 disabled:opacity-40"
+          >
+            Suggest reply
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void request("summarize")}
+            className="flex h-9 items-center rounded-lg border border-border px-3 text-[12px] font-semibold text-fg-muted hover:text-fg disabled:opacity-40"
+          >
+            Summarize
+          </button>
+          <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-white/[0.03] px-3">
+            <input
+              value={ask}
+              onChange={(e) => setAsk(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitAsk()}
+              placeholder="Ask Ally about this call…"
+              aria-label="Ask Ally about this call"
+              className="min-w-0 flex-1 bg-transparent text-xs text-fg placeholder:text-fg-faint focus:outline-none"
+            />
+            <span className="font-mono text-[10px] text-fg-faint">⌘K</span>
+          </label>
+        </div>
       </section>
 
-      <Connector
-        container={containerRef.current}
-        active={active}
-        bubbleEls={bubbleEls.current}
-        dotEls={dotEls.current}
-        cardEls={cardEls.current}
-        tick={tick + cards.length + merged.length}
-      />
+      {/* Overlay: connector + floating spine nodes + hover preview */}
+      <div className="pointer-events-none absolute inset-0">
+        {connector && (
+          <svg className="absolute inset-0 h-full w-full" aria-hidden>
+            <path d={connector} fill="none" className="stroke-ai" strokeWidth={1.75} />
+          </svg>
+        )}
+        {nodes.map((n) => {
+          const on = active?.cardId === n.cardId;
+          return (
+            <button
+              key={n.cardId}
+              type="button"
+              onMouseEnter={() => setHover({ cardId: n.cardId, sourceKey: n.sourceKey })}
+              onMouseLeave={() => setHover(null)}
+              onClick={() => inspect(n.cardId, n.sourceKey)}
+              aria-label={`Ally entry A${n.seq}`}
+              className="pointer-events-auto absolute grid -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full font-mono font-bold"
+              style={{
+                left: spineX,
+                top: n.y,
+                width: on ? 24 : 18,
+                height: on ? 24 : 18,
+                fontSize: 9,
+                background: on ? "var(--color-ai)" : "rgba(255,194,75,0.28)",
+                border: on ? "none" : "1px solid rgba(255,194,75,0.55)",
+                color: on ? "var(--color-bg)" : "var(--color-ai)",
+                boxShadow: on ? "0 0 0 5px rgba(255,194,75,0.14)" : "none",
+              }}
+            >
+              A{n.seq}
+            </button>
+          );
+        })}
+        {active?.sourceKey && activeNode && base && (
+          <div
+            className="glass-raised absolute w-[240px] -translate-y-1/2 rounded-xl p-3 text-[12px]"
+            style={{ top: activeNode.y, left: spineX - 24, transform: "translate(-100%,-50%)" }}
+          >
+            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-ai">
+              A{activeNode.seq} · derived from
+            </div>
+            <div className="leading-snug text-fg-muted">
+              {(() => {
+                const c = cards.find((x) => x.id === active.cardId);
+                return c?.sourceQuote
+                  ? `“${c.sourceQuote.slice(0, 110)}${c.sourceQuote.length > 110 ? "…" : ""}”`
+                  : "this message";
+              })()}
+            </div>
+          </div>
+        )}
+      </div>
     </main>
   );
 }

@@ -13,6 +13,9 @@ import { useTranscriptStore } from "@/state/transcript";
 
 export interface AllyCard {
   id: string;
+  /** Stable per-conversation number → the "A1/A2/A3" identity shared by the
+   *  spine node, the card badge, and the bubble's "Linked to A#" chip. */
+  seq: number;
   kind: AllyKind;
   question: string | null;
   text: string;
@@ -66,6 +69,7 @@ export const useAllyStore = create<AllyState>((set, get) => ({
       cards: [
         {
           id,
+          seq: counter,
           kind,
           question: question ?? null,
           text: "",
@@ -125,5 +129,9 @@ export const useAllyStore = create<AllyState>((set, get) => ({
 
   dismissRadar: () => set({ radar: null }),
 
-  clear: () => set({ cards: [], radar: null, tracker: null }),
+  clear: () => {
+    // Reset the A# counter so each conversation numbers from A1.
+    counter = 0;
+    set({ cards: [], radar: null, tracker: null });
+  },
 }));
