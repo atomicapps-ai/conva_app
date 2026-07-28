@@ -256,12 +256,29 @@ impl SessionManager {
             let frames_tx = engine.frame_sender()?;
 
             let mut source = CpalSource::new(side, device);
-            source.start(make_frame_sink(
+            if let Err(e) = source.start(make_frame_sink(
                 app.clone(),
                 last_frame.clone(),
                 frames_tx,
                 self.recording.clone(),
-            ))?;
+            )) {
+                // The inbound (other-party) side is WASAPI loopback — capturing
+                // an *output* device as an input stream. That trick is
+                // Windows-only; on macOS/Linux cpal can't do it, so this call
+                // fails. Rather than sink the whole session (which read as
+                // "Start does nothing" on Mac), degrade to mic-only so the user
+                // still gets live transcription of their own side. A native
+                // macOS system-audio path (ScreenCaptureKit) is future work.
+                match side {
+                    StreamSide::Inbound => {
+                        eprintln!(
+                            "[conva] system-audio (other-party) capture unavailable on this platform ({e}); continuing with your microphone only"
+                        );
+                        continue;
+                    }
+                    StreamSide::Outbound => return Err(e),
+                }
+            }
 
             engines.push(engine);
             sources.push(source);

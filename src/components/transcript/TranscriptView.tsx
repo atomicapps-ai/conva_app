@@ -766,8 +766,8 @@ export function TranscriptView() {
       ref={containerRef}
       className="relative flex h-full min-h-0 min-w-0 flex-1"
     >
-      {/* Transcript — left */}
-      <section className="relative flex min-w-[420px] flex-1 flex-col border-r border-border">
+      {/* Transcript — left (flexes proportionally with the Ally column) */}
+      <section className="relative flex min-w-[320px] flex-[1.55] flex-col border-r border-border">
         <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-5">
           <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-fg-faint">
             Conversation
@@ -893,7 +893,7 @@ export function TranscriptView() {
         className={
           drawer
             ? `absolute right-0 top-0 z-30 flex h-full w-[min(452px,88%)] flex-col border-l border-border bg-panel-raised shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
-            : "flex w-[452px] shrink-0 flex-col bg-panel/40"
+            : "flex min-w-[320px] max-w-[620px] flex-1 flex-col bg-panel/40"
         }
       >
         <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-5">
