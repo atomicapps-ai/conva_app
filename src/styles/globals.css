@@ -1,63 +1,112 @@
 @import "tailwindcss";
 
 /*
- * conva design system — "intelligent instrument": refined, atmospheric,
- * dark-first. Deep near-black with ambient depth, glass surfaces with
- * hairline highlights, and a signature cyan→violet "conversation" gradient
- * (the two voices — them + you — meeting).
+ * conva design system — brand v2 (desktop cockpit handoff). The single source
+ * of colour/type/radius is the brand tokens below; components consume the
+ * semantic aliases (bg-bg, text-ai, …) and utilities (.glass, .btn, …) — never
+ * raw hex. Dark only (light mode is unspecified per the brand spec).
  *
- * Components consume the semantic aliases (bg-bg, bg-panel, text-fg,
- * text-ai, …) and the utility classes below (.glass, .brand-gradient,
- * .elevated, …). Never raw hex in components.
+ * Voice colours are semantic and permanent: cyan = them, violet = you,
+ * gold = Ally. Magenta (--color-iris) is decorative only — never a speaker.
  */
+
+/* Self-hosted OFL fonts (no runtime CDN — the app is CSP-locked). Manrope is
+   the UI/display face; JetBrains Mono is for timers/timestamps/labels. */
+@font-face { font-family: "Manrope"; font-style: normal; font-weight: 400; font-display: swap; src: url("../assets/fonts/manrope-400.woff2") format("woff2"); }
+@font-face { font-family: "Manrope"; font-style: normal; font-weight: 500; font-display: swap; src: url("../assets/fonts/manrope-500.woff2") format("woff2"); }
+@font-face { font-family: "Manrope"; font-style: normal; font-weight: 600; font-display: swap; src: url("../assets/fonts/manrope-600.woff2") format("woff2"); }
+@font-face { font-family: "Manrope"; font-style: normal; font-weight: 700; font-display: swap; src: url("../assets/fonts/manrope-700.woff2") format("woff2"); }
+@font-face { font-family: "Manrope"; font-style: normal; font-weight: 800; font-display: swap; src: url("../assets/fonts/manrope-800.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("../assets/fonts/jetbrains-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("../assets/fonts/jetbrains-mono-500.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("../assets/fonts/jetbrains-mono-600.woff2") format("woff2"); }
+
 :root {
-  /* Base surfaces — deep space-black void with a cool undertone for depth */
-  --color-bg: #04060d;
-  --color-bg-2: #070b16;
-  --color-panel: #0f1524;
-  --color-panel-raised: #151d33;
-  --color-border: #232f4d;
-  --color-border-strong: #35446e;
-  /* Luminous instrument edge (space-age rim light) */
-  --color-edge: rgba(180, 210, 255, 0.28);
+  /* ---- Surfaces ---- */
+  --color-bg: #05060e;
+  --color-bg-2: #0a0e1e;
+  --color-panel: #0e1326;
+  --color-panel-raised: #141a31;
+  --color-border: #1c2340;
+  --color-border-strong: #2e3861;
+  --color-edge: rgba(255, 255, 255, 0.1);
 
-  /* Text */
-  --color-fg: #eaf0ff;
-  --color-fg-muted: #9fb0d6;
-  --color-fg-faint: #5c6d95;
+  /* ---- Text ---- */
+  --color-fg: #eef1ff;
+  --color-fg-muted: #a3accc;
+  --color-fg-faint: #6e7799;
 
-  /* Per-stream accents — these do the spatial work (them vs. you) */
-  --color-inbound: #22e6d6; /* cyan — THEM (system audio) */
-  --color-outbound: #8b7bff; /* violet — YOU (microphone) */
-  --color-ai: #ffd27a; /* gold — AI insight */
-  --color-iris: #ff5cc8; /* magenta — aurora / iris tail only */
+  /* ---- Voice accents (semantic, permanent) ---- */
+  --color-inbound: #22e4f5; /* THEM */
+  --color-outbound: #8b6bff; /* YOU */
+  --color-ai: #ffc24b; /* Ally */
+  --color-iris: #ff4fd8; /* gradient tail — decorative only */
 
-  /* State */
-  --color-rec: #ff5468;
-  --color-ok: #58e0b0;
+  /* ---- State ---- */
+  --color-rec: #ff4d5e;
+  --color-ok: #2fd08a;
 
-  /* Brand signature: the aurora "iris" — the two voices meeting + AI light */
+  /* ---- Signature gradient (the iris) ---- */
   --brand-from: var(--color-inbound);
   --brand-to: var(--color-outbound);
-  --iris: linear-gradient(120deg, #22e6d6, #8b7bff 55%, #ff5cc8);
+  --iris-angle: 100deg;
+  --iris: linear-gradient(100deg, #22e4f5 0%, #7b5cff 52%, #ff4fd8 100%);
 
-  /* Elevation — soft, layered, cool-tinted shadows */
-  --shadow-sm: 0 1px 2px rgba(2, 4, 10, 0.4);
-  --shadow-md: 0 6px 20px -6px rgba(2, 4, 10, 0.55);
-  --shadow-lg: 0 24px 60px -18px rgba(2, 4, 10, 0.7);
-  --shadow-glow: 0 0 0 1px rgba(120, 190, 255, 0.06),
-    0 20px 50px -20px rgba(47, 224, 230, 0.14);
+  /* ---- Elevation ---- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 10px 32px rgba(123, 92, 255, 0.32),
+    0 0 0 1px rgba(34, 228, 245, 0.18);
 
-  /* Radii — generous, modern rounding */
+  /* ---- Radii ---- */
   --radius-sm: 8px;
   --radius: 12px;
   --radius-lg: 18px;
-  --radius-xl: 26px;
+  --radius-xl: 28px;
 
-  /* Motion — quick, springy, never bouncy */
+  /* ---- Glass ---- */
+  --glass-blur: 18px;
+  --glass-surface: rgba(255, 255, 255, 0.045);
+  --glass-hairline: rgba(255, 255, 255, 0.1);
+
+  /* ---- Voice tints (derived; so bubbles don't hand-roll rgba) ---- */
+  --tint-inbound: rgba(34, 228, 245, 0.09);
+  --line-inbound: rgba(34, 228, 245, 0.28);
+  --tint-outbound: rgba(139, 107, 255, 0.1);
+  --line-outbound: rgba(139, 107, 255, 0.3);
+  --tint-ai: rgba(255, 194, 75, 0.08);
+  --line-ai: rgba(255, 194, 75, 0.3);
+
+  /* ---- Motion ---- */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
   --dur: 200ms;
+}
+
+/* ---- Cockpit layout constants + voice aliases (v2 three-column screen) ---- */
+:root {
+  --rail-w: 64px;
+  --topbar-h: 56px;
+  --colheader-h: 44px;
+  --spine-w: 72px;
+  --ai-w: 452px;
+  --transcript-min: 520px;
+  --compact-w: 360px;
+  --win-min-w: 1040px;
+  --win-min-h: 680px;
+
+  /* voice aliases — point at the brand tokens; use these in cockpit code */
+  --voice-them: var(--color-inbound);
+  --voice-you: var(--color-outbound);
+  --voice-you-text: #a48dff; /* violet fails AA under 14px; small labels use this */
+  --voice-ai: var(--color-ai);
+  --accent-iris: var(--color-iris);
+
+  /* spine */
+  --spine-line: rgba(255, 194, 75, 0.22);
+  --spine-link: rgba(255, 194, 75, 0.55);
+  --spine-node: var(--color-ai);
 }
 
 @theme inline {
@@ -83,14 +132,15 @@
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
 
-  /* Distinctive, offline-safe type stack (no Inter/Roboto/CDN — CSP-locked,
-     local-first). Segoe UI Variable is genuinely refined on the Win target;
-     graceful fallbacks elsewhere. A bundled display face is a later polish. */
-  --font-sans: "Segoe UI Variable Text", "Segoe UI", "SF Pro Text",
+  /* Self-hosted, CSP-safe. Manrope carries UI + headings (headings are sans
+     800, not the display face); JetBrains Mono is timers/labels. --font-display
+     (Michroma) is reserved for the wordmark art only — never headings/UI. */
+  --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+  --font-display: "Michroma", "Eurostile", "Bank Gothic", ui-sans-serif,
     system-ui, sans-serif;
-  --font-display: "Segoe UI Variable Display", "SF Pro Display", "Segoe UI",
-    system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, monospace;
 }
 
 html,
@@ -109,9 +159,9 @@ body {
   overflow: hidden;
 }
 
-/* Ambient atmosphere: two faint brand-colored glows bleeding in from the
-   corners, fixed behind everything. This is what makes flat surfaces read
-   as depth rather than a solid fill. */
+/* Ambient atmosphere — the "aurora floor" (brand v2): soft radials anchored
+   below the screen, violet dominant with cyan + magenta at half strength.
+   Fixed behind everything so flat surfaces read as depth, not a solid fill. */
 #root::before {
   content: "";
   position: fixed;
@@ -120,19 +170,19 @@ body {
   pointer-events: none;
   background:
     radial-gradient(
-      52rem 38rem at 8% -6%,
-      color-mix(in oklab, var(--color-inbound) 15%, transparent),
-      transparent 60%
+      52% 40% at 50% 120%,
+      rgba(123, 92, 255, 0.24),
+      transparent 70%
     ),
     radial-gradient(
-      56rem 40rem at 98% 6%,
-      color-mix(in oklab, var(--color-outbound) 16%, transparent),
-      transparent 62%
+      36% 30% at 12% 114%,
+      rgba(34, 228, 245, 0.12),
+      transparent 70%
     ),
     radial-gradient(
-      44rem 44rem at 82% 110%,
-      color-mix(in oklab, var(--color-iris) 10%, transparent),
-      transparent 60%
+      38% 30% at 88% 116%,
+      rgba(255, 79, 216, 0.11),
+      transparent 70%
     ),
     linear-gradient(180deg, var(--color-bg), var(--color-bg-2));
 }
@@ -174,7 +224,7 @@ body {
     box-shadow: var(--shadow-glow);
   }
 
-  /* Brand signature gradient — the aurora iris (two voices + AI light). */
+  /* Brand signature gradient — the aurora iris (them + you + Ally). */
   .brand-gradient {
     background: var(--iris);
   }
@@ -189,7 +239,7 @@ body {
       linear-gradient(150deg, var(--color-edge), transparent 60%) border-box;
   }
   .brand-text {
-    background: linear-gradient(120deg, var(--brand-from), var(--brand-to));
+    background: linear-gradient(100deg, var(--brand-from), var(--brand-to));
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -203,6 +253,133 @@ body {
 
   .hairline {
     border: 1px solid var(--color-border);
+  }
+}
+
+/* --------------------------------------------------------------- components */
+/* Shared instrument controls so every view speaks one visual language:
+   pill buttons, hairline inputs, glass section cards. Consume the design
+   tokens directly (never raw hex). Utilities still win in the cascade. */
+@layer components {
+  /* Pill buttons — the default is a quiet hairline; variants add intent. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    padding: 0.35rem 0.85rem;
+    font-size: 0.75rem;
+    line-height: 1;
+    color: var(--color-fg-muted);
+    background: transparent;
+    transition:
+      color var(--dur) var(--ease-out),
+      border-color var(--dur) var(--ease-out),
+      background-color var(--dur) var(--ease-out),
+      filter var(--dur) var(--ease-out);
+  }
+  .btn:hover {
+    color: var(--color-fg);
+    border-color: var(--color-border-strong);
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  /* Primary action — the aurora iris; used sparingly (one per view). */
+  .btn-primary {
+    border-color: transparent;
+    color: var(--color-bg);
+    font-weight: 600;
+    background: var(--iris);
+    box-shadow: var(--shadow-glow);
+  }
+  .btn-primary:hover {
+    color: var(--color-bg);
+    border-color: transparent;
+    filter: brightness(1.1);
+  }
+  /* Ally-accented action (gold) — save/confirm inside Ally-flavored surfaces. */
+  .btn-accent {
+    border-color: color-mix(in oklab, var(--color-ai) 55%, transparent);
+    color: var(--color-ai);
+  }
+  .btn-accent:hover {
+    color: var(--color-ai);
+    border-color: var(--color-ai);
+    background: color-mix(in oklab, var(--color-ai) 12%, transparent);
+  }
+  /* Positive/test action (mint). */
+  .btn-ok {
+    border-color: color-mix(in oklab, var(--color-ok) 45%, transparent);
+    color: var(--color-ok);
+  }
+  .btn-ok:hover {
+    color: var(--color-ok);
+    border-color: var(--color-ok);
+    background: color-mix(in oklab, var(--color-ok) 12%, transparent);
+  }
+  /* Text-only danger affordance (delete links in list rows). */
+  .btn-danger {
+    color: var(--color-fg-faint);
+  }
+  .btn-danger:hover {
+    color: var(--color-rec);
+  }
+
+  /* Hairline form controls. */
+  .input,
+  .select {
+    width: 100%;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: color-mix(in oklab, var(--color-bg) 70%, transparent);
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+    color: var(--color-fg);
+    transition: border-color var(--dur) var(--ease-out);
+  }
+  .input::placeholder {
+    color: var(--color-fg-faint);
+  }
+  .input:hover,
+  .select:hover {
+    border-color: var(--color-border-strong);
+  }
+  .field {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    color: var(--color-fg-muted);
+  }
+
+  /* Glass section card — the grouping surface inside a view. */
+  .card {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+    background: color-mix(in oklab, var(--color-panel) 55%, transparent);
+    box-shadow: var(--shadow-sm);
+  }
+  /* A selectable list row — quiet until hovered/active. */
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--color-border);
+    background: color-mix(in oklab, var(--color-bg) 55%, transparent);
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+    transition:
+      border-color var(--dur) var(--ease-out),
+      background-color var(--dur) var(--ease-out);
+  }
+  .row:hover {
+    border-color: var(--color-border-strong);
+    background: color-mix(in oklab, var(--color-panel) 55%, transparent);
   }
 }
 
@@ -324,6 +501,23 @@ body {
   animation: conva-sweep 1s linear infinite;
 }
 
+/* Relationship spine: a new Ally entry's dot pings once-ish while the user is
+   away inspecting an earlier moment, so live activity is felt, not forced. */
+@keyframes conva-ping {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-ai) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.spine-ping {
+  animation: conva-ping 1.8s var(--ease-out) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .core-sweep,
   .core-orbit,
@@ -333,7 +527,8 @@ body {
   .segment-final,
   .animate-rise,
   .animate-fade,
-  .pulse-ring {
+  .pulse-ring,
+  .spine-ping {
     transition: none;
     animation: none;
   }

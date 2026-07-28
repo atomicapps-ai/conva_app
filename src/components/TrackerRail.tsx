@@ -1,19 +1,19 @@
 import { useState } from "react";
 
 import { useAppStore } from "@/state/app";
-import { useAssistStore } from "@/state/assist";
+import { useAllyStore } from "@/state/ally";
 
 /**
  * Pinned commitments & entities rail (design §6.3). Renders only once the
  * tracker has produced something; collapsible to a thin edge tab.
  */
 export function TrackerRail() {
-  const tracker = useAssistStore((s) => s.tracker);
-  const sidecar = useAppStore((s) => s.sidecar);
+  const tracker = useAllyStore((s) => s.tracker);
+  const compact = useAppStore((s) => s.compact);
   const [collapsed, setCollapsed] = useState(false);
 
-  // No room in the 380 px sidecar strip.
-  if (sidecar) return null;
+  // No room in the 380 px compact strip.
+  if (compact) return null;
   if (!tracker || (tracker.entities.length === 0 && tracker.commitments.length === 0)) {
     return null;
   }

@@ -1,34 +1,37 @@
 import { create } from "zustand";
 
-import { assist as invokeAssist } from "@/lib/commands";
+import { ally as invokeAlly } from "@/lib/commands";
 import type {
-  AssistChunkEvent,
-  AssistKind,
-  AssistSource,
-  AssistSourcesEvent,
+  AllyChunkEvent,
+  AllyKind,
+  AllySource,
+  AllySourcesEvent,
   RadarEvent,
   TrackerEvent,
 } from "@/lib/ipc";
 import { useTranscriptStore } from "@/state/transcript";
 
-export interface AssistCard {
+export interface AllyCard {
   id: string;
-  kind: AssistKind;
+  /** Stable per-conversation number → the "A1/A2/A3" identity shared by the
+   *  spine node, the card badge, and the bubble's "Linked to A#" chip. */
+  seq: number;
+  kind: AllyKind;
   question: string | null;
   text: string;
   done: boolean;
   error: string | null;
-  sources: AssistSource[];
+  sources: AllySource[];
   startedAtMs: number;
   /** Transcript bubble this answer researches (`"<side>-<seq>"`), if any —
-   *  drives the connector line from the AI column back to the bubble. */
+   *  drives the connector line from the Ally column back to the bubble. */
   sourceKey: string | null;
   /** Short quote of the researched bubble, shown on the card. */
   sourceQuote: string | null;
 }
 
-interface AssistState {
-  cards: AssistCard[];
+interface AllyState {
+  cards: AllyCard[];
   busy: boolean;
   /** Latest Question Radar hit (§6.2); replaced by each new question. */
   radar: RadarEvent | null;
@@ -36,12 +39,12 @@ interface AssistState {
   tracker: TrackerEvent | null;
 
   request: (
-    kind: AssistKind,
+    kind: AllyKind,
     question?: string,
     source?: { key: string; quote: string },
   ) => Promise<void>;
-  applyChunk: (chunk: AssistChunkEvent) => void;
-  applySources: (event: AssistSourcesEvent) => void;
+  applyChunk: (chunk: AllyChunkEvent) => void;
+  applySources: (event: AllySourcesEvent) => void;
   applyRadar: (event: RadarEvent) => void;
   applyTracker: (event: TrackerEvent) => void;
   dismissRadar: () => void;
@@ -50,7 +53,7 @@ interface AssistState {
 
 let counter = 0;
 
-export const useAssistStore = create<AssistState>((set, get) => ({
+export const useAllyStore = create<AllyState>((set, get) => ({
   cards: [],
   busy: false,
   radar: null,
@@ -59,13 +62,14 @@ export const useAssistStore = create<AssistState>((set, get) => ({
   request: async (kind, question, source) => {
     if (get().busy) return;
     counter += 1;
-    const id = `assist-${Date.now()}-${counter}`;
+    const id = `ally-${Date.now()}-${counter}`;
     set((s) => ({
       busy: true,
       // Keep the last few cards; newest first.
       cards: [
         {
           id,
+          seq: counter,
           kind,
           question: question ?? null,
           text: "",
@@ -80,10 +84,10 @@ export const useAssistStore = create<AssistState>((set, get) => ({
       ],
     }));
     try {
-      // Ground the assist in the whole open conversation (earlier runs
+      // Ground Ally in the whole open conversation (earlier runs
       // included), not just the live run.
       const t = useTranscriptStore.getState();
-      await invokeAssist(id, kind, question ?? null, [
+      await invokeAlly(id, kind, question ?? null, [
         ...t.archived,
         ...t.segments,
       ]);
@@ -125,5 +129,9 @@ export const useAssistStore = create<AssistState>((set, get) => ({
 
   dismissRadar: () => set({ radar: null }),
 
-  clear: () => set({ cards: [], radar: null, tracker: null }),
+  clear: () => {
+    // Reset the A# counter so each conversation numbers from A1.
+    counter = 0;
+    set({ cards: [], radar: null, tracker: null });
+  },
 }));

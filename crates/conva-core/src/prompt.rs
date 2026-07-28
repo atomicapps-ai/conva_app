@@ -1,4 +1,4 @@
-//! Assist context builder (design §4.5 O1).
+//! Ally context builder (design §4.5 O1).
 //!
 //! Assembles the LLM request from the transcript window (both sides,
 //! chronological) plus optional RAG chunks, under a hard character budget
@@ -16,19 +16,22 @@ pub const TRANSCRIPT_CHAR_BUDGET: usize = 16_000;
 /// Character budget for retrieved reference chunks.
 pub const RAG_CHAR_BUDGET: usize = 8_000;
 
-pub const SYSTEM_PROMPT: &str = "You are conva, a real-time conversation \
-assistant. The user is in a live conversation: THEM lines are what the other \
-party said (system audio), YOU lines are what the user said (microphone). \
-Transcripts come from speech recognition and may contain small errors — read \
-through them. Be direct and concise: the user is glancing at your answer \
-mid-conversation. Prefer short bullet points. When reference material is \
-provided, ground your answer in it and mention which source you used. Never \
-invent facts.";
+pub const SYSTEM_PROMPT: &str = "You are Ally, conva's strategic intelligence \
+ally. You work alongside the user in a live conversation — in real time, on \
+their device, grounded in their own reference documents. You are not \
+\"trained on their data\"; you reason over the material they give you. THEM \
+lines are what the other party said (system audio), YOU lines are what the \
+user said (microphone). Transcripts come from speech recognition and may \
+contain small errors — read through them. Be direct and concise: the user is \
+glancing at your answer mid-conversation. Prefer short bullet points. Ground \
+every answer in the provided reference material and cite the source you used; \
+if you have no source to cite, say so rather than inventing one. Never invent \
+facts.";
 
-/// What the user wants from the assist (O3 prompt templates, minimal set).
+/// What the user wants from Ally (O3 prompt templates, minimal set).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AssistKind {
+pub enum AllyKind {
     /// Suggest how to respond to the latest exchange.
     SuggestReply,
     /// Summarize the conversation so far.
@@ -47,9 +50,9 @@ fn render_line(segment: &TranscriptSegment) -> String {
 }
 
 /// Build the request. `segments` must be in chronological order; partials
-/// are skipped. `question` is used by `AssistKind::Question`.
-pub fn build_assist_request(
-    kind: AssistKind,
+/// are skipped. `question` is used by `AllyKind::Question`.
+pub fn build_ally_request(
+    kind: AllyKind,
     segments: &[TranscriptSegment],
     chunks: &[ScoredChunk],
     question: Option<&str>,
@@ -85,15 +88,13 @@ pub fn build_assist_request(
     }
 
     let task = match kind {
-        AssistKind::SuggestReply => {
-            "Suggest how I should respond to the latest exchange. Give 1-3 \
+        AllyKind::SuggestReply => "Suggest how I should respond to the latest exchange. Give 1-3 \
              short talking points I can use right now."
-                .to_string()
-        }
-        AssistKind::Summarize => "Summarize this conversation so far: key points, any commitments \
+            .to_string(),
+        AllyKind::Summarize => "Summarize this conversation so far: key points, any commitments \
              made, and open questions."
             .to_string(),
-        AssistKind::Question => question
+        AllyKind::Question => question
             .unwrap_or("Help me with this conversation.")
             .to_string(),
     };
@@ -144,7 +145,7 @@ mod tests {
             segment(StreamSide::Outbound, 0, "Let me check that for you", true),
             segment(StreamSide::Inbound, 1, "still talki", false), // partial
         ];
-        let req = build_assist_request(AssistKind::SuggestReply, &segments, &[], None, 512);
+        let req = build_ally_request(AllyKind::SuggestReply, &segments, &[], None, 512);
         let them = req.user.find("THEM: How much is the premium?").unwrap();
         let you = req.user.find("YOU: Let me check that for you").unwrap();
         assert!(them < you, "chronological order");
@@ -157,7 +158,7 @@ mod tests {
         let segments: Vec<_> = (0..100)
             .map(|i| segment(StreamSide::Inbound, i, &format!("turn {i} {filler}"), true))
             .collect();
-        let req = build_assist_request(AssistKind::Summarize, &segments, &[], None, 512);
+        let req = build_ally_request(AllyKind::Summarize, &segments, &[], None, 512);
         assert!(req.user.len() < TRANSCRIPT_CHAR_BUDGET + 2_000);
         assert!(req.user.contains("turn 99"), "newest turn kept");
         assert!(!req.user.contains("turn 0 "), "oldest turn dropped");
@@ -165,8 +166,8 @@ mod tests {
 
     #[test]
     fn question_kind_uses_the_question() {
-        let req = build_assist_request(
-            AssistKind::Question,
+        let req = build_ally_request(
+            AllyKind::Question,
             &[],
             &[],
             Some("What does HVAC stand for?"),
@@ -185,7 +186,7 @@ mod tests {
             text: "The 2026 premium is $120/mo.".into(),
             score: 0.9,
         }];
-        let req = build_assist_request(AssistKind::SuggestReply, &[], &chunks, None, 512);
+        let req = build_ally_request(AllyKind::SuggestReply, &[], &chunks, None, 512);
         assert!(req.user.contains("[source: pricing.pdf — §2 Premiums]"));
         assert!(req.user.contains("$120/mo"));
     }

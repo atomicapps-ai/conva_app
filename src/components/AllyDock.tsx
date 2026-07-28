@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
-import { useAssistStore, type AssistCard } from "@/state/assist";
+import { useAllyStore, type AllyCard } from "@/state/ally";
 
-function Card({ card }: { card: AssistCard }) {
+function Card({ card }: { card: AllyCard }) {
   const label =
     card.kind === "suggest_reply"
       ? "Suggested reply"
@@ -55,14 +55,14 @@ function Card({ card }: { card: AssistCard }) {
 }
 
 /**
- * AI assist dock (design §5.2, U4/O2): action buttons + streaming answer
+ * Ally dock (design §5.2, U4/O2): action buttons + streaming answer
  * cards. `Ctrl+Space` fires "suggest reply" from anywhere in the app.
  */
 /** Instant reference hit for an inbound question (§6.2) — zero LLM cost. */
 function RadarCard() {
-  const radar = useAssistStore((s) => s.radar);
-  const dismiss = useAssistStore((s) => s.dismissRadar);
-  const request = useAssistStore((s) => s.request);
+  const radar = useAllyStore((s) => s.radar);
+  const dismiss = useAllyStore((s) => s.dismissRadar);
+  const request = useAllyStore((s) => s.request);
   if (!radar) return null;
 
   return (
@@ -104,13 +104,13 @@ function RadarCard() {
   );
 }
 
-export function AssistDock() {
-  const cards = useAssistStore((s) => s.cards);
-  const busy = useAssistStore((s) => s.busy);
-  const request = useAssistStore((s) => s.request);
-  // In the two-column layout, answer cards render in the AI column beside
-  // the conversation; the dock only lists them in sidecar mode.
-  const sidecar = useAppStore((s) => s.sidecar);
+export function AllyDock() {
+  const cards = useAllyStore((s) => s.cards);
+  const busy = useAllyStore((s) => s.busy);
+  const request = useAllyStore((s) => s.request);
+  // In the two-column layout, answer cards render in the Ally column beside
+  // the conversation; the dock only lists them in compact mode.
+  const compact = useAppStore((s) => s.compact);
   const [question, setQuestion] = useState("");
   const [collapsed, setCollapsed] = useState(false);
 
@@ -132,7 +132,7 @@ export function AssistDock() {
           <span className="mr-2 font-semibold text-ai" aria-hidden>
             ✦
           </span>
-          AI assist is available in the desktop app.
+          Ally is available in the desktop app.
         </p>
       </aside>
     );
@@ -148,7 +148,7 @@ export function AssistDock() {
   return (
     <aside
       className="max-h-[40%] shrink-0 overflow-y-auto border-t border-border bg-panel px-4 py-2"
-      aria-label="AI assist"
+      aria-label="Ally"
     >
       <div className="flex items-center gap-2">
         <span className="font-semibold text-ai" aria-hidden>
@@ -175,10 +175,10 @@ export function AssistDock() {
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submitQuestion()}
-          placeholder="Ask about this conversation…"
+          placeholder="Ask Ally about this call…"
           className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-xs text-fg placeholder:text-fg-faint"
         />
-        {sidecar && cards.length > 0 && (
+        {compact && cards.length > 0 && (
           <button
             type="button"
             onClick={() => setCollapsed((v) => !v)}
@@ -189,7 +189,7 @@ export function AssistDock() {
         )}
       </div>
       <RadarCard />
-      {sidecar && !collapsed && cards.length > 0 && (
+      {compact && !collapsed && cards.length > 0 && (
         <div className="mt-2 flex flex-col gap-2">
           {cards.map((card) => (
             <Card key={card.id} card={card} />

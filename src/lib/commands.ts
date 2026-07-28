@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type {
   AppConfig,
-  AssistKind,
+  AllyKind,
   AudioDevice,
   Conversation,
   ConversationSummary,
@@ -106,13 +106,13 @@ export function listProviderModels(
   return invoke<ModelInfo[]>("list_provider_models", { provider });
 }
 
-export function assist(
+export function ally(
   requestId: string,
-  kind: AssistKind,
+  kind: AllyKind,
   question: string | null,
   segments: TranscriptSegment[],
 ): Promise<void> {
-  return invoke("assist", { requestId, kind, question, segments });
+  return invoke("ally", { requestId, kind, question, segments });
 }
 
 export function ragIngest(paths: string[]): Promise<IngestReport[]> {

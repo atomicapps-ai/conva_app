@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import {
   conversationDelete,
   conversationList,
@@ -59,62 +60,57 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="border-b border-border bg-panel px-4 py-3">
-      <div className="flex items-center gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
-          Conversations
-        </h3>
-        {openId && (
-          <span className="truncate text-[11px] text-ai">open: {title}</span>
-        )}
-        <button
-          type="button"
-          onClick={() => setSavePromptOpen(true)}
-          className="ml-auto rounded-md border border-ai/60 px-2.5 py-1 text-xs text-fg hover:bg-ai/10"
-        >
-          Save current…
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            newConversation();
-            setNotice("Started a new conversation.");
-          }}
-          className="rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted hover:text-fg"
-        >
-          New
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md border border-border px-3 py-1 text-xs text-fg-muted hover:text-fg"
-        >
-          Close
-        </button>
-      </div>
-
-      {notice && (
-        <p className="mt-2 text-[11px] text-fg-muted" role="status">
-          {notice}
-        </p>
-      )}
+    <ViewShell
+      icon="conversations"
+      title="Conversations"
+      subtitle="Named threads you can reopen and continue — new listening runs append to the open one."
+      badge={
+        openId ? (
+          <span className="max-w-[14rem] truncate rounded-full border border-ai/40 px-2 py-0.5 text-[10px] text-ai">
+            open: {title}
+          </span>
+        ) : undefined
+      }
+      actions={
+        <>
+          <button
+            type="button"
+            onClick={() => setSavePromptOpen(true)}
+            className="btn btn-accent"
+          >
+            Save current…
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              newConversation();
+              setNotice("Started a new conversation.");
+            }}
+            className="btn"
+          >
+            New
+          </button>
+          <button type="button" onClick={onClose} className="btn">
+            Done
+          </button>
+        </>
+      }
+    >
+      {notice && <Notice>{notice}</Notice>}
 
       {conversations.length === 0 ? (
-        <p className="mt-3 text-xs text-fg-faint">
+        <div className="card grid place-items-center px-6 py-16 text-center text-xs text-fg-faint">
           No saved conversations yet — press Stop after listening and choose
           Save, or use “Save current…”.
-        </p>
+        </div>
       ) : (
-        <ul className="mt-2 flex max-h-48 flex-col gap-1 overflow-y-auto">
+        <ul className="flex flex-col gap-1.5">
           {conversations.map((c) => (
             <li key={c.id} className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => void open(c.id)}
-                className={[
-                  "flex min-w-0 flex-1 items-center gap-3 rounded-md border bg-bg px-3 py-1.5 text-left hover:border-fg-faint",
-                  c.id === openId ? "border-ai/60" : "border-border",
-                ].join(" ")}
+                className={`row min-w-0 flex-1 ${c.id === openId ? "border-ai/60" : ""}`}
               >
                 <span className="truncate text-xs text-fg">{c.title}</span>
                 <span className="font-mono text-[11px] text-fg-muted">
@@ -130,7 +126,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
                 type="button"
                 onClick={() => void remove(c.id)}
                 aria-label={`Delete conversation ${c.title}`}
-                className="shrink-0 text-[11px] text-fg-faint hover:text-rec"
+                className="btn-danger shrink-0 px-1 text-[11px]"
               >
                 Delete
               </button>
@@ -138,6 +134,6 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
           ))}
         </ul>
       )}
-    </div>
+    </ViewShell>
   );
 }

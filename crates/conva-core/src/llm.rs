@@ -1,6 +1,6 @@
-//! AI Orchestration Layer — LLM provider abstraction (design §4.6).
+//! LLM orchestration layer — model-provider abstraction (design §4.6).
 //!
-//! Owner decision 2026-07-09: the UI supports configuring any AI with a
+//! Owner decision 2026-07-09: the UI supports configuring any model with a
 //! default of Claude; a dropdown selects the provider and the model. This
 //! module is the single source of truth for the launch provider registry —
 //! the settings UI renders exactly what `provider_registry()` returns.
@@ -32,7 +32,7 @@ pub struct ProviderInfo {
     pub id: ProviderId,
     /// Display name for the provider dropdown.
     pub name: &'static str,
-    /// Curated default for the quality slot (on-demand assists).
+    /// Curated default for the quality slot (on-demand Ally answers).
     pub default_quality_model: &'static str,
     /// Curated default for the fast slot (proactive/cheap paths).
     pub default_fast_model: &'static str,

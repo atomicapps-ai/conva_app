@@ -26,7 +26,7 @@ pub struct IngestReport {
     pub warnings: Vec<String>,
 }
 
-/// A retrieved chunk with source attribution (R4/R5 — every AI answer shows
+/// A retrieved chunk with source attribution (R4/R5 — every Ally answer shows
 /// which chunks grounded it).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScoredChunk {
@@ -39,7 +39,7 @@ pub struct ScoredChunk {
     pub score: f32,
 }
 
-/// The retrieval boundary used by the AI orchestrator. Budget: <15 ms for
+/// The retrieval boundary used by the LLM orchestrator. Budget: <15 ms for
 /// `retrieve` at k=8 on a warm store (§2.5).
 #[async_trait]
 pub trait RagStore: Send + Sync {

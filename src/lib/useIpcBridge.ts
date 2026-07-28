@@ -3,8 +3,8 @@ import { useEffect } from "react";
 import {
   EVENTS,
   isTauri,
-  type AssistChunkEvent,
-  type AssistSourcesEvent,
+  type AllyChunkEvent,
+  type AllySourcesEvent,
   type AudioLevelEvent,
   type ModelStatusEvent,
   type RadarEvent,
@@ -13,7 +13,7 @@ import {
   type TranscriptSegment,
 } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
-import { useAssistStore } from "@/state/assist";
+import { useAllyStore } from "@/state/ally";
 import { useTranscriptStore } from "@/state/transcript";
 
 /**
@@ -26,10 +26,10 @@ export function useIpcBridge(): void {
   const setSession = useTranscriptStore((s) => s.setSession);
   const setLevel = useTranscriptStore((s) => s.setLevel);
   const setModelStatus = useAppStore((s) => s.setModelStatus);
-  const applyAssistChunk = useAssistStore((s) => s.applyChunk);
-  const applyAssistSources = useAssistStore((s) => s.applySources);
-  const applyRadar = useAssistStore((s) => s.applyRadar);
-  const applyTracker = useAssistStore((s) => s.applyTracker);
+  const applyAllyChunk = useAllyStore((s) => s.applyChunk);
+  const applyAllySources = useAllyStore((s) => s.applySources);
+  const applyRadar = useAllyStore((s) => s.applyRadar);
+  const applyTracker = useAllyStore((s) => s.applyTracker);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -50,11 +50,11 @@ export function useIpcBridge(): void {
         listen<ModelStatusEvent>(EVENTS.modelStatus, (e) =>
           setModelStatus(e.payload),
         ),
-        listen<AssistChunkEvent>(EVENTS.assistChunk, (e) =>
-          applyAssistChunk(e.payload),
+        listen<AllyChunkEvent>(EVENTS.allyChunk, (e) =>
+          applyAllyChunk(e.payload),
         ),
-        listen<AssistSourcesEvent>(EVENTS.assistSources, (e) =>
-          applyAssistSources(e.payload),
+        listen<AllySourcesEvent>(EVENTS.allySources, (e) =>
+          applyAllySources(e.payload),
         ),
         listen<RadarEvent>(EVENTS.radar, (e) => applyRadar(e.payload)),
         listen<TrackerEvent>(EVENTS.tracker, (e) => applyTracker(e.payload)),
@@ -75,8 +75,8 @@ export function useIpcBridge(): void {
     setSession,
     setLevel,
     setModelStatus,
-    applyAssistChunk,
-    applyAssistSources,
+    applyAllyChunk,
+    applyAllySources,
     applyRadar,
     applyTracker,
   ]);

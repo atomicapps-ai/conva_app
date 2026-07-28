@@ -15,7 +15,7 @@ pub struct AppConfig {
     pub asr_engine: AsrEngineId,
     /// Whisper model name for the local engine (e.g. "base.en").
     pub whisper_model: String,
-    /// Quality slot: on-demand assists (§4.5 O4).
+    /// Quality slot: on-demand Ally answers (§4.5 O4).
     pub llm_quality: ModelSelection,
     /// Fast slot: proactive/cheap paths. `None` mirrors the quality slot
     /// (the "same as quality" toggle, §4.6).

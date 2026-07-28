@@ -1,7 +1,7 @@
 //! conva Tauri shell — wires the UI to the core layers.
 //!
 //! M3 state: dual capture (mic + WASAPI loopback) → per-side whisper.cpp
-//! transcription → manual AI assist streaming through the provider
+//! transcription → manual Ally streaming through the provider
 //! registry (Claude default), with API keys in the OS credential vault.
 
 mod asr;
@@ -29,11 +29,9 @@ use std::sync::Arc;
 use conva_core::asr::TranscriptSegment;
 use conva_core::audio::AudioDevice;
 use conva_core::config::AppConfig;
-use conva_core::ipc::{
-    events, AssistChunkEvent, AssistSource, AssistSourcesEvent, SessionStateEvent,
-};
+use conva_core::ipc::{events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent};
 use conva_core::llm::{provider_registry, ModelInfo, ProviderId, ProviderInfo};
-use conva_core::prompt::{build_assist_request, AssistKind};
+use conva_core::prompt::{build_ally_request, AllyKind};
 use conva_core::rag::{IngestReport, RagDocument};
 
 use rag::RagStore;
@@ -469,7 +467,7 @@ async fn rag_sync_library(state: State<'_, AppState>) -> Result<String, String> 
     .map_err(|e| e.to_string())?
 }
 
-/// Build the retrieval query for an assist: the explicit question, or the
+/// Build the retrieval query for an Ally answer: the explicit question, or the
 /// text of the last few finalized turns (what's being discussed right now).
 fn retrieval_query(question: Option<&str>, segments: &[TranscriptSegment]) -> String {
     if let Some(q) = question {
@@ -485,15 +483,15 @@ fn retrieval_query(question: Option<&str>, segments: &[TranscriptSegment]) -> St
         .join(" ")
 }
 
-/// Manual assist (U4/O2): retrieves grounding chunks (R4), builds the
-/// context, and streams the answer back as ASSIST_CHUNK events. Returns
+/// Manual Ally (U4/O2): retrieves grounding chunks (R4), builds the
+/// context, and streams the answer back as ALLY_CHUNK events. Returns
 /// immediately.
 #[tauri::command]
-fn assist(
+fn ally(
     app: AppHandle,
     state: State<AppState>,
     request_id: String,
-    kind: AssistKind,
+    kind: AllyKind,
     question: Option<String>,
     segments: Vec<TranscriptSegment>,
 ) -> Result<(), String> {
@@ -513,12 +511,12 @@ fn assist(
     };
     // R5 "peek": tell the UI which sources ground this answer, up front.
     let _ = app.emit(
-        events::ASSIST_SOURCES,
-        AssistSourcesEvent {
+        events::ALLY_SOURCES,
+        AllySourcesEvent {
             request_id: request_id.clone(),
             sources: chunks
                 .iter()
-                .map(|c| AssistSource {
+                .map(|c| AllySource {
                     file_name: c.file_name.clone(),
                     location: c.location.clone(),
                 })
@@ -526,15 +524,15 @@ fn assist(
         },
     );
 
-    let request = build_assist_request(kind, &segments, &chunks, question.as_deref(), 1024);
+    let request = build_ally_request(kind, &segments, &chunks, question.as_deref(), 1024);
 
     std::thread::Builder::new()
-        .name("assist".into())
+        .name("ally".into())
         .spawn(move || {
             let emit = |token: &str, done: bool, error: Option<String>| {
                 let _ = app.emit(
-                    events::ASSIST_CHUNK,
-                    AssistChunkEvent {
+                    events::ALLY_CHUNK,
+                    AllyChunkEvent {
                         request_id: request_id.clone(),
                         token: token.to_string(),
                         done,
@@ -674,7 +672,7 @@ pub fn run() {
             provider_key_status,
             test_provider,
             list_provider_models,
-            assist,
+            ally,
             rag_ingest,
             rag_ingest_text,
             rag_list,
