@@ -80,6 +80,7 @@ function Bubble({
   collapsed,
   onToggleCollapse,
   onResearch,
+  onContextMenu,
   linkedSeq,
   onJumpLink,
   busy,
@@ -90,6 +91,7 @@ function Bubble({
   collapsed: boolean;
   onToggleCollapse: () => void;
   onResearch: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
   linkedSeq: number | null;
   onJumpLink: () => void;
   busy: boolean;
@@ -117,6 +119,7 @@ function Bubble({
   return (
     <div
       ref={(el) => registerEl(key, el)}
+      onContextMenu={onContextMenu}
       className={`flex max-w-[88%] flex-col gap-1.5 ${inbound ? "items-start self-start" : "items-end self-end"}`}
     >
       {label}
@@ -195,6 +198,7 @@ function AllyCardView({
   onToggleCollapse,
   onHover,
   onInspect,
+  onContextMenu,
 }: {
   card: AllyCard;
   registerEl: (id: string, el: HTMLElement | null) => void;
@@ -203,6 +207,7 @@ function AllyCardView({
   onToggleCollapse: () => void;
   onHover: (a: Active | null) => void;
   onInspect: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const label = cardLabel(card);
   const suggest = card.kind === "suggest_reply";
@@ -216,6 +221,7 @@ function AllyCardView({
       ref={(el) => registerEl(card.id, el)}
       onMouseEnter={() => onHover({ cardId: card.id, sourceKey: card.sourceKey })}
       onMouseLeave={() => onHover(null)}
+      onContextMenu={onContextMenu}
       className={[
         "overflow-hidden rounded-2xl border transition-shadow",
         suggest ? "border-ai/34 bg-ai/[0.08]" : "border-border bg-panel",
@@ -356,6 +362,73 @@ function centerInScroller(scroller: HTMLElement, el: HTMLElement) {
   scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: "smooth" });
 }
 
+type MenuItem =
+  | { sep: true }
+  | { label: string; danger?: boolean; run: () => void };
+
+interface MenuState {
+  x: number;
+  y: number;
+  items: MenuItem[];
+}
+
+/** A right-click menu positioned at the cursor; closes on any outside action. */
+function ContextMenu({
+  menu,
+  onClose,
+}: {
+  menu: MenuState;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const close = () => onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [onClose]);
+
+  const x = Math.min(menu.x, window.innerWidth - 236);
+  const y = Math.min(menu.y, window.innerHeight - (menu.items.length * 34 + 16));
+
+  return (
+    <div
+      className="glass-raised fixed z-50 w-[220px] rounded-xl p-1.5"
+      style={{ left: x, top: y }}
+      onClick={(e) => e.stopPropagation()}
+      role="menu"
+    >
+      {menu.items.map((item, i) =>
+        "sep" in item ? (
+          <div key={i} className="my-1 h-px bg-border" />
+        ) : (
+          <button
+            key={i}
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              item.run();
+              onClose();
+            }}
+            className={`flex w-full items-center rounded-lg px-2.5 py-1.5 text-left text-[12.5px] transition hover:bg-white/[0.06] ${
+              item.danger ? "text-rec" : "text-fg"
+            }`}
+          >
+            {item.label}
+          </button>
+        ),
+      )}
+    </div>
+  );
+}
+
 interface NodePos {
   cardId: string;
   seq: number;
@@ -456,6 +529,7 @@ export function TranscriptView() {
   const [tick, setTick] = useState(0);
   const bump = useCallback(() => setTick((t) => t + 1), []);
   const [ask, setAsk] = useState("");
+  const [menu, setMenu] = useState<MenuState | null>(null);
 
   const merged = useMemo(
     () => [
@@ -588,6 +662,55 @@ export function TranscriptView() {
   const collapseAll = () => setCollapsed(new Set(allKeys));
   const expandAll = () => setCollapsed(new Set());
 
+  const bubbleMenu = (e: React.MouseEvent, seg: TranscriptSegment) => {
+    e.preventDefault();
+    const key = segmentKey(seg);
+    const link = linkBySource.get(key);
+    const items: MenuItem[] = [
+      { label: "Copy", run: () => void navigator.clipboard.writeText(seg.text) },
+      { label: "Research with Ally", run: () => research(seg) },
+      {
+        label: "Ask Ally about this…",
+        run: () =>
+          setAsk(
+            `About "${seg.text.slice(0, 60)}${seg.text.length > 60 ? "…" : ""}" — `,
+          ),
+      },
+    ];
+    if (link) items.push({ label: `Jump to A${link.seq}`, run: () => inspect(link.id, key) });
+    items.push({ sep: true });
+    items.push({
+      label: collapsed.has(key) ? "Expand" : "Collapse",
+      run: () => toggleCollapse(key),
+    });
+    setMenu({ x: e.clientX, y: e.clientY, items });
+  };
+
+  const cardMenu = (e: React.MouseEvent, card: AllyCard) => {
+    e.preventDefault();
+    const srcs = [
+      ...new Set(card.sources.map((s) => `${s.file_name} · ${s.location}`)),
+    ];
+    const items: MenuItem[] = [
+      { label: "Copy", run: () => void navigator.clipboard.writeText(card.text) },
+    ];
+    if (srcs.length)
+      items.push({
+        label: "Copy with citation",
+        run: () =>
+          void navigator.clipboard.writeText(
+            `${card.text}\n\nSources: ${srcs.join("; ")}`,
+          ),
+      });
+    items.push({ label: "Bring into view", run: () => inspect(card.id, card.sourceKey) });
+    items.push({ sep: true });
+    items.push({
+      label: collapsed.has(card.id) ? "Expand" : "Collapse",
+      run: () => toggleCollapse(card.id),
+    });
+    setMenu({ x: e.clientX, y: e.clientY, items });
+  };
+
   if (compact) return <CompactFeed segments={merged} />;
 
   const activeNode = active
@@ -686,6 +809,7 @@ export function TranscriptView() {
                   collapsed={collapsed.has(key)}
                   onToggleCollapse={() => toggleCollapse(key)}
                   onResearch={() => research(seg)}
+                  onContextMenu={(e) => bubbleMenu(e, seg)}
                   linkedSeq={link ? link.seq : null}
                   onJumpLink={() => link && inspect(link.id, key)}
                   busy={busy}
@@ -778,6 +902,7 @@ export function TranscriptView() {
                 onToggleCollapse={() => toggleCollapse(card.id)}
                 onHover={setHover}
                 onInspect={() => inspect(card.id, card.sourceKey)}
+                onContextMenu={(e) => cardMenu(e, card)}
               />
             ))
           )}
@@ -866,6 +991,8 @@ export function TranscriptView() {
           </div>
         )}
       </div>
+
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
     </main>
   );
 }
