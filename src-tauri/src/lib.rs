@@ -29,9 +29,7 @@ use std::sync::Arc;
 use conva_core::asr::TranscriptSegment;
 use conva_core::audio::AudioDevice;
 use conva_core::config::AppConfig;
-use conva_core::ipc::{
-    events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent,
-};
+use conva_core::ipc::{events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent};
 use conva_core::llm::{provider_registry, ModelInfo, ProviderId, ProviderInfo};
 use conva_core::prompt::{build_ally_request, AllyKind};
 use conva_core::rag::{IngestReport, RagDocument};

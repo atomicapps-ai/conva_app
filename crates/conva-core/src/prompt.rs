@@ -88,11 +88,9 @@ pub fn build_ally_request(
     }
 
     let task = match kind {
-        AllyKind::SuggestReply => {
-            "Suggest how I should respond to the latest exchange. Give 1-3 \
+        AllyKind::SuggestReply => "Suggest how I should respond to the latest exchange. Give 1-3 \
              short talking points I can use right now."
-                .to_string()
-        }
+            .to_string(),
         AllyKind::Summarize => "Summarize this conversation so far: key points, any commitments \
              made, and open questions."
             .to_string(),
