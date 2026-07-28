@@ -16,7 +16,7 @@ export type IconName =
   | "conversations"
   | "settings"
   | "record"
-  | "sidecar"
+  | "compact"
   | "search"
   | "command"
   | "close"
@@ -62,8 +62,8 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   record: <circle cx="12" cy="12" r="5" fill="currentColor" stroke="none" />,
-  // Sidecar — a docked right panel.
-  sidecar: (
+  // Compact — a docked right panel.
+  compact: (
     <>
       <rect x="4" y="5" width="16" height="14" rx="2" />
       <path d="M14 5v14" />

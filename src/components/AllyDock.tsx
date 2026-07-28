@@ -109,8 +109,8 @@ export function AllyDock() {
   const busy = useAllyStore((s) => s.busy);
   const request = useAllyStore((s) => s.request);
   // In the two-column layout, answer cards render in the Ally column beside
-  // the conversation; the dock only lists them in sidecar mode.
-  const sidecar = useAppStore((s) => s.sidecar);
+  // the conversation; the dock only lists them in compact mode.
+  const compact = useAppStore((s) => s.compact);
   const [question, setQuestion] = useState("");
   const [collapsed, setCollapsed] = useState(false);
 
@@ -178,7 +178,7 @@ export function AllyDock() {
           placeholder="Ask Ally about this call…"
           className="min-w-0 flex-1 rounded-md border border-border bg-bg px-2 py-1 text-xs text-fg placeholder:text-fg-faint"
         />
-        {sidecar && cards.length > 0 && (
+        {compact && cards.length > 0 && (
           <button
             type="button"
             onClick={() => setCollapsed((v) => !v)}
@@ -189,7 +189,7 @@ export function AllyDock() {
         )}
       </div>
       <RadarCard />
-      {sidecar && !collapsed && cards.length > 0 && (
+      {compact && !collapsed && cards.length > 0 && (
         <div className="mt-2 flex flex-col gap-2">
           {cards.map((card) => (
             <Card key={card.id} card={card} />

@@ -8,7 +8,7 @@ import { useTranscriptStore } from "@/state/transcript";
 /**
  * The Studio top bar (UI overhaul M2) — the curved instrument crown. Left lobe
  * carries the sonar Core + state readout; the right lobe carries the primary
- * Start/Stop control with Record + Sidecar. The former StatusBar's panel
+ * Start/Stop control with Record + Compact. The former StatusBar's panel
  * buttons moved to the NavRail, so this bar is now purely the live control
  * surface. Its silhouette curves asymmetrically at the foot (a larger radius on
  * the left) to echo the pod language.
@@ -16,8 +16,8 @@ import { useTranscriptStore } from "@/state/transcript";
 export function TopBar() {
   const session = useTranscriptStore((s) => s.session);
   const conversationTitle = useConversationStore((s) => s.title);
-  const sidecar = useAppStore((s) => s.sidecar);
-  const toggleSidecar = useAppStore((s) => s.toggleSidecar);
+  const compact = useAppStore((s) => s.compact);
+  const toggleCompact = useAppStore((s) => s.toggleCompact);
   const busy = useAppStore((s) => s.busy);
   const lastError = useAppStore((s) => s.lastError);
   const modelStatus = useAppStore((s) => s.modelStatus);
@@ -137,18 +137,18 @@ export function TopBar() {
 
           <button
             type="button"
-            onClick={() => void toggleSidecar()}
-            aria-pressed={sidecar}
-            aria-label="Toggle sidecar mode (narrow always-on-top)"
-            title="Sidecar — narrow always-on-top strip beside a call window"
+            onClick={() => void toggleCompact()}
+            aria-pressed={compact}
+            aria-label="Toggle compact mode (narrow always-on-top)"
+            title="Compact — narrow always-on-top strip beside a call window"
             className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition ${
-              sidecar
+              compact
                 ? "border-ai/50 text-ai"
                 : "border-border text-fg-muted hover:text-fg"
             }`}
           >
-            <Icon name="sidecar" size={15} />
-            Sidecar
+            <Icon name="compact" size={15} />
+            Compact
           </button>
 
           {/* Primary control — the Start/Stop instrument switch. */}

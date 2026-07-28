@@ -9,7 +9,7 @@ import { useTranscriptStore } from "@/state/transcript";
 /**
  * ⌘K command palette (UI overhaul M2). A floating, filterable action list over
  * the whole Studio: jump to any view and drive the session (start/stop, record,
- * sidecar) without hunting for a control. The global ⌘K/Ctrl+K binding lives in
+ * compact) without hunting for a control. The global ⌘K/Ctrl+K binding lives in
  * StudioShell; this component owns the open UI, filtering, and keyboard nav.
  */
 
@@ -29,12 +29,12 @@ export function CommandPalette() {
   const listening =
     useTranscriptStore((s) => s.session.state) === "listening";
   const recording = useAppStore((s) => s.recording);
-  const sidecar = useAppStore((s) => s.sidecar);
+  const compact = useAppStore((s) => s.compact);
   const start = useAppStore((s) => s.start);
   const stop = useAppStore((s) => s.stop);
   const startRecording = useAppStore((s) => s.startRecording);
   const stopRecording = useAppStore((s) => s.stopRecording);
-  const toggleSidecar = useAppStore((s) => s.toggleSidecar);
+  const toggleCompact = useAppStore((s) => s.toggleCompact);
 
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -89,24 +89,24 @@ export function CommandPalette() {
             run: () => void startRecording(),
           },
       {
-        id: "sidecar:toggle",
-        label: sidecar ? "Exit sidecar mode" : "Enter sidecar mode",
+        id: "compact:toggle",
+        label: compact ? "Exit compact mode" : "Enter compact mode",
         hint: "Window",
-        icon: "sidecar",
-        run: () => void toggleSidecar(),
+        icon: "compact",
+        run: () => void toggleCompact(),
       },
     ];
     return [...nav, ...session];
   }, [
     listening,
     recording,
-    sidecar,
+    compact,
     setView,
     start,
     stop,
     startRecording,
     stopRecording,
-    toggleSidecar,
+    toggleCompact,
   ]);
 
   const filtered = useMemo(() => {

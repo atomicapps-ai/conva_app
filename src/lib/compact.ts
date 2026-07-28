@@ -1,16 +1,16 @@
 /**
- * Sidecar mode (design §4.3 U9): a narrow always-on-top strip that sits
+ * Compact mode (design §4.3 U9): a narrow always-on-top strip that sits
  * beside a full-screen call window. Window sizing is remembered and
  * restored when toggled off.
  */
 
 import { isTauri } from "@/lib/ipc";
 
-const SIDECAR_WIDTH = 380;
+const COMPACT_WIDTH = 380;
 
 let savedSize: { width: number; height: number } | null = null;
 
-export async function applySidecar(on: boolean): Promise<void> {
+export async function applyCompact(on: boolean): Promise<void> {
   if (!isTauri()) return;
   const { getCurrentWindow, LogicalSize } = await import(
     "@tauri-apps/api/window"
@@ -25,7 +25,7 @@ export async function applySidecar(on: boolean): Promise<void> {
       height: inner.height / factor,
     };
     await win.setAlwaysOnTop(true);
-    await win.setSize(new LogicalSize(SIDECAR_WIDTH, savedSize.height));
+    await win.setSize(new LogicalSize(COMPACT_WIDTH, savedSize.height));
   } else {
     await win.setAlwaysOnTop(false);
     if (savedSize) {

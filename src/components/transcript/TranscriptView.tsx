@@ -451,8 +451,8 @@ function centerInScroller(scroller: HTMLElement, el: HTMLElement) {
   scroller.scrollTo({ top: scroller.scrollTop + delta, behavior: "smooth" });
 }
 
-/** Sidecar fallback: single merged feed that fits a 380 px strip (no spine). */
-function SidecarFeed({ segments }: { segments: TranscriptSegment[] }) {
+/** Compact fallback: single merged feed that fits a 380 px strip (no spine). */
+function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
   const merged = [...segments].sort((a, b) => a.start_ms - b.start_ms);
   const { ref, pinned, setPinned, onScroll } = useAutoScroll(
     merged[merged.length - 1],
@@ -514,12 +514,12 @@ function SidecarFeed({ segments }: { segments: TranscriptSegment[] }) {
  * collapses; the header carries expand-all / collapse-all. Clicking a spine dot
  * enters "inspect": both columns un-pin, the pair centers, live content keeps
  * arriving below without yanking the view, and a "N new" pill offers the way
- * back to the live edge. Sidecar mode (U9) keeps the single merged feed.
+ * back to the live edge. Compact mode (U9) keeps the single merged feed.
  */
 export function TranscriptView() {
   const liveSegments = useTranscriptStore((s) => s.segments);
   const archived = useTranscriptStore((s) => s.archived);
-  const sidecar = useAppStore((s) => s.sidecar);
+  const compact = useAppStore((s) => s.compact);
   const cards = useAllyStore((s) => s.cards);
   const busy = useAllyStore((s) => s.busy);
   const request = useAllyStore((s) => s.request);
@@ -628,8 +628,8 @@ export function TranscriptView() {
   const collapseAll = () => setCollapsed(new Set(allKeys));
   const expandAll = () => setCollapsed(new Set());
 
-  if (sidecar) {
-    return <SidecarFeed segments={merged} />;
+  if (compact) {
+    return <CompactFeed segments={merged} />;
   }
 
   return (

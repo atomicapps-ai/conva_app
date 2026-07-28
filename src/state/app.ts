@@ -31,9 +31,9 @@ interface AppState {
   registry: ProviderInfo[];
   keyStatus: Partial<Record<ProviderId, boolean>>;
   refreshKeyStatus: () => Promise<void>;
-  /** Sidecar mode (U9): narrow always-on-top strip beside a call window. */
-  sidecar: boolean;
-  toggleSidecar: () => Promise<void>;
+  /** Compact mode (U9): narrow always-on-top strip beside a call window. */
+  compact: boolean;
+  toggleCompact: () => Promise<void>;
   /** Call recording (stereo WAV: you = left, them = right). */
   recording: boolean;
   recordingPath: string | null;
@@ -87,15 +87,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ recording: false, lastError: String(e) });
     }
   },
-  sidecar: false,
-  toggleSidecar: async () => {
-    const next = !get().sidecar;
-    set({ sidecar: next });
+  compact: false,
+  toggleCompact: async () => {
+    const next = !get().compact;
+    set({ compact: next });
     try {
-      const { applySidecar } = await import("@/lib/sidecar");
-      await applySidecar(next);
+      const { applyCompact } = await import("@/lib/compact");
+      await applyCompact(next);
     } catch (e) {
-      set({ sidecar: !next, lastError: String(e) });
+      set({ compact: !next, lastError: String(e) });
     }
   },
   refreshKeyStatus: async () => {
