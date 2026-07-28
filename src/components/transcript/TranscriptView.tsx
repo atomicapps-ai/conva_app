@@ -134,56 +134,46 @@ function Bubble({
         ].join(" ")}
       >
         <div
-          className={`flex items-start gap-2 ${inbound ? "" : "flex-row-reverse"}`}
+          className={`flex items-center gap-2 ${inbound ? "" : "flex-row-reverse"}`}
         >
           <span className={collapsed ? "line-clamp-1 flex-1" : "flex-1"}>
             {segment.text || (!final ? "…" : "")}
           </span>
           {final && (
-            <Caret
-              collapsed={collapsed}
-              onToggle={onToggleCollapse}
-              label={inbound ? "received message" : "sent message"}
-            />
-          )}
-        </div>
-
-        {final && !collapsed && (
-          <div
-            className={[
-              "mt-3 flex items-center gap-2.5 border-t pt-2.5",
-              inbound
-                ? "border-inbound/18"
-                : "flex-row-reverse border-outbound/20",
-            ].join(" ")}
-          >
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onResearch}
-              className={[
-                "flex h-[26px] items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-bold transition disabled:opacity-40",
-                inbound
-                  ? "border-inbound/40 text-inbound hover:bg-inbound/10"
-                  : "border-outbound/40 text-[var(--voice-you-text)] hover:bg-outbound/10",
-              ].join(" ")}
-            >
-              <Icon name="search" size={11} />
-              Research with Ally
-            </button>
-            {linkedSeq !== null && (
+            <div className="flex shrink-0 items-center gap-0.5 self-center">
+              {/* Ask Ally — the lightbulb initiates the AI response for this turn
+                  (replaces the old "Research with Ally" pill). */}
               <button
                 type="button"
-                onClick={onJumpLink}
-                title={`Jump to A${linkedSeq}`}
-                className="flex items-center gap-1.5 text-[11px] font-semibold text-ai hover:underline"
+                disabled={busy}
+                onClick={onResearch}
+                title="Ask Ally"
+                aria-label="Ask Ally about this message"
+                className="rounded p-1 text-ai/70 transition-colors hover:bg-ai/10 hover:text-ai disabled:opacity-40"
               >
-                <span className="h-1.5 w-1.5 rounded-full bg-ai" />
-                Linked to A{linkedSeq}
+                <Icon name="lightbulb" size={16} />
               </button>
-            )}
-          </div>
-        )}
+              {/* Jump to the linked Ally card, if any (icon + number, no label). */}
+              {linkedSeq !== null && (
+                <button
+                  type="button"
+                  onClick={onJumpLink}
+                  title={`Jump to Ally card A${linkedSeq}`}
+                  aria-label={`Jump to Ally card ${linkedSeq}`}
+                  className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-bold text-ai transition-colors hover:bg-ai/10"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-ai" />
+                  A{linkedSeq}
+                </button>
+              )}
+              <Caret
+                collapsed={collapsed}
+                onToggle={onToggleCollapse}
+                label={inbound ? "received message" : "sent message"}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -873,7 +863,7 @@ export function TranscriptView() {
           {merged.length === 0 ? (
             <p className="mt-8 text-center text-xs text-fg-faint">
               The conversation appears here — them on the left, you on the
-              right. Hover a message and use Research with Ally.
+              right. Tap the ✦ lightbulb on any message to ask Ally.
             </p>
           ) : (
             merged.map((seg) => {
@@ -1004,8 +994,8 @@ export function TranscriptView() {
         >
           {cards.length === 0 ? (
             <p className="mt-8 text-center text-xs text-fg-faint">
-              Ally's answers land here — use Research with Ally on any message,
-              or ask below.
+              Ally's answers land here — tap the lightbulb on any message, or
+              ask below.
             </p>
           ) : (
             cards.map((card) => (

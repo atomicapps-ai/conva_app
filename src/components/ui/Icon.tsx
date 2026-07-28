@@ -26,7 +26,11 @@ export type IconName =
   | "mic"
   | "system"
   | "account"
-  | "expand";
+  | "expand"
+  | "lightbulb"
+  | "book"
+  | "howto"
+  | "elaborate";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -108,6 +112,36 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   // Expand — four corner arrows (leave compact / go full size).
   expand: <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />,
+  // Ask Ally — a lightbulb with a lightning filament (initiates AI).
+  lightbulb: (
+    <>
+      <path d="M12 3a6 6 0 0 0-3.6 10.8c.6.45 1.1 1.15 1.1 1.95V17h5v-1.25c0-.8.5-1.5 1.1-1.95A6 6 0 0 0 12 3z" />
+      <path d="M9.7 20h4.6M10.7 22.2h2.6" />
+      <path d="M12.7 7.2l-2.2 3.7h2.5L11 15" />
+    </>
+  ),
+  // Definition — an open book.
+  book: (
+    <>
+      <path d="M12 6.5C10.5 5 8 4.5 4 4.8v12.4c4-.3 6.5.2 8 1.7 1.5-1.5 4-2 8-1.7V4.8c-4-.3-6.5.2-8 1.7z" />
+      <path d="M12 6.5v12.1" />
+    </>
+  ),
+  // How-to — a question mark in a rounded square.
+  howto: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="4" />
+      <path d="M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2-2.5 3.6" />
+      <path d="M12 17h.01" />
+    </>
+  ),
+  // Elaborate — expand outward (plus with radiating arrows).
+  elaborate: (
+    <>
+      <path d="M12 8v8M8 12h8" />
+      <path d="M5 5l2 2M19 5l-2 2M5 19l2-2M19 19l-2-2" />
+    </>
+  ),
 };
 
 export function Icon({
