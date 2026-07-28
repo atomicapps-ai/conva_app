@@ -541,6 +541,23 @@ export function TranscriptView() {
   const convo = useAutoScroll(merged[merged.length - 1]);
   const allyCol = useAutoScroll(cards[0]?.id);
 
+  // Below 1180px the Ally column becomes an overlay drawer (spine stays,
+  // its nodes open it); ≥1180px all three columns show inline.
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((es) => {
+      const r = es[0];
+      if (r) setWidth(r.contentRect.width);
+    });
+    ro.observe(el);
+    setWidth(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, []);
+  const drawer = width > 0 && width < 1180;
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
   // sourceKey → newest card that derived from it (drives the bubble's chip).
   const linkBySource = useMemo(() => {
     const m = new Map<string, AllyCard>();
@@ -611,6 +628,7 @@ export function TranscriptView() {
   const inspect = useCallback(
     (cardId: string, sourceKey: string | null) => {
       setInspected({ cardId, sourceKey });
+      setDrawerOpen(true);
       // Expand both if collapsed.
       setCollapsed((prev) => {
         const n = new Set(prev);
@@ -759,7 +777,16 @@ export function TranscriptView() {
             <span className="h-[7px] w-[7px] rounded-full bg-outbound" />
             You
           </span>
-          <div className="ml-auto flex items-center gap-0.5 text-fg-faint">
+          <div className="ml-auto flex items-center gap-1 text-fg-faint">
+            {drawer && (
+              <button
+                type="button"
+                onClick={() => setDrawerOpen((o) => !o)}
+                className="mr-1 flex items-center gap-1.5 rounded-lg border border-ai/40 px-2.5 py-1 text-[11px] font-semibold text-ai"
+              >
+                ✦ Ally{cards.length > 0 ? ` ${cards.length}` : ""}
+              </button>
+            )}
             <button
               type="button"
               onClick={expandAll}
@@ -850,8 +877,22 @@ export function TranscriptView() {
         </span>
       </div>
 
-      {/* Ally — right */}
-      <section className="flex w-[452px] shrink-0 flex-col bg-panel/40">
+      {/* Ally — right (inline ≥1180px, else an overlay drawer) */}
+      {drawer && drawerOpen && (
+        <button
+          type="button"
+          aria-label="Close Ally"
+          onClick={() => setDrawerOpen(false)}
+          className="absolute inset-0 z-20 cursor-default bg-bg/40"
+        />
+      )}
+      <section
+        className={
+          drawer
+            ? `absolute right-0 top-0 z-30 flex h-full w-[min(452px,88%)] flex-col border-l border-border bg-panel-raised shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
+            : "flex w-[452px] shrink-0 flex-col bg-panel/40"
+        }
+      >
         <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-5">
           <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-ai">
             Ally
@@ -875,6 +916,17 @@ export function TranscriptView() {
             >
               <Icon name="unfoldLess" size={16} />
             </button>
+            {drawer && (
+              <button
+                type="button"
+                onClick={() => setDrawerOpen(false)}
+                title="Close"
+                aria-label="Close Ally"
+                className="rounded p-1 hover:text-fg"
+              >
+                <Icon name="close" size={16} />
+              </button>
+            )}
           </div>
         </div>
         <div
