@@ -17,6 +17,7 @@ pub mod config;
 pub mod dsp;
 pub mod error;
 pub mod fuse;
+pub mod highlight;
 pub mod ipc;
 pub mod llm;
 pub mod prompt;

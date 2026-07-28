@@ -344,6 +344,24 @@ fn rag_list(state: State<AppState>) -> Vec<RagDocument> {
     state.rag.list()
 }
 
+/// RAG-grounded term detection for transcript highlighting: retrieve the
+/// library context for `text`, then return the phrases in `text` that overlap
+/// it — the words worth offering an Ally action (definition / how-to /
+/// elaborate) on. Empty when the library is empty or nothing overlaps.
+#[tauri::command]
+fn analyze_terms(state: State<AppState>, text: String) -> Vec<String> {
+    let chunks = state.rag.retrieve(&text, 4);
+    if chunks.is_empty() {
+        return Vec::new();
+    }
+    let context = chunks
+        .iter()
+        .map(|c| c.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    conva_core::highlight::relevant_terms(&text, &context)
+}
+
 #[tauri::command]
 fn rag_set_enabled(state: State<AppState>, id: String, enabled: bool) -> Result<(), String> {
     state
@@ -766,6 +784,7 @@ pub fn run() {
             rag_list,
             rag_set_enabled,
             rag_delete,
+            analyze_terms,
             rag_download,
             secrets_status,
             secrets_export,

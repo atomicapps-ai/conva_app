@@ -167,6 +167,11 @@ export function authStart(provider?: string): Promise<AuthStatus> {
   return invoke<AuthStatus>("auth_start", { provider: provider ?? null });
 }
 
+/** RAG-grounded relevant phrases in a transcript message, for highlighting. */
+export function analyzeTerms(text: string): Promise<string[]> {
+  return invoke<string[]>("analyze_terms", { text });
+}
+
 /** Sign in with email + password (same account as Google / the website). */
 export function authSigninPassword(
   email: string,

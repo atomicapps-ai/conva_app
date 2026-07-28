@@ -5,10 +5,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 
-import { Icon } from "@/components/ui/Icon";
+import { Icon, type IconName } from "@/components/ui/Icon";
+import { analyzeTerms } from "@/lib/commands";
 import type { TranscriptSegment } from "@/lib/ipc";
+import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
 import { useTranscriptStore } from "@/state/transcript";
@@ -41,6 +44,133 @@ function cardLabel(card: AllyCard): string {
 interface Active {
   cardId: string;
   sourceKey: string | null;
+}
+
+/** Term actions — icons only; the tooltip names the action (owner request). */
+const TERM_ACTIONS: { action: TermAction; icon: IconName; tip: string }[] = [
+  { action: "definition", icon: "book", tip: "Definition" },
+  { action: "howto", icon: "howto", tip: "How-to" },
+  { action: "elaborate", icon: "elaborate", tip: "Elaborate" },
+];
+type TermAction = "definition" | "howto" | "elaborate";
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** A small icon popover anchored to a highlighted word: definition / how-to /
+ *  elaborate. Closes on outside click, scroll, or resize. */
+function TermMenu({
+  term,
+  x,
+  y,
+  onPick,
+  onClose,
+}: {
+  term: string;
+  x: number;
+  y: number;
+  onPick: (action: TermAction) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [onClose]);
+  return (
+    <div
+      style={{ position: "fixed", left: x, top: y + 4, zIndex: 60 }}
+      onClick={(e) => e.stopPropagation()}
+      role="menu"
+      aria-label={`Ask Ally about "${term}"`}
+      className="glass-raised flex items-center gap-0.5 rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
+    >
+      {TERM_ACTIONS.map((a) => (
+        <button
+          key={a.action}
+          type="button"
+          title={a.tip}
+          aria-label={`${a.tip}: ${term}`}
+          onClick={() => onPick(a.action)}
+          className="rounded p-1.5 text-fg-faint transition-colors hover:bg-ai/10 hover:text-ai"
+        >
+          <Icon name={a.icon} size={16} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Renders `text` with `terms` highlighted as clickable chips that open a
+ *  TermMenu. Terms are matched case-insensitively with flexible whitespace. */
+function HighlightedText({
+  text,
+  terms,
+  onAsk,
+}: {
+  text: string;
+  terms: string[];
+  onAsk: (action: TermAction, term: string) => void;
+}) {
+  const [menu, setMenu] = useState<{ term: string; x: number; y: number } | null>(
+    null,
+  );
+  if (terms.length === 0) return <>{text}</>;
+
+  const alts = [...terms]
+    .sort((a, b) => b.length - a.length)
+    .map((t) => t.split(/\s+/).map(escapeRegExp).join("\\s+"));
+  const re = new RegExp(`\\b(${alts.join("|")})\\b`, "gi");
+
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const word = m[0];
+    parts.push(
+      <button
+        key={`h${key++}`}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          setMenu({ term: word, x: r.left, y: r.bottom });
+        }}
+        className="rounded-[3px] bg-ai/15 px-0.5 font-semibold text-ai decoration-ai/40 decoration-dotted underline-offset-2 hover:bg-ai/25 hover:underline"
+      >
+        {word}
+      </button>,
+    );
+    last = m.index + word.length;
+    if (m.index === re.lastIndex) re.lastIndex++;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+
+  return (
+    <>
+      {parts}
+      {menu && (
+        <TermMenu
+          term={menu.term}
+          x={menu.x}
+          y={menu.y}
+          onPick={(action) => {
+            onAsk(action, menu.term);
+            setMenu(null);
+          }}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </>
+  );
 }
 
 /** A caret that toggles a bubble/card between collapsed and expanded. */
@@ -80,6 +210,7 @@ function Bubble({
   collapsed,
   onToggleCollapse,
   onResearch,
+  onAskTerm,
   onContextMenu,
   linkedSeq,
   onJumpLink,
@@ -91,6 +222,7 @@ function Bubble({
   collapsed: boolean;
   onToggleCollapse: () => void;
   onResearch: () => void;
+  onAskTerm: (action: TermAction, term: string) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   linkedSeq: number | null;
   onJumpLink: () => void;
@@ -100,6 +232,19 @@ function Bubble({
   const key = segmentKey(segment);
   const final = segment.is_final;
   const name = inbound ? "Them" : "You";
+
+  // RAG-grounded highlight terms for this finalized message (best-effort).
+  const [terms, setTerms] = useState<string[]>([]);
+  useEffect(() => {
+    if (!final || !segment.text || !isTauri()) return;
+    let alive = true;
+    void analyzeTerms(segment.text)
+      .then((t) => alive && setTerms(t))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [final, segment.text]);
 
   const label = (
     <div
@@ -137,7 +282,15 @@ function Bubble({
           className={`flex items-center gap-2 ${inbound ? "" : "flex-row-reverse"}`}
         >
           <span className={collapsed ? "line-clamp-1 flex-1" : "flex-1"}>
-            {segment.text || (!final ? "…" : "")}
+            {final && !collapsed && segment.text ? (
+              <HighlightedText
+                text={segment.text}
+                terms={terms}
+                onAsk={onAskTerm}
+              />
+            ) : (
+              segment.text || (!final ? "…" : "")
+            )}
           </span>
           {final && (
             <div className="flex shrink-0 items-center gap-0.5 self-center">
@@ -702,6 +855,19 @@ export function TranscriptView() {
     [request],
   );
 
+  const askTerm = useCallback(
+    (action: TermAction, term: string) => {
+      const prompt =
+        action === "definition"
+          ? `Define "${term}" concisely, in the context of this conversation.`
+          : action === "howto"
+            ? `How do I "${term}"? Give concise, actionable steps.`
+            : `Elaborate on "${term}" using the most relevant context from my documents.`;
+      void request("question", prompt, { key: "", quote: term });
+    },
+    [request],
+  );
+
   const submitAsk = () => {
     const q = ask.trim();
     if (!q) return;
@@ -878,6 +1044,7 @@ export function TranscriptView() {
                   collapsed={collapsed.has(key)}
                   onToggleCollapse={() => toggleCollapse(key)}
                   onResearch={() => research(seg)}
+                  onAskTerm={askTerm}
                   onContextMenu={(e) => bubbleMenu(e, seg)}
                   linkedSeq={link ? link.seq : null}
                   onJumpLink={() => link && inspect(link.id, key)}
