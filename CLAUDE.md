@@ -69,23 +69,62 @@ swap a layer without asking the owner.**
    upgrade, never a hard dependency. Ingestion supports pdf/docx/md/txt/html
    plus pasted text (stored as `.txt`).
 
-## Build & run (Windows)
+## Build & run
 
-Full prerequisites + a build-troubleshooting table (real failures: libclang,
-the LLVM-20 layout assert → **pin LLVM 18.1.8**, stdbool.h/stdio.h, cmake) are
-in [`README.md`](README.md). Short version, from a fresh terminal after the
-prereqs:
+Prereqs + a Windows build-troubleshooting table (libclang, the LLVM-20 layout
+assert → **pin LLVM 18.1.8**, stdbool.h/stdio.h, cmake) are in
+[`README.md`](README.md). From a fresh terminal after prereqs:
 
 ```
 npm install
 npm run tauri dev      # first launch downloads the whisper + embedding models
 ```
 
-Local whisper runs on CPU by default. For conversation-speed transcription,
-build with the GPU backend: Vulkan SDK prereq + `npm run tauri:gpu` (a
-dedicated script — passing `--features` through `npm run tauri dev --` gets
-mangled by npm) — see README "GPU-accelerated whisper". The log line
-`[asr] whisper backend: …` tells you which backend a running build uses.
+### Run commands — pick the right one per platform ⚠️
+
+Local whisper runs on **CPU by default** (works everywhere, just slower). For
+conversation-speed transcription run the **GPU** build — but the GPU backend is
+**platform-specific**, and the wrong script wastes real time (the build fails or
+silently falls back and you end up staring at a stale app):
+
+| Platform | GPU dev command | Backend | Needs |
+|---|---|---|---|
+| **Windows** | `npm run tauri:gpu` | Vulkan | Vulkan SDK |
+| **macOS** | `npm run tauri:gpu:metal` | Metal | Xcode (present on any Mac) |
+| **NVIDIA (opt-in)** | `npm run tauri:gpu:cuda` | CUDA | CUDA Toolkit |
+| any | `npm run tauri dev` | CPU | nothing extra |
+
+- **`npm run tauri:gpu` is Vulkan and DOES NOT build on macOS** — on a Mac use
+  **`npm run tauri:gpu:metal`**. This is the #1 time-waster; don't repeat it.
+- Do **not** pass `--features` through `npm run tauri dev -- …` — npm mangles the
+  args. Use the dedicated scripts above.
+- `[asr] whisper backend: …` at model load prints which backend is actually live.
+
+### Which build am I running? (stop debugging stale binaries)
+
+Every build carries a **git-sha stamp** (`vite.config.ts` injects `__GIT_SHA__` /
+`__BUILD_TIME__`), shown in the **status bar** bottom-right (`build <sha>`) and
+logged at boot (`[conva] build <sha> · <time>`). If a change "didn't work",
+**check the sha first** — a mismatch means a stale build, not a broken fix. The
+status-bar **`debug ⧉`** button copies a diagnostics report (build, platform,
+window + live column widths, session state, last error) and writes
+`<app-config>/conva-debug.log`.
+
+### Platform capability gaps
+
+- **System-audio (other-party) capture is Windows-only.** The inbound side is
+  WASAPI loopback — an input stream on an *output* device — which cpal only does
+  on Windows. On macOS/Linux the session **degrades to mic-only** (your side
+  transcribes; theirs doesn't) rather than failing. A native macOS path
+  (ScreenCaptureKit) is future work; Windows is the full-capture Phase-1 target.
+
+### Accounts & backend (in progress)
+
+Account sign-in (OAuth via Supabase, PKCE + loopback) is in
+`src-tauri/src/auth.rs`; tokens live in the OS keyring, UI entry is Settings →
+Account. The platform design (auth, settings sync, dynamic config, billing/
+credits, OpenAPI) and the Supabase migrations live in the **conva_core** repo
+under `docs/platform/` and `platform/`.
 
 Default settings live in the repo-committed `conva.config.json` — a fresh
 machine seeds its config from it (Settings → "Export settings…" writes the
