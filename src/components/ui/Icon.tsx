@@ -24,7 +24,9 @@ export type IconName =
   | "unfoldMore"
   | "unfoldLess"
   | "mic"
-  | "system";
+  | "system"
+  | "account"
+  | "expand";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -97,6 +99,15 @@ const PATHS: Record<IconName, ReactNode> = {
   ),
   // System audio bars — the "them" stream.
   system: <path d="M5 9v6M9 5v14M15 7v10M19 10v4" />,
+  // Account — user head + shoulders.
+  account: (
+    <>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5.5 19.5a6.5 6.5 0 0 1 13 0" />
+    </>
+  ),
+  // Expand — four corner arrows (leave compact / go full size).
+  expand: <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />,
 };
 
 export function Icon({

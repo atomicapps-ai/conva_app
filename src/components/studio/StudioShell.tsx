@@ -12,7 +12,9 @@ import { NavRail } from "@/components/studio/NavRail";
 import { StatusBar } from "@/components/studio/StatusBar";
 import { TopBar } from "@/components/studio/TopBar";
 import { TranscriptView } from "@/components/transcript/TranscriptView";
+import { Icon } from "@/components/ui/Icon";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
 
 /** The live cockpit is the whole three-column instrument (transcript · spine ·
@@ -32,6 +34,8 @@ export function StudioShell() {
   const view = useNavStore((s) => s.view);
   const setView = useNavStore((s) => s.setView);
   const togglePalette = useNavStore((s) => s.togglePalette);
+  const compact = useAppStore((s) => s.compact);
+  const toggleCompact = useAppStore((s) => s.toggleCompact);
   const backToLive = () => setView("live");
 
   // Global ⌘K / Ctrl+K → command palette.
@@ -65,6 +69,22 @@ export function StudioShell() {
           <StatusBar />
         </div>
       </div>
+
+      {/* Compact mode shrinks the window to a narrow strip; the header's
+          Compact toggle can scroll out of reach, so guarantee a way back with
+          an always-visible floating Expand control. */}
+      {compact && (
+        <button
+          type="button"
+          onClick={() => void toggleCompact()}
+          title="Expand — leave compact mode"
+          aria-label="Expand — leave compact mode"
+          className="fixed right-2 top-2 z-50 flex items-center gap-1.5 rounded-full border border-border-strong bg-panel-raised px-3 py-1.5 text-[11px] font-semibold text-fg shadow-lg transition hover:brightness-110"
+        >
+          <Icon name="expand" size={14} />
+          Expand
+        </button>
+      )}
 
       {/* Overlays — render above any view. */}
       <ConsentGate />

@@ -41,21 +41,24 @@ function useElapsed(active: boolean): string {
   return clock(ms);
 }
 
-/** Four-bar level meter for one stream (heights ride real RMS). */
+/** Level meter for one stream — heights ride real RMS, animate smoothly, and
+ *  glow when signal is present so "we're hearing you" reads at a glance. */
 function Bars({ level, color }: { level: AudioLevelEvent | null; color: string }) {
   const u = levelUnit(level);
-  // A little per-bar shaping so it reads as a meter, not one block.
-  const shape = [0.55, 0.85, 1, 0.7];
+  // Per-bar shaping so it reads as a meter, not one block.
+  const shape = [0.5, 0.8, 1, 0.75, 0.55];
+  const H = 22;
   return (
-    <span className="flex h-[13px] items-end gap-[2px]" aria-hidden>
+    <span className="flex h-[22px] items-end gap-[3px]" aria-hidden>
       {shape.map((k, i) => (
         <span
           key={i}
-          className="w-[2px] rounded-[1px]"
+          className="w-[3px] rounded-full transition-[height,opacity] duration-100 ease-out"
           style={{
-            height: `${Math.max(2, u * k * 13)}px`,
+            height: `${Math.max(3, u * k * H)}px`,
             background: color,
-            opacity: 0.4 + u * 0.6,
+            opacity: 0.3 + u * 0.7,
+            boxShadow: u > 0.06 ? `0 0 6px ${color}` : "none",
           }}
         />
       ))}
@@ -68,13 +71,13 @@ function MeterCluster() {
   const config = useAppStore((s) => s.config);
   const cloud = config?.asr_engine === "deepgram_cloud";
   return (
-    <div className="flex h-8 items-center gap-3.5 rounded-full border border-border bg-white/[0.035] px-3.5">
-      <span className="flex items-center gap-1.5" title="Your microphone level">
-        <Icon name="mic" size={13} className="text-outbound" />
+    <div className="flex h-9 items-center gap-3.5 rounded-full border border-border bg-white/[0.035] px-3.5">
+      <span className="flex items-center gap-2" title="Your microphone level">
+        <Icon name="mic" size={15} className="text-outbound" />
         <Bars level={levels.outbound} color="var(--color-outbound)" />
       </span>
-      <span className="flex items-center gap-1.5" title="System / other-party level">
-        <Icon name="system" size={13} className="text-inbound" />
+      <span className="flex items-center gap-2" title="System / other-party level">
+        <Icon name="system" size={15} className="text-inbound" />
         <Bars level={levels.inbound} color="var(--color-inbound)" />
       </span>
       <span className="h-4 w-px bg-border" />
@@ -238,7 +241,7 @@ export function TopBar() {
                     className="h-[7px] w-[7px] animate-pulse rounded-full bg-ok"
                     aria-hidden
                   />
-                  Listening
+                  Stop Listening
                   <span className="font-mono text-[11px] font-bold text-fg-muted">
                     {elapsed}
                   </span>

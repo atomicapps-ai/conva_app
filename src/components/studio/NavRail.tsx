@@ -1,5 +1,9 @@
+import { useEffect, useState } from "react";
+
 import mark from "@/assets/brand/conva-mark-white.svg";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { authStatus } from "@/lib/commands";
+import { isTauri, type AuthStatus } from "@/lib/ipc";
 import { useNavStore, type View } from "@/state/nav";
 
 /**
@@ -58,6 +62,16 @@ export function NavRail() {
   const view = useNavStore((s) => s.view);
   const setView = useNavStore((s) => s.setView);
   const openPalette = useNavStore((s) => s.openPalette);
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
+
+  // Reflect sign-in state on the account button. Refreshes when the view
+  // changes so signing in via Settings updates the rail without a reload.
+  useEffect(() => {
+    if (!isTauri()) return;
+    void authStatus()
+      .then(setAuth)
+      .catch(() => setAuth(null));
+  }, [view]);
 
   return (
     <nav
@@ -84,13 +98,28 @@ export function NavRail() {
         </RailButton>
       ))}
 
-      <div className="mt-auto flex flex-col items-center gap-1 pt-2">
+      <div className="mt-auto flex flex-col items-center gap-1.5 pt-2">
         <RailButton label="Command palette (⌘K)" onClick={openPalette}>
           <Icon name="search" size={19} />
         </RailButton>
-        <kbd className="rounded border border-border px-1 py-0.5 font-mono text-[9px] text-fg-faint">
-          ⌘K
-        </kbd>
+        <RailButton
+          label={
+            auth?.signed_in
+              ? `Account — ${auth.email ?? "signed in"}`
+              : "Account — sign in"
+          }
+          onClick={() => setView("settings")}
+        >
+          <span className="relative flex items-center justify-center">
+            <Icon name="account" size={20} />
+            {auth?.signed_in && (
+              <span
+                className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-ok"
+                aria-hidden
+              />
+            )}
+          </span>
+        </RailButton>
       </div>
     </nav>
   );
