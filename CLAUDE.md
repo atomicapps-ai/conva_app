@@ -77,6 +77,10 @@ swap a layer without asking the owner.**
 > whisper (`npm run tauri dev`) — it is too slow to be usable and is *not* a fix
 > for anything. Never use `tauri:gpu:metal` here (Metal is macOS-only; it fails
 > to build on Windows in `ggml-metal/CMakeLists.txt`).
+>
+> **Shell: the owner runs commands in Windows PowerShell.** `&&` is a parse
+> error there — chain commands with `;` (semicolon), not `&&`, in anything you
+> hand the owner to run.
 
 Prereqs + a Windows build-troubleshooting table (libclang, the LLVM-20 layout
 assert → **pin LLVM 18.1.8**, stdbool.h/stdio.h, cmake) are in
