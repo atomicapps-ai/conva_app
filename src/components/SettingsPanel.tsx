@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { AllySettings } from "@/components/AllySettings";
-import { Section, ViewShell } from "@/components/studio/ViewShell";
+import { Notice, Section, ViewShell } from "@/components/studio/ViewShell";
 import {
+  authSignout,
+  authStart,
+  authStatus,
   deepgramKeyStatus,
   exportConfig,
   importConfig,
@@ -12,7 +15,12 @@ import {
   secretsStatus,
   setDeepgramKey,
 } from "@/lib/commands";
-import type { SecretsStatus, StreamSide, WhisperModelInfo } from "@/lib/ipc";
+import type {
+  AuthStatus,
+  SecretsStatus,
+  StreamSide,
+  WhisperModelInfo,
+} from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 
@@ -394,6 +402,103 @@ function SecretsSettings() {
 
 /** Device picker (A3). Selections persist immediately; a running session
  *  picks them up on the next start. */
+/** Account sign-in (M0). OAuth via Supabase — identity only; audio,
+ *  transcripts, and the library never leave the device. Tokens live in the OS
+ *  keyring; the browser handles Google, so we never see IdP credentials. */
+function AccountSettings() {
+  const [status, setStatus] = useState<AuthStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    if (!isTauri()) return;
+    void authStatus()
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const signIn = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await authStart("google"));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signOut = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await authSignout();
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!isTauri()) {
+    return <Notice>Sign-in is available in the desktop app.</Notice>;
+  }
+  if (status && !status.configured) {
+    return <Notice>Sign-in isn’t configured in this build.</Notice>;
+  }
+
+  if (status?.signed_in) {
+    return (
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-fg">
+            {status.email ?? "Signed in"}
+          </p>
+          <p className="text-[11px] text-fg-faint">Signed in to conva</p>
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void signOut()}
+          className="btn shrink-0"
+        >
+          {busy ? "…" : "Sign out"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] leading-relaxed text-fg-faint">
+          Sign in to sync your preferences and manage your plan. Your audio,
+          transcripts, and reference library stay on this device.
+        </p>
+        {error && (
+          <p className="mt-1 text-[11px] text-fg-muted" role="status">
+            {error}
+          </p>
+        )}
+      </div>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void signIn()}
+        className="btn shrink-0"
+      >
+        {busy ? "Opening browser…" : "Sign in with Google"}
+      </button>
+    </div>
+  );
+}
+
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const config = useAppStore((s) => s.config);
   const updateConfig = useAppStore((s) => s.updateConfig);
@@ -424,6 +529,13 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         </button>
       }
     >
+      <Section
+        title="Account"
+        description="Sign in for settings sync and plan management. Identity only — no conversation content leaves your device."
+      >
+        <AccountSettings />
+      </Section>
+
       <Section
         title="Audio devices"
         description="Device changes apply when the next session starts. Tip: use a headset — open speakers leak the other side into your microphone."
