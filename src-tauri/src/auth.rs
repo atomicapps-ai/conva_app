@@ -26,6 +26,11 @@ use sha2::{Digest, Sha256};
 const DEFAULT_SUPABASE_URL: &str = "https://hbxftjyooblxiiapaeei.supabase.co";
 const DEFAULT_ANON_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhieGZ0anlvb2JseGlpYXBhZWVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTQ3MzksImV4cCI6MjEwMDgzMDczOX0.KkvrtUOubjv8DUym7Qj_W_YyYezkVtueKdg9LyQGqQU";
 
+/// Fixed loopback ports for the OAuth redirect (first free wins). Fixed rather
+/// than random because Supabase's redirect allow-list can't wildcard the port —
+/// each of these must be added as `http://127.0.0.1:<port>/callback`.
+const LOOPBACK_PORTS: &[u16] = &[8765, 8766, 8767];
+
 const KEYRING_SERVICE: &str = "conva";
 const KR_REFRESH: &str = "auth-refresh-token";
 const KR_ACCESS: &str = "auth-access-token";
@@ -300,7 +305,20 @@ pub fn sign_in(provider: &str, auth_dir: &Path) -> Result<AuthStatus, String> {
         return Err("supabase_not_configured".to_string());
     }
 
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    // Supabase's redirect allow-list does NOT match a wildcard port, so a
+    // random loopback port falls back to the Site URL. Bind a fixed port
+    // instead (first free of a small set) so the redirect is one of a handful
+    // of exact URLs the owner can allow-list. Add all of these in Supabase →
+    // Auth → URL Configuration → Redirect URLs:
+    //   http://127.0.0.1:8765/callback  (…:8766, …:8767)
+    let listener = LOOPBACK_PORTS
+        .iter()
+        .find_map(|&p| TcpListener::bind(("127.0.0.1", p)).ok())
+        .ok_or_else(|| {
+            format!(
+                "no free loopback port (tried {LOOPBACK_PORTS:?}); close whatever is using them and retry"
+            )
+        })?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let redirect = format!("http://127.0.0.1:{port}/callback");
 
