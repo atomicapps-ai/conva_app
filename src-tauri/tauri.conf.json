@@ -42,6 +42,11 @@
     "createUpdaterArtifacts": true
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["conva"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEwNzhGRTlEM0E2Mzc2OTQKUldTVWRtTTZuZjU0RUtCZW9iYTFNYytjK3pFaWxrY0svQjB2RGJweDV2K0hBZ1BncUY0ZnVnWFUK",
       "endpoints": [

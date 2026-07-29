@@ -143,9 +143,12 @@ window + live column widths, session state, last error) and writes
 
 ### Accounts & backend (in progress)
 
-Account sign-in (OAuth via Supabase, PKCE + loopback) is in
-`src-tauri/src/auth.rs`; tokens live in the OS keyring, UI entry is Settings →
-Account. The platform design (auth, settings sync, dynamic config, billing/
+Account sign-in (OAuth via Supabase, PKCE + `conva://` deep-link return — no
+loopback server, mobile-ready) is in `src-tauri/src/auth.rs`; tokens live in
+the OS keyring, UI entry is Settings → Account. ⚠️ Never launch OAuth URLs via
+`cmd /C start` — cmd splits the URL at `&` and silently drops every query
+param after the first (that was the "Google bounces to conva-app.com" bug);
+`open_browser` uses `rundll32 url.dll,FileProtocolHandler`. The platform design (auth, settings sync, dynamic config, billing/
 credits, OpenAPI) and the Supabase migrations live in the **conva_core** repo
 under `docs/platform/` and `platform/`.
 

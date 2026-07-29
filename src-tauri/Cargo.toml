@@ -52,13 +52,17 @@ keyring = { version = "3", features = [
 # travels to another machine. cocoon = PBKDF2 + ChaCha20-Poly1305, salt+nonce
 # handled internally.
 cocoon = "0.4"
-# Account sign-in (OAuth via Supabase, PKCE + loopback — src/auth.rs). PKCE
-# needs a SHA-256 challenge + base64url; state/verifier need OS randomness;
+# Account sign-in (OAuth via Supabase, PKCE + conva:// deep link — src/auth.rs).
+# PKCE needs a SHA-256 challenge + base64url; the verifier needs OS randomness;
 # the authorize URL needs percent-encoding. All tiny, pure-Rust.
 sha2 = "0.10"
 base64 = "0.22"
 rand = "0.8"
 urlencoding = "2"
+# The OAuth return path: the browser hands the auth code back through the
+# conva:// custom URL scheme — the same deep-link flow the mobile companion
+# will use (no loopback server, no local IPs in the user-visible redirect).
+tauri-plugin-deep-link = "2"
 # RAG ingestion (design §4.4 R1): PDF text extraction (pure Rust) and DOCX
 # (a zip of XML — we unzip and strip tags ourselves).
 pdf-extract = "0.7"
@@ -84,6 +88,10 @@ tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 # place (signed with the Tauri updater keypair); process powers the relaunch.
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+# Windows serves a conva:// link by launching a second copy of the exe; this
+# plugin forwards that launch into the running instance, and its "deep-link"
+# feature hands the URL to tauri-plugin-deep-link's handler.
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 
 [features]
 # GPU acceleration for local whisper — opt-in because building them needs the

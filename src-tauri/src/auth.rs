@@ -1,9 +1,17 @@
 //! Account sign-in for the desktop client.
 //!
 //! OAuth via **Supabase Auth** using Authorization Code + **PKCE** with a
-//! **loopback redirect** (RFC 8252) — no client secret ships in the binary; the
+//! **`conva://` deep-link return** — no client secret ships in the binary; the
 //! provider secret lives only in Supabase. The system browser handles the IdP,
 //! so we never touch the user's Google/LinkedIn/Facebook credentials.
+//!
+//! The flow is two-phase and event-driven (the same shape the mobile companion
+//! will use — deep links are the one return path that works on every platform):
+//! 1. [`begin_sign_in`] stores a pending PKCE verifier and opens the browser at
+//!    Supabase's `/authorize`, then returns immediately.
+//! 2. The browser lands on the redirect page, which hands control back via
+//!    `conva://auth/callback?code=…`; the shell's deep-link handler calls
+//!    [`complete_sign_in`], which exchanges the code and emits `AUTH_CHANGED`.
 //!
 //! Tokens live in the OS keyring (the same vault as provider API keys, service
 //! `conva`); non-secret session metadata (email, expiry) is cached in app-data
@@ -11,9 +19,8 @@
 //! `docs/platform/01-auth.md`.
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::TcpListener;
 use std::path::Path;
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
@@ -26,10 +33,51 @@ use sha2::{Digest, Sha256};
 const DEFAULT_SUPABASE_URL: &str = "https://hbxftjyooblxiiapaeei.supabase.co";
 const DEFAULT_ANON_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhieGZ0anlvb2JseGlpYXBhZWVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTQ3MzksImV4cCI6MjEwMDgzMDczOX0.KkvrtUOubjv8DUym7Qj_W_YyYezkVtueKdg9LyQGqQU";
 
-/// Fixed loopback ports for the OAuth redirect (first free wins). Fixed rather
-/// than random because Supabase's redirect allow-list can't wildcard the port —
-/// each of these must be added as `http://127.0.0.1:<port>/callback`.
-const LOOPBACK_PORTS: &[u16] = &[8765, 8766, 8767];
+/// Where the browser lands after Supabase finishes OAuth. The finished design
+/// is the hosted, branded page `https://getconva.com/auth/callback` (built in
+/// `conva_web`), which shows a "return to conva" finish and forwards the code
+/// into the app via the `conva://` deep link — the Zoom/Slack-style close, no
+/// local IPs anywhere. Until that page is deployed the default deep-links
+/// straight into the app (the browser shows an "Open conva?" prompt instead of
+/// a branded page — same security, less polish). Flip this constant once the
+/// page is live; overridable via `CONVA_AUTH_REDIRECT_URL` either way. Both
+/// values are in the Supabase redirect allow-list (`conva://**`,
+/// `https://getconva.com/**`).
+const DEFAULT_AUTH_REDIRECT_URL: &str = "conva://auth/callback";
+
+/// The deep-link prefix the app answers for sign-in completions — the shell
+/// routes any `conva://auth/…` URL to [`complete_sign_in`].
+pub const AUTH_DEEP_LINK_PREFIX: &str = "conva://auth";
+
+fn auth_redirect_url() -> String {
+    std::env::var("CONVA_AUTH_REDIRECT_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_AUTH_REDIRECT_URL.to_string())
+}
+
+/// The half-open sign-in: the PKCE verifier waiting for the browser to
+/// deep-link back with the matching code. One at a time — starting a new
+/// sign-in replaces (invalidates) the previous pending one.
+struct PendingSignIn {
+    verifier: String,
+    started: Instant,
+}
+
+static PENDING_SIGN_IN: Mutex<Option<PendingSignIn>> = Mutex::new(None);
+
+/// A sign-in left unanswered this long is dead (browser closed, consent
+/// abandoned) — a late deep link must not complete it.
+const PENDING_SIGN_IN_TTL: Duration = Duration::from_secs(10 * 60);
+
+/// The short-lived access JWT, in-process only. It does NOT go in the OS
+/// keyring: Windows Credential Manager caps a credential blob at 2560 bytes
+/// counted in UTF-16 (`CRED_MAX_CREDENTIAL_BLOB_SIZE`), and Supabase access
+/// tokens overflow it ("Attribute 'password encoded as UTF-16' is longer than
+/// platform limit"). It expires in ~1 h and is re-minted from the (small,
+/// keyring-stored) refresh token anyway — memory is the right home per the
+/// design doc (`01-auth.md`, desktop token storage).
+static ACCESS_TOKEN: Mutex<Option<String>> = Mutex::new(None);
 
 const KEYRING_SERVICE: &str = "conva";
 const KR_REFRESH: &str = "auth-refresh-token";
@@ -54,6 +102,16 @@ pub struct AuthStatus {
     /// False when no anon key is compiled/env-configured — the UI can then
     /// explain sign-in is unavailable instead of failing opaquely.
     pub configured: bool,
+}
+
+/// Payload of the `conva://auth-changed` event (event name in
+/// `conva-core::ipc::events`, TS mirror in `src/lib/ipc.ts`): the result of an
+/// OAuth sign-in finishing out-of-band via the deep link. Exactly one of
+/// `status` / `error` is set.
+#[derive(Debug, Clone, Serialize)]
+pub struct AuthChangedEvent {
+    pub status: Option<AuthStatus>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -109,8 +167,7 @@ fn b64url(bytes: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
-/// 32 bytes of OS randomness, base64url — used for both the PKCE verifier and
-/// the CSRF `state`.
+/// 32 bytes of OS randomness, base64url — the PKCE `code_verifier`.
 fn random_token() -> String {
     let mut buf = [0u8; 32];
     use rand::RngCore;
@@ -128,8 +185,19 @@ fn challenge_of(verifier: &str) -> String {
 fn open_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
+        // Do NOT route the URL through `cmd /C start` (cmd splits on `&` and does
+        // `%…%` env expansion, truncating/mangling an OAuth URL like
+        // `…/authorize?provider=google&redirect_to=http%3A%2F%2F127.0.0.1…&code_challenge=…`
+        // at the first `&` — dropping `redirect_to`, so Supabase falls back to the
+        // Site URL/conva-app.com, and `code_challenge`, so it returns an implicit
+        // `#access_token`; that was the real "Google sign-in bounces to
+        // conva-app.com" bug). Also NOT `explorer.exe <url>` — on some setups it
+        // opens a File Explorer window instead of the browser.
+        // `rundll32 url.dll,FileProtocolHandler <url>` is the documented Windows
+        // call that hands the URL — `&`, percent-encoding and all — to the default
+        // browser's protocol handler as a single argument.
+        std::process::Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", url])
             .spawn()
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -152,8 +220,11 @@ fn open_browser(url: &str) -> Result<(), String> {
     }
 }
 
-// ---------------------------------------------------------------- loopback cb
+// ------------------------------------------------------------ query parsing
 
+/// Extract the query pairs from a URL or request target — works for both
+/// `https://…/callback?code=…` and `conva://auth/callback?code=…` (splits at
+/// the first `?`).
 fn parse_query(target: &str) -> HashMap<String, String> {
     let mut map = HashMap::new();
     if let Some((_, q)) = target.split_once('?') {
@@ -167,58 +238,6 @@ fn parse_query(target: &str) -> HashMap<String, String> {
         }
     }
     map
-}
-
-/// Wait (up to 5 min) for the single browser redirect to the loopback port,
-/// validate `state`, and return the authorization `code`.
-fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String, String> {
-    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
-    let deadline = Instant::now() + Duration::from_secs(300);
-    loop {
-        match listener.accept() {
-            Ok((mut stream, _)) => {
-                stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
-                let mut buf = [0u8; 4096];
-                let n = stream.read(&mut buf).unwrap_or(0);
-                let req = String::from_utf8_lossy(&buf[..n]);
-                let target = req
-                    .lines()
-                    .next()
-                    .and_then(|l| l.split_whitespace().nth(1))
-                    .unwrap_or("");
-                let params = parse_query(target);
-
-                let ok_body = "<!doctype html><meta charset=utf-8><title>conva</title>\
-<body style=\"font:16px system-ui;padding:3rem;text-align:center\">\
-<h2>Signed in to conva ✓</h2><p>You can close this tab and return to the app.</p>";
-                let resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
-                    ok_body.len(),
-                    ok_body
-                );
-                let _ = stream.write_all(resp.as_bytes());
-
-                if let Some(err) = params.get("error") {
-                    let desc = params.get("error_description").cloned().unwrap_or_default();
-                    return Err(format!("oauth_error: {err} {desc}").trim().to_string());
-                }
-                if params.get("state").map(String::as_str) != Some(expected_state) {
-                    return Err("state_mismatch".to_string());
-                }
-                return params
-                    .get("code")
-                    .cloned()
-                    .ok_or_else(|| "no_code".to_string());
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                if Instant::now() > deadline {
-                    return Err("timeout waiting for sign-in".to_string());
-                }
-                std::thread::sleep(Duration::from_millis(120));
-            }
-            Err(e) => return Err(e.to_string()),
-        }
-    }
 }
 
 // ------------------------------------------------------------- token exchange
@@ -275,8 +294,11 @@ fn now_unix() -> i64 {
 }
 
 fn persist(t: &TokenResponse, auth_dir: &Path) -> Result<(), String> {
+    // Only the (small) refresh token goes in the keyring; the access JWT is
+    // held in memory — it's short-lived, re-minted from the refresh token, and
+    // too large for Windows Credential Manager (see ACCESS_TOKEN).
     kr_set(KR_REFRESH, &t.refresh_token)?;
-    kr_set(KR_ACCESS, &t.access_token)?;
+    *ACCESS_TOKEN.lock().expect("access token lock") = Some(t.access_token.clone());
     let expires_at = t
         .expires_at
         .or_else(|| t.expires_in.map(|s| now_unix() + s));
@@ -296,53 +318,89 @@ fn read_meta(auth_dir: &Path) -> Option<SessionMeta> {
 
 // --------------------------------------------------------------------- public
 
-/// Run the interactive sign-in. Blocking (opens the browser and waits on the
-/// loopback) — call from `spawn_blocking`, never the UI thread.
-pub fn sign_in(provider: &str, auth_dir: &Path) -> Result<AuthStatus, String> {
+/// Phase 1 of the interactive sign-in: stash a pending PKCE verifier and open
+/// the system browser at Supabase's `/authorize`. Returns immediately — the
+/// result arrives when the browser deep-links back (`conva://auth/callback`)
+/// and the shell calls [`complete_sign_in`]. Call from `spawn_blocking` (the
+/// browser launch spawns a process).
+pub fn begin_sign_in(provider: &str) -> Result<(), String> {
     let base = supabase_url();
-    let key = anon_key();
-    if key.is_empty() {
+    if anon_key().is_empty() {
         return Err("supabase_not_configured".to_string());
     }
 
-    // Supabase's redirect allow-list does NOT match a wildcard port, so a
-    // random loopback port falls back to the Site URL. Bind a fixed port
-    // instead (first free of a small set) so the redirect is one of a handful
-    // of exact URLs the owner can allow-list. Add all of these in Supabase →
-    // Auth → URL Configuration → Redirect URLs:
-    //   http://127.0.0.1:8765/callback  (…:8766, …:8767)
-    let listener = LOOPBACK_PORTS
-        .iter()
-        .find_map(|&p| TcpListener::bind(("127.0.0.1", p)).ok())
-        .ok_or_else(|| {
-            format!(
-                "no free loopback port (tried {LOOPBACK_PORTS:?}); close whatever is using them and retry"
-            )
-        })?;
-    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let redirect = format!("http://127.0.0.1:{port}/callback");
-
     let verifier = random_token();
     let challenge = challenge_of(&verifier);
-    let state = random_token();
+    let redirect = auth_redirect_url();
 
+    // Do NOT pass a client `state`. Supabase's `/authorize` manages the OAuth
+    // state itself: it mints a state that keys the server-side *flow_state*
+    // where our `redirect_to` and PKCE challenge are stored, then round-trips
+    // it through the IdP. Supplying our own state overwrites that, so on the
+    // IdP callback Supabase can't resolve the flow_state — it drops
+    // `redirect_to` (falling back to the Site URL) AND drops PKCE (returning
+    // an implicit `#access_token`). PKCE (the `code_verifier` only this
+    // process holds) provides the CSRF / code-injection protection instead.
     let authorize = format!(
         "{base}/auth/v1/authorize?provider={provider}&redirect_to={redirect}\
-&code_challenge={challenge}&code_challenge_method=s256&state={state}",
+&code_challenge={challenge}&code_challenge_method=s256",
         redirect = urlencoding::encode(&redirect),
     );
-    open_browser(&authorize)?;
 
-    let code = wait_for_code(&listener, &state)?;
-    let tokens = exchange_code(&base, &key, &code, &verifier)?;
+    *PENDING_SIGN_IN.lock().expect("auth pending lock") = Some(PendingSignIn {
+        verifier,
+        started: Instant::now(),
+    });
+    eprintln!(
+        "[auth] sign-in started (provider={provider}, redirect_to={redirect}); \
+         waiting for the browser to deep-link back"
+    );
+    open_browser(&authorize)
+}
+
+/// Abandon the pending sign-in (UI "cancel" — e.g. the user closed the
+/// browser). A deep link arriving afterwards is ignored as stale.
+pub fn cancel_sign_in() {
+    *PENDING_SIGN_IN.lock().expect("auth pending lock") = None;
+}
+
+/// Phase 2: complete a sign-in from a `conva://auth/callback?code=…` deep
+/// link. Exchanges the code against the pending verifier, persists the
+/// session, and returns the new status. `Ok(None)` means the link was stale or
+/// duplicate (no sign-in pending) — callers should ignore it silently rather
+/// than surface an error. Blocking (token exchange) — call from
+/// `spawn_blocking`.
+pub fn complete_sign_in(url: &str, auth_dir: &Path) -> Result<Option<AuthStatus>, String> {
+    let Some(pending) = PENDING_SIGN_IN.lock().expect("auth pending lock").take() else {
+        return Ok(None);
+    };
+    if pending.started.elapsed() > PENDING_SIGN_IN_TTL {
+        return Err("sign-in expired — try again".to_string());
+    }
+
+    let params = parse_query(url);
+    if let Some(err) = params.get("error") {
+        let desc = params.get("error_description").cloned().unwrap_or_default();
+        return Err(format!("oauth_error: {err} {desc}").trim().to_string());
+    }
+    let code = params
+        .get("code")
+        .cloned()
+        .ok_or_else(|| "no_code".to_string())?;
+
+    let tokens = exchange_code(&supabase_url(), &anon_key(), &code, &pending.verifier)?;
     persist(&tokens, auth_dir)?;
-    Ok(status(auth_dir))
+    Ok(Some(status(auth_dir)))
 }
 
 /// Sign in with an email + password (Supabase `grant_type=password`). Blocking —
 /// call from `spawn_blocking`. The account is the *same* identity used for
 /// Google / the website, so a user who signed up either way can sign in here.
-pub fn sign_in_password(email: &str, password: &str, auth_dir: &Path) -> Result<AuthStatus, String> {
+pub fn sign_in_password(
+    email: &str,
+    password: &str,
+    auth_dir: &Path,
+) -> Result<AuthStatus, String> {
     let base = supabase_url();
     let key = anon_key();
     if key.is_empty() {
@@ -364,7 +422,11 @@ pub fn sign_in_password(email: &str, password: &str, auth_dir: &Path) -> Result<
 /// project requires email confirmation, no session is returned yet — surface
 /// `email_confirmation_required` so the UI can tell the user to confirm, then
 /// sign in. Blocking — call from `spawn_blocking`.
-pub fn sign_up_password(email: &str, password: &str, auth_dir: &Path) -> Result<AuthStatus, String> {
+pub fn sign_up_password(
+    email: &str,
+    password: &str,
+    auth_dir: &Path,
+) -> Result<AuthStatus, String> {
     let base = supabase_url();
     let key = anon_key();
     if key.is_empty() {
@@ -429,7 +491,8 @@ pub fn status(auth_dir: &Path) -> AuthStatus {
 /// Revoke server-side (best-effort) and clear all local tokens + metadata.
 pub fn sign_out(auth_dir: &Path) -> Result<(), String> {
     let key = anon_key();
-    if let Some(access) = kr_get(KR_ACCESS).ok().flatten() {
+    let access = ACCESS_TOKEN.lock().expect("access token lock").take();
+    if let Some(access) = access {
         if !key.is_empty() {
             let url = format!("{}/auth/v1/logout", supabase_url());
             let _ = ureq::post(&url)
@@ -439,6 +502,8 @@ pub fn sign_out(auth_dir: &Path) -> Result<(), String> {
         }
     }
     let _ = kr_del(KR_REFRESH);
+    // KR_ACCESS is no longer written (the JWT lives in memory now), but older
+    // builds may have left one — delete it so no oversized blob lingers.
     let _ = kr_del(KR_ACCESS);
     let _ = std::fs::remove_file(meta_path(auth_dir));
     Ok(())
@@ -463,6 +528,23 @@ mod tests {
         let q = parse_query("/callback?code=abc%20123&state=xyz");
         assert_eq!(q.get("code").map(String::as_str), Some("abc 123"));
         assert_eq!(q.get("state").map(String::as_str), Some("xyz"));
+    }
+
+    #[test]
+    fn parse_query_handles_deep_link_urls() {
+        let q = parse_query("conva://auth/callback?code=abc-123&error_description=denied%21");
+        assert_eq!(q.get("code").map(String::as_str), Some("abc-123"));
+        assert_eq!(
+            q.get("error_description").map(String::as_str),
+            Some("denied!")
+        );
+    }
+
+    #[test]
+    fn stale_deep_link_without_pending_sign_in_is_ignored() {
+        cancel_sign_in();
+        let r = complete_sign_in("conva://auth/callback?code=abc", Path::new("."));
+        assert!(matches!(r, Ok(None)));
     }
 
     #[test]

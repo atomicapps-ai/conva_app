@@ -162,9 +162,17 @@ export function secretsImport(
   return invoke<string>("secrets_import", { src: src ?? null, overwrite });
 }
 
-/** Begin OAuth sign-in (opens the system browser; resolves when complete). */
-export function authStart(provider?: string): Promise<AuthStatus> {
-  return invoke<AuthStatus>("auth_start", { provider: provider ?? null });
+/** Begin OAuth sign-in: opens the system browser and resolves immediately —
+ *  the outcome arrives as an EVENTS.authChanged event when the browser
+ *  deep-links back into the app (conva://auth/callback). */
+export function authStart(provider?: string): Promise<void> {
+  return invoke("auth_start", { provider: provider ?? null });
+}
+
+/** Abandon a pending OAuth sign-in (stops the "waiting for browser" state);
+ *  a deep link arriving afterwards is ignored as stale. */
+export function authCancel(): Promise<void> {
+  return invoke("auth_cancel");
 }
 
 /** RAG-grounded relevant phrases in a transcript message, for highlighting. */

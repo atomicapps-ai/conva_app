@@ -448,15 +448,23 @@ fn auth_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir)
 }
 
-/// Begin interactive OAuth sign-in (PKCE + loopback). Opens the system browser
-/// and blocks on the redirect off the UI thread. `provider` defaults to google.
+/// Begin interactive OAuth sign-in (PKCE + conva:// deep link). Opens the
+/// system browser and returns immediately; the outcome arrives as an
+/// AUTH_CHANGED event once the browser deep-links back into the app.
+/// `provider` defaults to google.
 #[tauri::command]
-async fn auth_start(app: AppHandle, provider: Option<String>) -> Result<auth::AuthStatus, String> {
-    let dir = auth_dir(&app)?;
+async fn auth_start(provider: Option<String>) -> Result<(), String> {
     let provider = provider.unwrap_or_else(|| "google".to_string());
-    tauri::async_runtime::spawn_blocking(move || auth::sign_in(&provider, &dir))
+    tauri::async_runtime::spawn_blocking(move || auth::begin_sign_in(&provider))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Abandon a pending OAuth sign-in (the UI's cancel while "waiting for the
+/// browser"). A deep link arriving afterwards is ignored as stale.
+#[tauri::command]
+fn auth_cancel() {
+    auth::cancel_sign_in();
 }
 
 /// Sign in with an email + password (Supabase). Same identity as Google / the
@@ -704,7 +712,18 @@ pub fn run() {
     }
     whisper_rs::install_logging_hooks();
 
-    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    let builder = tauri::Builder::default();
+
+    // Single-instance must be the FIRST plugin: Windows serves a conva:// link
+    // by launching a second copy of the exe, and this plugin forwards that
+    // launch — URL included, via its "deep-link" feature — into the running
+    // app before anything else initializes in the doomed second process.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
+
+    let builder = builder
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_dialog::init());
 
     // Desktop-only plugins: the auto-updater and process-restart have no
     // mobile equivalent (app stores own updates there). Gating them behind
@@ -757,6 +776,61 @@ pub fn run() {
                 session: SessionManager::new(),
                 rag,
             });
+
+            // Account sign-in return path: catch conva://auth/… deep links,
+            // finish the PKCE exchange off the UI thread, and tell the UI via
+            // the AUTH_CHANGED event (auth_start returns before the browser
+            // round-trip completes).
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+
+                // Dev builds: register the scheme with the OS at runtime
+                // (installers register it at install time; macOS only reads
+                // it from the bundled Info.plist, hence the gate).
+                #[cfg(any(windows, target_os = "linux"))]
+                if let Err(e) = app.deep_link().register_all() {
+                    eprintln!("[auth] could not register conva:// with the OS: {e}");
+                }
+
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        let url = url.to_string();
+                        if !url.starts_with(auth::AUTH_DEEP_LINK_PREFIX) {
+                            continue;
+                        }
+                        let handle = handle.clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            let dir = match auth_dir(&handle) {
+                                Ok(dir) => dir,
+                                Err(e) => {
+                                    eprintln!("[auth] deep link ignored — no auth dir: {e}");
+                                    return;
+                                }
+                            };
+                            let payload = match auth::complete_sign_in(&url, &dir) {
+                                Ok(Some(status)) => {
+                                    eprintln!("[auth] sign-in completed via deep link");
+                                    auth::AuthChangedEvent {
+                                        status: Some(status),
+                                        error: None,
+                                    }
+                                }
+                                // Stale or duplicate link (nothing pending).
+                                Ok(None) => return,
+                                Err(e) => {
+                                    eprintln!("[auth] sign-in failed: {e}");
+                                    auth::AuthChangedEvent {
+                                        status: None,
+                                        error: Some(e),
+                                    }
+                                }
+                            };
+                            let _ = handle.emit(events::AUTH_CHANGED, payload);
+                        });
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -790,6 +864,7 @@ pub fn run() {
             secrets_export,
             secrets_import,
             auth_start,
+            auth_cancel,
             auth_signin_password,
             auth_signup_password,
             auth_status,

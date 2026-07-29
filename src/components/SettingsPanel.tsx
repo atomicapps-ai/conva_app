@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AllySettings } from "@/components/AllySettings";
 import { Notice, Section, ViewShell } from "@/components/studio/ViewShell";
 import {
+  authCancel,
   authSigninPassword,
   authSignout,
   authSignupPassword,
@@ -18,12 +19,13 @@ import {
   setDeepgramKey,
 } from "@/lib/commands";
 import type {
+  AuthChangedEvent,
   AuthStatus,
   SecretsStatus,
   StreamSide,
   WhisperModelInfo,
 } from "@/lib/ipc";
-import { isTauri } from "@/lib/ipc";
+import { EVENTS, isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 
 function DeviceSelect({
@@ -441,6 +443,9 @@ function GoogleG({ size = 18 }: { size?: number }) {
 function AccountSettings() {
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  /** OAuth is out-of-band: the browser is open and we're waiting for the
+   *  conva:// deep link to come back. Cleared by AUTH_CHANGED or cancel. */
+  const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -458,16 +463,52 @@ function AccountSettings() {
     refresh();
   }, [refresh]);
 
+  // The OAuth result arrives as an event when the browser deep-links back
+  // into the app (conva://auth/callback) — not as authStart's return value.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const stop = await listen<AuthChangedEvent>(EVENTS.authChanged, (e) => {
+        setWaiting(false);
+        setBusy(false);
+        if (e.payload.error) {
+          setError(e.payload.error.replace(/^Error:\s*/, ""));
+        } else if (e.payload.status) {
+          setError(null);
+          setStatus(e.payload.status);
+        }
+      });
+      if (cancelled) stop();
+      else unlisten = stop;
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   const signInGoogle = async () => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      setStatus(await authStart("google"));
+      await authStart("google");
+      setWaiting(true); // browser is open; completion arrives via authChanged
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const cancelOauth = async () => {
+    try {
+      await authCancel();
+    } finally {
+      setWaiting(false);
     }
   };
 
@@ -552,13 +593,26 @@ function AccountSettings() {
           multi-colour G, "Sign in with Google"). */}
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || waiting}
         onClick={() => void signInGoogle()}
         className="flex h-10 w-full items-center justify-center gap-2.5 rounded-lg border border-[#dadce0] bg-white px-4 text-sm font-medium text-[#3c4043] shadow-sm transition hover:bg-[#f8f9fa] disabled:opacity-60 dark:border-[#5f6368] dark:bg-[#131314] dark:text-[#e3e3e3] dark:hover:bg-[#1e1f20]"
       >
         <GoogleG size={18} />
-        {busy ? "Opening browser…" : "Sign in with Google"}
+        {waiting
+          ? "Finish signing in in the browser…"
+          : busy
+            ? "Opening browser…"
+            : "Sign in with Google"}
       </button>
+      {waiting && (
+        <button
+          type="button"
+          onClick={() => void cancelOauth()}
+          className="self-center text-[11px] text-fg-faint hover:underline"
+        >
+          Cancel sign-in
+        </button>
+      )}
 
       <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-fg-faint">
         <span className="h-px flex-1 bg-border" />

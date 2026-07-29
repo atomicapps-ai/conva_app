@@ -28,6 +28,11 @@ pub mod events {
     pub const RADAR: &str = "conva://radar";
     /// Payload: [`super::TrackerEvent`]
     pub const TRACKER: &str = "conva://tracker";
+    /// Payload: `AuthChangedEvent` — defined shell-side in
+    /// `src-tauri/src/auth.rs` (next to `AuthStatus`, which never crosses into
+    /// core) and mirrored in `src/lib/ipc.ts`. Emitted when an OAuth sign-in
+    /// finishes out-of-band via the `conva://auth/callback` deep link.
+    pub const AUTH_CHANGED: &str = "conva://auth-changed";
 }
 
 /// Re-exported so the IPC module is a one-stop description of the wire.
@@ -139,6 +144,7 @@ mod tests {
             events::AUDIO_LEVEL,
             events::SESSION_STATE,
             events::ALLY_CHUNK,
+            events::AUTH_CHANGED,
         ] {
             assert!(name.starts_with("conva://"), "{name}");
         }

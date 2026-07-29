@@ -17,6 +17,7 @@ export const EVENTS = {
   allySources: "conva://ally-sources",
   radar: "conva://radar",
   tracker: "conva://tracker",
+  authChanged: "conva://auth-changed",
 } as const;
 
 export interface TranscriptSegment {
@@ -112,6 +113,14 @@ export interface AuthStatus {
   expires_at_unix: number | null;
   /** False when no Supabase anon key is configured — sign-in unavailable. */
   configured: boolean;
+}
+
+/** Mirror of the shell's AuthChangedEvent: an OAuth sign-in finishing
+ *  out-of-band via the conva://auth/callback deep link. Exactly one of
+ *  `status` / `error` is set. */
+export interface AuthChangedEvent {
+  status: AuthStatus | null;
+  error: string | null;
 }
 
 export interface ScoredChunk {
