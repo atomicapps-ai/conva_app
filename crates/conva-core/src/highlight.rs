@@ -13,12 +13,12 @@ use std::collections::HashSet;
 
 /// Very common words that carry no topical weight — never highlight these.
 const STOPWORDS: &[&str] = &[
-    "the", "and", "for", "are", "but", "not", "you", "your", "with", "this", "that", "have",
-    "has", "had", "was", "were", "will", "would", "could", "should", "from", "they", "them",
-    "their", "what", "when", "where", "which", "about", "into", "than", "then", "there", "here",
-    "been", "being", "just", "like", "some", "more", "most", "also", "only", "over", "such",
-    "very", "much", "many", "each", "other", "because", "while", "after", "before", "these",
-    "those", "still", "want", "need", "know", "make", "made", "does", "done", "going", "gonna",
+    "the", "and", "for", "are", "but", "not", "you", "your", "with", "this", "that", "have", "has",
+    "had", "was", "were", "will", "would", "could", "should", "from", "they", "them", "their",
+    "what", "when", "where", "which", "about", "into", "than", "then", "there", "here", "been",
+    "being", "just", "like", "some", "more", "most", "also", "only", "over", "such", "very",
+    "much", "many", "each", "other", "because", "while", "after", "before", "these", "those",
+    "still", "want", "need", "know", "make", "made", "does", "done", "going", "gonna",
 ];
 
 const MIN_LEN: usize = 4;
@@ -88,7 +88,9 @@ mod tests {
         let message = "What does enterprise onboarding mean, and how fast is rollout for teams?";
         let hits = relevant_terms(message, context);
         // Adjacent matches ("enterprise onboarding") merge into one phrase.
-        assert!(hits.iter().any(|h| h.eq_ignore_ascii_case("enterprise onboarding")));
+        assert!(hits
+            .iter()
+            .any(|h| h.eq_ignore_ascii_case("enterprise onboarding")));
         assert!(hits.iter().any(|h| h.eq_ignore_ascii_case("rollout")));
         assert!(hits.iter().any(|h| h.eq_ignore_ascii_case("teams")));
     }
@@ -113,8 +115,14 @@ mod tests {
     #[test]
     fn dedupes_repeats() {
         // Non-adjacent repeats of "pricing" collapse to a single hit.
-        let hits = relevant_terms("Pricing matters, and pricing wins deals.", "pricing deals tiers");
-        let count = hits.iter().filter(|h| h.eq_ignore_ascii_case("pricing")).count();
+        let hits = relevant_terms(
+            "Pricing matters, and pricing wins deals.",
+            "pricing deals tiers",
+        );
+        let count = hits
+            .iter()
+            .filter(|h| h.eq_ignore_ascii_case("pricing"))
+            .count();
         assert_eq!(count, 1);
     }
 }
