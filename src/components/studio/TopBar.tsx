@@ -68,24 +68,17 @@ function Bars({ level, color }: { level: AudioLevelEvent | null; color: string }
 
 function MeterCluster() {
   const levels = useTranscriptStore((s) => s.levels);
-  const config = useAppStore((s) => s.config);
-  const cloud = config?.asr_engine === "deepgram_cloud";
+  // The engine chip (Local · whisper / Cloud · Deepgram) lives only in the
+  // StatusBar now — no need to repeat it up here.
   return (
-    <div className="flex h-9 items-center gap-3.5 rounded-full border border-border bg-white/[0.035] px-3.5">
+    <div className="flex h-[26px] items-center gap-2.5 rounded-[6px] border border-border bg-white/[0.035] px-2.5">
       <span className="flex items-center gap-2" title="Your microphone level">
-        <Icon name="mic" size={15} className="text-outbound" />
+        <Icon name="mic" size={14} className="text-outbound" />
         <Bars level={levels.outbound} color="var(--color-outbound)" />
       </span>
       <span className="flex items-center gap-2" title="System / other-party level">
-        <Icon name="system" size={15} className="text-inbound" />
+        <Icon name="system" size={14} className="text-inbound" />
         <Bars level={levels.inbound} color="var(--color-inbound)" />
-      </span>
-      <span className="h-4 w-px bg-border" />
-      <span className="flex items-center gap-1.5 text-[11px] font-semibold text-fg-muted">
-        <span
-          className={`h-1.5 w-1.5 rounded-full ${cloud ? "bg-ai" : "bg-ok"}`}
-        />
-        {cloud ? "Cloud · Deepgram" : "Local · whisper"}
       </span>
     </div>
   );
@@ -109,7 +102,7 @@ function IconBtn({
       aria-label={label}
       aria-pressed={pressed}
       title={label}
-      className={`grid h-[34px] w-[34px] place-items-center rounded-[10px] border transition ${
+      className={`grid h-[28px] w-[28px] place-items-center rounded-[4px] border transition ${
         pressed
           ? "border-ai/50 bg-ai/10 text-ai"
           : "border-border bg-white/[0.035] text-fg-muted hover:text-fg"
@@ -167,14 +160,14 @@ export function TopBar() {
     (lastError !== null && !lastError.includes("model_downloading"));
 
   return (
-    <header className="glass flex h-14 shrink-0 items-center gap-3 border-t-0 px-4">
+    <header className="glass flex h-[38px] shrink-0 items-center gap-2.5 border-t-0 px-3">
       <img
         src={wordmark}
         alt="conva"
-        className="h-[15px] w-auto opacity-90"
+        className="h-[14px] w-auto opacity-90"
         draggable={false}
       />
-      <span className="h-5 w-px bg-border" />
+      <span className="h-4 w-px bg-border" />
 
       {isTauri() && <MeterCluster />}
 
@@ -215,7 +208,7 @@ export function TopBar() {
                     : "Record the call (stereo WAV: you left, them right)"
               }
               className={[
-                "flex h-[34px] items-center gap-2 rounded-[10px] border px-3 text-xs font-semibold transition disabled:opacity-40",
+                "flex h-[28px] items-center gap-2 rounded-[4px] border px-3 text-xs font-semibold transition disabled:opacity-40",
                 recording
                   ? "border-rec/50 bg-rec/10 text-rec"
                   : "border-border bg-white/[0.035] text-fg-muted hover:text-fg",
@@ -233,7 +226,7 @@ export function TopBar() {
               disabled={busy || preparing}
               onClick={() => void (listening ? stop() : start())}
               title={listening ? "Stop listening" : "Start listening"}
-              className="flex h-[34px] items-center gap-2 rounded-[10px] border border-border-strong bg-panel-raised px-3.5 text-xs font-bold text-fg transition hover:brightness-110 disabled:opacity-50"
+              className="flex h-[28px] items-center gap-2 rounded-[4px] border border-border-strong bg-panel-raised px-3.5 text-xs font-bold text-fg transition hover:brightness-110 disabled:opacity-50"
             >
               {listening ? (
                 <>

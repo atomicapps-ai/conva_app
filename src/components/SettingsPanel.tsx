@@ -589,90 +589,100 @@ function AccountSettings() {
         on this device.
       </p>
 
-      {/* Branded Google sign-in button (Google guidelines: white surface, the
-          multi-colour G, "Sign in with Google"). */}
-      <button
-        type="button"
-        disabled={busy || waiting}
-        onClick={() => void signInGoogle()}
-        className="flex h-10 w-full items-center justify-center gap-2.5 rounded-lg border border-[#dadce0] bg-white px-4 text-sm font-medium text-[#3c4043] shadow-sm transition hover:bg-[#f8f9fa] disabled:opacity-60 dark:border-[#5f6368] dark:bg-[#131314] dark:text-[#e3e3e3] dark:hover:bg-[#1e1f20]"
-      >
-        <GoogleG size={18} />
-        {waiting
-          ? "Finish signing in in the browser…"
-          : busy
-            ? "Opening browser…"
-            : "Sign in with Google"}
-      </button>
-      {waiting && (
+      {/* Controls sit in a centered column sized to the widest one (Google),
+          so nothing is full-bleed across a wide settings panel. */}
+      <div className="mx-auto flex w-full max-w-[240px] flex-col gap-3">
+        {/* Branded Google sign-in button (Google guidelines: white surface, the
+            multi-colour G, "Sign in with Google"). */}
         <button
           type="button"
-          onClick={() => void cancelOauth()}
-          className="self-center text-[11px] text-fg-faint hover:underline"
+          disabled={busy || waiting}
+          onClick={() => void signInGoogle()}
+          className="flex h-8 w-full items-center justify-center gap-2.5 rounded-[4px] border border-[#dadce0] bg-white px-3 text-xs font-medium text-[#3c4043] shadow-sm transition hover:bg-[#f8f9fa] disabled:opacity-60 dark:border-[#5f6368] dark:bg-[#131314] dark:text-[#e3e3e3] dark:hover:bg-[#1e1f20]"
         >
-          Cancel sign-in
+          <GoogleG size={16} />
+          {waiting
+            ? "Waiting for the browser…"
+            : busy
+              ? "Opening browser…"
+              : "Sign in with Google"}
         </button>
-      )}
+        {waiting && (
+          <button
+            type="button"
+            onClick={() => void cancelOauth()}
+            className="self-center text-[11px] text-fg-faint hover:underline"
+          >
+            Cancel sign-in
+          </button>
+        )}
 
-      <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-fg-faint">
-        <span className="h-px flex-1 bg-border" />
-        or
-        <span className="h-px flex-1 bg-border" />
+        <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-fg-faint">
+          <span className="h-px flex-1 bg-border" />
+          or
+          <span className="h-px flex-1 bg-border" />
+        </div>
+
+        <form onSubmit={submitPassword} className="flex flex-col gap-2">
+          <input
+            type="email"
+            autoComplete="email"
+            required
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="input"
+          />
+          <input
+            type="password"
+            autoComplete={mode === "signup" ? "new-password" : "current-password"}
+            required
+            minLength={6}
+            placeholder={
+              mode === "signup" ? "Create a password (6+ chars)" : "Password"
+            }
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="input"
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="btn btn-primary h-8 w-full justify-center"
+          >
+            {busy
+              ? "…"
+              : mode === "signup"
+                ? "Create account"
+                : "Sign in with email"}
+          </button>
+        </form>
+
+        <button
+          type="button"
+          onClick={() => {
+            setMode((m) => (m === "signin" ? "signup" : "signin"));
+            setError(null);
+            setNotice(null);
+          }}
+          className="self-center text-[11px] text-ai hover:underline"
+        >
+          {mode === "signin"
+            ? "New to conva? Create an account"
+            : "Already have an account? Sign in"}
+        </button>
+
+        {notice && (
+          <p className="text-center text-[11px] text-ai" role="status">
+            {notice}
+          </p>
+        )}
+        {error && (
+          <p className="text-center text-[11px] text-rec" role="alert">
+            {error}
+          </p>
+        )}
       </div>
-
-      <form onSubmit={submitPassword} className="flex flex-col gap-2">
-        <input
-          type="email"
-          autoComplete="email"
-          required
-          placeholder="you@example.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="input"
-        />
-        <input
-          type="password"
-          autoComplete={mode === "signup" ? "new-password" : "current-password"}
-          required
-          minLength={6}
-          placeholder={mode === "signup" ? "Create a password (6+ chars)" : "Password"}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="input"
-        />
-        <button type="submit" disabled={busy} className="btn btn-primary">
-          {busy
-            ? "…"
-            : mode === "signup"
-              ? "Create account"
-              : "Sign in with email"}
-        </button>
-      </form>
-
-      <button
-        type="button"
-        onClick={() => {
-          setMode((m) => (m === "signin" ? "signup" : "signin"));
-          setError(null);
-          setNotice(null);
-        }}
-        className="self-start text-[11px] text-ai hover:underline"
-      >
-        {mode === "signin"
-          ? "New to conva? Create an account"
-          : "Already have an account? Sign in"}
-      </button>
-
-      {notice && (
-        <p className="text-[11px] text-ai" role="status">
-          {notice}
-        </p>
-      )}
-      {error && (
-        <p className="text-[11px] text-rec" role="alert">
-          {error}
-        </p>
-      )}
     </div>
   );
 }

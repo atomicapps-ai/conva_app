@@ -1112,7 +1112,7 @@ export function TranscriptView() {
           <button
             type="button"
             onClick={jumpToLive}
-            className="glass-raised absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2.5 rounded-full px-4 py-1.5 text-[12px]"
+            className="glass-raised absolute bottom-[68px] left-1/2 flex -translate-x-1/2 items-center gap-2.5 rounded-full px-4 py-1.5 text-[12px]"
           >
             <span className="h-[7px] w-[7px] rounded-full bg-rec" />
             <span className="font-bold">{newCount > 0 ? `${newCount} new` : "Live"}</span>
@@ -1120,6 +1120,33 @@ export function TranscriptView() {
             <span className="font-semibold text-inbound">Jump to live</span>
           </button>
         )}
+
+        {/* Always-available Ask Ally field — lives with the conversation
+            (moved here from the Ally column so it's reachable even when Ally
+            folds into a drawer at narrow widths). */}
+        <div className="shrink-0 border-t border-border px-3 py-2.5">
+          <label className="flex h-9 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
+            <Icon name="lightbulb" size={16} className="shrink-0 text-ai/70" />
+            <input
+              value={ask}
+              onChange={(e) => setAsk(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitAsk()}
+              placeholder="Ask Ally anything…"
+              aria-label="Ask Ally"
+              className="min-w-0 flex-1 bg-transparent text-sm text-fg placeholder:text-fg-faint focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={submitAsk}
+              disabled={busy || !ask.trim()}
+              title="Ask Ally"
+              aria-label="Send question to Ally"
+              className="shrink-0 rounded-[4px] p-1.5 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
+            >
+              <Icon name="chevron" size={16} className="rotate-90" />
+            </button>
+          </label>
+        </div>
       </section>
 
       {/* Relationship spine — centre. Doubles as the draggable divider between
@@ -1215,8 +1242,8 @@ export function TranscriptView() {
         >
           {cards.length === 0 ? (
             <p className="mt-8 text-center text-xs text-fg-faint">
-              Ally's answers land here — tap the lightbulb on any message, or
-              ask below.
+              Ally's answers land here — tap the lightbulb on any message, or use
+              Ask Ally beneath the conversation.
             </p>
           ) : (
             cards.map((card) => (
@@ -1253,28 +1280,6 @@ export function TranscriptView() {
               Summarize
             </button>
           </div>
-          {/* Always-available, prominent Ask Ally field. */}
-          <label className="flex h-11 items-center gap-2.5 rounded-xl border border-ai/30 bg-white/[0.04] px-3.5 transition-colors focus-within:border-ai/60">
-            <Icon name="lightbulb" size={17} className="shrink-0 text-ai/70" />
-            <input
-              value={ask}
-              onChange={(e) => setAsk(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && submitAsk()}
-              placeholder="Ask Ally anything…"
-              aria-label="Ask Ally"
-              className="min-w-0 flex-1 bg-transparent text-sm text-fg placeholder:text-fg-faint focus:outline-none"
-            />
-            <button
-              type="button"
-              onClick={submitAsk}
-              disabled={busy || !ask.trim()}
-              title="Ask Ally"
-              aria-label="Send question to Ally"
-              className="shrink-0 rounded-lg p-1.5 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
-            >
-              <Icon name="chevron" size={16} className="rotate-90" />
-            </button>
-          </label>
         </div>
       </section>
 

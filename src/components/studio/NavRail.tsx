@@ -7,7 +7,7 @@ import { isTauri, type AuthStatus } from "@/lib/ipc";
 import { useNavStore, type View } from "@/state/nav";
 
 /**
- * The Studio's left instrument rail (64px). View selectors with the conva mark
+ * The Studio's left instrument rail (52px). View selectors with the conva mark
  * up top and the ⌘K palette trigger at the foot. The active view gets a 3px
  * violet indicator on its leading edge and a violet-tinted chip (brand v2).
  */
@@ -39,7 +39,7 @@ function RailButton({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={[
-        "group relative flex h-11 w-11 items-center justify-center rounded-xl border transition",
+        "group relative flex h-[30px] w-[30px] items-center justify-center rounded-[7px] border transition",
         active
           ? "border-outbound/34 bg-outbound/[0.14] text-[var(--voice-you-text)]"
           : "border-transparent text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
@@ -48,7 +48,7 @@ function RailButton({
       {/* 3px violet indicator on the leading edge of the active view. */}
       <span
         className={[
-          "absolute -left-3 h-5 w-[3px] rounded-full bg-outbound transition-opacity",
+          "absolute -left-2 h-4 w-[3px] rounded-full bg-outbound transition-opacity",
           active ? "opacity-100" : "opacity-0",
         ].join(" ")}
         aria-hidden
@@ -63,10 +63,12 @@ export function NavRail() {
   const setView = useNavStore((s) => s.setView);
   const openPalette = useNavStore((s) => s.openPalette);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Reflect sign-in state on the account button. Refreshes when the view
   // changes so signing in via Settings updates the rail without a reload.
   useEffect(() => {
+    setMenuOpen(false);
     if (!isTauri()) return;
     void authStatus()
       .then(setAuth)
@@ -76,7 +78,7 @@ export function NavRail() {
   return (
     <nav
       aria-label="Primary"
-      className="glass z-10 flex w-16 shrink-0 flex-col items-center gap-1 rounded-r-[26px] border-l-0 py-3"
+      className="glass z-10 flex w-[52px] shrink-0 flex-col items-center gap-1 rounded-r-[14px] border-l-0 py-2.5"
     >
       {/* Brand mark. */}
       <img
@@ -84,7 +86,7 @@ export function NavRail() {
         alt="conva"
         title="conva"
         draggable={false}
-        className="mb-2.5 h-[26px] w-[26px]"
+        className="mb-2 h-[22px] w-[22px]"
       />
 
       {NAV_ITEMS.map((item) => (
@@ -102,24 +104,77 @@ export function NavRail() {
         <RailButton label="Command palette (⌘K)" onClick={openPalette}>
           <Icon name="search" size={19} />
         </RailButton>
-        <RailButton
-          label={
-            auth?.signed_in
-              ? `Account — ${auth.email ?? "signed in"}`
-              : "Account — sign in"
-          }
-          onClick={() => setView("settings")}
-        >
-          <span className="relative flex items-center justify-center">
-            <Icon name="account" size={20} />
-            {auth?.signed_in && (
-              <span
-                className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-ok"
-                aria-hidden
+
+        {/* Account. Signed in: hover shows the email; click opens a small menu
+            (Profile / Settings). Signed out: click jumps to Settings to sign in. */}
+        <div className="relative">
+          <RailButton
+            label={
+              auth?.signed_in
+                ? `${auth.email ?? "Signed in"} — account menu`
+                : "Account — sign in"
+            }
+            active={menuOpen}
+            onClick={() => {
+              if (auth?.signed_in) setMenuOpen((o) => !o);
+              else setView("settings");
+            }}
+          >
+            <span className="relative flex items-center justify-center">
+              <Icon name="account" size={20} />
+              {auth?.signed_in && (
+                <span
+                  className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-ok"
+                  aria-hidden
+                />
+              )}
+            </span>
+          </RailButton>
+
+          {menuOpen && auth?.signed_in && (
+            <>
+              <button
+                type="button"
+                aria-label="Close account menu"
+                onClick={() => setMenuOpen(false)}
+                className="fixed inset-0 z-40 cursor-default"
               />
-            )}
-          </span>
-        </RailButton>
+              <div
+                role="menu"
+                className="glass-raised absolute bottom-0 left-[calc(100%+8px)] z-50 w-[188px] rounded-lg border border-border-strong p-1 shadow-[var(--shadow-lg)]"
+              >
+                <p className="truncate px-2.5 py-1.5 text-[11px] text-fg-faint">
+                  {auth.email ?? "Signed in"}
+                </p>
+                <span className="mx-1 mb-1 block h-px bg-border" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setView("settings");
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-[5px] px-2.5 py-1.5 text-left text-xs text-fg hover:bg-panel-raised/70"
+                >
+                  <Icon name="account" size={15} className="text-fg-muted" />
+                  Profile
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setView("settings");
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-[5px] px-2.5 py-1.5 text-left text-xs text-fg hover:bg-panel-raised/70"
+                >
+                  <Icon name="settings" size={15} className="text-fg-muted" />
+                  Settings
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </nav>
   );
