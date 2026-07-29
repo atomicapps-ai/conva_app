@@ -1,7 +1,15 @@
 # CLAUDE.md — conva
 
-> Brief for AI assistants (and humans) working in this repo. Read this, then
-> [`README.md`](README.md) for the run guide and [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md)
+> Brief for AI assistants (and humans) working in this repo.
+>
+> **Start every session with the cross-repo onboarding guide:**
+> **`conva_core/docs/guides/ai-session-guide.md`** (sibling checkout at
+> `../conva_core/`). It carries the strategies, major changes, verified fixes,
+> lessons, colour scheme, rules, things to avoid, owner hints, and the current
+> open issues — this file covers only what is specific to this repo.
+>
+> Then read [`README.md`](README.md) for the run guide and
+> [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md)
 > for the full design (architecture, latency budgets, milestones, §9 decisions).
 
 ## What conva is
