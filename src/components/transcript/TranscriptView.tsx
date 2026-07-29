@@ -201,10 +201,12 @@ function Caret({
   );
 }
 
-/** One transcript turn: them = cyan left, you = violet right, with a 4px corner
- *  on the speaker's side, a label row, collapse, and an action row on finals. */
+/** One conversation turn = consecutive segments from the same speaker (a new
+ *  bubble starts only when the speaker switches). Them = cyan left, you =
+ *  violet right; each utterance is its own line; controls sit on the right. */
 function Bubble({
-  segment,
+  segments,
+  turnKey,
   registerEl,
   highlighted,
   collapsed,
@@ -216,7 +218,8 @@ function Bubble({
   onJumpLink,
   busy,
 }: {
-  segment: TranscriptSegment;
+  segments: TranscriptSegment[];
+  turnKey: string;
   registerEl: (key: string, el: HTMLElement | null) => void;
   highlighted: boolean;
   collapsed: boolean;
@@ -228,32 +231,34 @@ function Bubble({
   onJumpLink: () => void;
   busy: boolean;
 }) {
-  const inbound = segment.side === "inbound";
-  const key = segmentKey(segment);
-  const final = segment.is_final;
+  const inbound = segments[0]?.side === "inbound";
+  const finals = segments.filter((s) => s.is_final);
+  const hasFinal = finals.length > 0;
+  const firstFinal = finals[0];
+  const combinedText = finals.map((s) => s.text).join(" ");
 
-  // RAG-grounded highlight terms for this finalized message (best-effort).
+  // RAG-grounded highlight terms for the whole turn (best-effort).
   const [terms, setTerms] = useState<string[]>([]);
   useEffect(() => {
-    if (!final || !segment.text || !isTauri()) return;
+    if (!combinedText || !isTauri()) return;
     let alive = true;
-    void analyzeTerms(segment.text)
+    void analyzeTerms(combinedText)
       .then((t) => alive && setTerms(t))
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [final, segment.text]);
+  }, [combinedText]);
 
   return (
     <div
-      ref={(el) => registerEl(key, el)}
+      ref={(el) => registerEl(turnKey, el)}
       onContextMenu={onContextMenu}
       className={`flex max-w-[92%] items-start gap-2 ${inbound ? "self-start" : "self-end"}`}
     >
       {/* Timestamp on the left — replaces the label row above to save height. */}
       <span className="mt-2.5 shrink-0 font-mono text-[10px] leading-none text-fg-faint">
-        {final ? formatMs(segment.start_ms) : "now"}
+        {firstFinal ? formatMs(firstFinal.start_ms) : "now"}
       </span>
       <div
         className={[
@@ -261,32 +266,44 @@ function Bubble({
           inbound
             ? "rounded-2xl rounded-bl-[4px] border-inbound/28 bg-inbound/[0.09]"
             : "rounded-2xl rounded-br-[4px] border-outbound/30 bg-outbound/10",
-          !final ? "border-dashed text-fg-muted" : "",
+          !hasFinal ? "border-dashed text-fg-muted" : "",
           highlighted ? "ring-2 ring-ai/60" : "",
         ].join(" ")}
       >
         <div className="flex items-center gap-2">
-          <span className={collapsed ? "line-clamp-1 flex-1" : "flex-1"}>
-            {final && !collapsed && segment.text ? (
-              <HighlightedText
-                text={segment.text}
-                terms={terms}
-                onAsk={onAskTerm}
-              />
+          <div className="min-w-0 flex-1">
+            {collapsed ? (
+              <span className="line-clamp-1 block">{combinedText || "…"}</span>
             ) : (
-              segment.text || (!final ? "…" : "")
+              <div className="flex flex-col gap-1">
+                {segments.map((s, i) => (
+                  <span
+                    key={`${s.side}-${s.seq}-${i}`}
+                    className={s.is_final ? "" : "text-fg-muted"}
+                  >
+                    {s.is_final && s.text ? (
+                      <HighlightedText
+                        text={s.text}
+                        terms={terms}
+                        onAsk={onAskTerm}
+                      />
+                    ) : (
+                      s.text || (!s.is_final ? "…" : "")
+                    )}
+                  </span>
+                ))}
+              </div>
             )}
-          </span>
-          {final && (
+          </div>
+          {hasFinal && (
             <div className="flex shrink-0 items-center gap-0.5 self-center">
-              {/* Ask Ally — the lightbulb initiates the AI response for this turn
-                  (replaces the old "Research with Ally" pill). */}
+              {/* Ask Ally — the lightbulb initiates the AI response for the turn. */}
               <button
                 type="button"
                 disabled={busy}
                 onClick={onResearch}
                 title="Ask Ally"
-                aria-label="Ask Ally about this message"
+                aria-label="Ask Ally about this turn"
                 className="rounded p-1 text-ai/70 transition-colors hover:bg-ai/10 hover:text-ai disabled:opacity-40"
               >
                 <Icon name="lightbulb" size={16} />
@@ -307,7 +324,7 @@ function Bubble({
               <Caret
                 collapsed={collapsed}
                 onToggle={onToggleCollapse}
-                label={inbound ? "received message" : "sent message"}
+                label={inbound ? "received turn" : "sent turn"}
               />
             </div>
           )}
@@ -682,6 +699,19 @@ export function TranscriptView() {
     ],
     [archived, liveSegments],
   );
+  // Consolidate consecutive same-speaker segments into one turn (bubble). A new
+  // bubble starts only when the speaker switches — no pause/time split. The
+  // turn is keyed by its first segment, so Ally-card links + spine stay stable.
+  const turns = useMemo(() => {
+    const out: { side: TranscriptSegment["side"]; key: string; segments: TranscriptSegment[] }[] =
+      [];
+    for (const seg of merged) {
+      const last = out[out.length - 1];
+      if (last && last.side === seg.side) last.segments.push(seg);
+      else out.push({ side: seg.side, key: segmentKey(seg), segments: [seg] });
+    }
+    return out;
+  }, [merged]);
   const convo = useAutoScroll(merged[merged.length - 1]);
   const allyCol = useAutoScroll(cards[0]?.id);
 
@@ -876,7 +906,7 @@ export function TranscriptView() {
     void request("question", q);
   };
 
-  const allKeys = [...merged.map(segmentKey), ...cards.map((c) => c.id)];
+  const allKeys = [...turns.map((t) => t.key), ...cards.map((c) => c.id)];
   const collapseAll = () => setCollapsed(new Set(allKeys));
   const expandAll = () => setCollapsed(new Set());
 
@@ -1043,20 +1073,33 @@ export function TranscriptView() {
               right. Tap the ✦ lightbulb on any message to ask Ally.
             </p>
           ) : (
-            merged.map((seg) => {
-              const key = segmentKey(seg);
+            turns.map((turn) => {
+              const key = turn.key;
               const link = linkBySource.get(key);
+              // A representative segment for the whole turn: first segment's
+              // identity (so segmentKey === turn.key) with the combined final
+              // text — lets research()/bubbleMenu() work unchanged.
+              const finalText = turn.segments
+                .filter((s) => s.is_final)
+                .map((s) => s.text)
+                .join(" ");
+              const repSeg = {
+                ...turn.segments[0]!,
+                text: finalText,
+                is_final: turn.segments.some((s) => s.is_final),
+              };
               return (
                 <Bubble
                   key={key}
-                  segment={seg}
+                  segments={turn.segments}
+                  turnKey={key}
                   registerEl={registerBubble}
                   highlighted={active?.sourceKey === key}
                   collapsed={collapsed.has(key)}
                   onToggleCollapse={() => toggleCollapse(key)}
-                  onResearch={() => research(seg)}
+                  onResearch={() => research(repSeg)}
                   onAskTerm={askTerm}
-                  onContextMenu={(e) => bubbleMenu(e, seg)}
+                  onContextMenu={(e) => bubbleMenu(e, repSeg)}
                   linkedSeq={link ? link.seq : null}
                   onJumpLink={() => link && inspect(link.id, key)}
                   busy={busy}
