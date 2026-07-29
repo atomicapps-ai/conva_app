@@ -231,7 +231,6 @@ function Bubble({
   const inbound = segment.side === "inbound";
   const key = segmentKey(segment);
   const final = segment.is_final;
-  const name = inbound ? "Them" : "You";
 
   // RAG-grounded highlight terms for this finalized message (best-effort).
   const [terms, setTerms] = useState<string[]>([]);
@@ -246,41 +245,27 @@ function Bubble({
     };
   }, [final, segment.text]);
 
-  const label = (
-    <div
-      className={`flex items-center gap-2 ${inbound ? "" : "flex-row-reverse"}`}
-    >
-      <span
-        className={`text-[10px] font-bold uppercase tracking-[0.2em] ${inbound ? "text-inbound" : "text-[var(--voice-you-text)]"}`}
-      >
-        {name}
-      </span>
-      <span className="font-mono text-[11px] text-fg-faint">
-        {final ? formatMs(segment.start_ms) : "now"}
-      </span>
-    </div>
-  );
-
   return (
     <div
       ref={(el) => registerEl(key, el)}
       onContextMenu={onContextMenu}
-      className={`flex max-w-[88%] flex-col gap-1.5 ${inbound ? "items-start self-start" : "items-end self-end"}`}
+      className={`flex max-w-[92%] items-start gap-2 ${inbound ? "self-start" : "self-end"}`}
     >
-      {label}
+      {/* Timestamp on the left — replaces the label row above to save height. */}
+      <span className="mt-2.5 shrink-0 font-mono text-[10px] leading-none text-fg-faint">
+        {final ? formatMs(segment.start_ms) : "now"}
+      </span>
       <div
         className={[
-          "border px-4 py-3 text-sm leading-relaxed transition-shadow",
+          "min-w-0 border px-4 py-2.5 text-sm leading-relaxed transition-shadow",
           inbound
             ? "rounded-2xl rounded-bl-[4px] border-inbound/28 bg-inbound/[0.09]"
-            : "rounded-2xl rounded-br-[4px] border-outbound/30 bg-outbound/10 text-right",
+            : "rounded-2xl rounded-br-[4px] border-outbound/30 bg-outbound/10",
           !final ? "border-dashed text-fg-muted" : "",
           highlighted ? "ring-2 ring-ai/60" : "",
         ].join(" ")}
       >
-        <div
-          className={`flex items-center gap-2 ${inbound ? "" : "flex-row-reverse"}`}
-        >
+        <div className="flex items-center gap-2">
           <span className={collapsed ? "line-clamp-1 flex-1" : "flex-1"}>
             {final && !collapsed && segment.text ? (
               <HighlightedText
@@ -366,47 +351,63 @@ function AllyCardView({
       onMouseLeave={() => onHover(null)}
       onContextMenu={onContextMenu}
       className={[
-        "overflow-hidden rounded-2xl border transition-shadow",
+        "min-h-[40px] overflow-hidden rounded-2xl border transition-shadow",
         suggest ? "border-ai/34 bg-ai/[0.08]" : "border-border bg-panel",
         highlighted ? "ring-2 ring-ai/40" : "",
       ].join(" ")}
     >
+      {/* One click anywhere on the header collapses/expands (owner request). */}
       <div
-        className={`flex items-center gap-2.5 px-4 py-2 ${suggest ? "border-b border-ai/18" : "border-b border-border"}`}
+        onClick={onToggleCollapse}
+        role="button"
+        tabIndex={0}
+        aria-expanded={!collapsed}
+        aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} answer`}
+        className={`flex cursor-pointer select-none items-center gap-2.5 px-4 py-2 ${collapsed ? "" : suggest ? "border-b border-ai/18" : "border-b border-border"}`}
       >
         <button
           type="button"
-          onClick={onInspect}
+          onClick={(e) => {
+            e.stopPropagation();
+            onInspect();
+          }}
           title={`A${card.seq}`}
           className={[
-            "grid h-[18px] min-w-[18px] place-items-center rounded-full px-1 font-mono text-[9px] font-bold",
-            suggest
-              ? "bg-ai text-bg"
-              : "border border-ai/50 bg-ai/24 text-ai",
+            "grid h-[18px] min-w-[18px] shrink-0 place-items-center rounded-full px-1 font-mono text-[9px] font-bold",
+            suggest ? "bg-ai text-bg" : "border border-ai/50 bg-ai/24 text-ai",
           ].join(" ")}
         >
           A{card.seq}
         </button>
-        <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
           {label}
         </span>
         {!card.done && (
-          <span className="text-[11px] text-fg-faint" role="status">
+          <span className="shrink-0 text-[11px] text-fg-faint" role="status">
             thinking…
           </span>
         )}
-        <div className="ml-auto flex items-center gap-2.5">
+        {/* Collapsed: a one-line preview keeps the row informative and sized. */}
+        {collapsed && card.text && (
+          <span className="min-w-0 flex-1 truncate text-[11px] text-fg-muted">
+            {card.text}
+          </span>
+        )}
+        <div className="ml-auto flex shrink-0 items-center gap-2.5">
           <button
             type="button"
-            onClick={() => void navigator.clipboard.writeText(card.text)}
+            onClick={(e) => {
+              e.stopPropagation();
+              void navigator.clipboard.writeText(card.text);
+            }}
             className="text-[11px] text-fg-faint hover:text-fg"
           >
             Copy
           </button>
-          <Caret
-            collapsed={collapsed}
-            onToggle={onToggleCollapse}
-            label={`${label} answer`}
+          <Icon
+            name="chevron"
+            size={14}
+            className={`text-fg-faint transition-transform ${collapsed ? "-rotate-90" : ""}`}
           />
         </div>
       </div>
@@ -938,6 +939,16 @@ export function TranscriptView() {
     : undefined;
   const activeCardEl = active ? cardEls.current.get(active.cardId) : undefined;
   const base = containerRef.current?.getBoundingClientRect();
+  // Is the source bubble already visible in the transcript scroller? If so we
+  // skip the spine's "derived from" tooltip — no need to preview what's on
+  // screen. (Re-evaluated on scroll via bump().)
+  const sourceBubbleInView = (() => {
+    const scroller = convo.ref.current;
+    if (!activeBubbleEl || !scroller) return false;
+    const er = activeBubbleEl.getBoundingClientRect();
+    const sr = scroller.getBoundingClientRect();
+    return er.bottom > sr.top + 4 && er.top < sr.bottom - 4;
+  })();
   const connector =
     active && activeNode && base
       ? (() => {
@@ -1180,33 +1191,46 @@ export function TranscriptView() {
             ))
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2 border-t border-border px-3 py-2.5">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void request("suggest_reply")}
-            className="flex h-7 items-center rounded-md border border-ai/40 px-2.5 text-[12px] font-semibold text-ai hover:bg-ai/10 disabled:opacity-40"
-          >
-            Suggest reply
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void request("summarize")}
-            className="flex h-7 items-center rounded-md border border-border px-2.5 text-[12px] font-semibold text-fg-muted hover:text-fg disabled:opacity-40"
-          >
-            Summarize
-          </button>
-          <label className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-white/[0.03] px-2.5">
+        <div className="flex shrink-0 flex-col gap-2 border-t border-border px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void request("suggest_reply")}
+              className="flex h-7 items-center rounded-md border border-ai/40 px-2.5 text-[12px] font-semibold text-ai hover:bg-ai/10 disabled:opacity-40"
+            >
+              Suggest reply
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void request("summarize")}
+              className="flex h-7 items-center rounded-md border border-border px-2.5 text-[12px] font-semibold text-fg-muted hover:text-fg disabled:opacity-40"
+            >
+              Summarize
+            </button>
+          </div>
+          {/* Always-available, prominent Ask Ally field. */}
+          <label className="flex h-11 items-center gap-2.5 rounded-xl border border-ai/30 bg-white/[0.04] px-3.5 transition-colors focus-within:border-ai/60">
+            <Icon name="lightbulb" size={17} className="shrink-0 text-ai/70" />
             <input
               value={ask}
               onChange={(e) => setAsk(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submitAsk()}
-              placeholder="Ask Ally about this call…"
-              aria-label="Ask Ally about this call"
-              className="min-w-0 flex-1 bg-transparent text-xs text-fg placeholder:text-fg-faint focus:outline-none"
+              placeholder="Ask Ally anything…"
+              aria-label="Ask Ally"
+              className="min-w-0 flex-1 bg-transparent text-sm text-fg placeholder:text-fg-faint focus:outline-none"
             />
-            <span className="font-mono text-[10px] text-fg-faint">⌘K</span>
+            <button
+              type="button"
+              onClick={submitAsk}
+              disabled={busy || !ask.trim()}
+              title="Ask Ally"
+              aria-label="Send question to Ally"
+              className="shrink-0 rounded-lg p-1.5 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
+            >
+              <Icon name="chevron" size={16} className="rotate-90" />
+            </button>
           </label>
         </div>
       </section>
@@ -1245,7 +1269,7 @@ export function TranscriptView() {
             </button>
           );
         })}
-        {active?.sourceKey && activeNode && base && (
+        {active?.sourceKey && activeNode && base && !sourceBubbleInView && (
           <div
             className="glass-raised absolute w-[240px] -translate-y-1/2 rounded-xl p-3 text-[12px]"
             style={{ top: activeNode.y, left: spineX - 24, transform: "translate(-100%,-50%)" }}
