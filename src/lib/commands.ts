@@ -261,3 +261,25 @@ export function exportTranscript(
 ): Promise<void> {
   return invoke("export_transcript", { path, segments });
 }
+
+// --- Floating HUD panel (src-tauri/src/hud.rs) ------------------------------
+
+/** Open the floating HUD panel (or re-pin it if already open). */
+export function openHud(): Promise<void> {
+  return invoke("open_hud");
+}
+
+/** Close and destroy the floating HUD panel. */
+export function closeHud(): Promise<void> {
+  return invoke("close_hud");
+}
+
+/** Toggle the floating HUD panel. Resolves to the new state (true = open). */
+export function toggleHud(): Promise<boolean> {
+  return invoke<boolean>("toggle_hud");
+}
+
+/** Whether the floating HUD panel is currently open. */
+export function hudIsOpen(): Promise<boolean> {
+  return invoke<boolean>("hud_is_open");
+}

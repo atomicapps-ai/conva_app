@@ -10,6 +10,7 @@ mod audio;
 mod auth;
 mod conversations;
 mod embed;
+mod hud;
 mod llm;
 mod models;
 mod rag;
@@ -581,6 +582,34 @@ async fn rag_sync_library(state: State<'_, AppState>) -> Result<String, String> 
     .map_err(|e| e.to_string())?
 }
 
+// --- Floating HUD panel (src/hud.rs) ----------------------------------------
+// Synchronous handlers on purpose: Tauri runs them on the main thread, where
+// window creation and native-handle mutation must happen.
+
+/// Open the floating HUD panel (or re-pin it if already open).
+#[tauri::command]
+fn open_hud(app: AppHandle) -> Result<(), String> {
+    hud::open(&app)
+}
+
+/// Close and destroy the floating HUD panel.
+#[tauri::command]
+fn close_hud(app: AppHandle) -> Result<(), String> {
+    hud::close(&app)
+}
+
+/// Toggle the floating HUD panel. Returns the new state (`true` = now open).
+#[tauri::command]
+fn toggle_hud(app: AppHandle) -> Result<bool, String> {
+    hud::toggle(&app)
+}
+
+/// Whether the floating HUD panel is currently open.
+#[tauri::command]
+fn hud_is_open(app: AppHandle) -> bool {
+    hud::is_open(&app)
+}
+
 /// Build the retrieval query for an Ally answer: the explicit question, or the
 /// text of the last few finalized turns (what's being discussed right now).
 fn retrieval_query(question: Option<&str>, segments: &[TranscriptSegment]) -> String {
@@ -878,6 +907,10 @@ pub fn run() {
             conversation_load,
             conversation_delete,
             rag_sync_library,
+            open_hud,
+            close_hud,
+            toggle_hud,
+            hud_is_open,
         ])
         .run(tauri::generate_context!())
         .expect("error while running conva");

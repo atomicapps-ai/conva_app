@@ -19,7 +19,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 conva-core = { path = "../crates/conva-core" }
-tauri = { version = "2", features = [] }
+# macos-private-api: required by `macOSPrivateApi: true` in tauri.conf.json,
+# which the transparent floating HUD window (src/hud.rs) needs on macOS.
+tauri = { version = "2", features = ["macos-private-api"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # Capture: cpal speaks WASAPI on Windows, including loopback (an input
@@ -92,6 +94,19 @@ tauri-plugin-process = "2"
 # plugin forwards that launch into the running instance, and its "deep-link"
 # feature hands the URL to tauri-plugin-deep-link's handler.
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+
+# Native floating-HUD panel behaviour (src/hud.rs). Tauri's builder covers the
+# portable attributes; these give us the per-OS non-activating + floating-level
+# window that Tauri doesn't expose. Versions match what the Tauri/wry/cpal tree
+# already resolves, so no new major is introduced.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
 
 [features]
 # GPU acceleration for local whisper — opt-in because building them needs the

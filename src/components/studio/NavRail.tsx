@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { authStatus } from "@/lib/commands";
+import { authStatus, toggleHud } from "@/lib/commands";
 import { isTauri, type AuthStatus } from "@/lib/ipc";
 import { useNavStore, type View } from "@/state/nav";
 
@@ -103,6 +103,16 @@ export function NavRail() {
       <div className="mt-auto flex flex-col items-center gap-1.5 pt-2">
         <RailButton label="Command palette (⌘K)" onClick={openPalette}>
           <Icon name="search" size={19} />
+        </RailButton>
+
+        {/* Floating HUD panel — always-on-top, non-activating overlay. */}
+        <RailButton
+          label="Floating HUD"
+          onClick={() => {
+            if (isTauri()) void toggleHud().catch(() => {});
+          }}
+        >
+          <Icon name="expand" size={18} />
         </RailButton>
 
         {/* Account. Signed in: hover shows the email; click opens a small menu
