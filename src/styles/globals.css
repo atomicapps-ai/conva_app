@@ -533,3 +533,104 @@ body {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------- floating HUD */
+/* The `hud` window is borderless + transparent (src-tauri/src/hud.rs). Clear
+   the app's opaque background + aurora floor so only the rounded card shows,
+   and let the whole surface size to the frameless window. */
+html[data-window="hud"],
+html[data-window="hud"] body,
+html[data-window="hud"] #root {
+  background: transparent;
+  overflow: hidden;
+}
+html[data-window="hud"] #root::before {
+  content: none;
+}
+
+.hud-root {
+  /* --hud-alpha (0.15–1) is driven live by the opacity slider. The alpha rides
+     the panel *fill* only, so the text/controls stay crisp as it fades. */
+  --hud-alpha: 0.72;
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid var(--color-border-strong);
+  background: color-mix(
+    in oklab,
+    var(--color-panel) calc(var(--hud-alpha) * 100%),
+    transparent
+  );
+  backdrop-filter: blur(18px) saturate(1.4);
+  box-shadow: var(--shadow-lg, 0 18px 48px rgba(0, 0, 0, 0.45));
+  transition: background 120ms var(--ease-out, ease-out);
+}
+
+.hud-drag {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--color-border);
+  /* the frameless window's move handle */
+  cursor: grab;
+  user-select: none;
+}
+.hud-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-fg);
+}
+.hud-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  width: 22px;
+  border-radius: 6px;
+  color: var(--color-fg-faint, #8b93bf);
+  transition: background 120ms, color 120ms;
+}
+.hud-close:hover {
+  background: color-mix(in oklab, var(--color-panel-raised) 70%, transparent);
+  color: var(--color-fg);
+}
+
+.hud-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+.hud-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-fg-muted, #b7bee0);
+}
+
+.hud-footer {
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-border);
+}
+.hud-opacity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-fg-faint, #8b93bf);
+}
+.hud-opacity input[type="range"] {
+  flex: 1;
+  accent-color: var(--color-outbound, #7b5cff);
+  cursor: pointer;
+}
+.hud-opacity-val {
+  min-width: 34px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-fg-muted, #b7bee0);
+}

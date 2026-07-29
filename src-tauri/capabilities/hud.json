@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "hud",
+  "description": "Floating HUD panel: core IPC + the window controls it drives (drag, resize, close, re-pin).",
+  "windows": ["hud"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-inner-size",
+    "core:window:allow-scale-factor"
+  ]
+}
