@@ -33,17 +33,21 @@ use sha2::{Digest, Sha256};
 const DEFAULT_SUPABASE_URL: &str = "https://hbxftjyooblxiiapaeei.supabase.co";
 const DEFAULT_ANON_KEY: &str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhieGZ0anlvb2JseGlpYXBhZWVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTQ3MzksImV4cCI6MjEwMDgzMDczOX0.KkvrtUOubjv8DUym7Qj_W_YyYezkVtueKdg9LyQGqQU";
 
-/// Where the browser lands after Supabase finishes OAuth. The finished design
-/// is the hosted, branded page `https://getconva.com/auth/callback` (built in
-/// `conva_web`), which shows a "return to conva" finish and forwards the code
-/// into the app via the `conva://` deep link — the Zoom/Slack-style close, no
-/// local IPs anywhere. Until that page is deployed the default deep-links
-/// straight into the app (the browser shows an "Open conva?" prompt instead of
-/// a branded page — same security, less polish). Flip this constant once the
-/// page is live; overridable via `CONVA_AUTH_REDIRECT_URL` either way. Both
-/// values are in the Supabase redirect allow-list (`conva://**`,
-/// `https://getconva.com/**`).
-const DEFAULT_AUTH_REDIRECT_URL: &str = "conva://auth/callback";
+/// Where the browser lands after Supabase finishes OAuth: the hosted, branded
+/// page `https://getconva.com/callback` (built in `conva_web` as
+/// `callback.html`), which shows a "returning you to conva" finish and forwards
+/// the `?code` into the app via the `conva://` deep link — the Zoom/Slack-style
+/// close, with no local IPs on screen. The bare `conva://auth/callback` deep
+/// link is still fully supported as the fallback — set
+/// `CONVA_AUTH_REDIRECT_URL=conva://auth/callback` to skip the hosted page (the
+/// browser then shows the OS's "Open conva?" prompt instead of a branded page).
+/// Both are in the Supabase redirect allow-list (`https://getconva.com/**`,
+/// `conva://**`).
+///
+/// NB: keep this pointed at the hosted page only while that page is deployed to
+/// production — if `getconva.com/callback` 404s to the site homepage, sign-in
+/// silently breaks (the homepage never forwards to `conva://`).
+const DEFAULT_AUTH_REDIRECT_URL: &str = "https://getconva.com/callback";
 
 /// The deep-link prefix the app answers for sign-in completions — the shell
 /// routes any `conva://auth/…` URL to [`complete_sign_in`].
@@ -182,7 +186,9 @@ fn challenge_of(verifier: &str) -> String {
 
 // -------------------------------------------------------------- browser open
 
-fn open_browser(url: &str) -> Result<(), String> {
+/// Open a URL in the user's default browser. Used for the OAuth authorize URL
+/// and for external links (e.g. the website's password-reset page).
+pub fn open_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         // Do NOT route the URL through `cmd /C start` (cmd splits on `&` and does

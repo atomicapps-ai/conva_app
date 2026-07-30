@@ -468,6 +468,15 @@ fn auth_cancel() {
     auth::cancel_sign_in();
 }
 
+/// Open an external URL in the user's default browser (e.g. the website's
+/// password-reset page). Runs the launch off the UI thread.
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || auth::open_browser(&url))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Sign in with an email + password (Supabase). Same identity as Google / the
 /// website. Runs the blocking HTTP off the UI thread.
 #[tauri::command]
@@ -894,6 +903,7 @@ pub fn run() {
             secrets_import,
             auth_start,
             auth_cancel,
+            open_url,
             auth_signin_password,
             auth_signup_password,
             auth_status,

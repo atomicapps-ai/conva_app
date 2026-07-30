@@ -13,6 +13,7 @@ import {
   exportConfig,
   importConfig,
   listWhisperModels,
+  openUrl,
   secretsExport,
   secretsImport,
   secretsStatus,
@@ -645,6 +646,17 @@ function AccountSettings() {
             onChange={(e) => setPassword(e.target.value)}
             className="input"
           />
+          {mode === "signin" && (
+            <button
+              type="button"
+              onClick={() =>
+                void openUrl("https://getconva.com/forgot-password")
+              }
+              className="self-end text-[11px] text-fg-faint hover:text-ai hover:underline"
+            >
+              Forgot password?
+            </button>
+          )}
           <button
             type="submit"
             disabled={busy}

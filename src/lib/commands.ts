@@ -175,6 +175,12 @@ export function authCancel(): Promise<void> {
   return invoke("auth_cancel");
 }
 
+/** Open an external URL in the system browser (e.g. the website's
+ *  password-reset page). */
+export function openUrl(url: string): Promise<void> {
+  return invoke("open_url", { url });
+}
+
 /** RAG-grounded relevant phrases in a transcript message, for highlighting. */
 export function analyzeTerms(text: string): Promise<string[]> {
   return invoke<string[]>("analyze_terms", { text });
