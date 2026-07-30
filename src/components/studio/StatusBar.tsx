@@ -1,4 +1,4 @@
-import { saveDebugLog } from "@/lib/commands";
+import { useBackend, type ConvaBackend } from "@/lib/backend";
 import { BUILD, collectDebugReport } from "@/lib/debug";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
@@ -16,7 +16,7 @@ function Sep() {
 
 /** Copy a diagnostics snapshot to the clipboard and, in the app, write it to a
  *  log file too — so "it didn't work" comes with real, shareable data. */
-async function dumpDebug() {
+async function dumpDebug(backend: ConvaBackend) {
   const report = collectDebugReport();
   try {
     await navigator.clipboard.writeText(report);
@@ -25,7 +25,7 @@ async function dumpDebug() {
   }
   if (isTauri()) {
     try {
-      const path = await saveDebugLog(report);
+      const path = await backend.diagnostics.saveDebugLog(report);
       window.alert(`Debug report copied to clipboard and saved to:\n${path}`);
       return;
     } catch (e) {
@@ -37,6 +37,7 @@ async function dumpDebug() {
 }
 
 export function StatusBar() {
+  const backend = useBackend();
   const config = useAppStore((s) => s.config);
   const title = useConversationStore((s) => s.title);
   const cloud = config?.asr_engine === "deepgram_cloud";
@@ -86,7 +87,7 @@ export function StatusBar() {
       {!isTauri() && <span className="text-fg-faint">preview</span>}
       <button
         type="button"
-        onClick={() => void dumpDebug()}
+        onClick={() => void dumpDebug(backend)}
         title="Copy a diagnostics snapshot (and save a log file) for sharing"
         className="rounded px-1.5 py-0.5 font-mono text-[10px] text-fg-faint transition hover:bg-white/[0.06] hover:text-fg"
       >

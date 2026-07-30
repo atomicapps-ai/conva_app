@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 
 import App from "@/App";
+import { BackendProvider } from "@/lib/backend";
 import { HudPanel } from "@/components/hud/HudPanel";
 import "@/styles/globals.css";
 
@@ -11,6 +12,11 @@ import "@/styles/globals.css";
 const isHud = new URLSearchParams(window.location.search).has("hud");
 if (isHud) document.documentElement.dataset.window = "hud";
 
+// BackendProvider resolves the platform once (Tauri on desktop, Web in a browser)
+// and hands the same interface to the whole tree — this bundle is what both the
+// desktop WebView and the web build (`npm run build:web`) render.
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>{isHud ? <HudPanel /> : <App />}</React.StrictMode>,
+  <React.StrictMode>
+    <BackendProvider>{isHud ? <HudPanel /> : <App />}</BackendProvider>
+  </React.StrictMode>,
 );

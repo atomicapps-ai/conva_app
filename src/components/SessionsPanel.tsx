@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { useBackend } from "@/lib/backend";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
-import { exportTranscript, sessionList, sessionLoad } from "@/lib/commands";
 import type { SessionSummary } from "@/lib/ipc";
 import { useTranscriptStore } from "@/state/transcript";
 
@@ -12,6 +12,7 @@ function formatDate(unixMs: number): string {
 
 /** Past sessions (U3): reopen a transcript, or export it as Markdown (U8). */
 export function SessionsPanel({ onClose }: { onClose: () => void }) {
+  const backend = useBackend();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const loadPastSession = useTranscriptStore((s) => s.loadPastSession);
@@ -21,14 +22,15 @@ export function SessionsPanel({ onClose }: { onClose: () => void }) {
   const viewing = useTranscriptStore((s) => s.viewingPastSessionId);
 
   useEffect(() => {
-    sessionList()
+    backend.sessions
+      .list()
       .then(setSessions)
       .catch((e) => setNotice(String(e)));
-  }, []);
+  }, [backend]);
 
   const open = async (id: string) => {
     try {
-      loadPastSession(id, await sessionLoad(id));
+      loadPastSession(id, await backend.sessions.load(id));
       onClose();
     } catch (e) {
       setNotice(String(e));
@@ -43,7 +45,7 @@ export function SessionsPanel({ onClose }: { onClose: () => void }) {
         filters: [{ name: "Markdown", extensions: ["md"] }],
       });
       if (!path) return;
-      await exportTranscript(path, segments);
+      await backend.sessions.exportTranscript(path, segments);
       setNotice(`Exported to ${path}`);
     } catch (e) {
       setNotice(String(e));

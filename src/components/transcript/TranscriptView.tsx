@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { analyzeTerms } from "@/lib/commands";
+import { useBackend } from "@/lib/backend";
 import type { TranscriptSegment } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
@@ -231,6 +231,7 @@ function Bubble({
   onJumpLink: () => void;
   busy: boolean;
 }) {
+  const backend = useBackend();
   const inbound = segments[0]?.side === "inbound";
   const finals = segments.filter((s) => s.is_final);
   const hasFinal = finals.length > 0;
@@ -242,13 +243,13 @@ function Bubble({
   useEffect(() => {
     if (!combinedText || !isTauri()) return;
     let alive = true;
-    void analyzeTerms(combinedText)
+    void backend.rag.analyzeTerms(combinedText)
       .then((t) => alive && setTerms(t))
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [combinedText]);
+  }, [combinedText, backend]);
 
   return (
     <div

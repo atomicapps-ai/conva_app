@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { ally as invokeAlly } from "@/lib/commands";
+import { getBackend } from "@/lib/backend";
 import type {
   AllyChunkEvent,
   AllyKind,
@@ -87,7 +87,7 @@ export const useAllyStore = create<AllyState>((set, get) => ({
       // Ground Ally in the whole open conversation (earlier runs
       // included), not just the live run.
       const t = useTranscriptStore.getState();
-      await invokeAlly(id, kind, question ?? null, [
+      await getBackend().ally.run(id, kind, question ?? null, [
         ...t.archived,
         ...t.segments,
       ]);

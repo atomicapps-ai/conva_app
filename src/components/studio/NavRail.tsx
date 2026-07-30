@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { authStatus, toggleHud } from "@/lib/commands";
+import { useBackend } from "@/lib/backend";
 import { isTauri, type AuthStatus } from "@/lib/ipc";
 import { useNavStore, type View } from "@/state/nav";
 
@@ -13,10 +13,13 @@ import { useNavStore, type View } from "@/state/nav";
  */
 
 const NAV_ITEMS: { view: View; icon: IconName; label: string }[] = [
+  { view: "dashboard", icon: "system", label: "Home" },
   { view: "live", icon: "live", label: "Live" },
   { view: "conversations", icon: "conversations", label: "Conversations" },
   { view: "sessions", icon: "sessions", label: "Sessions" },
   { view: "library", icon: "library", label: "Library" },
+  { view: "features", icon: "book", label: "What conva does" },
+  { view: "whatsnew", icon: "lightbulb", label: "What's Coming" },
   { view: "settings", icon: "settings", label: "Settings" },
 ];
 
@@ -59,6 +62,7 @@ function RailButton({
 }
 
 export function NavRail() {
+  const backend = useBackend();
   const view = useNavStore((s) => s.view);
   const setView = useNavStore((s) => s.setView);
   const openPalette = useNavStore((s) => s.openPalette);
@@ -70,10 +74,11 @@ export function NavRail() {
   useEffect(() => {
     setMenuOpen(false);
     if (!isTauri()) return;
-    void authStatus()
+    void backend.auth
+      .status()
       .then(setAuth)
       .catch(() => setAuth(null));
-  }, [view]);
+  }, [view, backend]);
 
   return (
     <nav
@@ -109,7 +114,7 @@ export function NavRail() {
         <RailButton
           label="Floating HUD"
           onClick={() => {
-            if (isTauri()) void toggleHud().catch(() => {});
+            if (isTauri()) void backend.hud.toggle().catch(() => {});
           }}
         >
           <Icon name="expand" size={18} />

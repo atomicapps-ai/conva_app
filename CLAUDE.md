@@ -8,9 +8,20 @@
 > lessons, colour scheme, rules, things to avoid, owner hints, and the current
 > open issues — this file covers only what is specific to this repo.
 >
-> Then read [`README.md`](README.md) for the run guide and
-> [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md)
-> for the full design (architecture, latency budgets, milestones, §9 decisions).
+> **Current priorities (canonical queue):** `conva_core/docs/product/roadmap.md`.
+> Owner-approved; read it before picking up work and update it (same PR) when
+> task status or priorities change. **Now:** Phase 1 = get web + desktop in sync
+> on a base functionality baseline and launch a **free invite-only beta** + its
+> marketing (keystone: the `ConvaBackend` transport layer) → then SDLC → then the
+> larger feature set (Mock, Turbo, Incog, billing).
+>
+> Then read [`README.md`](README.md) for the run guide. **All design/architecture
+> docs live in `conva_core` — core is the single source of truth.** The full design
+> (architecture, latency budgets, milestones, §9 decisions) is
+> `conva_core/docs/technical/phase-1-design-and-spec.md`; the desktop↔web model is
+> `conva_core/docs/technical/CONVA_ARCHITECTURE.md`. This repo holds code + this
+> operational file only — do not add design docs here (move them to core + leave a
+> pointer stub, per the moved `docs/*.md` examples).
 
 ## What conva is
 
@@ -200,3 +211,15 @@ mobile target. Full conventions + how to add iOS/Android targets:
 - **When asking the owner a question, always lead with a recommended option and
   the reasoning behind it** — never present bare choices. State the trade-offs
   and which one you'd pick and why, so a decision can be made in one glance.
+- **Scripts you hand the owner follow a branch + directory + freshness contract**
+  (canonical: `../conva_core/docs/guides/ai-session-guide.md` §4). Before a local
+  script changes anything: **(1)** set the **directory** explicitly (Windows real
+  paths, e.g. `C:\Projects\atomicapps\conva\conva_app`, or an argument) — never
+  rely on the current dir, each repo is its own path; **(2)** set the **branch**
+  explicitly, per repo, and switch to it deliberately — never assume the owner is
+  on it (this repo often sits on a feature branch like `claude/stealth-mode`);
+  **(3) `git fetch` first and be merge-ready** — fast-forward when clean, merge
+  when diverged, cherry-pick when only one commit is wanted; **(4)** never
+  overwrite uncommitted work — detect a dirty tree, stop and list the blocking
+  files, then apply and print a per-repo summary. Every command block names its
+  branch + path.

@@ -1,6 +1,7 @@
 # Node
 node_modules/
 dist/
+dist-web/
 # TypeScript incremental-build cache — rewritten on every build; tracking it
 # guarantees permanent dirty-tree/merge churn on every machine.
 tsconfig.tsbuildinfo
@@ -14,8 +15,14 @@ models/
 # Env / secrets — plaintext env files never get committed…
 .env
 .env.*
+.dev.vars
+env/master.key
 # …but the passphrase-encrypted secrets file is meant to be committed.
 !*.secrets.enc
+# …and the env-toolkit encrypted twins + example templates are committed too
+# (see env/README.md). The 32-byte master key stays local / shared out-of-band.
+!.env.*.enc
+!.env.*.example
 
 # Editor/OS noise
 .DS_Store

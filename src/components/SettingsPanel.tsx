@@ -2,31 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AllySettings } from "@/components/AllySettings";
 import { Notice, Section, ViewShell } from "@/components/studio/ViewShell";
-import {
-  authCancel,
-  authSigninPassword,
-  authSignout,
-  authSignupPassword,
-  authStart,
-  authStatus,
-  deepgramKeyStatus,
-  exportConfig,
-  importConfig,
-  listWhisperModels,
-  openUrl,
-  secretsExport,
-  secretsImport,
-  secretsStatus,
-  setDeepgramKey,
-} from "@/lib/commands";
+import { useBackend } from "@/lib/backend";
 import type {
-  AuthChangedEvent,
   AuthStatus,
   SecretsStatus,
   StreamSide,
   WhisperModelInfo,
 } from "@/lib/ipc";
-import { EVENTS, isTauri } from "@/lib/ipc";
+import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 
 function DeviceSelect({
@@ -65,16 +48,18 @@ function DeviceSelect({
  *  Faster/quantized models cut delay; the change applies on the next session
  *  start (and downloads the model first if it isn't present). */
 function AsrModelSelect() {
+  const backend = useBackend();
   const config = useAppStore((s) => s.config);
   const updateConfig = useAppStore((s) => s.updateConfig);
   const [models, setModels] = useState<WhisperModelInfo[]>([]);
 
   useEffect(() => {
     if (!isTauri()) return;
-    void listWhisperModels()
+    void backend.audio
+      .listWhisperModels()
       .then(setModels)
       .catch(() => setModels([]));
-  }, []);
+  }, [backend]);
 
   if (!config) return null;
   const current = models.find((m) => m.id === config.whisper_model);
@@ -111,6 +96,7 @@ function AsrModelSelect() {
  *  cloud streaming (~200 ms interims — true conversation speed; audio leaves
  *  the machine; needs an API key). Applies on the next session start. */
 function EngineSelect() {
+  const backend = useBackend();
   const config = useAppStore((s) => s.config);
   const updateConfig = useAppStore((s) => s.updateConfig);
   const [hasKey, setHasKey] = useState(false);
@@ -119,8 +105,8 @@ function EngineSelect() {
 
   useEffect(() => {
     if (!isTauri()) return;
-    void deepgramKeyStatus().then(setHasKey).catch(() => {});
-  }, []);
+    void backend.audio.deepgramKeyStatus().then(setHasKey).catch(() => {});
+  }, [backend]);
 
   if (!config) return null;
   const cloud = config.asr_engine === "deepgram_cloud";
@@ -128,7 +114,7 @@ function EngineSelect() {
   const saveKey = async () => {
     const next = keyDraft.trim();
     try {
-      await setDeepgramKey(next);
+      await backend.audio.setDeepgramKey(next);
       setHasKey(next.length > 0);
       setKeyDraft("");
       if (next.length === 0 && cloud) {
@@ -244,6 +230,7 @@ function NoiseFilterControls() {
  *  push/pull your current settings to/from that file. Keys are NOT in this
  *  file (they use the encrypted secrets flow below). */
 function ConfigFileControls() {
+  const backend = useBackend();
   const updateConfig = useAppStore((s) => s.updateConfig);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -255,7 +242,7 @@ function ConfigFileControls() {
         filters: [{ name: "Config", extensions: ["json"] }],
       });
       if (!dest) return;
-      await exportConfig(dest);
+      await backend.config.export(dest);
       setNotice("Saved. Commit it to the repo so other machines pick it up.");
     } catch (e) {
       setNotice(String(e));
@@ -270,7 +257,7 @@ function ConfigFileControls() {
         filters: [{ name: "Config", extensions: ["json"] }],
       });
       if (!src || Array.isArray(src)) return;
-      const config = await importConfig(src);
+      const config = await backend.config.import(src);
       // Push the imported values through the store so the UI reflects them.
       await updateConfig(config);
       setNotice("Config applied.");
@@ -308,6 +295,7 @@ function ConfigFileControls() {
  *  load them on another machine. The passphrase comes from an env var, so the
  *  file is safe to commit and keys never re-typed per launch. */
 function SecretsSettings() {
+  const backend = useBackend();
   const [status, setStatus] = useState<SecretsStatus | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -315,11 +303,11 @@ function SecretsSettings() {
   const refresh = useCallback(async () => {
     if (!isTauri()) return;
     try {
-      setStatus(await secretsStatus());
+      setStatus(await backend.secrets.status());
     } catch (e) {
       setNotice(String(e));
     }
-  }, []);
+  }, [backend]);
 
   useEffect(() => {
     void refresh();
@@ -335,7 +323,7 @@ function SecretsSettings() {
         filters: [{ name: "Encrypted secrets", extensions: ["enc"] }],
       });
       if (!dest) return;
-      setNotice(await secretsExport(dest));
+      setNotice(await backend.secrets.export(dest));
       await refresh();
     } catch (e) {
       setNotice(String(e));
@@ -354,7 +342,7 @@ function SecretsSettings() {
         filters: [{ name: "Encrypted secrets", extensions: ["enc"] }],
       });
       if (!src || Array.isArray(src)) return;
-      setNotice(await secretsImport(src, false));
+      setNotice(await backend.secrets.import(src, false));
     } catch (e) {
       setNotice(String(e));
     } finally {
@@ -442,6 +430,7 @@ function GoogleG({ size = 18 }: { size?: number }) {
 }
 
 function AccountSettings() {
+  const backend = useBackend();
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [busy, setBusy] = useState(false);
   /** OAuth is out-of-band: the browser is open and we're waiting for the
@@ -455,10 +444,11 @@ function AccountSettings() {
 
   const refresh = useCallback(() => {
     if (!isTauri()) return;
-    void authStatus()
+    void backend.auth
+      .status()
       .then(setStatus)
       .catch(() => setStatus(null));
-  }, []);
+  }, [backend]);
 
   useEffect(() => {
     refresh();
@@ -467,36 +457,35 @@ function AccountSettings() {
   // The OAuth result arrives as an event when the browser deep-links back
   // into the app (conva://auth/callback) — not as authStart's return value.
   useEffect(() => {
-    if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-    void (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
-      const stop = await listen<AuthChangedEvent>(EVENTS.authChanged, (e) => {
+    void backend
+      .subscribe("authChanged", (payload) => {
         setWaiting(false);
         setBusy(false);
-        if (e.payload.error) {
-          setError(e.payload.error.replace(/^Error:\s*/, ""));
-        } else if (e.payload.status) {
+        if (payload.error) {
+          setError(payload.error.replace(/^Error:\s*/, ""));
+        } else if (payload.status) {
           setError(null);
-          setStatus(e.payload.status);
+          setStatus(payload.status);
         }
+      })
+      .then((stop) => {
+        if (cancelled) stop();
+        else unlisten = stop;
       });
-      if (cancelled) stop();
-      else unlisten = stop;
-    })();
     return () => {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [backend]);
 
   const signInGoogle = async () => {
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      await authStart("google");
+      await backend.auth.start("google");
       setWaiting(true); // browser is open; completion arrives via authChanged
     } catch (e) {
       setError(String(e));
@@ -507,7 +496,7 @@ function AccountSettings() {
 
   const cancelOauth = async () => {
     try {
-      await authCancel();
+      await backend.auth.cancel();
     } finally {
       setWaiting(false);
     }
@@ -521,9 +510,9 @@ function AccountSettings() {
     setNotice(null);
     try {
       if (mode === "signup") {
-        setStatus(await authSignupPassword(email.trim(), password));
+        setStatus(await backend.auth.signupPassword(email.trim(), password));
       } else {
-        setStatus(await authSigninPassword(email.trim(), password));
+        setStatus(await backend.auth.signinPassword(email.trim(), password));
       }
       setPassword("");
     } catch (err) {
@@ -545,7 +534,7 @@ function AccountSettings() {
     setError(null);
     setNotice(null);
     try {
-      await authSignout();
+      await backend.auth.signout();
       refresh();
     } catch (e) {
       setError(String(e));
@@ -650,7 +639,7 @@ function AccountSettings() {
             <button
               type="button"
               onClick={() =>
-                void openUrl("https://getconva.com/forgot-password")
+                void backend.auth.openUrl("https://getconva.com/forgot-password")
               }
               className="self-end text-[11px] text-fg-faint hover:text-ai hover:underline"
             >

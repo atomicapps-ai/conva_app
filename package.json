@@ -7,12 +7,22 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "dev:web": "vite --port 1430",
+    "build:web": "tsc -b && vite build --outDir dist-web --emptyOutDir",
+    "preview:web": "vite preview --outDir dist-web --port 1431",
     "typecheck": "tsc -b",
     "tauri": "tauri",
     "tauri:gpu": "tauri dev --features gpu-vulkan",
     "tauri:gpu:cuda": "tauri dev --features gpu-cuda",
     "tauri:gpu:metal": "tauri dev --features gpu-metal",
-    "tauri:build:gpu": "tauri build --features gpu-vulkan"
+    "tauri:build:gpu": "tauri build --features gpu-vulkan",
+    "env:keygen": "node env/cli.mjs keygen",
+    "env:encrypt:dev": "node env/cli.mjs encrypt dev",
+    "env:encrypt:prod": "node env/cli.mjs encrypt prod",
+    "env:decrypt:dev": "node env/cli.mjs decrypt dev",
+    "env:decrypt:prod": "node env/cli.mjs decrypt prod",
+    "env:print:dev": "node env/cli.mjs print dev",
+    "env:print:prod": "node env/cli.mjs print prod"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

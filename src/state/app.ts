@@ -1,17 +1,6 @@
 import { create } from "zustand";
 
-import {
-  getConfig,
-  getProviderRegistry,
-  listAudioDevices,
-  providerKeyStatus,
-  recordingStatus,
-  saveConfig,
-  startRecording,
-  startSession,
-  stopRecording,
-  stopSession,
-} from "@/lib/commands";
+import { getBackend } from "@/lib/backend";
 import {
   isTauri,
   type AppConfig,
@@ -73,7 +62,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   recordingPath: null,
   startRecording: async () => {
     try {
-      const path = await startRecording();
+      const path = await getBackend().recording.start();
       set({ recording: true, recordingPath: path });
     } catch (e) {
       set({ lastError: String(e) });
@@ -81,7 +70,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   stopRecording: async () => {
     try {
-      const path = await stopRecording();
+      const path = await getBackend().recording.stop();
       set({ recording: false, recordingPath: path });
     } catch (e) {
       set({ recording: false, lastError: String(e) });
@@ -99,7 +88,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   refreshKeyStatus: async () => {
-    const statuses = await providerKeyStatus();
+    const statuses = await getBackend().providers.keyStatus();
     set({
       keyStatus: Object.fromEntries(statuses.map((s) => [s.id, s.has_key])),
     });
@@ -108,12 +97,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   init: async () => {
     if (!isTauri()) return;
     try {
+      const backend = getBackend();
       const [config, devices, registry, keys, recording] = await Promise.all([
-        getConfig(),
-        listAudioDevices(),
-        getProviderRegistry(),
-        providerKeyStatus(),
-        recordingStatus(),
+        backend.config.get(),
+        backend.audio.listDevices(),
+        backend.providers.registry(),
+        backend.providers.keyStatus(),
+        backend.recording.status(),
       ]);
       set({
         config,
@@ -130,7 +120,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   refreshDevices: async () => {
     if (!isTauri()) return;
     try {
-      set({ devices: await listAudioDevices() });
+      set({ devices: await getBackend().audio.listDevices() });
     } catch (e) {
       set({ lastError: String(e) });
     }
@@ -142,7 +132,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = { ...current, ...patch };
     set({ config: next });
     try {
-      await saveConfig(next);
+      await getBackend().config.save(next);
     } catch (e) {
       set({ config: current, lastError: String(e) });
     }
@@ -155,7 +145,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   start: async () => {
     set({ busy: true, lastError: null });
     try {
-      await startSession();
+      await getBackend().session.start();
     } catch (e) {
       set({ lastError: String(e) });
     } finally {
@@ -166,7 +156,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   stop: async () => {
     set({ busy: true });
     try {
-      await stopSession();
+      await getBackend().session.stop();
       // Offer to save the conversation when anything was transcribed
       // (owner flow: Stop → "save this conversation?").
       const [{ useTranscriptStore }, { useConversationStore }] =

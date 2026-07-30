@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { listProviderModels, setApiKey, testProvider } from "@/lib/commands";
+import { useBackend } from "@/lib/backend";
 import type { ModelSelection, ProviderId } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 
@@ -20,6 +20,7 @@ function SlotEditor({
   value: ModelSelection;
   onChange: (next: ModelSelection) => void;
 }) {
+  const backend = useBackend();
   const registry = useAppStore((s) => s.registry);
   const keyStatus = useAppStore((s) => s.keyStatus);
   const [liveModels, setLiveModels] = useState<string[]>([]);
@@ -35,7 +36,7 @@ function SlotEditor({
     setLiveModels([]);
     if (!keyStatus[value.provider]) return;
     let cancelled = false;
-    listProviderModels(value.provider)
+    backend.providers.listModels(value.provider)
       .then((list) => {
         if (!cancelled) setLiveModels(list.map((m) => m.id));
       })
@@ -45,7 +46,7 @@ function SlotEditor({
     return () => {
       cancelled = true;
     };
-  }, [value.provider, keyStatus]);
+  }, [value.provider, keyStatus, backend]);
 
   const onProviderChange = (id: ProviderId) => {
     const next = registry.find((p) => p.id === id);
@@ -89,6 +90,7 @@ function SlotEditor({
 }
 
 export function AllySettings() {
+  const backend = useBackend();
   const config = useAppStore((s) => s.config);
   const registry = useAppStore((s) => s.registry);
   const keyStatus = useAppStore((s) => s.keyStatus);
@@ -109,7 +111,7 @@ export function AllySettings() {
     setKeyBusy(true);
     setTestResult(null);
     try {
-      await setApiKey(quality.provider, keyInput.trim());
+      await backend.providers.setKey(quality.provider, keyInput.trim());
       setKeyInput("");
       await refreshKeyStatus();
     } catch (e) {
@@ -123,7 +125,7 @@ export function AllySettings() {
     setKeyBusy(true);
     setTestResult("testing…");
     try {
-      const ms = await testProvider(quality.provider, quality.model);
+      const ms = await backend.providers.test(quality.provider, quality.model);
       setTestResult(`✓ first token in ${ms} ms`);
     } catch (e) {
       setTestResult(String(e));
