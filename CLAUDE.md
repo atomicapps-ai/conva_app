@@ -211,3 +211,15 @@ mobile target. Full conventions + how to add iOS/Android targets:
 - **When asking the owner a question, always lead with a recommended option and
   the reasoning behind it** — never present bare choices. State the trade-offs
   and which one you'd pick and why, so a decision can be made in one glance.
+- **Scripts you hand the owner follow a branch + directory + freshness contract**
+  (canonical: `../conva_core/docs/guides/ai-session-guide.md` §4). Before a local
+  script changes anything: **(1)** set the **directory** explicitly (Windows real
+  paths, e.g. `C:\Projects\atomicapps\conva\conva_app`, or an argument) — never
+  rely on the current dir, each repo is its own path; **(2)** set the **branch**
+  explicitly, per repo, and switch to it deliberately — never assume the owner is
+  on it (this repo often sits on a feature branch like `claude/stealth-mode`);
+  **(3) `git fetch` first and be merge-ready** — fast-forward when clean, merge
+  when diverged, cherry-pick when only one commit is wanted; **(4)** never
+  overwrite uncommitted work — detect a dirty tree, stop and list the blocking
+  files, then apply and print a per-repo summary. Every command block names its
+  branch + path.
