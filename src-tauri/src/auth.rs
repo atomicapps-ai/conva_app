@@ -88,12 +88,26 @@ const KR_REFRESH: &str = "auth-refresh-token";
 const KR_ACCESS: &str = "auth-access-token";
 const META_FILE: &str = "auth.json";
 
+// Backend resolution precedence (first non-empty wins):
+//   1. runtime env  CONVA_SUPABASE_URL  — local `tauri dev` against any project
+//   2. compile-time env (option_env!)   — baked by CI (dev-build.yml sets it from
+//      the decrypted .env.dev), so a DISTRIBUTED dev installer points at
+//      conva-core-dev even though the tester has no env vars set
+//   3. DEFAULT_*                          — live prod (conva-core)
 fn supabase_url() -> String {
-    std::env::var("CONVA_SUPABASE_URL").unwrap_or_else(|_| DEFAULT_SUPABASE_URL.to_string())
+    std::env::var("CONVA_SUPABASE_URL")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| option_env!("CONVA_SUPABASE_URL").filter(|s| !s.is_empty()).map(str::to_string))
+        .unwrap_or_else(|| DEFAULT_SUPABASE_URL.to_string())
 }
 
 fn anon_key() -> String {
-    std::env::var("CONVA_SUPABASE_ANON_KEY").unwrap_or_else(|_| DEFAULT_ANON_KEY.to_string())
+    std::env::var("CONVA_SUPABASE_ANON_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| option_env!("CONVA_SUPABASE_ANON_KEY").filter(|s| !s.is_empty()).map(str::to_string))
+        .unwrap_or_else(|| DEFAULT_ANON_KEY.to_string())
 }
 
 /// Command-facing sign-in state (mirrored in `src/lib/ipc.ts` as `AuthStatus`).
