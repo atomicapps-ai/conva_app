@@ -8,6 +8,13 @@
 > lessons, colour scheme, rules, things to avoid, owner hints, and the current
 > open issues — this file covers only what is specific to this repo.
 >
+> **Current priorities (canonical queue):** `conva_core/docs/product/roadmap.md`.
+> Owner-approved; read it before picking up work and update it (same PR) when
+> task status or priorities change. **Now:** Phase 1 = get web + desktop in sync
+> on a base functionality baseline and launch a **free invite-only beta** + its
+> marketing (keystone: the `ConvaBackend` transport layer) → then SDLC → then the
+> larger feature set (Mock, Turbo, Incog, billing).
+>
 > Then read [`README.md`](README.md) for the run guide and
 > [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md)
 > for the full design (architecture, latency budgets, milestones, §9 decisions).
