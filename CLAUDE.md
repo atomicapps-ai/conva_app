@@ -15,9 +15,13 @@
 > marketing (keystone: the `ConvaBackend` transport layer) → then SDLC → then the
 > larger feature set (Mock, Turbo, Incog, billing).
 >
-> Then read [`README.md`](README.md) for the run guide and
-> [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md)
-> for the full design (architecture, latency budgets, milestones, §9 decisions).
+> Then read [`README.md`](README.md) for the run guide. **All design/architecture
+> docs live in `conva_core` — core is the single source of truth.** The full design
+> (architecture, latency budgets, milestones, §9 decisions) is
+> `conva_core/docs/technical/phase-1-design-and-spec.md`; the desktop↔web model is
+> `conva_core/docs/technical/CONVA_ARCHITECTURE.md`. This repo holds code + this
+> operational file only — do not add design docs here (move them to core + leave a
+> pointer stub, per the moved `docs/*.md` examples).
 
 ## What conva is
 
