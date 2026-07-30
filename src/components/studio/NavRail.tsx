@@ -13,10 +13,13 @@ import { useNavStore, type View } from "@/state/nav";
  */
 
 const NAV_ITEMS: { view: View; icon: IconName; label: string }[] = [
+  { view: "dashboard", icon: "system", label: "Home" },
   { view: "live", icon: "live", label: "Live" },
   { view: "conversations", icon: "conversations", label: "Conversations" },
   { view: "sessions", icon: "sessions", label: "Sessions" },
   { view: "library", icon: "library", label: "Library" },
+  { view: "features", icon: "book", label: "What conva does" },
+  { view: "whatsnew", icon: "lightbulb", label: "What's Coming" },
   { view: "settings", icon: "settings", label: "Settings" },
 ];
 

@@ -7,10 +7,13 @@ import { create } from "zustand";
  * to first-class routed views. The ⌘K command palette floats over any view.
  */
 export type View =
+  | "dashboard"
   | "live"
   | "library"
   | "sessions"
   | "conversations"
+  | "features"
+  | "whatsnew"
   | "settings";
 
 interface NavState {
@@ -25,7 +28,7 @@ interface NavState {
 }
 
 export const useNavStore = create<NavState>((set) => ({
-  view: "live",
+  view: "dashboard",
   setView: (view) => set({ view, paletteOpen: false }),
 
   paletteOpen: false,
