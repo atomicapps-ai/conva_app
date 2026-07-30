@@ -1,15 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { useBackend } from "@/lib/backend";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
-import {
-  ragDelete,
-  ragDownload,
-  ragIngest,
-  ragIngestText,
-  ragList,
-  ragSetEnabled,
-  ragSyncLibrary,
-} from "@/lib/commands";
 import type { RagDocument } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
 
@@ -31,6 +23,7 @@ function deriveNoteName(text: string): string {
  * answer via BM25 retrieval with source attribution.
  */
 export function RagPanel({ onClose }: { onClose: () => void }) {
+  const backend = useBackend();
   const [documents, setDocuments] = useState<RagDocument[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -44,11 +37,11 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
 
   const refresh = useCallback(async () => {
     try {
-      setDocuments(await ragList());
+      setDocuments(await backend.rag.list());
     } catch (e) {
       setNotice(String(e));
     }
-  }, []);
+  }, [backend]);
 
   useEffect(() => {
     void refresh();
@@ -66,7 +59,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
       setBusy(true);
       setNotice(`Ingesting ${usable.length} file(s)…`);
       try {
-        const reports = await ragIngest(usable);
+        const reports = await backend.rag.ingest(usable);
         const warnings = reports.flatMap((r) => r.warnings);
         setNotice(
           warnings.length > 0
@@ -80,7 +73,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
         setBusy(false);
       }
     },
-    [refresh],
+    [backend, refresh],
   );
 
   // Native drag-drop delivers OS file paths through the webview (U5).
@@ -137,7 +130,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
     const dest = await save({ defaultPath: doc.file_name });
     if (!dest) return;
     try {
-      await ragDownload(doc.id, dest);
+      await backend.rag.download(doc.id, dest);
       setNotice(`Downloaded ${doc.file_name}.`);
     } catch (e) {
       setNotice(String(e));
@@ -153,7 +146,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setNotice("Adding pasted text…");
     try {
-      const report = await ragIngestText(deriveNoteName(text), text);
+      const report = await backend.rag.ingestText(deriveNoteName(text), text);
       setNotice(
         report.warnings.length > 0
           ? `Added with warnings: ${report.warnings.join("; ")}`
@@ -202,7 +195,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
             type="button"
             disabled={busy}
             onClick={() =>
-              void ragSyncLibrary()
+              void backend.rag.syncLibrary()
                 .then(setNotice)
                 .catch((e) => setNotice(String(e)))
             }
@@ -279,7 +272,9 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
                   type="checkbox"
                   checked={doc.enabled}
                   onChange={(e) =>
-                    void ragSetEnabled(doc.id, e.target.checked).then(refresh)
+                    void backend.rag
+                      .setEnabled(doc.id, e.target.checked)
+                      .then(refresh)
                   }
                   aria-label={`Include ${doc.file_name} in retrieval`}
                 />
@@ -324,7 +319,7 @@ export function RagPanel({ onClose }: { onClose: () => void }) {
               </button>
               <button
                 type="button"
-                onClick={() => void ragDelete(doc.id).then(refresh)}
+                onClick={() => void backend.rag.delete(doc.id).then(refresh)}
                 className="btn-danger text-[11px]"
                 aria-label={`Delete ${doc.file_name}`}
               >

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 import { Icon } from "@/components/ui/Icon";
-import { closeHud } from "@/lib/commands";
+import { useBackend } from "@/lib/backend";
 import { isTauri } from "@/lib/ipc";
 import { HUD_OPACITY_BOUNDS, useHudStore } from "@/state/hud";
 
@@ -17,6 +17,7 @@ import { HUD_OPACITY_BOUNDS, useHudStore } from "@/state/hud";
  * (not its text) live.
  */
 export function HudPanel() {
+  const backend = useBackend();
   const opacity = useHudStore((s) => s.opacity);
   const setOpacity = useHudStore((s) => s.setOpacity);
 
@@ -27,7 +28,7 @@ export function HudPanel() {
   }, [opacity]);
 
   const dismiss = () => {
-    if (isTauri()) void closeHud().catch(() => {});
+    if (isTauri()) void backend.hud.close().catch(() => {});
   };
 
   return (

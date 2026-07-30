@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { useBackend } from "@/lib/backend";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
-import {
-  conversationDelete,
-  conversationList,
-  conversationLoad,
-} from "@/lib/commands";
 import type { ConversationSummary } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
 
@@ -19,6 +15,7 @@ function formatDate(unixMs: number): string {
  * and continue it (new runs append), save the current one, start fresh.
  */
 export function ConversationsPanel({ onClose }: { onClose: () => void }) {
+  const backend = useBackend();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const openId = useConversationStore((s) => s.openId);
   const title = useConversationStore((s) => s.title);
@@ -30,11 +27,11 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
 
   const refresh = useCallback(async () => {
     try {
-      setConversations(await conversationList());
+      setConversations(await backend.conversations.list());
     } catch (e) {
       setNotice(String(e));
     }
-  }, [setNotice]);
+  }, [backend, setNotice]);
 
   useEffect(() => {
     void refresh();
@@ -42,7 +39,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
 
   const open = async (id: string) => {
     try {
-      openConversation(await conversationLoad(id));
+      openConversation(await backend.conversations.load(id));
       onClose();
     } catch (e) {
       setNotice(String(e));
@@ -51,7 +48,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
 
   const remove = async (id: string) => {
     try {
-      await conversationDelete(id);
+      await backend.conversations.delete(id);
       if (openId === id) newConversation();
       await refresh();
     } catch (e) {

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { conversationSave } from "@/lib/commands";
+import { getBackend } from "@/lib/backend";
 import type { Conversation } from "@/lib/ipc";
 import { useTranscriptStore, withLiveArchived } from "@/state/transcript";
 
@@ -81,7 +81,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   save: async (title) => {
     const transcript = useTranscriptStore.getState();
     const segments = withLiveArchived(transcript.archived, transcript.segments);
-    const saved = await conversationSave(
+    const saved = await getBackend().conversations.save(
       get().openId,
       title?.trim() || get().title,
       segments,
