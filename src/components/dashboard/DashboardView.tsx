@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { authStatus } from "@/lib/commands";
+import { useBackend } from "@/lib/backend";
 import { BUILD } from "@/lib/debug";
-import { isTauri, type AuthStatus } from "@/lib/ipc";
+import type { AuthStatus } from "@/lib/ipc";
 import { useNavStore, type View } from "@/state/nav";
 
 /** First letter of the email, for a simple monogram avatar. */
@@ -53,20 +53,28 @@ function QuickLink({
 /**
  * Dashboard / home — the signed-in landing surface for both desktop and web.
  * Basic by design: who you are, your access, and quick jumps into the product.
- * Auth data comes from the shell (`authStatus`); on the web (no shell yet) it
- * shows a truthful signed-out state.
+ *
+ * Migrated onto the platform abstraction: auth comes from `useBackend()` — the
+ * SAME component runs on desktop (real `auth_status`) and web (the WebBackend
+ * rejects until web sign-in lands, so it shows the truthful signed-out state).
+ * No `isTauri` branch here — that's the whole point of the PAL.
  */
 export function DashboardView() {
+  const backend = useBackend();
   const setView = useNavStore((s) => s.setView);
   const go = (v: View) => () => setView(v);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
 
   useEffect(() => {
-    if (!isTauri()) return;
-    void authStatus()
-      .then(setAuth)
-      .catch(() => setAuth(null));
-  }, []);
+    let live = true;
+    void backend.auth
+      .status()
+      .then((s) => live && setAuth(s))
+      .catch(() => live && setAuth(null));
+    return () => {
+      live = false;
+    };
+  }, [backend]);
 
   const signedIn = auth?.signed_in ?? false;
 

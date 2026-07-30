@@ -1,6 +1,7 @@
 # Node
 node_modules/
 dist/
+dist-web/
 # TypeScript incremental-build cache — rewritten on every build; tracking it
 # guarantees permanent dirty-tree/merge churn on every machine.
 tsconfig.tsbuildinfo

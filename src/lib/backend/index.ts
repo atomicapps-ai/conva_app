@@ -24,6 +24,11 @@ export type {
 export type { EventMap, Unsubscribe } from "@/lib/backend/events";
 export { isTauriRuntime, resolveBackend } from "@/lib/backend/detect";
 export { UnsupportedOnWebError } from "@/lib/backend/web";
+export {
+  BackendProvider,
+  useBackend,
+  useCapabilities,
+} from "@/lib/backend/context";
 
 let singleton: ConvaBackend | null = null;
 
