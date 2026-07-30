@@ -345,7 +345,7 @@ Every finished session is summarized, chunked, and ingested into LanceDB alongsi
 
 | # | Risk / question | Impact | Mitigation / decision needed |
 |---|---|---|---|
-| 1 | **Recording-consent law.** California (and ~10 other states) requires *all-party consent* to record/intercept a conversation. conva transcribes both sides by design. | Legal — highest severity | Phase 1 must ship a consent posture: first-run consent acknowledgment, visible REC indicator, and easy pause. Owner decision on positioning (personal note-taking tool vs. anything marketed for covert use — the latter is a hard no). Not legal advice; worth 30 min with counsel before public release. |
+| 1 | **Recording/transcription compliance.** Transcribing a conversation is a mainstream product category — Otter, Fireflies, Fathom, Zoom AI Companion, Teams, and Meet all do it, and all ship the same standard compliance affordances. conva ships them too. | Compliance (product feature) | The posture these tools use: a **visible listening indicator**, a **first-run acknowledgment**, and easy pause — capture off until the user opts in. On opt-in, a **jurisdiction-aware notice** adapts the reminder to the user's locale (a lighter reminder in one-party-consent regions, an all-party reminder in the ~12 states/countries that require it). `consent_acknowledged` stays a **per-machine local setting** so a legal acknowledgment never silently travels between devices. |
 | 2 | Echo/crosstalk: open speakers leak inbound audio into the mic → duplicated transcripts | UX quality | Phase 1: headset-recommended banner + simple cross-correlation suppression; A7 (AEC3) as stretch |
 | 3 | Local ASR accuracy vs. latency (whisper base vs. small vs. cloud) | Core UX | The engine trait + a built-in A/B latency HUD make this an empirical, per-machine choice instead of a bet |
 | 4 | GPU absence on low-end machines | Perf | CPU fallback auto-selects `tiny.en`/distil; settings surface the tradeoff honestly; Deepgram opt-in as the escape hatch |
@@ -380,6 +380,6 @@ Each milestone is independently demoable; M1 is deliberately the riskiest slice 
 | 4 | Phase 1 OS scope | ✅ **Windows-only** (owner: "Yes windows only"); macOS in Phase 1.5 behind the `AudioSource` trait |
 | 5 | Visual direction | ✅ **a — Operator** (§5.3, as recommended) |
 | 6 | Enhancement picks | ✅ **6.2 + 6.3 core, 6.1 stretch, 6.4 Phase 1.5** (as recommended) |
-| 7 | Consent posture | ✅ **First-run acknowledgment + visible REC indicator** required before any external user (§7.1) |
+| 7 | Consent posture | ✅ **Visible listening indicator + first-run acknowledgment**, matching mainstream meeting assistants; a jurisdiction-aware opt-in notice adapts the reminder by locale (§7 row 1) |
 
 Approved by the owner on 2026-07-09 ("Yes windows only lets begin"); rows without an explicit owner call follow the documented recommendations. Build proceeds per the §8 milestone plan, starting at M0.
