@@ -170,6 +170,8 @@ export interface ConvaBackend {
     delete(id: string): Promise<void>;
     /** Copy documents into this Sim Con's folder; returns paths to ingest. */
     storeDocs(title: string, paths: string[]): Promise<string[]>;
+    /** Build the reusable knowledge profile (docs + research) and mark ready. */
+    prepare(id: string): Promise<SimConSession>;
   };
 
   /** Auto-persisted session transcripts + export. */

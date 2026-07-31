@@ -278,6 +278,12 @@ export function simconStoreDocs(
   return invoke<string[]>("simcon_store_docs", { title, paths });
 }
 
+/** Build the reusable KnowledgeProfile (docs + research) and mark the Sim Con
+ *  ready; returns the updated session. */
+export function simconPrepare(id: string): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_prepare", { id });
+}
+
 /** Copy library originals into the repo `library/` folder for git commit. */
 export function ragSyncLibrary(): Promise<string> {
   return invoke<string>("rag_sync_library");

@@ -606,6 +606,13 @@ fn simcon_store_docs(
     simcon::store_docs(&app, &title, paths).map_err(|e| e.to_string())
 }
 
+/// Build the reusable KnowledgeProfile (attached docs + web research) and mark
+/// the Sim Con ready.
+#[tauri::command]
+fn simcon_prepare(app: AppHandle, id: String) -> Result<SimConSession, String> {
+    simcon::prepare(&app, &id).map_err(|e| e.to_string())
+}
+
 /// Copy every library document's original into the repo `library/` folder so
 /// committing it carries the library to other machines (git-synced library).
 #[tauri::command]
@@ -956,6 +963,7 @@ pub fn run() {
             simcon_load,
             simcon_delete,
             simcon_store_docs,
+            simcon_prepare,
             rag_sync_library,
             open_hud,
             close_hud,

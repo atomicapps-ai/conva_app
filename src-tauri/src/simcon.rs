@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
-use conva_core::simcon::{SimConSession, SimConSummary};
+use conva_core::simcon::{
+    KnowledgeProfile, SimConSession, SimConStatus, SimConSummary,
+};
 use conva_core::CoreError;
 
 use crate::session::now_unix_ms;
@@ -150,4 +152,80 @@ pub fn store_docs(
         out.push(dest.to_string_lossy().to_string());
     }
     Ok(out)
+}
+
+// ── KnowledgeProfile — the reusable indexed knowledge base ──────────────────
+
+fn profiles_dir(app: &AppHandle) -> Result<PathBuf, CoreError> {
+    let dir = simcon_dir(app)?.join("profiles");
+    fs::create_dir_all(&dir).map_err(|e| CoreError::Audio(e.to_string()))?;
+    Ok(dir)
+}
+
+pub fn save_profile(app: &AppHandle, profile: &KnowledgeProfile) -> Result<(), CoreError> {
+    validate_id(&profile.id)?;
+    let path = profiles_dir(app)?.join(format!("{}.json", profile.id));
+    let json =
+        serde_json::to_string_pretty(profile).map_err(|e| CoreError::Audio(e.to_string()))?;
+    fs::write(path, json).map_err(|e| CoreError::Audio(e.to_string()))
+}
+
+pub fn load_profile(app: &AppHandle, id: &str) -> Result<KnowledgeProfile, CoreError> {
+    validate_id(id)?;
+    let path = profiles_dir(app)?.join(format!("{id}.json"));
+    let content = fs::read_to_string(path).map_err(|e| CoreError::Audio(e.to_string()))?;
+    serde_json::from_str(&content).map_err(|e| CoreError::Audio(e.to_string()))
+}
+
+/// Build (or rebuild) the reusable `KnowledgeProfile` for a Sim Con from its
+/// attached documents (already ingested in the RAG library) plus web research,
+/// then mark the session ready. Reuses the session's existing profile id if it
+/// has one, so re-preparing after an edit updates in place.
+///
+/// The attached-doc side works today; the web-research list is filled by
+/// [`research`] only when a search API key is configured (Phase C.2) — otherwise
+/// it stays empty and the profile is docs-only.
+pub fn prepare(app: &AppHandle, id: &str) -> Result<SimConSession, CoreError> {
+    let mut session = load(app, id)?;
+    let now = now_unix_ms();
+    let profile_id = session
+        .knowledge_profile_id
+        .clone()
+        .unwrap_or_else(|| format!("kp-{now}"));
+    let created = load_profile(app, &profile_id)
+        .map(|p| p.created_at_unix_ms)
+        .unwrap_or(now);
+
+    let research = if session.auto_generate_context {
+        research(&session).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let profile = KnowledgeProfile {
+        id: profile_id.clone(),
+        title: session.title.clone(),
+        created_at_unix_ms: created,
+        updated_at_unix_ms: now,
+        doc_ids: session.source_doc_ids.clone(),
+        research,
+        ready: true,
+    };
+    save_profile(app, &profile)?;
+
+    session.knowledge_profile_id = Some(profile_id);
+    session.status = SimConStatus::Ready;
+    save(app, session)
+}
+
+/// Bounded autonomous web research for a Sim Con (Step 2). Returns the sources to
+/// fold into the KnowledgeProfile. **Phase C.2** wires this to a search API
+/// (Tavily) with a key from the OS vault and a hard query/time budget; until the
+/// key exists it returns nothing (the profile is docs-only), so the pipeline is
+/// complete and the search is the one switch left to flip.
+fn research(_session: &SimConSession) -> Result<Vec<conva_core::simcon::ResearchSource>, CoreError> {
+    // TODO(C.2): read the Tavily key from the keyring; if absent, return empty.
+    // Build queries from purpose + category (+ job_description for interviews),
+    // cap at ~3–5, time-box, and map results to ResearchSource. Off the UI path.
+    Ok(Vec::new())
 }

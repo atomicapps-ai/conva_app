@@ -92,7 +92,7 @@ export function SimConSetup({
     setSaving(true);
     setError(null);
     try {
-      await backend.simcon.save({
+      const saved = await backend.simcon.save({
         id: initial?.id ?? "",
         title: title.trim(),
         purpose: purpose.trim(),
@@ -108,6 +108,8 @@ export function SimConSetup({
         chosen_persona_id: initial?.chosen_persona_id ?? null,
         conversation_id: initial?.conversation_id ?? null,
       });
+      // Build the knowledge base (attached docs + research) and mark it ready.
+      await backend.simcon.prepare(saved.id);
       onDone();
     } catch {
       setError("Couldn't save — Sim Con runs on the desktop app.");
@@ -296,7 +298,7 @@ export function SimConSetup({
             disabled={saving}
             onClick={() => void finish()}
           >
-            Finish
+            {saving ? "Preparing…" : "Finish"}
           </button>
         )}
       </div>
