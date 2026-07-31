@@ -10,6 +10,7 @@ import type {
   WhisperModelInfo,
 } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
+import { isWeb } from "@/lib/platform";
 import { useAppStore } from "@/state/app";
 
 function DeviceSelect({
@@ -566,6 +567,20 @@ function AccountSettings() {
           {busy ? "…" : "Sign out"}
         </button>
       </div>
+    );
+  }
+
+  // Web: login is the website's job — the app never shows a sign-in form. (The
+  // App guard already bounces unauthenticated web users to the website login;
+  // this is the belt-and-suspenders fallback if they ever land here signed out.)
+  if (isWeb) {
+    return (
+      <Notice>
+        Sign in on the website to use conva.{" "}
+        <a className="font-semibold text-fg underline" href="/login.html">
+          Go to sign in →
+        </a>
+      </Notice>
     );
   }
 
