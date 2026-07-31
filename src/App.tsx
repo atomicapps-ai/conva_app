@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import { StudioShell } from "@/components/studio/StudioShell";
+import { WebShell } from "@/components/web/WebShell";
 import * as webAuth from "@/lib/backend/webAuth";
 import { isEmbedded, isWeb } from "@/lib/platform";
 import { useIpcBridge } from "@/lib/useIpcBridge";
@@ -40,5 +41,7 @@ export default function App() {
 
   if (needsWebLogin) return <AuthRedirect />;
 
-  return <StudioShell />;
+  // Two shells over the SAME views: web gets a top-nav layout, desktop the
+  // cockpit rail. See WebShell / StudioShell.
+  return isWeb ? <WebShell /> : <StudioShell />;
 }
