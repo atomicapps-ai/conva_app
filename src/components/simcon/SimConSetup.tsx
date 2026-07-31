@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
-import type { RagDocument, SimConCategory } from "@/lib/ipc";
+import type { RagDocument, SimConCategory, SimConSession } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
 const CATEGORIES: { value: SimConCategory; label: string; hint: string }[] = [
@@ -24,21 +24,29 @@ const STEP_LABEL = ["the basics", "context & documents", "review"];
  * SimConSession; the ingestion + research phase (C) consumes it.
  */
 export function SimConSetup({
+  initial,
   onDone,
   onCancel,
 }: {
+  initial?: SimConSession;
   onDone: () => void;
   onCancel: () => void;
 }) {
   const backend = useBackend();
   const [step, setStep] = useState(1);
-  const [title, setTitle] = useState("");
-  const [purpose, setPurpose] = useState("");
-  const [category, setCategory] = useState<SimConCategory>("interview");
-  const [jobDescription, setJobDescription] = useState("");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [purpose, setPurpose] = useState(initial?.purpose ?? "");
+  const [category, setCategory] = useState<SimConCategory>(
+    initial?.category ?? "interview",
+  );
+  const [jobDescription, setJobDescription] = useState(
+    initial?.job_description ?? "",
+  );
   const [docs, setDocs] = useState<RagDocument[]>([]);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [autoGen, setAutoGen] = useState(true);
+  const [selected, setSelected] = useState<string[]>(
+    initial?.source_doc_ids ?? [],
+  );
+  const [autoGen, setAutoGen] = useState(initial?.auto_generate_context ?? true);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,20 +93,20 @@ export function SimConSetup({
     setError(null);
     try {
       await backend.simcon.save({
-        id: "",
+        id: initial?.id ?? "",
         title: title.trim(),
         purpose: purpose.trim(),
         job_description: jobDescription.trim() ? jobDescription.trim() : null,
         category,
-        status: "draft",
-        created_at_unix_ms: 0,
+        status: initial?.status ?? "draft",
+        created_at_unix_ms: initial?.created_at_unix_ms ?? 0,
         updated_at_unix_ms: 0,
         source_doc_ids: selected,
         auto_generate_context: autoGen,
-        knowledge_profile_id: null,
-        personas: [],
-        chosen_persona_id: null,
-        conversation_id: null,
+        knowledge_profile_id: initial?.knowledge_profile_id ?? null,
+        personas: initial?.personas ?? [],
+        chosen_persona_id: initial?.chosen_persona_id ?? null,
+        conversation_id: initial?.conversation_id ?? null,
       });
       onDone();
     } catch {
@@ -110,7 +118,7 @@ export function SimConSetup({
   return (
     <ViewShell
       icon="simicon"
-      title="New Sim Con"
+      title={initial ? "Edit Sim Con" : "New Sim Con"}
       subtitle={`Step ${step} of 3 — ${STEP_LABEL[step - 1]}`}
       actions={
         <button type="button" className="btn" onClick={onCancel}>

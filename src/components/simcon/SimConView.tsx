@@ -2,8 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 
 import { SimConSetup } from "@/components/simcon/SimConSetup";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
+import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
-import type { SimConCategory, SimConStatus, SimConSummary } from "@/lib/ipc";
+import type {
+  SimConCategory,
+  SimConSession,
+  SimConStatus,
+  SimConSummary,
+} from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
 const CATEGORY_LABEL: Record<SimConCategory, string> = {
@@ -23,16 +29,17 @@ const STATUS_LABEL: Record<SimConStatus, string> = {
 };
 
 /**
- * Sim Con — Simulated Conversation. Rehearse a high-stakes call (interview,
- * review, pitch) with the AI playing the counterparty. Lists saved Sim Cons and
- * launches the setup wizard (Step 1). The knowledge pipeline, generated personas,
- * and the live session engine are Phases C–E. Desktop-first (records are stored
- * locally); on web it shows the honest degraded state.
+ * Sim Con — Simulated Conversation. Rehearse a high-stakes call with the AI
+ * playing the counterparty. Lists saved Sim Cons; a row opens the setup wizard
+ * in EDIT mode (edits the same record), the pencil edits and the trash deletes.
+ * The knowledge pipeline, personas, and live engine are Phases C–E. Desktop-first.
  */
 export function SimConView() {
   const backend = useBackend();
   const [items, setItems] = useState<SimConSummary[]>([]);
-  const [mode, setMode] = useState<"list" | "setup">("list");
+  const [setup, setSetup] = useState<{ initial: SimConSession | null } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -49,6 +56,14 @@ export function SimConView() {
     refresh();
   }, [refresh]);
 
+  const edit = async (id: string) => {
+    try {
+      setSetup({ initial: await backend.simcon.load(id) });
+    } catch {
+      setError("Couldn't open that Sim Con.");
+    }
+  };
+
   const remove = async (id: string) => {
     try {
       await backend.simcon.delete(id);
@@ -58,14 +73,15 @@ export function SimConView() {
     }
   };
 
-  if (mode === "setup") {
+  if (setup) {
     return (
       <SimConSetup
+        initial={setup.initial ?? undefined}
         onDone={() => {
-          setMode("list");
+          setSetup(null);
           refresh();
         }}
-        onCancel={() => setMode("list")}
+        onCancel={() => setSetup(null)}
       />
     );
   }
@@ -85,8 +101,9 @@ export function SimConView() {
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => setMode("setup")}
+            onClick={() => setSetup({ initial: null })}
           >
+            <Icon name="simicon" size={14} />
             New Sim Con
           </button>
         ) : undefined
@@ -115,22 +132,38 @@ export function SimConView() {
             {items.map((s) => (
               <li
                 key={s.id}
-                className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0"
+                className="flex items-center gap-1 py-2 first:pt-0 last:pb-0"
               >
-                <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => void edit(s.id)}
+                  title="Edit this Sim Con"
+                  className="min-w-0 flex-1 rounded-sm px-1 py-1 text-left transition hover:bg-panel-raised/60"
+                >
                   <p className="truncate text-sm font-semibold text-fg">
                     {s.title}
                   </p>
                   <p className="text-[11px] text-fg-faint">
                     {CATEGORY_LABEL[s.category]} · {STATUS_LABEL[s.status]}
                   </p>
-                </div>
+                </button>
                 <button
                   type="button"
-                  className="btn btn-danger"
-                  onClick={() => void remove(s.id)}
+                  onClick={() => void edit(s.id)}
+                  aria-label="Edit"
+                  title="Edit"
+                  className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
                 >
-                  Delete
+                  <Icon name="edit" size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove(s.id)}
+                  aria-label="Delete"
+                  title="Delete"
+                  className="rounded-sm p-1.5 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
+                >
+                  <Icon name="trash" size={15} />
                 </button>
               </li>
             ))}

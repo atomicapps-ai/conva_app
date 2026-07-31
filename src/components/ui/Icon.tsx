@@ -31,7 +31,9 @@ export type IconName =
   | "book"
   | "howto"
   | "elaborate"
-  | "simicon";
+  | "simicon"
+  | "edit"
+  | "trash";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -55,6 +57,22 @@ const PATHS: Record<IconName, ReactNode> = {
       <circle cx="12" cy="8" r="3" />
       <path d="M6 19a6 6 0 0 1 12 0" />
       <path d="M18.6 4.2l.55 1.5 1.5.55-1.5.55-.55 1.5-.55-1.5-1.5-.55 1.5-.55z" />
+    </>
+  ),
+  // Edit — a pencil.
+  edit: (
+    <>
+      <path d="M16.5 3.5l4 4L8 20l-4.5 1 1-4.5z" />
+      <path d="M14 6l4 4" />
+    </>
+  ),
+  // Trash — delete.
+  trash: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M9 7V5.2A1.7 1.7 0 0 1 10.7 3.5h2.6A1.7 1.7 0 0 1 15 5.2V7" />
+      <path d="M6 7l1 12.3A1.7 1.7 0 0 0 8.7 21h6.6A1.7 1.7 0 0 0 17 19.3L18 7" />
+      <path d="M10 11v6M14 11v6" />
     </>
   ),
   // Sessions — clock / history.
