@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use conva_core::simcon::{
-    KnowledgeProfile, SimConSession, SimConStatus, SimConSummary,
+    KnowledgeProfile, ResearchSource, SimConSession, SimConStatus, SimConSummary,
 };
 use conva_core::CoreError;
 
@@ -218,14 +218,121 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<SimConSession, CoreError> {
     save(app, session)
 }
 
-/// Bounded autonomous web research for a Sim Con (Step 2). Returns the sources to
-/// fold into the KnowledgeProfile. **Phase C.2** wires this to a search API
-/// (Tavily) with a key from the OS vault and a hard query/time budget; until the
-/// key exists it returns nothing (the profile is docs-only), so the pipeline is
-/// complete and the search is the one switch left to flip.
-fn research(_session: &SimConSession) -> Result<Vec<conva_core::simcon::ResearchSource>, CoreError> {
-    // TODO(C.2): read the Tavily key from the keyring; if absent, return empty.
-    // Build queries from purpose + category (+ job_description for interviews),
-    // cap at ~3–5, time-box, and map results to ResearchSource. Off the UI path.
-    Ok(Vec::new())
+// ── Web research (Step 2) — Tavily, keyed from the OS vault ─────────────────
+
+const TAVILY_KEYRING_SERVICE: &str = "conva";
+const TAVILY_KEYRING_USER: &str = "api-key-tavily";
+/// Hard budget so research can never run slow or expensive (SDLC/owner ask).
+const RESEARCH_MAX_QUERIES: usize = 4;
+const RESEARCH_MAX_SOURCES: usize = 8;
+
+pub fn store_tavily_key(key: &str) -> Result<(), CoreError> {
+    let entry = keyring::Entry::new(TAVILY_KEYRING_SERVICE, TAVILY_KEYRING_USER)
+        .map_err(|e| CoreError::Audio(e.to_string()))?;
+    if key.trim().is_empty() {
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(CoreError::Audio(e.to_string())),
+        }
+    } else {
+        entry
+            .set_password(key.trim())
+            .map_err(|e| CoreError::Audio(e.to_string()))
+    }
+}
+
+pub fn load_tavily_key() -> Option<String> {
+    keyring::Entry::new(TAVILY_KEYRING_SERVICE, TAVILY_KEYRING_USER)
+        .ok()?
+        .get_password()
+        .ok()
+}
+
+/// The bounded query set for a Sim Con — from its topic, type, goal, and (for
+/// interviews) the job description. Capped at [`RESEARCH_MAX_QUERIES`].
+fn research_queries(session: &SimConSession) -> Vec<String> {
+    let topic = if session.title.trim().is_empty() {
+        session.category.label().to_string()
+    } else {
+        session.title.trim().to_string()
+    };
+    let mut q = vec![
+        format!("{topic} common questions"),
+        format!("how to prepare for a {}", session.category.label()),
+    ];
+    if !session.purpose.trim().is_empty() {
+        q.push(session.purpose.trim().chars().take(120).collect());
+    }
+    if let Some(jd) = &session.job_description {
+        let jd = jd.trim();
+        if !jd.is_empty() {
+            q.push(format!(
+                "interview questions for role: {}",
+                jd.chars().take(120).collect::<String>()
+            ));
+        }
+    }
+    q.truncate(RESEARCH_MAX_QUERIES);
+    q
+}
+
+/// Bounded autonomous web research (Step 2) via Tavily. Returns the sources to
+/// fold into the KnowledgeProfile. No key configured → returns empty (the
+/// profile is docs-only). Failures per query are skipped, never fatal. Runs on a
+/// command thread, never the UI path.
+fn research(session: &SimConSession) -> Result<Vec<ResearchSource>, CoreError> {
+    let Some(key) = load_tavily_key() else {
+        return Ok(Vec::new());
+    };
+    let mut out: Vec<ResearchSource> = Vec::new();
+    for query in research_queries(session) {
+        if out.len() >= RESEARCH_MAX_SOURCES {
+            break;
+        }
+        let body = serde_json::json!({
+            "api_key": key,
+            "query": query,
+            "max_results": 3,
+            "search_depth": "basic",
+        });
+        let resp = ureq::post("https://api.tavily.com/search")
+            .timeout(std::time::Duration::from_secs(15))
+            .send_json(body);
+        let val: serde_json::Value = match resp {
+            Ok(r) => match r.into_json() {
+                Ok(v) => v,
+                Err(_) => continue,
+            },
+            Err(_) => continue,
+        };
+        let Some(results) = val.get("results").and_then(|r| r.as_array()) else {
+            continue;
+        };
+        for r in results {
+            if out.len() >= RESEARCH_MAX_SOURCES {
+                break;
+            }
+            let url = r.get("url").and_then(|v| v.as_str()).unwrap_or("");
+            if url.is_empty() {
+                continue;
+            }
+            out.push(ResearchSource {
+                title: r
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                url: url.to_string(),
+                snippet: r
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .chars()
+                    .take(500)
+                    .collect(),
+                fetched_at_unix_ms: now_unix_ms(),
+            });
+        }
+    }
+    Ok(out)
 }

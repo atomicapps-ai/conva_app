@@ -657,6 +657,17 @@ fn simcon_choose_persona(
     simcon::save(&app, session).map_err(|e| e.to_string())
 }
 
+/// Store (empty clears) the Tavily web-research key in the OS vault.
+#[tauri::command]
+fn set_tavily_key(key: String) -> Result<(), String> {
+    simcon::store_tavily_key(&key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn tavily_key_status() -> bool {
+    simcon::load_tavily_key().is_some()
+}
+
 /// Copy every library document's original into the repo `library/` folder so
 /// committing it carries the library to other machines (git-synced library).
 #[tauri::command]
@@ -1010,6 +1021,8 @@ pub fn run() {
             simcon_prepare,
             simcon_generate_personas,
             simcon_choose_persona,
+            set_tavily_key,
+            tavily_key_status,
             rag_sync_library,
             open_hud,
             close_hud,

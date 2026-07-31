@@ -297,6 +297,15 @@ export function simconChoosePersona(
   return invoke<SimConSession>("simcon_choose_persona", { id, personaId });
 }
 
+/** Store (empty clears) the Tavily web-research key in the OS vault. */
+export function setTavilyKey(key: string): Promise<void> {
+  return invoke("set_tavily_key", { key });
+}
+
+export function tavilyKeyStatus(): Promise<boolean> {
+  return invoke<boolean>("tavily_key_status");
+}
+
 /** Copy library originals into the repo `library/` folder for git commit. */
 export function ragSyncLibrary(): Promise<string> {
   return invoke<string>("rag_sync_library");

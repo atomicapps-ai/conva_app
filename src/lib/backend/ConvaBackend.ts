@@ -176,6 +176,10 @@ export interface ConvaBackend {
     generatePersonas(id: string): Promise<SimConSession>;
     /** Record the persona the user will rehearse against. */
     choosePersona(id: string, personaId: string): Promise<SimConSession>;
+    /** Store (empty clears) the Tavily web-research key. */
+    setResearchKey(key: string): Promise<void>;
+    /** Whether a web-research key is configured. */
+    researchKeyStatus(): Promise<boolean>;
   };
 
   /** Auto-persisted session transcripts + export. */

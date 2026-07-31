@@ -112,6 +112,8 @@ export class TauriBackend implements ConvaBackend {
     prepare: cmd.simconPrepare,
     generatePersonas: cmd.simconGeneratePersonas,
     choosePersona: cmd.simconChoosePersona,
+    setResearchKey: cmd.setTavilyKey,
+    researchKeyStatus: cmd.tavilyKeyStatus,
   };
 
   sessions = {

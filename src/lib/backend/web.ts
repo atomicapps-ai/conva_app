@@ -176,6 +176,9 @@ export class WebBackend implements ConvaBackend {
       todo("POST /v1/simcon/:id/personas"),
     choosePersona: (): Promise<SimConSession> =>
       todo("PATCH /v1/simcon/:id/persona"),
+    setResearchKey: (): Promise<void> =>
+      unsupported("simcon.setResearchKey (server-side on web)"),
+    researchKeyStatus: () => Promise.resolve(false),
   };
 
   sessions = {

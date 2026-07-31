@@ -294,6 +294,67 @@ function ConfigFileControls() {
 /** Portable encrypted secrets: export API keys to a git-committable file and
  *  load them on another machine. The passphrase comes from an env var, so the
  *  file is safe to commit and keys never re-typed per launch. */
+/**
+ * Web-research key (Sim Con). A Tavily key lets a Sim Con research the web for
+ * context during setup; stored in the OS vault, desktop-only. Without it, Sim
+ * Cons ground on the user's documents alone.
+ */
+function ResearchSettings() {
+  const backend = useBackend();
+  const [hasKey, setHasKey] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void backend.simcon
+      .researchKeyStatus()
+      .then(setHasKey)
+      .catch(() => {});
+  }, [backend]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await backend.simcon.setResearchKey(draft.trim());
+      setDraft("");
+      setHasKey(await backend.simcon.researchKeyStatus());
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[12px] leading-relaxed text-fg-muted">
+        A <b>Tavily</b> key lets a Sim Con research the web for context (standard
+        questions, company background, market rates) when you build one — get a
+        free key at <span className="font-mono">tavily.com</span>. Without it, Sim
+        Cons ground on your documents only.
+      </p>
+      <div className="flex items-end gap-2">
+        <label className="field flex-1">
+          Tavily API key {hasKey && <span className="text-ok">· saved</span>}
+          <input
+            className="input"
+            type="password"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={hasKey ? "•••••••• (saved)" : "tvly-…"}
+          />
+        </label>
+        <button
+          type="button"
+          className="btn shrink-0"
+          disabled={saving}
+          onClick={() => void save()}
+        >
+          {saving ? "Saving…" : draft.trim() || !hasKey ? "Save" : "Clear"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SecretsSettings() {
   const backend = useBackend();
   const [status, setStatus] = useState<SecretsStatus | null>(null);
@@ -806,6 +867,13 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         }
       >
         <ConfigFileControls />
+      </Section>
+
+      <Section
+        title="Web research (Sim Con)"
+        description="Optional — a Tavily key so a Sim Con can research context from the web."
+      >
+        <ResearchSettings />
       </Section>
 
       <Section title="Portable secrets">
