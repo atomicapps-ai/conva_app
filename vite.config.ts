@@ -23,6 +23,10 @@ const buildTime = new Date().toISOString();
 
 // Port 1420 is what src-tauri/tauri.conf.json points `devUrl` at.
 export default defineConfig({
+  // Expose CONVA_* to the client so the SAME .env.dev/.env.prod files that
+  // drive the desktop build (via `env/cli.mjs run`) also select the Supabase
+  // backend for the web build (consumed in src/lib/backend/webAuth.ts).
+  envPrefix: ["VITE_", "CONVA_"],
   define: {
     __GIT_SHA__: JSON.stringify(gitSha),
     __BUILD_TIME__: JSON.stringify(buildTime),

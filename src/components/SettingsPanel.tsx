@@ -443,7 +443,6 @@ function AccountSettings() {
   const [password, setPassword] = useState("");
 
   const refresh = useCallback(() => {
-    if (!isTauri()) return;
     void backend.auth
       .status()
       .then(setStatus)
@@ -543,9 +542,8 @@ function AccountSettings() {
     }
   };
 
-  if (!isTauri()) {
-    return <Notice>Sign-in is available in the desktop app.</Notice>;
-  }
+  // (Web sign-in is live — WebBackend.auth shares the getconva.com session —
+  // so no isTauri() gate here; the PAL handles both surfaces.)
   if (status && !status.configured) {
     return <Notice>Sign-in isn’t configured in this build.</Notice>;
   }
@@ -695,7 +693,29 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const deviceCount = useAppStore((s) => s.devices.length);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
-  if (!config) return null;
+  if (!config) {
+    // No config store on this surface yet (web: `GET /v1/settings` is roadmap
+    // 1.3) — but Account is live. Render it alone instead of a blank view.
+    return (
+      <ViewShell
+        icon="settings"
+        title="Settings"
+        subtitle="Your account. Device and provider settings arrive with the hosted backend."
+        actions={
+          <button type="button" onClick={onClose} className="btn">
+            Done
+          </button>
+        }
+      >
+        <Section
+          title="Account"
+          description="Sign in for settings sync and plan management. Identity only — no conversation content leaves your device."
+        >
+          <AccountSettings />
+        </Section>
+      </ViewShell>
+    );
+  }
 
   const onRefresh = async () => {
     setRefreshing(true);

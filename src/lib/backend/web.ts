@@ -17,6 +17,7 @@ import {
 } from "@/lib/backend/capabilities";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 import type { EventMap, Unsubscribe } from "@/lib/backend/events";
+import * as webAuth from "@/lib/backend/webAuth";
 import type {
   AppConfig,
   AudioDevice,
@@ -60,12 +61,19 @@ export class WebBackend implements ConvaBackend {
 
   async subscribe<K extends keyof EventMap>(
     event: K,
-    _handler: (payload: EventMap[K]) => void,
+    handler: (payload: EventMap[K]) => void,
   ): Promise<Unsubscribe> {
+    // `authChanged` is live: sign-in/out in this tab, or the login page
+    // completing in another same-origin tab (storage event), both fire it.
+    if (event === "authChanged") {
+      return webAuth.onAuthChanged((status) => {
+        handler({ status, error: null } as EventMap[K]);
+      });
+    }
     // TODO(1.4): bind browser-sourced events — hosted transcription →
     // `transcriptSegment`, SSE Ally → `allyChunk`/`allySources`, session state
     // from the mic pipeline. Layer-4-only events (`audioLevel` beyond the mic,
-    // desktop `sessionState`) stay no-ops. `authChanged` from the web session.
+    // desktop `sessionState`) stay no-ops.
     if (import.meta.env?.DEV) console.warn(`[web] subscribe("${event}") is a no-op (not wired yet)`);
     return () => {};
   }
@@ -127,14 +135,20 @@ export class WebBackend implements ConvaBackend {
   };
 
   auth = {
-    start: (_provider?: string): Promise<void> => todo("web OAuth redirect"),
+    // Full/OAuth sign-in hands off to the shared getconva.com login page
+    // (Layer 2) and returns; the session lands in the same-origin
+    // `conva.session` record this adapter reads. See webAuth.ts.
+    start: (provider?: string): Promise<void> => {
+      webAuth.loginRedirect(provider);
+      return Promise.resolve();
+    },
     cancel: (): Promise<void> => Promise.resolve(),
-    signinPassword: (_e: string, _p: string): Promise<AuthStatus> =>
-      todo("supabase-js signInWithPassword"),
-    signupPassword: (_e: string, _p: string): Promise<AuthStatus> =>
-      todo("supabase-js signUp"),
-    status: (): Promise<AuthStatus> => todo("GET session (cookie)"),
-    signout: (): Promise<void> => todo("supabase-js signOut"),
+    signinPassword: (e: string, p: string): Promise<AuthStatus> =>
+      webAuth.signinPassword(e, p),
+    signupPassword: (e: string, p: string): Promise<AuthStatus> =>
+      webAuth.signupPassword(e, p),
+    status: (): Promise<AuthStatus> => Promise.resolve(webAuth.status()),
+    signout: (): Promise<void> => webAuth.signout(),
     openUrl: (url: string): Promise<void> => {
       window.open(url, "_blank", "noopener");
       return Promise.resolve();
