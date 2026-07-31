@@ -31,10 +31,26 @@ const SUPABASE_URL: string =
 const ANON_KEY: string =
   (import.meta.env?.CONVA_SUPABASE_ANON_KEY as string | undefined) || DEFAULT_ANON_KEY;
 
-/** The shared login page (Layer 2). Same-origin in production; override for
- *  local dev where the site runs on another port. */
-const LOGIN_URL: string =
-  (import.meta.env?.CONVA_WEB_LOGIN_URL as string | undefined) || "/login.html";
+/**
+ * The shared login page (Layer 2 — conva_web). Derived from where the app is
+ * served so one build works everywhere:
+ *   app.getconva.com      → getconva.com/login.html
+ *   app.dev.getconva.com  → dev.getconva.com/login.html   (strip the "app." host)
+ *   localhost:1430        → CONVA_WEB_LOGIN_URL (the local site, another port)
+ * Only localhost needs the env override — deployed subdomains derive it.
+ */
+function loginUrl(): string {
+  if (typeof window === "undefined") return "/login.html";
+  const { protocol, host, hostname } = window.location;
+  const local = hostname === "localhost" || hostname === "127.0.0.1";
+  if (local) {
+    return (
+      (import.meta.env?.CONVA_WEB_LOGIN_URL as string | undefined) ||
+      `${protocol}//${host}/login.html`
+    );
+  }
+  return `${protocol}//${host.replace(/^app\./, "")}/login.html`;
+}
 
 interface WebSession {
   access_token: string;
@@ -249,5 +265,5 @@ export function betaAccess(): boolean | null {
 export function loginRedirect(provider?: string): void {
   const back = encodeURIComponent(window.location.href);
   const prov = provider ? `&provider=${encodeURIComponent(provider)}` : "";
-  window.location.href = `${LOGIN_URL}?return=${back}${prov}`;
+  window.location.href = `${loginUrl()}?return=${back}${prov}`;
 }

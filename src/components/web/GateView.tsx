@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 
 import { useBackend } from "@/lib/backend";
-import { isTauriRuntime } from "@/lib/backend/detect";
 import * as webAuth from "@/lib/backend/webAuth";
+import { isWeb } from "@/lib/platform";
+
+/*
+ * src/components/web/ — WEB-ONLY views (the "web adds on top of the base" layer).
+ * Anything in here renders only on the web build; the shell guards it by
+ * platform. Desktop-only screens stay beside their feature. Shared views live
+ * in their feature folder and run on both. See src/lib/platform.ts.
+ */
 
 /** Where "Request beta access" goes until the application form (roadmap 1.5)
  *  exists: the marketing site's beta section. */
@@ -11,19 +18,19 @@ const REQUEST_URL = "https://getconva.com/";
 /**
  * The access gate (roadmap 1.2, owner decision D1): signed in on the WEB
  * without the beta-allowlist entitlement → this single page instead of the
- * product. The predicate is `app_metadata.beta_access` (flipped per-user in
- * the Supabase dashboard for now; the beta application form feeds it later,
- * and billing swaps it for a subscription check — same gate either way).
- * Desktop is never gated here.
+ * product. The predicate is `app_metadata.beta_access` (flipped per-user in the
+ * Supabase dashboard for now; the beta application form feeds it later, and
+ * billing swaps it for a subscription check — same gate either way). Desktop is
+ * never gated here.
  */
 export function useAccessGate(): boolean {
   const backend = useBackend();
   const [gated, setGated] = useState(
-    () => !isTauriRuntime() && webAuth.status().signed_in && webAuth.betaAccess() === false,
+    () => isWeb && webAuth.status().signed_in && webAuth.betaAccess() === false,
   );
 
   useEffect(() => {
-    if (isTauriRuntime()) return;
+    if (!isWeb) return;
     let unlisten: (() => void) | undefined;
     let cancelled = false;
     const evaluate = () =>

@@ -4,7 +4,13 @@ import ReactDOM from "react-dom/client";
 import App from "@/App";
 import { BackendProvider } from "@/lib/backend";
 import { HudPanel } from "@/components/hud/HudPanel";
+import { PLATFORM } from "@/lib/platform";
 import "@/styles/globals.css";
+
+// Tag the root with the platform so the skin layer in globals.css can override
+// base tokens for web only (the desktop cockpit skin is the base). See
+// src/lib/platform.ts for the whole web-vs-desktop divergence model.
+document.documentElement.dataset.platform = PLATFORM;
 
 // The `hud` window loads the same bundle with `?hud=1` (see src-tauri/src/hud.rs)
 // so desktop + HUD share one build. Branch synchronously on that query and tag

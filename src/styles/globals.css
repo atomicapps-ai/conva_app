@@ -109,6 +109,23 @@
   --spine-node: var(--color-ai);
 }
 
+/* ══ Platform skin layer — WEB extends the BASE ═════════════════════════════
+   Everything above is the desktop-cockpit base skin. The web build tags
+   <html data-platform="web"> (src/main.tsx), so rules here override base tokens
+   for WEB ONLY — desktop is never touched. This is how the web surface inherits
+   the base look and diverges on top of it, with zero duplicated palette.
+
+   Rule of thumb: only put DELTAS here (a handful of tokens), never a second full
+   theme. Web-only *components* live in src/components/web/; web-only *behaviour*
+   branches on capabilities()/isWeb — see src/lib/platform.ts. */
+:root[data-platform="web"] {
+  /* A browser tab has more room than the compact desktop window, so the web
+     surface reads a touch softer and roomier. Extend these as the web UI grows. */
+  --radius-lg: 20px;
+  --radius-xl: 32px;
+  --glass-blur: 22px;
+}
+
 @theme inline {
   --color-bg: var(--color-bg);
   --color-bg-2: var(--color-bg-2);
