@@ -44,7 +44,7 @@ export function StatusBar() {
 
   return (
     <footer
-      className="glass flex h-[26px] shrink-0 items-center gap-3 border-b-0 px-4 text-[11px] text-fg-faint"
+      className="glass flex h-[22px] shrink-0 items-center gap-3 border-b-0 px-4 text-[11px] text-fg-faint"
       aria-label="Status"
     >
       <span className="flex items-center gap-1.5 text-ok" title="Audio and transcripts stay on this device">
