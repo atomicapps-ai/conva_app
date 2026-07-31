@@ -7,7 +7,7 @@
 //! the ingestion/persona pipeline — Phase C/D.)
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
@@ -98,5 +98,56 @@ pub fn list(app: &AppHandle) -> Result<Vec<SimConSummary>, CoreError> {
         });
     }
     out.sort_by(|a, b| b.updated_at_unix_ms.cmp(&a.updated_at_unix_ms));
+    Ok(out)
+}
+
+/// A filesystem-safe slug of a Sim Con title, for its document folder name.
+fn slug(title: &str) -> String {
+    let mut s = String::new();
+    let mut prev_dash = false;
+    for c in title.trim().chars() {
+        if c.is_alphanumeric() {
+            s.push(c.to_ascii_lowercase());
+            prev_dash = false;
+        } else if !prev_dash {
+            s.push('-');
+            prev_dash = true;
+        }
+    }
+    let s = s.trim_matches('-').chars().take(60).collect::<String>();
+    if s.is_empty() {
+        "untitled".to_string()
+    } else {
+        s
+    }
+}
+
+/// The Sim Con's own document folder: `<app-data>/simcon/<slug(title)>/`, so a
+/// rehearsal's source documents live together, named after it.
+pub fn doc_folder(app: &AppHandle, title: &str) -> Result<PathBuf, CoreError> {
+    let folder = simcon_dir(app)?.join(slug(title));
+    fs::create_dir_all(&folder).map_err(|e| CoreError::Audio(e.to_string()))?;
+    Ok(folder)
+}
+
+/// Copy documents added at setup into this Sim Con's folder and return their new
+/// paths (the caller then ingests them into the RAG library for retrieval).
+pub fn store_docs(
+    app: &AppHandle,
+    title: &str,
+    paths: Vec<String>,
+) -> Result<Vec<String>, CoreError> {
+    let folder = doc_folder(app, title)?;
+    let mut out = Vec::new();
+    for p in paths {
+        let src = Path::new(&p);
+        let name = src
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("document");
+        let dest = folder.join(name);
+        fs::copy(src, &dest).map_err(|e| CoreError::Audio(e.to_string()))?;
+        out.push(dest.to_string_lossy().to_string());
+    }
     Ok(out)
 }

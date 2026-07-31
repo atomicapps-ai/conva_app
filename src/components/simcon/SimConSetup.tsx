@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
 import type { RagDocument, SimConCategory } from "@/lib/ipc";
+import { isDesktop } from "@/lib/platform";
 
 const CATEGORIES: { value: SimConCategory; label: string; hint: string }[] = [
   { value: "interview", label: "Interview", hint: "Job or panel interview" },
@@ -12,14 +13,15 @@ const CATEGORIES: { value: SimConCategory; label: string; hint: string }[] = [
   { value: "other", label: "Other", hint: "Anything high-stakes" },
 ];
 
+const DOC_EXTENSIONS = ["pdf", "docx", "md", "txt", "html"];
 const STEP_LABEL = ["the basics", "context & documents", "review"];
 
 /**
- * Sim Con setup wizard (Step 1). Collects the name, goal, and type, plus the
- * context sources: Path A (attach library documents) and Path B (ask Ally to
- * auto-generate context). Finishing saves a draft SimConSession with those
- * inputs; the ingestion + research phase (C) consumes `source_doc_ids` +
- * `auto_generate_context` to build the KnowledgeProfile.
+ * Sim Con setup wizard (Step 1). Collects name, goal, type (and, for interviews,
+ * the job description), plus context: Path A attaches library documents — you can
+ * add new files directly, which land in a folder named after the Sim Con — and
+ * Path B asks Ally to auto-generate context. Finishing saves a draft
+ * SimConSession; the ingestion + research phase (C) consumes it.
  */
 export function SimConSetup({
   onDone,
@@ -33,9 +35,11 @@ export function SimConSetup({
   const [title, setTitle] = useState("");
   const [purpose, setPurpose] = useState("");
   const [category, setCategory] = useState<SimConCategory>("interview");
+  const [jobDescription, setJobDescription] = useState("");
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [autoGen, setAutoGen] = useState(true);
+  const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +53,31 @@ export function SimConSetup({
   const toggleDoc = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
+  // Path A — add files directly: copy them into this Sim Con's folder, then
+  // ingest into the RAG library so the counterparty is grounded in them.
+  const addDocuments = async () => {
+    setAdding(true);
+    setError(null);
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({
+        multiple: true,
+        filters: [{ name: "Documents", extensions: DOC_EXTENSIONS }],
+      });
+      const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+      if (paths.length === 0) return;
+      const stored = await backend.simcon.storeDocs(title.trim() || "untitled", paths);
+      const reports = await backend.rag.ingest(stored);
+      const newIds = reports.map((r) => r.document.id);
+      setDocs(await backend.rag.list());
+      setSelected((s) => Array.from(new Set([...s, ...newIds])));
+    } catch {
+      setError("Couldn't add documents.");
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const canNext = step === 1 ? title.trim().length > 0 : true;
 
   const finish = async () => {
@@ -59,6 +88,7 @@ export function SimConSetup({
         id: "",
         title: title.trim(),
         purpose: purpose.trim(),
+        job_description: jobDescription.trim() ? jobDescription.trim() : null,
         category,
         status: "draft",
         created_at_unix_ms: 0,
@@ -126,6 +156,18 @@ export function SimConSetup({
                 ))}
               </div>
             </div>
+            {category === "interview" && (
+              <label className="field">
+                Job description
+                <textarea
+                  className="input"
+                  rows={4}
+                  value={jobDescription}
+                  onChange={(e) => setJobDescription(e.target.value)}
+                  placeholder="Paste the role's job description — conva grounds the interviewer's questions in it."
+                />
+              </label>
+            )}
           </div>
         </Section>
       )}
@@ -133,13 +175,25 @@ export function SimConSetup({
       {step === 2 && (
         <>
           <Section
-            title="Attach from your library"
-            description="conva grounds the counterparty and its questions in these documents."
+            title="Documents"
+            description="conva grounds the counterparty and its questions in these. Add files directly (they're kept in a folder named after this Sim Con) or pick from your library."
           >
+            {isDesktop && (
+              <div className="mb-3">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={adding}
+                  onClick={() => void addDocuments()}
+                >
+                  {adding ? "Adding…" : "Add documents…"}
+                </button>
+              </div>
+            )}
             {docs.length === 0 ? (
               <p className="text-sm text-fg-muted">
-                No library documents yet — add some in Library, or let Ally
-                research context below.
+                No documents yet — add some above, or let Ally research context
+                below.
               </p>
             ) : (
               <ul className="flex flex-col divide-y divide-border">
@@ -186,6 +240,14 @@ export function SimConSetup({
             <dd className="text-fg">
               {CATEGORIES.find((c) => c.value === category)?.label}
             </dd>
+            {category === "interview" && (
+              <>
+                <dt className="text-fg-faint">Job description</dt>
+                <dd className="text-fg-muted">
+                  {jobDescription.trim() ? "Provided" : "—"}
+                </dd>
+              </>
+            )}
             <dt className="text-fg-faint">Documents</dt>
             <dd className="text-fg">{selected.length} attached</dd>
             <dt className="text-fg-faint">Ally research</dt>

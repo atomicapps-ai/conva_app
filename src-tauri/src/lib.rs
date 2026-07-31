@@ -595,6 +595,17 @@ fn simcon_delete(app: AppHandle, id: String) -> Result<(), String> {
     simcon::delete(&app, &id).map_err(|e| e.to_string())
 }
 
+/// Copy documents into a Sim Con's folder (named after its title); returns the
+/// new paths for the caller to ingest into the RAG library.
+#[tauri::command]
+fn simcon_store_docs(
+    app: AppHandle,
+    title: String,
+    paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    simcon::store_docs(&app, &title, paths).map_err(|e| e.to_string())
+}
+
 /// Copy every library document's original into the repo `library/` folder so
 /// committing it carries the library to other machines (git-synced library).
 #[tauri::command]
@@ -944,6 +955,7 @@ pub fn run() {
             simcon_list,
             simcon_load,
             simcon_delete,
+            simcon_store_docs,
             rag_sync_library,
             open_hud,
             close_hud,

@@ -168,6 +168,8 @@ export interface ConvaBackend {
     list(): Promise<SimConSummary[]>;
     load(id: string): Promise<SimConSession>;
     delete(id: string): Promise<void>;
+    /** Copy documents into this Sim Con's folder; returns paths to ingest. */
+    storeDocs(title: string, paths: string[]): Promise<string[]>;
   };
 
   /** Auto-persisted session transcripts + export. */

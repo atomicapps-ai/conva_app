@@ -269,6 +269,15 @@ export function simconDelete(id: string): Promise<void> {
   return invoke("simcon_delete", { id });
 }
 
+/** Copy documents into a Sim Con's folder (named after its title); returns the
+ *  new in-folder paths to ingest into the RAG library. */
+export function simconStoreDocs(
+  title: string,
+  paths: string[],
+): Promise<string[]> {
+  return invoke<string[]>("simcon_store_docs", { title, paths });
+}
+
 /** Copy library originals into the repo `library/` folder for git commit. */
 export function ragSyncLibrary(): Promise<string> {
   return invoke<string>("rag_sync_library");

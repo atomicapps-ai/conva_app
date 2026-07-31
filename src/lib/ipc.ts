@@ -236,6 +236,8 @@ export interface SimConSession {
   id: string;
   title: string;
   purpose: string;
+  /** For interviews: the target role's job description (Step 1). */
+  job_description: string | null;
   category: SimConCategory;
   status: SimConStatus;
   created_at_unix_ms: number;

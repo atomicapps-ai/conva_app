@@ -103,6 +103,10 @@ pub struct SimConSession {
     /// The user's goal, e.g. "Prep for technical GAAP questions + leadership
     /// scenarios".
     pub purpose: String,
+    /// For interviews (and similar roles), the target role's job description
+    /// (Step 1). Grounds the counterparty's questions.
+    #[serde(default)]
+    pub job_description: Option<String>,
     pub category: SimConCategory,
     pub status: SimConStatus,
     pub created_at_unix_ms: u64,
