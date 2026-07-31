@@ -21,5 +21,6 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "library", icon: "library", label: "Library" },
   { view: "features", icon: "book", label: "What conva does" },
   { view: "whatsnew", icon: "lightbulb", label: "What's Coming" },
+  { view: "releases", icon: "sparkle", label: "What's New" },
   { view: "settings", icon: "settings", label: "Settings" },
 ];

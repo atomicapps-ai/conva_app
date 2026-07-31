@@ -19,7 +19,35 @@ permissions:
   contents: write
 
 jobs:
+  # Gate the release: the tag MUST equal the checked-in version (the tag is the
+  # source of truth, SDLC §3.1), and generate the user-facing release notes from
+  # the Conventional-Commit log with git-cliff (SDLC §3.2). A mismatch fails the
+  # whole run before any installer is built.
+  version-guard:
+    name: Version guard + release notes
+    runs-on: ubuntu-latest
+    outputs:
+      notes: ${{ steps.cliff.outputs.content }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for the changelog range
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Tag equals package.json version
+        if: github.ref_type == 'tag'
+        run: node scripts/version.mjs check --tag "${{ github.ref_name }}"
+      - name: Generate release notes (git-cliff)
+        id: cliff
+        if: github.ref_type == 'tag'
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+
   build:
+    needs: version-guard
     strategy:
       fail-fast: false
       matrix:
@@ -80,6 +108,10 @@ jobs:
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: ${{ github.ref_type == 'tag' && format('conva {0}', github.ref_name) || '' }}
+          # The git-cliff notes ARE the release message (SDLC §3.2). The release
+          # stays a DRAFT — the owner publishes, which is what activates the
+          # updater rollout (§5.3: the single most dangerous auto-action).
+          releaseBody: ${{ needs.version-guard.outputs.notes }}
           releaseDraft: true
           args: ${{ matrix.args }}
 
