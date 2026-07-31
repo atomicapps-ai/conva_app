@@ -12,6 +12,8 @@ import type {
   AuthStatus,
   Conversation,
   ConversationSummary,
+  SimiconSession,
+  SimiconSummary,
   IngestReport,
   ModelInfo,
   ProviderId,
@@ -246,6 +248,25 @@ export function conversationLoad(id: string): Promise<Conversation> {
 
 export function conversationDelete(id: string): Promise<void> {
   return invoke("conversation_delete", { id });
+}
+
+/* ── Simicon (Simulated Conversation) ── */
+
+/** Create or update a Simicon. An empty `id` mints a new record. */
+export function simiconSave(session: SimiconSession): Promise<SimiconSession> {
+  return invoke<SimiconSession>("simicon_save", { session });
+}
+
+export function simiconList(): Promise<SimiconSummary[]> {
+  return invoke<SimiconSummary[]>("simicon_list");
+}
+
+export function simiconLoad(id: string): Promise<SimiconSession> {
+  return invoke<SimiconSession>("simicon_load", { id });
+}
+
+export function simiconDelete(id: string): Promise<void> {
+  return invoke("simicon_delete", { id });
 }
 
 /** Copy library originals into the repo `library/` folder for git commit. */

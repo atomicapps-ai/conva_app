@@ -24,6 +24,8 @@ import type {
   AuthStatus,
   Conversation,
   ConversationSummary,
+  SimiconSession,
+  SimiconSummary,
   IngestReport,
   ModelInfo,
   ProviderId,
@@ -156,6 +158,15 @@ export interface ConvaBackend {
     ): Promise<Conversation>;
     list(): Promise<ConversationSummary[]>;
     load(id: string): Promise<Conversation>;
+    delete(id: string): Promise<void>;
+  };
+
+  /** Simicon — Simulated Conversation records. Local on desktop; cloud on web. */
+  simicon: {
+    /** Create or update; an empty `id` mints a new record. */
+    save(session: SimiconSession): Promise<SimiconSession>;
+    list(): Promise<SimiconSummary[]>;
+    load(id: string): Promise<SimiconSession>;
     delete(id: string): Promise<void>;
   };
 

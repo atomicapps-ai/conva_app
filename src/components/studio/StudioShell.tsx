@@ -7,6 +7,7 @@ import { FeaturesView } from "@/components/product/FeaturesView";
 import { WhatsComingView } from "@/components/product/WhatsComingView";
 import { PreparingOverlay } from "@/components/PreparingOverlay";
 import { ProfileView } from "@/components/profile/ProfileView";
+import { SimiconView } from "@/components/simicon/SimiconView";
 import { GateView, useAccessGate } from "@/components/web/GateView";
 import { RagPanel } from "@/components/RagPanel";
 import { SaveConversationDialog } from "@/components/SaveConversationDialog";
@@ -81,6 +82,7 @@ export function StudioShell() {
                 {view === "conversations" && (
                   <ConversationsPanel onClose={backToLive} />
                 )}
+                {view === "simicon" && <SimiconView />}
               </>
             )}
           </main>
