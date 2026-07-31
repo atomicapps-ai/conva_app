@@ -170,7 +170,7 @@ export function CommandPalette() {
       />
 
       <div
-        className="glass-raised animate-rise relative w-[min(34rem,92vw)] overflow-hidden rounded-2xl"
+        className="glass-raised animate-rise relative w-[min(34rem,92vw)] overflow-hidden rounded-lg"
         onKeyDown={onKeyDown}
       >
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
