@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import { StudioShell } from "@/components/studio/StudioShell";
 import * as webAuth from "@/lib/backend/webAuth";
-import { isWeb } from "@/lib/platform";
+import { isEmbedded, isWeb } from "@/lib/platform";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAppStore } from "@/state/app";
 
@@ -24,10 +24,11 @@ export default function App() {
   const init = useAppStore((s) => s.init);
 
   // On the WEB, login is the website's job — this app has no sign-in of its own.
-  // No session → bounce to the website login (same origin in prod, the local
-  // site in dev) and come back signed in. Desktop manages its own auth in-app,
-  // so this guard never fires there.
-  const needsWebLogin = isWeb && !webAuth.status().signed_in;
+  // No session → bounce to the website login and come back signed in. When
+  // EMBEDDED (iframe under the site header) the host owns login and passes the
+  // session in, so we never redirect the iframe itself. Desktop manages its own
+  // auth in-app, so this guard never fires there.
+  const needsWebLogin = isWeb && !isEmbedded && !webAuth.status().signed_in;
 
   useEffect(() => {
     void init();

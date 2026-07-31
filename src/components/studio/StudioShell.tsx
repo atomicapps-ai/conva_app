@@ -19,6 +19,7 @@ import { TopBar } from "@/components/studio/TopBar";
 import { TranscriptView } from "@/components/transcript/TranscriptView";
 import { Icon } from "@/components/ui/Icon";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { isEmbedded } from "@/lib/platform";
 import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
 
@@ -64,7 +65,9 @@ export function StudioShell() {
       <div className="flex min-h-0 flex-1 gap-1 p-1">
         <NavRail />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <TopBar />
+          {/* Embedded under the website header → the site owns the top chrome,
+              so the app's own TopBar would be a redundant second bar. */}
+          {!isEmbedded && <TopBar />}
           <main className="min-h-0 flex-1 overflow-hidden">
             {gated ? (
               <GateView />
