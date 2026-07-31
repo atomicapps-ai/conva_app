@@ -709,24 +709,24 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
   if (!config) {
-    // No config store on this surface yet (web: `GET /v1/settings` is roadmap
-    // 1.3) — but Account is live. Render it alone instead of a blank view.
+    // Web: no config store yet (`GET /v1/settings` is roadmap 1.3), and account
+    // is the website's job — so no account here. App settings only.
     return (
       <ViewShell
         icon="settings"
         title="Settings"
-        subtitle="Your account. Device and provider settings arrive with the hosted backend."
+        subtitle="App settings arrive with the hosted backend."
         actions={
           <button type="button" onClick={onClose} className="btn">
             Done
           </button>
         }
       >
-        <Section
-          title="Account"
-          description="Sign in for settings sync and plan management. Identity only — no conversation content leaves your device."
-        >
-          <AccountSettings />
+        <Section title="Settings">
+          <Notice>
+            Device, transcription, and Ally-provider settings arrive with the
+            hosted backend. Manage your account on the website.
+          </Notice>
         </Section>
       </ViewShell>
     );

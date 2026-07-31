@@ -1,74 +1,45 @@
-import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import { NAV_ITEMS } from "@/components/studio/navItems";
-import * as webAuth from "@/lib/backend/webAuth";
+import { Icon } from "@/components/ui/Icon";
 import { useNavStore } from "@/state/nav";
 
 /*
- * The web shell's top navigation (web-only). Replaces the desktop left rail:
- * conva mark, the view tabs, and the account monogram — a standard web app bar.
- * Uses the shared NAV_ITEMS so it stays in sync with the desktop rail.
+ * The embedded app's own navigation — a horizontal ICON bar (the web echo of
+ * the desktop left rail). It sits UNDER the website header (which owns brand,
+ * core site links, and account/login), so this bar carries ZERO auth/account:
+ * the app is purely functionality + features. View icons only.
  */
-
-// Shorter labels for a horizontal bar (the rail can afford the long ones).
-const SHORT: Partial<Record<string, string>> = {
-  features: "Features",
-  whatsnew: "Roadmap",
-};
-
 const ITEMS = NAV_ITEMS.filter((i) => !i.only || i.only === "web");
 
 export function WebTopNav() {
   const view = useNavStore((s) => s.view);
   const setView = useNavStore((s) => s.setView);
-  const email = webAuth.status().email;
-  const initial = (email?.trim()?.[0] ?? "?").toUpperCase();
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-1 border-b border-border bg-panel px-4">
-      <img
-        src={mark}
-        alt="conva"
-        title="conva"
-        draggable={false}
-        className="mr-3 h-[26px] w-[26px]"
-      />
-
-      <nav aria-label="Primary" className="flex items-center gap-0.5">
-        {ITEMS.map((item) => {
-          const active = view === item.view;
-          return (
-            <button
-              key={item.view}
-              type="button"
-              onClick={() => setView(item.view)}
-              aria-current={active ? "page" : undefined}
-              className={[
-                "rounded-lg px-3 py-1.5 text-sm font-semibold tracking-tight transition",
-                active
-                  ? "bg-panel-raised text-fg"
-                  : "text-fg-muted hover:bg-panel-raised/50 hover:text-fg",
-              ].join(" ")}
-            >
-              {SHORT[item.view] ?? item.label}
-            </button>
-          );
-        })}
-      </nav>
-
-      <div className="ml-auto flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setView("profile")}
-          title={email ?? "Your account"}
-          aria-label="Your account"
-          className={[
-            "brand-gradient grid h-8 w-8 place-items-center rounded-full text-sm font-extrabold text-bg transition hover:brightness-110",
-            view === "profile" ? "ring-2 ring-inbound ring-offset-2 ring-offset-panel" : "",
-          ].join(" ")}
-        >
-          {initial}
-        </button>
-      </div>
-    </header>
+    <nav
+      aria-label="App"
+      className="flex h-12 shrink-0 items-center gap-1 border-b border-border bg-panel px-3"
+    >
+      {ITEMS.map((item) => {
+        const active = view === item.view;
+        return (
+          <button
+            key={item.view}
+            type="button"
+            onClick={() => setView(item.view)}
+            title={item.label}
+            aria-label={item.label}
+            aria-current={active ? "page" : undefined}
+            className={[
+              "grid h-9 w-9 place-items-center rounded-lg border transition",
+              active
+                ? "border-outbound/34 bg-outbound/[0.14] text-[var(--voice-you-text)]"
+                : "border-transparent text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
+            ].join(" ")}
+          >
+            <Icon name={item.icon} size={20} />
+          </button>
+        );
+      })}
+    </nav>
   );
 }
