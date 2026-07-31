@@ -33,7 +33,7 @@ use conva_core::asr::TranscriptSegment;
 use conva_core::audio::AudioDevice;
 use conva_core::config::AppConfig;
 use conva_core::ipc::{events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent};
-use conva_core::llm::{provider_registry, ModelInfo, ProviderId, ProviderInfo};
+use conva_core::llm::{provider_registry, LlmRequest, ModelInfo, ProviderId, ProviderInfo};
 use conva_core::prompt::{build_ally_request, AllyKind};
 use conva_core::rag::{IngestReport, RagDocument};
 use conva_core::simcon::{SimConSession, SimConSummary};
@@ -613,6 +613,50 @@ fn simcon_prepare(app: AppHandle, id: String) -> Result<SimConSession, String> {
     simcon::prepare(&app, &id).map_err(|e| e.to_string())
 }
 
+/// Generate 3 counterparty personas (Step 3) with the configured LLM, grounded
+/// in the Sim Con's goal / type / job description. Overwrites any existing
+/// personas and clears the current choice.
+#[tauri::command]
+fn simcon_generate_personas(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<SimConSession, String> {
+    let mut session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+    let selection = state.config.lock().expect("config lock").llm_quality.clone();
+    let key = resolve_key(selection.provider)?;
+    let (system, user) = conva_core::simcon::persona_prompt(&session);
+    let request = LlmRequest {
+        system,
+        user,
+        max_tokens: 1500,
+    };
+    let mut buf = String::new();
+    llm::stream_completion(
+        selection.provider,
+        &key,
+        &selection.model,
+        &request,
+        &mut |t| buf.push_str(t),
+    )
+    .map_err(|e| e.to_string())?;
+    session.personas = conva_core::simcon::parse_personas(&buf);
+    session.chosen_persona_id = None;
+    simcon::save(&app, session).map_err(|e| e.to_string())
+}
+
+/// Record the persona the user will rehearse against (Step 3).
+#[tauri::command]
+fn simcon_choose_persona(
+    app: AppHandle,
+    id: String,
+    persona_id: String,
+) -> Result<SimConSession, String> {
+    let mut session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+    session.chosen_persona_id = Some(persona_id);
+    simcon::save(&app, session).map_err(|e| e.to_string())
+}
+
 /// Copy every library document's original into the repo `library/` folder so
 /// committing it carries the library to other machines (git-synced library).
 #[tauri::command]
@@ -964,6 +1008,8 @@ pub fn run() {
             simcon_delete,
             simcon_store_docs,
             simcon_prepare,
+            simcon_generate_personas,
+            simcon_choose_persona,
             rag_sync_library,
             open_hud,
             close_hud,

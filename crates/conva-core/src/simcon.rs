@@ -143,3 +143,108 @@ pub struct SimConSummary {
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
 }
+
+impl SimConCategory {
+    /// Human phrase for prompts.
+    pub fn label(self) -> &'static str {
+        match self {
+            SimConCategory::Interview => "job interview",
+            SimConCategory::FinancialReview => "financial review",
+            SimConCategory::PerformanceReview => "performance review",
+            SimConCategory::SalesPitch => "sales pitch",
+            SimConCategory::Other => "high-stakes conversation",
+        }
+    }
+}
+
+// ── Persona generation (Step 3) — pure prompt + parser ──────────────────────
+
+/// Build the `(system, user)` prompt for generating 3 counterparty personas.
+pub fn persona_prompt(session: &SimConSession) -> (String, String) {
+    let system = "You generate realistic counterparty personas for rehearsing a \
+high-stakes conversation. Return ONLY a JSON array of exactly 3 objects, each with \
+keys: \"title\" (a short label), \"summary\" (2–3 sentences on how this person \
+behaves in the room), \"style_tags\" (3–5 short lowercase strings), and \
+\"recommended\" (boolean — set exactly one persona true, the best fit for this \
+context). No prose, no markdown, no code fences."
+        .to_string();
+
+    let mut user = format!(
+        "Rehearsal type: {}\nName: {}\nGoal: {}\n",
+        session.category.label(),
+        session.title,
+        session.purpose,
+    );
+    if let Some(jd) = &session.job_description {
+        if !jd.trim().is_empty() {
+            user.push_str(&format!("Job description:\n{}\n", jd.trim()));
+        }
+    }
+    user.push_str(
+        "\nGenerate the 3 distinct counterparty personas the user should be ready \
+to face, spanning different styles/difficulties.",
+    );
+    (system, user)
+}
+
+/// Parse the LLM's persona JSON into [`SimConPersona`]s, assigning ids. Tolerant:
+/// extracts the first JSON array from the text (models sometimes wrap it in
+/// prose/fences) and returns empty on malformed output. Ensures exactly one
+/// persona is flagged recommended.
+pub fn parse_personas(text: &str) -> Vec<SimConPersona> {
+    #[derive(Deserialize)]
+    struct Gen {
+        title: String,
+        #[serde(default)]
+        summary: String,
+        #[serde(default)]
+        style_tags: Vec<String>,
+        #[serde(default)]
+        recommended: bool,
+    }
+
+    let slice = match (text.find('['), text.rfind(']')) {
+        (Some(a), Some(b)) if b > a => &text[a..=b],
+        _ => return Vec::new(),
+    };
+    let gens: Vec<Gen> = serde_json::from_str(slice).unwrap_or_default();
+
+    let mut out: Vec<SimConPersona> = gens
+        .into_iter()
+        .filter(|g| !g.title.trim().is_empty())
+        .enumerate()
+        .map(|(i, g)| SimConPersona {
+            id: format!("p{}", i + 1),
+            title: g.title,
+            summary: g.summary,
+            style_tags: g.style_tags,
+            recommended: g.recommended,
+        })
+        .collect();
+
+    if !out.is_empty() && !out.iter().any(|p| p.recommended) {
+        out[0].recommended = true;
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_extracts_array_and_forces_one_recommended() {
+        let text = r#"Here you go:
+        [{"title":"Skeptical CFO","summary":"Tough.","style_tags":["skeptical"]},
+         {"title":"Behavioral VP","summary":"Warm.","recommended":false}]"#;
+        let p = parse_personas(text);
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].id, "p1");
+        assert!(p[0].recommended, "first is forced recommended when none set");
+    }
+
+    #[test]
+    fn parse_returns_empty_on_garbage() {
+        assert!(parse_personas("no json here").is_empty());
+    }
+}

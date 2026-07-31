@@ -172,6 +172,10 @@ export interface ConvaBackend {
     storeDocs(title: string, paths: string[]): Promise<string[]>;
     /** Build the reusable knowledge profile (docs + research) and mark ready. */
     prepare(id: string): Promise<SimConSession>;
+    /** Generate 3 counterparty personas with the LLM. */
+    generatePersonas(id: string): Promise<SimConSession>;
+    /** Record the persona the user will rehearse against. */
+    choosePersona(id: string, personaId: string): Promise<SimConSession>;
   };
 
   /** Auto-persisted session transcripts + export. */

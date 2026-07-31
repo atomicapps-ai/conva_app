@@ -284,6 +284,19 @@ export function simconPrepare(id: string): Promise<SimConSession> {
   return invoke<SimConSession>("simcon_prepare", { id });
 }
 
+/** Generate 3 counterparty personas with the configured LLM. */
+export function simconGeneratePersonas(id: string): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_generate_personas", { id });
+}
+
+/** Record the chosen persona. */
+export function simconChoosePersona(
+  id: string,
+  personaId: string,
+): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_choose_persona", { id, personaId });
+}
+
 /** Copy library originals into the repo `library/` folder for git commit. */
 export function ragSyncLibrary(): Promise<string> {
   return invoke<string>("rag_sync_library");

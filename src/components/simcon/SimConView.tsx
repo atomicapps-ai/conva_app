@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { SimConDetail } from "@/components/simcon/SimConDetail";
 import { SimConSetup } from "@/components/simcon/SimConSetup";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
@@ -28,18 +29,20 @@ const STATUS_LABEL: Record<SimConStatus, string> = {
   ended: "Ended",
 };
 
+type Mode =
+  | { k: "list" }
+  | { k: "setup"; initial: SimConSession | null }
+  | { k: "detail"; id: string };
+
 /**
- * Sim Con — Simulated Conversation. Rehearse a high-stakes call with the AI
- * playing the counterparty. Lists saved Sim Cons; a row opens the setup wizard
- * in EDIT mode (edits the same record), the pencil edits and the trash deletes.
- * The knowledge pipeline, personas, and live engine are Phases C–E. Desktop-first.
+ * Sim Con — Simulated Conversation. Lists saved Sim Cons; a row opens the detail
+ * (personas + rehearse), the pencil edits the setup in place, the trash deletes.
+ * Desktop-first; on web it shows the honest degraded state.
  */
 export function SimConView() {
   const backend = useBackend();
   const [items, setItems] = useState<SimConSummary[]>([]);
-  const [setup, setSetup] = useState<{ initial: SimConSession | null } | null>(
-    null,
-  );
+  const [mode, setMode] = useState<Mode>({ k: "list" });
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -58,7 +61,7 @@ export function SimConView() {
 
   const edit = async (id: string) => {
     try {
-      setSetup({ initial: await backend.simcon.load(id) });
+      setMode({ k: "setup", initial: await backend.simcon.load(id) });
     } catch {
       setError("Couldn't open that Sim Con.");
     }
@@ -73,15 +76,27 @@ export function SimConView() {
     }
   };
 
-  if (setup) {
+  const backToList = () => {
+    setMode({ k: "list" });
+    refresh();
+  };
+
+  if (mode.k === "setup") {
     return (
       <SimConSetup
-        initial={setup.initial ?? undefined}
-        onDone={() => {
-          setSetup(null);
-          refresh();
-        }}
-        onCancel={() => setSetup(null)}
+        initial={mode.initial ?? undefined}
+        onDone={backToList}
+        onCancel={() => setMode({ k: "list" })}
+      />
+    );
+  }
+
+  if (mode.k === "detail") {
+    return (
+      <SimConDetail
+        id={mode.id}
+        onEdit={() => void edit(mode.id)}
+        onBack={backToList}
       />
     );
   }
@@ -101,7 +116,7 @@ export function SimConView() {
           <button
             type="button"
             className="btn btn-primary"
-            onClick={() => setSetup({ initial: null })}
+            onClick={() => setMode({ k: "setup", initial: null })}
           >
             <Icon name="simicon" size={14} />
             New Sim Con
@@ -120,8 +135,7 @@ export function SimConView() {
           <p className="text-sm leading-relaxed text-fg-muted">
             Create a Sim Con to rehearse an interview, review, or pitch. conva
             builds a reusable knowledge base from your library and plays the
-            counterparty. Autonomous research, generated personas, and the live
-            session land in the next phases.
+            counterparty. Generated personas and the live session follow.
           </p>
         </Section>
       )}
@@ -136,8 +150,8 @@ export function SimConView() {
               >
                 <button
                   type="button"
-                  onClick={() => void edit(s.id)}
-                  title="Edit this Sim Con"
+                  onClick={() => setMode({ k: "detail", id: s.id })}
+                  title="Open this Sim Con"
                   className="min-w-0 flex-1 rounded-sm px-1 py-1 text-left transition hover:bg-panel-raised/60"
                 >
                   <p className="truncate text-sm font-semibold text-fg">
@@ -150,8 +164,8 @@ export function SimConView() {
                 <button
                   type="button"
                   onClick={() => void edit(s.id)}
-                  aria-label="Edit"
-                  title="Edit"
+                  aria-label="Edit setup"
+                  title="Edit setup"
                   className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
                 >
                   <Icon name="edit" size={15} />
