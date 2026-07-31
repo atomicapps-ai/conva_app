@@ -2,10 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
-import type { SimiconCategory, SimiconStatus, SimiconSummary } from "@/lib/ipc";
+import type { SimConCategory, SimConStatus, SimConSummary } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
-const CATEGORY_LABEL: Record<SimiconCategory, string> = {
+const CATEGORY_LABEL: Record<SimConCategory, string> = {
   interview: "Interview",
   financial_review: "Financial review",
   performance_review: "Performance review",
@@ -13,7 +13,7 @@ const CATEGORY_LABEL: Record<SimiconCategory, string> = {
   other: "Other",
 };
 
-const STATUS_LABEL: Record<SimiconStatus, string> = {
+const STATUS_LABEL: Record<SimConStatus, string> = {
   draft: "Draft",
   ingesting: "Preparing…",
   ready: "Ready",
@@ -22,26 +22,26 @@ const STATUS_LABEL: Record<SimiconStatus, string> = {
 };
 
 /**
- * Simicon — Simulated Conversation. Rehearse a high-stakes call (interview,
+ * SimCon — Simulated Conversation. Rehearse a high-stakes call (interview,
  * review, pitch) with the AI playing the counterparty. This is the list + entry
  * point (Phase A.2); the setup form, knowledge pipeline, generated personas,
  * and the live session engine are Phases B–E. Desktop-first (records are stored
  * locally); on web it shows the honest degraded state.
  */
-export function SimiconView() {
+export function SimConView() {
   const backend = useBackend();
-  const [items, setItems] = useState<SimiconSummary[]>([]);
+  const [items, setItems] = useState<SimConSummary[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
-    backend.simicon
+    backend.simcon
       .list()
       .then((list) => {
         setItems(list);
         setError(null);
       })
-      .catch(() => setError("Simicon runs on the desktop app for now."));
+      .catch(() => setError("SimCon runs on the desktop app for now."));
   }, [backend]);
 
   useEffect(() => {
@@ -51,9 +51,9 @@ export function SimiconView() {
   const createDraft = async () => {
     setBusy(true);
     try {
-      await backend.simicon.save({
+      await backend.simcon.save({
         id: "",
-        title: "Untitled Simicon",
+        title: "Untitled Sim Con",
         purpose: "",
         category: "interview",
         status: "draft",
@@ -66,7 +66,7 @@ export function SimiconView() {
       });
       refresh();
     } catch {
-      setError("Couldn't create a Simicon here — use the desktop app.");
+      setError("Couldn't create a SimCon here — use the desktop app.");
     } finally {
       setBusy(false);
     }
@@ -74,7 +74,7 @@ export function SimiconView() {
 
   const remove = async (id: string) => {
     try {
-      await backend.simicon.delete(id);
+      await backend.simcon.delete(id);
       refresh();
     } catch {
       /* best-effort; the list refresh reflects the real state */
@@ -83,8 +83,8 @@ export function SimiconView() {
 
   return (
     <ViewShell
-      icon="persona"
-      title="Simicon"
+      icon="simicon"
+      title="Sim Con"
       subtitle="Rehearse a high-stakes call — the AI plays the other side."
       badge={
         <span className="inline-flex items-center rounded-full border border-border-strong bg-panel-raised/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
@@ -99,21 +99,21 @@ export function SimiconView() {
             disabled={busy}
             onClick={() => void createDraft()}
           >
-            New Simicon
+            New Sim Con
           </button>
         ) : undefined
       }
     >
       {error && (
-        <Section title="Simicon">
+        <Section title="Sim Con">
           <p className="text-sm text-fg-muted">{error}</p>
         </Section>
       )}
 
       {!error && items.length === 0 && (
-        <Section title="No Simicons yet">
+        <Section title="No Sim Cons yet">
           <p className="text-sm leading-relaxed text-fg-muted">
-            Create a Simicon to rehearse an interview, review, or pitch. conva
+            Create a Sim Con to rehearse an interview, review, or pitch. conva
             builds a reusable knowledge base from your library and plays the
             counterparty. Setup, autonomous research, generated personas, and the
             live session land in the next phases.
@@ -122,7 +122,7 @@ export function SimiconView() {
       )}
 
       {!error && items.length > 0 && (
-        <Section title="Your Simicons">
+        <Section title="Your SimCons">
           <ul className="flex flex-col divide-y divide-border">
             {items.map((s) => (
               <li

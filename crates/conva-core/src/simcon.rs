@@ -1,19 +1,19 @@
-//! Simicon — Simulated Conversation: the data model.
+//! SimCon — Simulated Conversation: the data model.
 //!
-//! A **Simicon** is a rehearsal of a high-stakes call (interview, financial
+//! A **SimCon** is a rehearsal of a high-stakes call (interview, financial
 //! review, pitch). The user sets a name + purpose + category and attaches
 //! library documents (or asks Ally to generate context); an async pipeline
 //! builds a reusable [`KnowledgeProfile`] (library docs + bounded web research,
-//! embedded into the RAG store); the AI generates [`SimiconPersona`] options and
+//! embedded into the RAG store); the AI generates [`SimConPersona`] options and
 //! the user picks one; then a real-time session runs the chosen counterparty.
 //!
 //! Distinct from `conversations` (saved real transcripts) and `session`
-//! (per-listen JSONL) — a finished Simicon **saves as** a `Conversation`, and a
-//! [`KnowledgeProfile`] can be reattached to a future Simicon *or* a live call.
+//! (per-listen JSONL) — a finished SimCon **saves as** a `Conversation`, and a
+//! [`KnowledgeProfile`] can be reattached to a future SimCon *or* a live call.
 //!
 //! These are pure data types (no OS/storage deps), mirrored to TypeScript in
 //! `src/lib/ipc.ts`. Persistence + the async pipeline live in the shell
-//! (`src-tauri/src/simicon.rs`, Phase A.2).
+//! (`src-tauri/src/simcon.rs`, Phase A.2).
 
 use serde::{Deserialize, Serialize};
 
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 /// research prompts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SimiconCategory {
+pub enum SimConCategory {
     Interview,
     FinancialReview,
     PerformanceReview,
@@ -29,10 +29,10 @@ pub enum SimiconCategory {
     Other,
 }
 
-/// Lifecycle of a Simicon, start to finish.
+/// Lifecycle of a SimCon, start to finish.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SimiconStatus {
+pub enum SimConStatus {
     /// Being set up (Step 1).
     Draft,
     /// Building the knowledge profile — ingest + web research (Step 2).
@@ -48,7 +48,7 @@ pub enum SimiconStatus {
 /// One generated counterparty persona/strategy option (three per session,
 /// Step 3), one of which the AI flags [`recommended`](Self::recommended).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SimiconPersona {
+pub struct SimConPersona {
     pub id: String,
     /// e.g. "Highly technical & skeptical CFO".
     pub title: String,
@@ -74,9 +74,9 @@ pub struct ResearchSource {
     pub fetched_at_unix_ms: u64,
 }
 
-/// The reusable, indexed knowledge base for a Simicon — attached library
+/// The reusable, indexed knowledge base for a SimCon — attached library
 /// documents + bounded web research, embedded into the RAG store. **Reusable**:
-/// attach the same profile to a later Simicon or to a live call by id.
+/// attach the same profile to a later SimCon or to a live call by id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KnowledgeProfile {
     pub id: String,
@@ -96,15 +96,15 @@ pub struct KnowledgeProfile {
 
 /// One simulated-conversation record: Step 1 setup through Step 4 run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SimiconSession {
+pub struct SimConSession {
     pub id: String,
     /// e.g. "Senior Accountant Interview with CFO".
     pub title: String,
     /// The user's goal, e.g. "Prep for technical GAAP questions + leadership
     /// scenarios".
     pub purpose: String,
-    pub category: SimiconCategory,
-    pub status: SimiconStatus,
+    pub category: SimConCategory,
+    pub status: SimConStatus,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
     /// The knowledge profile driving this session (reusable; referenced by id).
@@ -112,7 +112,7 @@ pub struct SimiconSession {
     pub knowledge_profile_id: Option<String>,
     /// The generated persona options (Step 3).
     #[serde(default)]
-    pub personas: Vec<SimiconPersona>,
+    pub personas: Vec<SimConPersona>,
     /// The persona the user chose to run against.
     #[serde(default)]
     pub chosen_persona_id: Option<String>,
@@ -121,14 +121,14 @@ pub struct SimiconSession {
     pub conversation_id: Option<String>,
 }
 
-/// Catalog entry for the Simicon list view (cheap to list without loading the
+/// Catalog entry for the SimCon list view (cheap to list without loading the
 /// full record + personas).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SimiconSummary {
+pub struct SimConSummary {
     pub id: String,
     pub title: String,
-    pub category: SimiconCategory,
-    pub status: SimiconStatus,
+    pub category: SimConCategory,
+    pub status: SimConStatus,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
 }

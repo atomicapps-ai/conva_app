@@ -180,22 +180,22 @@ export interface ConversationSummary {
   preview: string;
 }
 
-/* ── Simicon — Simulated Conversation (mirror of conva_core::simicon) ──────────
+/* ── SimCon — Simulated Conversation (mirror of conva_core::simcon) ──────────
    A rehearsal of a high-stakes call: setup → knowledge profile (docs + bounded
    web research) → generated personas → real-time run. Persistence + pipeline
    land in the shell (Phase A.2). Keep these in lockstep with
-   `crates/conva-core/src/simicon.rs`. */
+   `crates/conva-core/src/simcon.rs`. */
 
 /** The kind of call being rehearsed. */
-export type SimiconCategory =
+export type SimConCategory =
   | "interview"
   | "financial_review"
   | "performance_review"
   | "sales_pitch"
   | "other";
 
-/** Lifecycle of a Simicon, start to finish. */
-export type SimiconStatus =
+/** Lifecycle of a SimCon, start to finish. */
+export type SimConStatus =
   | "draft"
   | "ingesting"
   | "ready"
@@ -203,7 +203,7 @@ export type SimiconStatus =
   | "ended";
 
 /** One generated counterparty persona/strategy option (3 per session). */
-export interface SimiconPersona {
+export interface SimConPersona {
   id: string;
   title: string;
   summary: string;
@@ -219,8 +219,8 @@ export interface ResearchSource {
   fetched_at_unix_ms: number;
 }
 
-/** The reusable, indexed knowledge base for a Simicon (library docs + web
- *  research). Reusable across future Simicons and live calls, by id. */
+/** The reusable, indexed knowledge base for a SimCon (library docs + web
+ *  research). Reusable across future SimCons and live calls, by id. */
 export interface KnowledgeProfile {
   id: string;
   title: string;
@@ -232,26 +232,26 @@ export interface KnowledgeProfile {
 }
 
 /** One simulated-conversation record: Step 1 setup through Step 4 run. */
-export interface SimiconSession {
+export interface SimConSession {
   id: string;
   title: string;
   purpose: string;
-  category: SimiconCategory;
-  status: SimiconStatus;
+  category: SimConCategory;
+  status: SimConStatus;
   created_at_unix_ms: number;
   updated_at_unix_ms: number;
   knowledge_profile_id: string | null;
-  personas: SimiconPersona[];
+  personas: SimConPersona[];
   chosen_persona_id: string | null;
   conversation_id: string | null;
 }
 
-/** Catalog entry for the Simicon list view. */
-export interface SimiconSummary {
+/** Catalog entry for the SimCon list view. */
+export interface SimConSummary {
   id: string;
   title: string;
-  category: SimiconCategory;
-  status: SimiconStatus;
+  category: SimConCategory;
+  status: SimConStatus;
   created_at_unix_ms: number;
   updated_at_unix_ms: number;
 }

@@ -24,8 +24,8 @@ import type {
   AuthStatus,
   Conversation,
   ConversationSummary,
-  SimiconSession,
-  SimiconSummary,
+  SimConSession,
+  SimConSummary,
   IngestReport,
   ModelInfo,
   ProviderInfo,
@@ -164,11 +164,11 @@ export class WebBackend implements ConvaBackend {
     delete: (): Promise<void> => todo("DELETE /v1/conversations/:id"),
   };
 
-  simicon = {
-    save: (): Promise<SimiconSession> => todo("POST /v1/simicon"),
-    list: (): Promise<SimiconSummary[]> => todo("GET /v1/simicon"),
-    load: (): Promise<SimiconSession> => todo("GET /v1/simicon/:id"),
-    delete: (): Promise<void> => todo("DELETE /v1/simicon/:id"),
+  simcon = {
+    save: (): Promise<SimConSession> => todo("POST /v1/simcon"),
+    list: (): Promise<SimConSummary[]> => todo("GET /v1/simcon"),
+    load: (): Promise<SimConSession> => todo("GET /v1/simcon/:id"),
+    delete: (): Promise<void> => todo("DELETE /v1/simcon/:id"),
   };
 
   sessions = {

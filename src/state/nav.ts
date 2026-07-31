@@ -12,7 +12,7 @@ export type View =
   | "library"
   | "sessions"
   | "conversations"
-  | "simicon"
+  | "simcon"
   | "features"
   | "whatsnew"
   | "settings"

@@ -12,8 +12,8 @@ import type {
   AuthStatus,
   Conversation,
   ConversationSummary,
-  SimiconSession,
-  SimiconSummary,
+  SimConSession,
+  SimConSummary,
   IngestReport,
   ModelInfo,
   ProviderId,
@@ -250,23 +250,23 @@ export function conversationDelete(id: string): Promise<void> {
   return invoke("conversation_delete", { id });
 }
 
-/* ── Simicon (Simulated Conversation) ── */
+/* ── SimCon (Simulated Conversation) ── */
 
-/** Create or update a Simicon. An empty `id` mints a new record. */
-export function simiconSave(session: SimiconSession): Promise<SimiconSession> {
-  return invoke<SimiconSession>("simicon_save", { session });
+/** Create or update a SimCon. An empty `id` mints a new record. */
+export function simconSave(session: SimConSession): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_save", { session });
 }
 
-export function simiconList(): Promise<SimiconSummary[]> {
-  return invoke<SimiconSummary[]>("simicon_list");
+export function simconList(): Promise<SimConSummary[]> {
+  return invoke<SimConSummary[]>("simcon_list");
 }
 
-export function simiconLoad(id: string): Promise<SimiconSession> {
-  return invoke<SimiconSession>("simicon_load", { id });
+export function simconLoad(id: string): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_load", { id });
 }
 
-export function simiconDelete(id: string): Promise<void> {
-  return invoke("simicon_delete", { id });
+export function simconDelete(id: string): Promise<void> {
+  return invoke("simcon_delete", { id });
 }
 
 /** Copy library originals into the repo `library/` folder for git commit. */

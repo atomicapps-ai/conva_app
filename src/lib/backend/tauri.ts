@@ -103,11 +103,11 @@ export class TauriBackend implements ConvaBackend {
     delete: cmd.conversationDelete,
   };
 
-  simicon = {
-    save: cmd.simiconSave,
-    list: cmd.simiconList,
-    load: cmd.simiconLoad,
-    delete: cmd.simiconDelete,
+  simcon = {
+    save: cmd.simconSave,
+    list: cmd.simconList,
+    load: cmd.simconLoad,
+    delete: cmd.simconDelete,
   };
 
   sessions = {

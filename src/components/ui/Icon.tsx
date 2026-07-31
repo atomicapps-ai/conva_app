@@ -31,7 +31,7 @@ export type IconName =
   | "book"
   | "howto"
   | "elaborate"
-  | "persona";
+  | "simicon";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -48,8 +48,9 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M8 12h6M8 15h6" />
     </>
   ),
-  // Mock Meeting — an AI persona (person + sparkle): the AI-generated counterparty.
-  persona: (
+  // Simicon — the icon for Sim Con (Simulated Conversation): an AI persona
+  // (person + sparkle), the AI-generated counterparty.
+  simicon: (
     <>
       <circle cx="12" cy="8" r="3" />
       <path d="M6 19a6 6 0 0 1 12 0" />

@@ -17,7 +17,7 @@ mod rag;
 mod recorder;
 mod secrets;
 mod session;
-mod simicon;
+mod simcon;
 mod tracker;
 mod vad_silero;
 
@@ -36,7 +36,7 @@ use conva_core::ipc::{events, AllyChunkEvent, AllySource, AllySourcesEvent, Sess
 use conva_core::llm::{provider_registry, ModelInfo, ProviderId, ProviderInfo};
 use conva_core::prompt::{build_ally_request, AllyKind};
 use conva_core::rag::{IngestReport, RagDocument};
-use conva_core::simicon::{SimiconSession, SimiconSummary};
+use conva_core::simcon::{SimConSession, SimConSummary};
 
 use rag::RagStore;
 use session::SessionManager;
@@ -573,26 +573,26 @@ fn conversation_delete(app: AppHandle, id: String) -> Result<(), String> {
     conversations::delete(&app, &id).map_err(|e| e.to_string())
 }
 
-/// Create or update a Simicon (Simulated Conversation). An empty `id` mints a
+/// Create or update a SimCon (Simulated Conversation). An empty `id` mints a
 /// new record; an existing id updates in place.
 #[tauri::command]
-fn simicon_save(app: AppHandle, session: SimiconSession) -> Result<SimiconSession, String> {
-    simicon::save(&app, session).map_err(|e| e.to_string())
+fn simcon_save(app: AppHandle, session: SimConSession) -> Result<SimConSession, String> {
+    simcon::save(&app, session).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn simicon_list(app: AppHandle) -> Result<Vec<SimiconSummary>, String> {
-    simicon::list(&app).map_err(|e| e.to_string())
+fn simcon_list(app: AppHandle) -> Result<Vec<SimConSummary>, String> {
+    simcon::list(&app).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn simicon_load(app: AppHandle, id: String) -> Result<SimiconSession, String> {
-    simicon::load(&app, &id).map_err(|e| e.to_string())
+fn simcon_load(app: AppHandle, id: String) -> Result<SimConSession, String> {
+    simcon::load(&app, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn simicon_delete(app: AppHandle, id: String) -> Result<(), String> {
-    simicon::delete(&app, &id).map_err(|e| e.to_string())
+fn simcon_delete(app: AppHandle, id: String) -> Result<(), String> {
+    simcon::delete(&app, &id).map_err(|e| e.to_string())
 }
 
 /// Copy every library document's original into the repo `library/` folder so
@@ -940,10 +940,10 @@ pub fn run() {
             conversation_list,
             conversation_load,
             conversation_delete,
-            simicon_save,
-            simicon_list,
-            simicon_load,
-            simicon_delete,
+            simcon_save,
+            simcon_list,
+            simcon_load,
+            simcon_delete,
             rag_sync_library,
             open_hud,
             close_hud,
