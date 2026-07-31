@@ -180,6 +180,82 @@ export interface ConversationSummary {
   preview: string;
 }
 
+/* ── Simicon — Simulated Conversation (mirror of conva_core::simicon) ──────────
+   A rehearsal of a high-stakes call: setup → knowledge profile (docs + bounded
+   web research) → generated personas → real-time run. Persistence + pipeline
+   land in the shell (Phase A.2). Keep these in lockstep with
+   `crates/conva-core/src/simicon.rs`. */
+
+/** The kind of call being rehearsed. */
+export type SimiconCategory =
+  | "interview"
+  | "financial_review"
+  | "performance_review"
+  | "sales_pitch"
+  | "other";
+
+/** Lifecycle of a Simicon, start to finish. */
+export type SimiconStatus =
+  | "draft"
+  | "ingesting"
+  | "ready"
+  | "running"
+  | "ended";
+
+/** One generated counterparty persona/strategy option (3 per session). */
+export interface SimiconPersona {
+  id: string;
+  title: string;
+  summary: string;
+  style_tags: string[];
+  recommended: boolean;
+}
+
+/** A web-research source folded into a knowledge profile. */
+export interface ResearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+  fetched_at_unix_ms: number;
+}
+
+/** The reusable, indexed knowledge base for a Simicon (library docs + web
+ *  research). Reusable across future Simicons and live calls, by id. */
+export interface KnowledgeProfile {
+  id: string;
+  title: string;
+  created_at_unix_ms: number;
+  updated_at_unix_ms: number;
+  doc_ids: string[];
+  research: ResearchSource[];
+  ready: boolean;
+}
+
+/** One simulated-conversation record: Step 1 setup through Step 4 run. */
+export interface SimiconSession {
+  id: string;
+  title: string;
+  purpose: string;
+  category: SimiconCategory;
+  status: SimiconStatus;
+  created_at_unix_ms: number;
+  updated_at_unix_ms: number;
+  knowledge_profile_id: string | null;
+  personas: SimiconPersona[];
+  chosen_persona_id: string | null;
+  conversation_id: string | null;
+}
+
+/** Catalog entry for the Simicon list view. */
+export interface SimiconSummary {
+  id: string;
+  title: string;
+  category: SimiconCategory;
+  status: SimiconStatus;
+  created_at_unix_ms: number;
+  updated_at_unix_ms: number;
+}
+
 export type ModelStatusEvent =
   | { state: "downloading"; model: string; percent: number }
   | { state: "ready"; model: string }

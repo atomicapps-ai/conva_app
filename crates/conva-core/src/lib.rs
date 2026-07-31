@@ -23,6 +23,7 @@ pub mod llm;
 pub mod prompt;
 pub mod radar;
 pub mod rag;
+pub mod simicon;
 pub mod tracker;
 pub mod vad;
 
