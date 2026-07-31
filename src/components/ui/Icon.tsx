@@ -30,7 +30,8 @@ export type IconName =
   | "lightbulb"
   | "book"
   | "howto"
-  | "elaborate";
+  | "elaborate"
+  | "persona";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -45,6 +46,14 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M5 4.5h9l3 3V19.5H5z" />
       <path d="M13.5 4.5v3.5H17" />
       <path d="M8 12h6M8 15h6" />
+    </>
+  ),
+  // Mock Meeting — an AI persona (person + sparkle): the AI-generated counterparty.
+  persona: (
+    <>
+      <circle cx="12" cy="8" r="3" />
+      <path d="M6 19a6 6 0 0 1 12 0" />
+      <path d="M18.6 4.2l.55 1.5 1.5.55-1.5.55-.55 1.5-.55-1.5-1.5-.55 1.5-.55z" />
     </>
   ),
   // Sessions — clock / history.
