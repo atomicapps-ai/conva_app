@@ -14,7 +14,8 @@ export type View =
   | "conversations"
   | "features"
   | "whatsnew"
-  | "settings";
+  | "settings"
+  | "profile";
 
 interface NavState {
   view: View;

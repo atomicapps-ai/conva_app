@@ -3,13 +3,49 @@ import { useEffect, useState } from "react";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
+import { isTauriRuntime } from "@/lib/backend/detect";
 import { BUILD } from "@/lib/debug";
 import type { AuthStatus } from "@/lib/ipc";
 import { useNavStore, type View } from "@/state/nav";
 
+/** Current Windows installers (roadmap 1.7 formalizes distribution). */
+const DOWNLOAD_URL = "https://github.com/atomicapps-ai/conva_app/releases";
+
 /** First letter of the email, for a simple monogram avatar. */
 function initial(email: string | null): string {
   return (email?.trim()?.[0] ?? "?").toUpperCase();
+}
+
+/** A Layer-4 capability this surface doesn't have — shown honestly, not hidden
+ *  (web only; see the conva-Lite framing in CONVA_ARCHITECTURE.md). */
+function DesktopOnlyCard({
+  icon,
+  title,
+  desc,
+}: {
+  icon: IconName;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border bg-panel-raised/25 p-3.5 text-left">
+      <span
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-outbound ring-1 ring-inset ring-outbound/30"
+        aria-hidden
+      >
+        <Icon name={icon} size={18} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-bold tracking-tight text-fg">
+          {title}
+        </span>
+        <span className="block truncate text-[11px] text-fg-faint">{desc}</span>
+      </span>
+      <span className="shrink-0 rounded-full border border-outbound/35 px-2 py-0.5 font-mono text-[9px] tracking-[0.1em] text-outbound">
+        DESKTOP
+      </span>
+    </div>
+  );
 }
 
 function QuickLink({
@@ -108,15 +144,13 @@ export function DashboardView() {
                 : "Sign in to sync your profile, preferences, and library across desktop and web."}
             </p>
           </div>
-          {!signedIn && (
-            <button
-              type="button"
-              onClick={go("settings")}
-              className="shrink-0 rounded-lg border border-border-strong bg-panel-raised px-3 py-1.5 text-xs font-semibold text-fg transition hover:brightness-110"
-            >
-              Sign in
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={go(signedIn ? "profile" : "settings")}
+            className="shrink-0 rounded-lg border border-border-strong bg-panel-raised px-3 py-1.5 text-xs font-semibold text-fg transition hover:brightness-110"
+          >
+            {signedIn ? "Profile" : "Sign in"}
+          </button>
         </div>
       </Section>
 
@@ -149,6 +183,41 @@ export function DashboardView() {
           />
         </div>
       </Section>
+
+      {/* conva Lite honesty (web only): the Layer-4 features this browser tab
+          can't do, named plainly, with the way to get them. */}
+      {!isTauriRuntime() && (
+        <Section
+          title="Desktop superpowers"
+          description="The desktop app hears both sides of the call and runs on-device."
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <DesktopOnlyCard
+              icon="system"
+              title="Both-sides capture"
+              desc="Hear the other party via system loopback"
+            />
+            <DesktopOnlyCard
+              icon="compact"
+              title="Incog & HUD"
+              desc="Invisible overlay, on-device ASR, local-first"
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-border-strong p-3.5">
+            <p className="min-w-0 flex-1 text-xs text-fg-muted">
+              <span className="font-bold text-fg">Get the desktop app</span> —
+              the full conva: both-sides audio, on-device transcription, Incog.
+            </p>
+            <button
+              type="button"
+              onClick={() => void backend.auth.openUrl(DOWNLOAD_URL)}
+              className="brand-gradient shrink-0 rounded-lg px-3.5 py-2 text-xs font-bold text-bg transition hover:brightness-110"
+            >
+              Download for Windows
+            </button>
+          </div>
+        </Section>
+      )}
 
       <p className="px-1 text-[11px] text-fg-faint">
         Build {BUILD.sha}

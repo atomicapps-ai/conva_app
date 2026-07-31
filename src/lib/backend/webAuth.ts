@@ -115,6 +115,35 @@ if (typeof window !== "undefined") {
   window.addEventListener("storage", (e) => {
     if (e.key === SESSION_KEY) notify();
   });
+
+  // SSO hand-off intake: the shared login page returns here with the session
+  // in the URL fragment (#conva_session=base64url — never sent to a server).
+  // Store it as our own session and scrub the URL. See conva_web/login.html.
+  try {
+    const m = /[#&]conva_session=([A-Za-z0-9_-]+)/.exec(window.location.hash);
+    if (m?.[1]) {
+      const json = atob(m[1].replace(/-/g, "+").replace(/_/g, "/"));
+      const s = JSON.parse(json) as Partial<WebSession>;
+      if (typeof s.access_token === "string" && s.access_token.length > 0) {
+        localStorage.setItem(
+          SESSION_KEY,
+          JSON.stringify({
+            access_token: s.access_token,
+            refresh_token: s.refresh_token ?? null,
+            expires_at: s.expires_at ?? null,
+            email: s.email ?? null,
+            user_id: s.user_id ?? null,
+          } satisfies WebSession),
+        );
+      }
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+      // Listeners registered after module load still see the fresh session via
+      // status(); anyone already subscribed gets the change notification.
+      setTimeout(notify, 0);
+    }
+  } catch {
+    /* malformed fragment — ignore */
+  }
 }
 
 // ----------------------------------------------------------------- GoTrue REST
@@ -178,8 +207,47 @@ export function status(): AuthStatus {
   return toStatus(loadSession());
 }
 
-/** OAuth / full login: hand off to the shared login page, returning here after. */
-export function loginRedirect(_provider?: string): void {
+// ------------------------------------------------------------- token claims
+
+/** Decoded JWT payload of the current access token (web only), or null. */
+export function jwtClaims(): Record<string, unknown> | null {
+  const s = loadSession();
+  const part = s?.access_token?.split(".")[1];
+  if (!part) return null;
+  try {
+    return JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/"))) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return null;
+  }
+}
+
+/** The identity provider of the current session ("email", "google", …). */
+export function provider(): string | null {
+  const meta = jwtClaims()?.app_metadata as { provider?: string } | undefined;
+  return meta?.provider ?? null;
+}
+
+/**
+ * The beta-allowlist entitlement (roadmap 1.2 / owner decision D1): true when
+ * the user's `app_metadata.beta_access` is set (flipped per-user in the
+ * Supabase dashboard until the application form lands). Swaps to a
+ * subscription predicate when billing arrives — same gate, new predicate.
+ * null = signed out / undecodable.
+ */
+export function betaAccess(): boolean | null {
+  const claims = jwtClaims();
+  if (!claims) return null;
+  const meta = claims.app_metadata as { beta_access?: unknown } | undefined;
+  return meta?.beta_access === true;
+}
+
+/** OAuth / full login: hand off to the shared login page, returning here after
+ *  (session comes back in the URL fragment — see the intake above). */
+export function loginRedirect(provider?: string): void {
   const back = encodeURIComponent(window.location.href);
-  window.location.href = `${LOGIN_URL}?return=${back}`;
+  const prov = provider ? `&provider=${encodeURIComponent(provider)}` : "";
+  window.location.href = `${LOGIN_URL}?return=${back}${prov}`;
 }

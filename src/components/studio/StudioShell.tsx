@@ -6,6 +6,8 @@ import { DashboardView } from "@/components/dashboard/DashboardView";
 import { FeaturesView } from "@/components/product/FeaturesView";
 import { WhatsComingView } from "@/components/product/WhatsComingView";
 import { PreparingOverlay } from "@/components/PreparingOverlay";
+import { GateView, useAccessGate } from "@/components/gate/GateView";
+import { ProfileView } from "@/components/profile/ProfileView";
 import { RagPanel } from "@/components/RagPanel";
 import { SaveConversationDialog } from "@/components/SaveConversationDialog";
 import { SessionsPanel } from "@/components/SessionsPanel";
@@ -40,6 +42,9 @@ export function StudioShell() {
   const compact = useAppStore((s) => s.compact);
   const toggleCompact = useAppStore((s) => s.toggleCompact);
   const backToLive = () => setView("live");
+  // Beta allowlist (web): signed in without access → the gate replaces the
+  // product surface, whatever view the rail selects.
+  const gated = useAccessGate();
 
   // Global ⌘K / Ctrl+K → command palette.
   useEffect(() => {
@@ -61,15 +66,22 @@ export function StudioShell() {
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <TopBar />
           <main className="min-h-0 flex-1 overflow-hidden">
-            {view === "dashboard" && <DashboardView />}
-            {view === "live" && <LiveView />}
-            {view === "features" && <FeaturesView />}
-            {view === "whatsnew" && <WhatsComingView />}
-            {view === "settings" && <SettingsPanel onClose={backToLive} />}
-            {view === "library" && <RagPanel onClose={backToLive} />}
-            {view === "sessions" && <SessionsPanel onClose={backToLive} />}
-            {view === "conversations" && (
-              <ConversationsPanel onClose={backToLive} />
+            {gated ? (
+              <GateView />
+            ) : (
+              <>
+                {view === "dashboard" && <DashboardView />}
+                {view === "live" && <LiveView />}
+                {view === "features" && <FeaturesView />}
+                {view === "whatsnew" && <WhatsComingView />}
+                {view === "settings" && <SettingsPanel onClose={backToLive} />}
+                {view === "profile" && <ProfileView />}
+                {view === "library" && <RagPanel onClose={backToLive} />}
+                {view === "sessions" && <SessionsPanel onClose={backToLive} />}
+                {view === "conversations" && (
+                  <ConversationsPanel onClose={backToLive} />
+                )}
+              </>
             )}
           </main>
           <StatusBar />
