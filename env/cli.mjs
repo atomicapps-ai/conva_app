@@ -26,10 +26,13 @@
    encrypt <env>              .env.<env>[.sec]     → .env.<env>[.sec].enc   (commit these)
    decrypt <env> [--force]    .env.<env>[.sec].enc → .env.<env>[.sec]       (restore locally)
    print   <env> [--mask]     decrypt to stdout as KEY=VALUE (feed CI $GITHUB_ENV)
+   run     <env> -- <cmd…>    load .env.<env> into the env, then run <cmd>
+                              (powers `npm run start:dev` / `start:prod`)
 */
 import { encrypt, decrypt, loadKey, KEY_FILE } from "./crypto.mjs";
 import { readFileSync, writeFileSync, existsSync, chmodSync, mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { dirname } from "node:path";
 
 const ENVS = ["dev", "prod"];
@@ -122,8 +125,43 @@ function cmdPrint(env) {
   }
 }
 
+/** Load the config (+secrets) for an environment: plaintext .env.<env>[.sec] if
+ *  present, otherwise decrypt the committed .enc twin with the master key. A
+ *  load failure (e.g. no key on this machine) warns and is non-fatal — the app
+ *  then falls back to its baked defaults. */
+function loadEnvVars(env) {
+  const f = files(env);
+  const out = {};
+  for (const [plain, enc] of [[f.vars, f.varsEnc], [f.secrets, f.secretsEnc]]) {
+    try {
+      if (existsSync(plain)) Object.assign(out, parseEnv(readFileSync(plain, "utf8")));
+      else if (existsSync(enc)) Object.assign(out, parseEnv(decrypt(readFileSync(enc, "utf8"), loadKey())));
+    } catch (e) {
+      console.warn(`! could not load ${plain} / ${enc}: ${e?.message || e} — continuing without it`);
+    }
+  }
+  return out;
+}
+
+/** `run <env> -- <command…>` — load .env.<env> into the environment and run a
+ *  command. Powers `npm run start:dev` / `start:prod` so nobody has to set env
+ *  vars by hand. */
+function cmdRun(env) {
+  const dd = process.argv.indexOf("--");
+  const command = dd === -1 ? [] : process.argv.slice(dd + 1);
+  if (!command.length) {
+    throw new Error(`Nothing to run. Usage: node env/cli.mjs run ${env} -- <command>  (e.g. -- npm run tauri:gpu)`);
+  }
+  const vars = loadEnvVars(env);
+  const names = Object.keys(vars);
+  const backend = vars.CONVA_SUPABASE_URL || "(baked default)";
+  console.log(`▶ run [${env}] → ${backend}\n  ${command.join(" ")}   (loaded ${names.length} var(s): ${names.join(", ") || "none"})`);
+  const r = spawnSync(command.join(" "), { stdio: "inherit", shell: true, env: { ...process.env, ...vars } });
+  process.exit(r.status ?? 1);
+}
+
 function usage() {
-  console.log("Usage: node env/cli.mjs <keygen|encrypt|decrypt|print> [dev|prod] [--force] [--mask]");
+  console.log("Usage: node env/cli.mjs <keygen|encrypt|decrypt|print|run> [dev|prod] [--force] [--mask] [-- <command>]");
 }
 
 try {
@@ -132,6 +170,7 @@ try {
     case "encrypt": cmdEncrypt(reqEnv()); break;
     case "decrypt": cmdDecrypt(reqEnv()); break;
     case "print": cmdPrint(reqEnv()); break;
+    case "run": cmdRun(reqEnv()); break;
     default: usage();
   }
 } catch (e) {
