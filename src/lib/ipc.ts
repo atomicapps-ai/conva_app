@@ -240,6 +240,10 @@ export interface SimConSession {
   status: SimConStatus;
   created_at_unix_ms: number;
   updated_at_unix_ms: number;
+  /** Library docs attached at setup (Path A) — RagDocument ids. */
+  source_doc_ids: string[];
+  /** Whether Ally should auto-generate context (Path B) during ingest. */
+  auto_generate_context: boolean;
   knowledge_profile_id: string | null;
   personas: SimConPersona[];
   chosen_persona_id: string | null;

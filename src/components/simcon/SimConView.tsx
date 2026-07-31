@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { SimConSetup } from "@/components/simcon/SimConSetup";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
 import type { SimConCategory, SimConStatus, SimConSummary } from "@/lib/ipc";
@@ -22,16 +23,16 @@ const STATUS_LABEL: Record<SimConStatus, string> = {
 };
 
 /**
- * SimCon — Simulated Conversation. Rehearse a high-stakes call (interview,
- * review, pitch) with the AI playing the counterparty. This is the list + entry
- * point (Phase A.2); the setup form, knowledge pipeline, generated personas,
- * and the live session engine are Phases B–E. Desktop-first (records are stored
+ * Sim Con — Simulated Conversation. Rehearse a high-stakes call (interview,
+ * review, pitch) with the AI playing the counterparty. Lists saved Sim Cons and
+ * launches the setup wizard (Step 1). The knowledge pipeline, generated personas,
+ * and the live session engine are Phases C–E. Desktop-first (records are stored
  * locally); on web it shows the honest degraded state.
  */
 export function SimConView() {
   const backend = useBackend();
   const [items, setItems] = useState<SimConSummary[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"list" | "setup">("list");
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -41,36 +42,12 @@ export function SimConView() {
         setItems(list);
         setError(null);
       })
-      .catch(() => setError("SimCon runs on the desktop app for now."));
+      .catch(() => setError("Sim Con runs on the desktop app for now."));
   }, [backend]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
-
-  const createDraft = async () => {
-    setBusy(true);
-    try {
-      await backend.simcon.save({
-        id: "",
-        title: "Untitled Sim Con",
-        purpose: "",
-        category: "interview",
-        status: "draft",
-        created_at_unix_ms: 0,
-        updated_at_unix_ms: 0,
-        knowledge_profile_id: null,
-        personas: [],
-        chosen_persona_id: null,
-        conversation_id: null,
-      });
-      refresh();
-    } catch {
-      setError("Couldn't create a SimCon here — use the desktop app.");
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const remove = async (id: string) => {
     try {
@@ -80,6 +57,18 @@ export function SimConView() {
       /* best-effort; the list refresh reflects the real state */
     }
   };
+
+  if (mode === "setup") {
+    return (
+      <SimConSetup
+        onDone={() => {
+          setMode("list");
+          refresh();
+        }}
+        onCancel={() => setMode("list")}
+      />
+    );
+  }
 
   return (
     <ViewShell
@@ -96,8 +85,7 @@ export function SimConView() {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={busy}
-            onClick={() => void createDraft()}
+            onClick={() => setMode("setup")}
           >
             New Sim Con
           </button>
@@ -115,14 +103,14 @@ export function SimConView() {
           <p className="text-sm leading-relaxed text-fg-muted">
             Create a Sim Con to rehearse an interview, review, or pitch. conva
             builds a reusable knowledge base from your library and plays the
-            counterparty. Setup, autonomous research, generated personas, and the
-            live session land in the next phases.
+            counterparty. Autonomous research, generated personas, and the live
+            session land in the next phases.
           </p>
         </Section>
       )}
 
       {!error && items.length > 0 && (
-        <Section title="Your SimCons">
+        <Section title="Your Sim Cons">
           <ul className="flex flex-col divide-y divide-border">
             {items.map((s) => (
               <li

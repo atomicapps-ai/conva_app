@@ -107,6 +107,13 @@ pub struct SimConSession {
     pub status: SimConStatus,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
+    /// Library documents attached at setup (Step 1, Path A) — `RagDocument` ids
+    /// the ingestion phase folds into the `KnowledgeProfile`.
+    #[serde(default)]
+    pub source_doc_ids: Vec<String>,
+    /// Whether Ally should auto-generate context (Step 1, Path B) during ingest.
+    #[serde(default)]
+    pub auto_generate_context: bool,
     /// The knowledge profile driving this session (reusable; referenced by id).
     #[serde(default)]
     pub knowledge_profile_id: Option<String>,
