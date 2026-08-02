@@ -18,7 +18,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use conva_core::asr::TranscriptSegment;
 use conva_core::audio::StreamSide;
@@ -221,7 +221,7 @@ fn respond(
     }
     emit(&reply, true);
 
-    transcript.push(TranscriptSegment {
+    let final_seg = TranscriptSegment {
         side: StreamSide::Inbound,
         seq,
         text: reply.clone(),
@@ -230,7 +230,13 @@ fn respond(
         end_ms: ts,
         confidence: None,
         latency_ms: 0,
-    });
+    };
+    // Write the persona turn to the session log (it bypasses the capture sink)
+    // so the per-session transcript is complete.
+    app.state::<crate::AppState>()
+        .session
+        .log_segment(&final_seg);
+    transcript.push(final_seg);
 
     // Speak it (best-effort; text still shows if TTS is unavailable).
     if let Some(tts_key) = &ctx.tts_key {

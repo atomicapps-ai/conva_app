@@ -45,8 +45,13 @@ export function RehearsalBar() {
 
   const endRehearsal = async () => {
     try {
-      // Route through the app store's stop so ending a rehearsal offers to save
-      // the full transcript (both sides) as a Conversation — same as top-bar Stop.
+      // Mark the saved conversation as a Sim Con so it's identifiable in the
+      // Conversations list, then route through the app store's stop so ending
+      // offers to save the full transcript (both sides) — same as top-bar Stop.
+      const { useConversationStore } = await import("@/state/conversation");
+      if (!useConversationStore.getState().openId) {
+        useConversationStore.getState().setTitle(`Sim Con — ${persona}`);
+      }
       await useAppStore.getState().stop();
     } finally {
       end();

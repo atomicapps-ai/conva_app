@@ -164,6 +164,10 @@ export interface SessionSummary {
   started_at_unix_ms: number;
   segment_count: number;
   preview: string;
+  /** True when this session was a Sim Con rehearsal. */
+  is_rehearsal: boolean;
+  /** The Sim Con title, when this was a rehearsal. */
+  simcon_title: string | null;
 }
 
 /** Mirror of the shell's conversations::Conversation (named saved record). */

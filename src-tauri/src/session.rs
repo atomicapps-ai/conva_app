@@ -75,6 +75,10 @@ pub struct SessionManager {
     /// Epoch-ms the current session started — the shared clock for rehearsal
     /// timestamps so persona/injected turns interleave with spoken turns.
     session_started_ms: AtomicU64,
+    /// Handle to the current session's transcript log, so rehearsal turns that
+    /// bypass the capture sink (persona replies, injected answers) still get
+    /// written to the per-session file — the auto-log stays complete.
+    session_log: Mutex<Option<Arc<Mutex<fs::File>>>>,
 }
 
 /// Which capture topology a session runs.
@@ -83,8 +87,12 @@ enum Mode {
     Live,
     /// Sim Con rehearsal: mic only (the AI is the other party — capturing
     /// system audio would feed its own TTS back in). Finalized user turns are
-    /// forwarded to the rehearsal worker via this sender.
-    Rehearsal { reh_tx: Sender<TranscriptSegment> },
+    /// forwarded to the rehearsal worker via this sender; the Sim Con title
+    /// tags the session log so it's identifiable as a rehearsal.
+    Rehearsal {
+        reh_tx: Sender<TranscriptSegment>,
+        simcon_title: String,
+    },
 }
 
 struct ActiveSession {
@@ -106,6 +114,7 @@ impl SessionManager {
             rehearsal_force: Mutex::new(None),
             rehearsal_inject: Mutex::new(None),
             session_started_ms: AtomicU64::new(0),
+            session_log: Mutex::new(None),
         }
     }
 
@@ -142,10 +151,19 @@ impl SessionManager {
         config: &AppConfig,
         rag: Arc<RagStore>,
         reh_tx: Sender<TranscriptSegment>,
+        simcon_title: String,
     ) -> Result<(String, Arc<AtomicBool>, Arc<AtomicBool>), CoreError> {
         // Keep a clone so "use a suggested answer" can inject a typed turn.
         *self.rehearsal_inject.lock().expect("rehearsal lock") = Some(reh_tx.clone());
-        let (id, stop_flag) = self.start_inner(app, config, rag, Mode::Rehearsal { reh_tx })?;
+        let (id, stop_flag) = self.start_inner(
+            app,
+            config,
+            rag,
+            Mode::Rehearsal {
+                reh_tx,
+                simcon_title,
+            },
+        )?;
         let force_end = Arc::new(AtomicBool::new(false));
         *self.rehearsal_force.lock().expect("rehearsal lock") = Some(force_end.clone());
         Ok((id, stop_flag, force_end))
@@ -166,6 +184,23 @@ impl SessionManager {
     /// Epoch-ms the current session started (rehearsal timeline base).
     pub fn session_started_ms(&self) -> u64 {
         self.session_started_ms.load(Ordering::Relaxed)
+    }
+
+    /// Append a finalized segment to the current session's transcript log.
+    /// Used for rehearsal turns that bypass the capture sink (persona replies,
+    /// injected answers) so the per-session auto-log is complete. No-op if no
+    /// session is active or the segment isn't a non-empty final.
+    pub fn log_segment(&self, segment: &TranscriptSegment) {
+        if !segment.is_final || segment.text.trim().is_empty() {
+            return;
+        }
+        if let Some(file) = self.session_log.lock().expect("log lock").as_ref() {
+            if let Ok(json) = serde_json::to_string(segment) {
+                if let Ok(mut f) = file.lock() {
+                    let _ = writeln!(f, "{json}");
+                }
+            }
+        }
     }
 
     /// Inject a typed user turn into the active rehearsal (from "use a suggested
@@ -255,8 +290,19 @@ impl SessionManager {
         let last_frame = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
 
         // Per-session transcript file (U3): meta line, then one JSON
-        // segment per line. Shared by both sides' sinks.
-        let session_file = Arc::new(Mutex::new(open_session_file(app, &session_id)?));
+        // segment per line. Shared by both sides' sinks. A rehearsal tags the
+        // meta with its Sim Con title so the session is identifiable as one.
+        let rehearsal_title = match &mode {
+            Mode::Rehearsal { simcon_title, .. } => Some(simcon_title.as_str()),
+            Mode::Live => None,
+        };
+        let session_file = Arc::new(Mutex::new(open_session_file(
+            app,
+            &session_id,
+            rehearsal_title,
+        )?));
+        // Expose the log so rehearsal turns bypassing the sink still get written.
+        *self.session_log.lock().expect("log lock") = Some(session_file.clone());
 
         // Commitment & entity tracker (§6.3): best-effort — only when enabled
         // and the fast-slot provider has a usable key. Runs in rehearsals too so
@@ -284,7 +330,7 @@ impl SessionManager {
 
         // Rehearsal forwards finalized user turns to the worker; live doesn't.
         let reh_tx = match &mode {
-            Mode::Rehearsal { reh_tx } => Some(reh_tx.clone()),
+            Mode::Rehearsal { reh_tx, .. } => Some(reh_tx.clone()),
             Mode::Live => None,
         };
         // Rehearsal is mic-only (the AI is the other party); live captures both.
@@ -426,6 +472,7 @@ impl SessionManager {
         // capture stops and its channel disconnects.
         *self.rehearsal_force.lock().expect("rehearsal lock") = None;
         *self.rehearsal_inject.lock().expect("rehearsal lock") = None;
+        *self.session_log.lock().expect("log lock") = None;
         let session = self.active.lock().expect("session lock").take();
         if let Some(mut session) = session {
             // Signal first so the ASR workers skip their final decode.
@@ -587,13 +634,22 @@ fn recordings_dir(app: &AppHandle) -> Result<PathBuf, CoreError> {
     Ok(dir)
 }
 
-fn open_session_file(app: &AppHandle, session_id: &str) -> Result<fs::File, CoreError> {
+fn open_session_file(
+    app: &AppHandle,
+    session_id: &str,
+    rehearsal_title: Option<&str>,
+) -> Result<fs::File, CoreError> {
     let path = sessions_dir(app)?.join(format!("{session_id}.jsonl"));
     let mut file = fs::File::create(path).map_err(|e| CoreError::Audio(e.to_string()))?;
-    let meta = serde_json::json!({
+    let mut meta = serde_json::json!({
         "id": session_id,
         "started_at_unix_ms": now_unix_ms(),
     });
+    // Tag rehearsals so the Sessions list can mark them as Sim Cons.
+    if let Some(title) = rehearsal_title {
+        meta["kind"] = serde_json::Value::String("rehearsal".into());
+        meta["simcon_title"] = serde_json::Value::String(title.to_string());
+    }
     writeln!(file, "{meta}").map_err(|e| CoreError::Audio(e.to_string()))?;
     Ok(file)
 }
@@ -606,6 +662,10 @@ pub struct SessionSummary {
     pub segment_count: u32,
     /// First few words of the conversation, for the list.
     pub preview: String,
+    /// True when this session was a Sim Con rehearsal (tagged in its meta).
+    pub is_rehearsal: bool,
+    /// The Sim Con title, when this was a rehearsal.
+    pub simcon_title: Option<String>,
 }
 
 pub fn list_sessions(app: &AppHandle) -> Result<Vec<SessionSummary>, CoreError> {
@@ -640,6 +700,8 @@ pub fn list_sessions(app: &AppHandle) -> Result<Vec<SessionSummary>, CoreError> 
             started_at_unix_ms: meta["started_at_unix_ms"].as_u64().unwrap_or(0),
             segment_count: segments.len() as u32,
             preview,
+            is_rehearsal: meta["kind"].as_str() == Some("rehearsal"),
+            simcon_title: meta["simcon_title"].as_str().map(|s| s.to_string()),
         });
     }
     sessions.sort_by_key(|s| std::cmp::Reverse(s.started_at_unix_ms));

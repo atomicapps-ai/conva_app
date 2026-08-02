@@ -796,10 +796,11 @@ async fn simcon_start_rehearsal(
     let tts_key = asr_deepgram::load_api_key();
 
     let rag = state.rag.clone();
+    let simcon_title = session.title.clone();
     let (reh_tx, reh_rx) = std::sync::mpsc::channel();
     let (session_id, stop_flag, force_end) = state
         .session
-        .start_rehearsal(&app, &config, rag.clone(), reh_tx)
+        .start_rehearsal(&app, &config, rag.clone(), reh_tx, simcon_title)
         .map_err(|e| e.to_string())?;
 
     let ctx = rehearsal::RehearsalContext {
@@ -848,8 +849,9 @@ fn simcon_rehearsal_say(
         confidence: None,
         latency_ms: 0,
     };
-    // Show it as the user's turn immediately.
+    // Show it as the user's turn immediately + log it (bypasses the sink).
     let _ = app.emit(events::TRANSCRIPT_SEGMENT, segment.clone());
+    state.session.log_segment(&segment);
     if state.session.rehearsal_inject_turn(segment) {
         Ok(())
     } else {
