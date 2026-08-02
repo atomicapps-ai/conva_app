@@ -1,6 +1,7 @@
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useAllyStore } from "@/state/ally";
+import { useAppStore } from "@/state/app";
 import { useRehearsalStore } from "@/state/rehearsal";
 
 /** Three pulsing bars — the "actively speaking" animation for the persona. */
@@ -44,7 +45,9 @@ export function RehearsalBar() {
 
   const endRehearsal = async () => {
     try {
-      await backend.session.stop();
+      // Route through the app store's stop so ending a rehearsal offers to save
+      // the full transcript (both sides) as a Conversation — same as top-bar Stop.
+      await useAppStore.getState().stop();
     } finally {
       end();
     }
