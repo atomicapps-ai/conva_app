@@ -475,7 +475,7 @@ impl RagStore {
                 })
                 .collect()
         });
-        let keep = |entry: &usize| allowed.as_ref().map_or(true, |a| a.contains(entry));
+        let keep = |entry: &usize| allowed.as_ref().is_none_or(|a| a.contains(entry));
 
         // Widen the candidate pool when scoped so filtering still yields k.
         let pool = if allowed.is_some() { k * 12 } else { k * 3 };
