@@ -538,7 +538,7 @@ function AllyCardView({
 
       {!collapsed && !(summary && card.done) && (
         <div
-          className="flex flex-col gap-2.5 px-4 py-3"
+          className="flex max-h-[46vh] flex-col gap-2.5 overflow-y-auto px-4 py-3"
           style={{ fontSize: `${allyFontPx}px` }}
         >
           {card.sourceQuote && (
@@ -556,7 +556,7 @@ function AllyCardView({
             (() => {
               const { answer, context } = splitReasoning(card.text);
               return (
-                <div className="flex flex-col gap-2 text-sm leading-relaxed">
+                <div className="flex flex-col gap-2 leading-relaxed">
                   <AnswerBody text={answer} />
                   <ReasoningBlock text={context} />
                 </div>
