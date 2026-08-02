@@ -45,6 +45,13 @@ export type SessionStateEvent =
   | { state: "paused"; session_id: string }
   | { state: "error"; message: string };
 
+/** Live Sim Con rehearsal phase — drives the speaking/active-speaker UI. */
+export type RehearsalStateEvent =
+  | { phase: "listening" }
+  | { phase: "thinking" }
+  | { phase: "speaking" }
+  | { phase: "ended" };
+
 export interface AllyChunkEvent {
   request_id: string;
   token: string;
@@ -250,6 +257,8 @@ export interface SimConSession {
   personas: SimConPersona[];
   chosen_persona_id: string | null;
   conversation_id: string | null;
+  /** RagDocument id of the Ally-generated prep briefing, once generated. */
+  dossier_doc_id: string | null;
 }
 
 /** Catalog entry for the SimCon list view. */
@@ -288,6 +297,34 @@ export interface ProviderInfo {
 export interface ModelSelection {
   provider: ProviderId;
   model: string;
+}
+
+/* ── Usage metering (mirror of conva_core::metering) ────────────────────────
+   LLM tokens per provider + Tavily search count, for Settings → Usage. On the
+   desktop this is BYO-key visibility; the hosted future turns it into billable
+   credits (roadmap F8b). */
+
+/** Running LLM usage for one provider. */
+export interface ProviderUsage {
+  provider: ProviderId;
+  input_tokens: number;
+  output_tokens: number;
+  requests: number;
+}
+
+/** Usage snapshot with cross-provider running totals. */
+export interface UsageSummary {
+  providers: ProviderUsage[];
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_requests: number;
+  /** Tavily searches (Tavily bills per search, not per token). */
+  tavily_searches: number;
+  /** TTS characters synthesized (Aura bills per character). */
+  tts_characters: number;
+  /** When the current window opened (first record / last reset); 0 = never. */
+  since_unix_ms: number;
+  updated_at_unix_ms: number;
 }
 
 export interface AppConfig {

@@ -33,6 +33,9 @@ export type IconName =
   | "elaborate"
   | "simicon"
   | "edit"
+  | "reasoning"
+  | "summarize"
+  | "more"
   | "trash";
 
 const PATHS: Record<IconName, ReactNode> = {
@@ -73,6 +76,29 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M9 7V5.2A1.7 1.7 0 0 1 10.7 3.5h2.6A1.7 1.7 0 0 1 15 5.2V7" />
       <path d="M6 7l1 12.3A1.7 1.7 0 0 0 8.7 21h6.6A1.7 1.7 0 0 0 17 19.3L18 7" />
       <path d="M10 11v6M14 11v6" />
+    </>
+  ),
+  // Summarize — condensed lines (a short recap).
+  summarize: (
+    <>
+      <path d="M4 6h16M4 10h16M4 14h11M4 18h7" />
+    </>
+  ),
+  // Overflow menu — kebab (three vertical dots).
+  more: (
+    <>
+      <circle cx="12" cy="5" r="1.1" />
+      <circle cx="12" cy="12" r="1.1" />
+      <circle cx="12" cy="19" r="1.1" />
+    </>
+  ),
+  // Reasoning / "thinking" — a thought bubble with an ellipsis (details behind).
+  reasoning: (
+    <>
+      <path d="M5 5.5h11a3 3 0 0 1 3 3v3a3 3 0 0 1-3 3h-5.5L7 18v-3.5H5a3 3 0 0 1-3-3v-3a3 3 0 0 1 3-3z" />
+      <circle cx="8" cy="10" r="0.9" />
+      <circle cx="11.5" cy="10" r="0.9" />
+      <circle cx="15" cy="10" r="0.9" />
     </>
   ),
   // Sessions — clock / history.

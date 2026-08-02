@@ -107,6 +107,7 @@ export function SimConSetup({
         personas: initial?.personas ?? [],
         chosen_persona_id: initial?.chosen_persona_id ?? null,
         conversation_id: initial?.conversation_id ?? null,
+        dossier_doc_id: initial?.dossier_doc_id ?? null,
       });
       // Build the knowledge base (attached docs + research) and mark it ready.
       await backend.simcon.prepare(saved.id);

@@ -197,7 +197,14 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<SimConSession, CoreError> {
         .unwrap_or(now);
 
     let research = if session.auto_generate_context {
-        research(&session).unwrap_or_default()
+        match research(&session) {
+            Ok((sources, searches)) => {
+                // Tavily bills per search — record what we actually issued.
+                crate::metering::record_tavily_search(app, searches);
+                sources
+            }
+            Err(_) => Vec::new(),
+        }
     } else {
         Vec::new()
     };
@@ -277,18 +284,21 @@ fn research_queries(session: &SimConSession) -> Vec<String> {
 }
 
 /// Bounded autonomous web research (Step 2) via Tavily. Returns the sources to
-/// fold into the KnowledgeProfile. No key configured → returns empty (the
-/// profile is docs-only). Failures per query are skipped, never fatal. Runs on a
-/// command thread, never the UI path.
-fn research(session: &SimConSession) -> Result<Vec<ResearchSource>, CoreError> {
+/// fold into the KnowledgeProfile plus the number of Tavily searches issued
+/// (each is one billed search — the caller records it for usage metering). No
+/// key configured → returns empty (the profile is docs-only). Failures per query
+/// are skipped, never fatal. Runs on a command thread, never the UI path.
+fn research(session: &SimConSession) -> Result<(Vec<ResearchSource>, u64), CoreError> {
     let Some(key) = load_tavily_key() else {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), 0));
     };
     let mut out: Vec<ResearchSource> = Vec::new();
+    let mut searches: u64 = 0;
     for query in research_queries(session) {
         if out.len() >= RESEARCH_MAX_SOURCES {
             break;
         }
+        searches += 1;
         let body = serde_json::json!({
             "api_key": key,
             "query": query,
@@ -334,5 +344,5 @@ fn research(session: &SimConSession) -> Result<Vec<ResearchSource>, CoreError> {
             });
         }
     }
-    Ok(out)
+    Ok((out, searches))
 }

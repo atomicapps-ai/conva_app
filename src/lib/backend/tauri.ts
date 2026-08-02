@@ -78,6 +78,7 @@ export class TauriBackend implements ConvaBackend {
     download: cmd.ragDownload,
     syncLibrary: cmd.ragSyncLibrary,
     analyzeTerms: cmd.analyzeTerms,
+    documentText: cmd.ragDocumentText,
   };
 
   secrets = {
@@ -110,10 +111,20 @@ export class TauriBackend implements ConvaBackend {
     delete: cmd.simconDelete,
     storeDocs: cmd.simconStoreDocs,
     prepare: cmd.simconPrepare,
+    loadProfile: cmd.simconLoadProfile,
+    generateDossier: cmd.simconGenerateDossier,
     generatePersonas: cmd.simconGeneratePersonas,
     choosePersona: cmd.simconChoosePersona,
+    startRehearsal: cmd.simconStartRehearsal,
+    rehearsalYourTurn: cmd.simconRehearsalYourTurn,
+    rehearsalSay: cmd.simconRehearsalSay,
     setResearchKey: cmd.setTavilyKey,
     researchKeyStatus: cmd.tavilyKeyStatus,
+  };
+
+  usage = {
+    summary: cmd.usageSummary,
+    reset: cmd.usageReset,
   };
 
   sessions = {
