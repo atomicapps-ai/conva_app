@@ -278,37 +278,177 @@ function HighlightedText({
   );
 }
 
-/** A caret that toggles a bubble/card between collapsed and expanded. */
-function Caret({
-  collapsed,
-  onToggle,
-  label,
+/** Icon menu shown when the user selects text inside a bubble: ask Ally about
+ *  the selection, copy it, or drop it into the Ask-Ally box. */
+function SelectionMenu({
+  x,
+  y,
+  text,
+  onAsk,
+  onSendToAsk,
+  onClose,
 }: {
-  collapsed: boolean;
-  onToggle: () => void;
-  label: string;
+  x: number;
+  y: number;
+  text: string;
+  onAsk: (t: string) => void;
+  onSendToAsk: (t: string) => void;
+  onClose: () => void;
 }) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  const left = Math.max(8, Math.min(x - 52, window.innerWidth - 120));
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={!collapsed}
-      aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
-      title={collapsed ? "Expand" : "Collapse"}
-      className="shrink-0 rounded text-fg-faint transition-colors hover:text-fg"
+    <div
+      style={{ position: "fixed", left, top: y + 6, zIndex: 60 }}
+      onMouseDown={(e) => e.stopPropagation()}
+      role="menu"
+      className="glass-raised flex items-center gap-0.5 rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
     >
-      <Icon
-        name="chevron"
-        size={14}
-        className={`transition-transform ${collapsed ? "-rotate-90" : ""}`}
-      />
-    </button>
+      <button
+        type="button"
+        title="Ask Ally about this"
+        aria-label="Ask Ally about the selection"
+        onClick={() => {
+          onAsk(text);
+          onClose();
+        }}
+        className="rounded p-1.5 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
+      >
+        <Icon name="lightbulb" size={15} />
+      </button>
+      <button
+        type="button"
+        title="Copy"
+        aria-label="Copy the selection"
+        onClick={() => {
+          void navigator.clipboard.writeText(text);
+          onClose();
+        }}
+        className="rounded p-1.5 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+      >
+        <Icon name="copy" size={15} />
+      </button>
+      <button
+        type="button"
+        title="Send to Ask Ally"
+        aria-label="Send the selection to Ask Ally"
+        onClick={() => {
+          onSendToAsk(text);
+          onClose();
+        }}
+        className="rounded p-1.5 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+      >
+        <Icon name="chevron" size={15} className="rotate-90" />
+      </button>
+    </div>
   );
 }
 
-/** One conversation turn = consecutive segments from the same speaker (a new
- *  bubble starts only when the speaker switches). Them = cyan left, you =
- *  violet right; each utterance is its own line; controls sit on the right. */
+/** A collapsed bubble: one dense line, with the full message revealed in a
+ *  readable popup on hover; click pins it open. */
+function CollapsedPreview({ text }: { text: string }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const [pinned, setPinned] = useState(false);
+  const open = () => {
+    if (ref.current) setRect(ref.current.getBoundingClientRect());
+  };
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        onMouseEnter={open}
+        onMouseLeave={() => !pinned && setRect(null)}
+        onClick={() => {
+          setPinned((p) => !p);
+          open();
+        }}
+        className="line-clamp-1 block w-full text-left text-fg-muted"
+      >
+        {text || "…"}
+      </button>
+      {rect && (
+        <div
+          onMouseEnter={open}
+          onMouseLeave={() => !pinned && setRect(null)}
+          style={{
+            position: "fixed",
+            left: Math.max(8, rect.left),
+            top: rect.bottom + 4,
+            maxWidth: "min(620px, 92vw)",
+            zIndex: 40,
+          }}
+          className="glass-raised rounded-lg border border-border px-3 py-2 text-[13px] leading-relaxed text-fg shadow-[var(--shadow-lg)]"
+        >
+          {text}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The expanded content: sentences flow on one continuous line, separated by a
+ *  coloured `|`. Hovering a sentence highlights it and reveals a lightbulb to
+ *  ask Ally about just that sentence; RAG terms stay clickable within. */
+function FlowText({
+  units,
+  terms,
+  onAskText,
+  onAskTerm,
+}: {
+  units: string[];
+  terms: string[];
+  onAskText: (t: string) => void;
+  onAskTerm: (action: TermAction, term: string) => void;
+}) {
+  return (
+    <span className="leading-snug">
+      {units.map((unit, i) => (
+        <span
+          key={i}
+          className="group/u rounded-[3px] px-0.5 transition-colors hover:bg-ai/10"
+        >
+          {i > 0 && (
+            <span className="mx-1 font-bold text-ai/70 select-none" aria-hidden>
+              |
+            </span>
+          )}
+          <HighlightedText text={unit} terms={terms} onAsk={onAskTerm} />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAskText(unit);
+            }}
+            title="Ask Ally about this"
+            aria-label="Ask Ally about this sentence"
+            className="ml-0.5 inline-flex align-middle text-ai/70 opacity-0 transition-opacity hover:text-ai group-hover/u:opacity-100"
+          >
+            <Icon name="lightbulb" size={12} />
+          </button>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** One conversation turn = consecutive segments from the same speaker. Full
+ *  width with a 2px voice-colour accent (cyan = them, violet = you); expanded
+ *  content flows with `|` separators, collapsed content peeks on hover. The
+ *  lightbulb + time sit outside the bubble on the right; the collapse toggle
+ *  floats at the top-centre edge. */
 function Bubble({
   segments,
   turnKey,
@@ -317,11 +457,14 @@ function Bubble({
   collapsed,
   onToggleCollapse,
   onResearch,
+  onAskText,
+  onSendToAsk,
   onAskTerm,
   onContextMenu,
   linkedSeq,
   onJumpLink,
   busy,
+  fontPx,
 }: {
   segments: TranscriptSegment[];
   turnKey: string;
@@ -330,25 +473,34 @@ function Bubble({
   collapsed: boolean;
   onToggleCollapse: () => void;
   onResearch: () => void;
+  onAskText: (text: string) => void;
+  onSendToAsk: (text: string) => void;
   onAskTerm: (action: TermAction, term: string) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   linkedSeq: number | null;
   onJumpLink: () => void;
   busy: boolean;
+  fontPx: number;
 }) {
   const backend = useBackend();
   const inbound = segments[0]?.side === "inbound";
   const finals = segments.filter((s) => s.is_final);
   const hasFinal = finals.length > 0;
   const firstFinal = finals[0];
-  const combinedText = finals.map((s) => s.text).join(" ");
+  const units = finals.map((s) => s.text.trim()).filter(Boolean);
+  const combinedText = units.join(" ");
+  const partialTail = segments
+    .filter((s) => !s.is_final && s.text.trim())
+    .map((s) => s.text.trim())
+    .join(" ");
 
   // RAG-grounded highlight terms for the whole turn (best-effort).
   const [terms, setTerms] = useState<string[]>([]);
   useEffect(() => {
     if (!combinedText || !isTauri()) return;
     let alive = true;
-    void backend.rag.analyzeTerms(combinedText)
+    void backend.rag
+      .analyzeTerms(combinedText)
       .then((t) => alive && setTerms(t))
       .catch(() => {});
     return () => {
@@ -356,86 +508,129 @@ function Bubble({
     };
   }, [combinedText, backend]);
 
+  // Selection → icon menu (ask / copy / send-to-ask).
+  const [sel, setSel] = useState<{ x: number; y: number; text: string } | null>(
+    null,
+  );
+  const onMouseUp = () => {
+    const s = window.getSelection();
+    const text = s?.toString().trim() ?? "";
+    if (!text || !s || s.rangeCount === 0) {
+      setSel(null);
+      return;
+    }
+    const r = s.getRangeAt(0).getBoundingClientRect();
+    setSel({ x: r.left + r.width / 2, y: r.bottom, text });
+  };
+
+  const accent = inbound ? "bg-inbound" : "bg-outbound";
+  const tint = inbound ? "bg-inbound/[0.05]" : "bg-outbound/[0.05]";
+
   return (
     <div
       ref={(el) => registerEl(turnKey, el)}
       onContextMenu={onContextMenu}
-      className={`flex max-w-[92%] items-start gap-2 ${inbound ? "self-start" : "self-end"}`}
+      className="group flex w-full items-start gap-1"
     >
-      {/* Timestamp on the left — replaces the label row above to save height. */}
-      <span className="mt-2.5 shrink-0 font-mono text-[10px] leading-none text-fg-faint">
-        {firstFinal ? formatMs(firstFinal.start_ms) : "now"}
-      </span>
       <div
+        onMouseUp={onMouseUp}
+        style={{ fontSize: `${fontPx}px` }}
         className={[
-          "min-w-0 border px-4 py-2.5 text-sm leading-relaxed transition-shadow",
-          inbound
-            ? "rounded-2xl rounded-bl-[4px] border-inbound/28 bg-inbound/[0.09]"
-            : "rounded-2xl rounded-br-[4px] border-outbound/30 bg-outbound/10",
+          "relative min-w-0 flex-1 rounded-[4px] border border-border py-1.5 pl-2.5 pr-2 transition-shadow",
+          tint,
           !hasFinal ? "border-dashed text-fg-muted" : "",
           highlighted ? "ring-2 ring-ai/60" : "",
         ].join(" ")}
       >
-        <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            {collapsed ? (
-              <span className="line-clamp-1 block">{combinedText || "…"}</span>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {segments.map((s, i) => (
-                  <span
-                    key={`${s.side}-${s.seq}-${i}`}
-                    className={s.is_final ? "" : "text-fg-muted"}
-                  >
-                    {s.is_final && s.text ? (
-                      <HighlightedText
-                        text={s.text}
-                        terms={terms}
-                        onAsk={onAskTerm}
-                      />
-                    ) : (
-                      s.text || (!s.is_final ? "…" : "")
-                    )}
-                  </span>
-                ))}
-              </div>
+        {/* 2px voice-colour accent bar (density law). */}
+        <span
+          className={`absolute inset-y-0 left-0 w-[2px] rounded-l ${accent}`}
+          aria-hidden
+        />
+        {/* Collapse toggle — floats at the top-centre edge (down = collapsed). */}
+        {hasFinal && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-expanded={!collapsed}
+            title={collapsed ? "Expand" : "Collapse"}
+            aria-label={collapsed ? "Expand turn" : "Collapse turn"}
+            className="absolute left-1/2 top-0 z-10 grid h-[15px] w-[15px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-panel text-fg-faint transition-colors hover:text-fg"
+          >
+            <Icon
+              name="chevron"
+              size={12}
+              strokeWidth={2.4}
+              className={collapsed ? "" : "rotate-180"}
+            />
+          </button>
+        )}
+
+        {collapsed ? (
+          <CollapsedPreview text={combinedText} />
+        ) : (
+          <div className="min-w-0">
+            {units.length > 0 && (
+              <FlowText
+                units={units}
+                terms={terms}
+                onAskText={onAskText}
+                onAskTerm={onAskTerm}
+              />
+            )}
+            {partialTail && (
+              <span className="text-fg-muted">
+                {units.length > 0 ? " " : ""}
+                {partialTail}…
+              </span>
+            )}
+            {units.length === 0 && !partialTail && (
+              <span className="text-fg-muted">…</span>
             )}
           </div>
-          {hasFinal && (
-            <div className="flex shrink-0 items-center gap-0.5 self-center">
-              {/* Ask Ally — the lightbulb initiates the AI response for the turn. */}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onResearch}
-                title="Ask Ally"
-                aria-label="Ask Ally about this turn"
-                className="rounded p-1 text-ai/70 transition-colors hover:bg-ai/10 hover:text-ai disabled:opacity-40"
-              >
-                <Icon name="lightbulb" size={16} />
-              </button>
-              {/* Jump to the linked Ally card, if any (icon + number, no label). */}
-              {linkedSeq !== null && (
-                <button
-                  type="button"
-                  onClick={onJumpLink}
-                  title={`Jump to Ally card A${linkedSeq}`}
-                  aria-label={`Jump to Ally card ${linkedSeq}`}
-                  className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-bold text-ai transition-colors hover:bg-ai/10"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-ai" />
-                  A{linkedSeq}
-                </button>
-              )}
-              <Caret
-                collapsed={collapsed}
-                onToggle={onToggleCollapse}
-                label={inbound ? "received turn" : "sent turn"}
-              />
-            </div>
+        )}
+
+        {sel && (
+          <SelectionMenu
+            x={sel.x}
+            y={sel.y}
+            text={sel.text}
+            onAsk={onAskText}
+            onSendToAsk={onSendToAsk}
+            onClose={() => setSel(null)}
+          />
+        )}
+      </div>
+
+      {/* Outside-right controls: lightbulb (top), time (under), jump link. */}
+      {hasFinal && (
+        <div className="flex w-7 shrink-0 flex-col items-center gap-0.5 pt-0.5">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onResearch}
+            title="Ask Ally about this turn"
+            aria-label="Ask Ally about this turn"
+            className="rounded p-1 text-ai/70 transition-colors hover:bg-ai/10 hover:text-ai disabled:opacity-40"
+          >
+            <Icon name="lightbulb" size={15} />
+          </button>
+          <span className="font-mono text-[9px] leading-none text-fg-faint">
+            {firstFinal ? formatMs(firstFinal.start_ms) : "now"}
+          </span>
+          {linkedSeq !== null && (
+            <button
+              type="button"
+              onClick={onJumpLink}
+              title={`Jump to Ally card A${linkedSeq}`}
+              aria-label={`Jump to Ally card ${linkedSeq}`}
+              className="flex items-center gap-0.5 rounded px-0.5 text-[9px] font-bold text-ai transition-colors hover:bg-ai/10"
+            >
+              <span className="h-1 w-1 rounded-full bg-ai" />A{linkedSeq}
+            </button>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -795,6 +990,8 @@ export function TranscriptView() {
   const bumpAllyFont = useUiPrefs((s) => s.bumpAllyFont);
   const reasoningDefaultOpen = useUiPrefs((s) => s.reasoningDefaultOpen);
   const setReasoningDefaultOpen = useUiPrefs((s) => s.setReasoningDefaultOpen);
+  const transcriptFontPx = useUiPrefs((s) => s.transcriptFontPx);
+  const bumpTranscriptFont = useUiPrefs((s) => s.bumpTranscriptFont);
   const [allyMenu, setAllyMenu] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -841,6 +1038,25 @@ export function TranscriptView() {
     }
     return out;
   }, [merged]);
+
+  // Default-collapse the user's own ("you") turns — you rarely re-read your own
+  // words. Each key is seeded once, so re-expanding one sticks.
+  const seededYou = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const fresh = turns.filter(
+      (t) => t.side === "outbound" && !seededYou.current.has(t.key),
+    );
+    if (fresh.length === 0) return;
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      fresh.forEach((t) => {
+        next.add(t.key);
+        seededYou.current.add(t.key);
+      });
+      return next;
+    });
+  }, [turns]);
+
   const convo = useAutoScroll(merged[merged.length - 1]);
   const allyCol = useAutoScroll(cards[0]?.id);
 
@@ -1028,6 +1244,15 @@ export function TranscriptView() {
     [request],
   );
 
+  // Ask Ally about an arbitrary slice (a sentence unit or a text selection).
+  const askText = useCallback(
+    (text: string) =>
+      void request("question", researchPrompt(text), { key: "", quote: text }),
+    [request],
+  );
+  // Drop a selection into the Ask-Ally box so the user can build a question.
+  const sendToAsk = useCallback((text: string) => setAsk(text), []);
+
   const submitAsk = () => {
     const q = ask.trim();
     if (!q) return;
@@ -1192,6 +1417,28 @@ export function TranscriptView() {
                 ✦ Ally{cards.length > 0 ? ` ${cards.length}` : ""}
               </button>
             )}
+            {/* Transcript text size. */}
+            <button
+              type="button"
+              onClick={() => bumpTranscriptFont(-1)}
+              disabled={transcriptFontPx <= ALLY_FONT_MIN}
+              title="Smaller transcript text"
+              aria-label="Smaller transcript text"
+              className="rounded px-1 text-[11px] font-semibold hover:text-fg disabled:opacity-30"
+            >
+              A−
+            </button>
+            <button
+              type="button"
+              onClick={() => bumpTranscriptFont(1)}
+              disabled={transcriptFontPx >= ALLY_FONT_MAX}
+              title="Larger transcript text"
+              aria-label="Larger transcript text"
+              className="rounded px-1 text-[13px] font-semibold hover:text-fg disabled:opacity-30"
+            >
+              A+
+            </button>
+            <span className="mx-0.5 h-4 w-px bg-border" />
             <button
               type="button"
               onClick={expandAll}
@@ -1237,7 +1484,7 @@ export function TranscriptView() {
             convo.onScroll();
             bump();
           }}
-          className={`flex flex-1 flex-col gap-3.5 overflow-y-auto px-5 py-5${barPad}`}
+          className={`flex flex-1 flex-col gap-2 overflow-y-auto px-2 py-3${barPad}`}
           role="log"
           aria-live="polite"
           aria-label="Conversation transcript"
@@ -1273,11 +1520,14 @@ export function TranscriptView() {
                   collapsed={collapsed.has(key)}
                   onToggleCollapse={() => toggleCollapse(key)}
                   onResearch={() => research(repSeg)}
+                  onAskText={askText}
+                  onSendToAsk={sendToAsk}
                   onAskTerm={askTerm}
                   onContextMenu={(e) => bubbleMenu(e, repSeg)}
                   linkedSeq={link ? link.seq : null}
                   onJumpLink={() => link && inspect(link.id, key)}
                   busy={busy}
+                  fontPx={transcriptFontPx}
                 />
               );
             })

@@ -36,6 +36,7 @@ export type IconName =
   | "reasoning"
   | "summarize"
   | "more"
+  | "copy"
   | "trash";
 
 const PATHS: Record<IconName, ReactNode> = {
@@ -82,6 +83,13 @@ const PATHS: Record<IconName, ReactNode> = {
   summarize: (
     <>
       <path d="M4 6h16M4 10h16M4 14h11M4 18h7" />
+    </>
+  ),
+  // Copy — two overlapping sheets.
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
     </>
   ),
   // Overflow menu — kebab (three vertical dots).

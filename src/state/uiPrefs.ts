@@ -6,28 +6,34 @@ import { create } from "zustand";
  * collapsible reasoning block starts open.
  */
 const FONT_KEY = "conva.ally.fontPx";
+const TRANSCRIPT_FONT_KEY = "conva.transcript.fontPx";
 const REASONING_KEY = "conva.ally.reasoningOpen";
 const FONT_MIN = 11;
 const FONT_MAX = 20;
 const FONT_DEFAULT = 14;
+const TRANSCRIPT_FONT_DEFAULT = 12;
 
-function loadFont(): number {
-  const v = Number(localStorage.getItem(FONT_KEY));
-  return v >= FONT_MIN && v <= FONT_MAX ? v : FONT_DEFAULT;
+function loadFont(key: string, fallback: number): number {
+  const v = Number(localStorage.getItem(key));
+  return v >= FONT_MIN && v <= FONT_MAX ? v : fallback;
 }
 
 interface UiPrefs {
   /** Ally research text size, in px. */
   allyFontPx: number;
+  /** Transcript (conversation bubble) text size, in px. */
+  transcriptFontPx: number;
   /** Whether the reasoning ("thinking") block starts expanded. */
   reasoningDefaultOpen: boolean;
   setAllyFontPx: (px: number) => void;
   bumpAllyFont: (delta: number) => void;
+  bumpTranscriptFont: (delta: number) => void;
   setReasoningDefaultOpen: (open: boolean) => void;
 }
 
 export const useUiPrefs = create<UiPrefs>((set) => ({
-  allyFontPx: loadFont(),
+  allyFontPx: loadFont(FONT_KEY, FONT_DEFAULT),
+  transcriptFontPx: loadFont(TRANSCRIPT_FONT_KEY, TRANSCRIPT_FONT_DEFAULT),
   reasoningDefaultOpen: localStorage.getItem(REASONING_KEY) === "1",
 
   setAllyFontPx: (px) => {
@@ -40,6 +46,15 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
       const clamped = Math.max(FONT_MIN, Math.min(FONT_MAX, s.allyFontPx + delta));
       localStorage.setItem(FONT_KEY, String(clamped));
       return { allyFontPx: clamped };
+    }),
+  bumpTranscriptFont: (delta) =>
+    set((s) => {
+      const clamped = Math.max(
+        FONT_MIN,
+        Math.min(FONT_MAX, s.transcriptFontPx + delta),
+      );
+      localStorage.setItem(TRANSCRIPT_FONT_KEY, String(clamped));
+      return { transcriptFontPx: clamped };
     }),
   setReasoningDefaultOpen: (open) => {
     localStorage.setItem(REASONING_KEY, open ? "1" : "0");
