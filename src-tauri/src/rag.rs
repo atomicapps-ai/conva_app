@@ -457,6 +457,7 @@ impl RagStore {
         k: usize,
         scope: Option<&[String]>,
     ) -> Vec<ScoredChunk> {
+        let started = std::time::Instant::now();
         let inner = self.inner.read().expect("rag lock");
         let Some(index) = &inner.index else {
             return Vec::new();
@@ -511,7 +512,7 @@ impl RagStore {
             _ => conva_core::fuse::rrf_fuse(&[lexical], k),
         };
 
-        fused
+        let out: Vec<ScoredChunk> = fused
             .into_iter()
             .filter_map(|(entry_index, score)| {
                 let entry = inner.entries.get(entry_index)?;
@@ -525,7 +526,13 @@ impl RagStore {
                     score,
                 })
             })
-            .collect()
+            .collect();
+        crate::trace::record(
+            "rag",
+            started.elapsed().as_millis() as u64,
+            serde_json::json!({ "k": k, "hits": out.len(), "scoped": scope.is_some() }),
+        );
+        out
     }
 
     /// Reconstruct a document's full text (its chunks joined) — used to show an

@@ -131,6 +131,7 @@ fn run_extraction(
     }
 
     let mut reply = String::new();
+    let t0 = Instant::now();
     let result = crate::llm::stream_completion(
         selection.provider,
         api_key,
@@ -139,7 +140,20 @@ fn run_extraction(
         &mut |token| reply.push_str(token),
     );
     match result {
-        Ok(usage) => crate::metering::record_llm(app, selection.provider, usage),
+        Ok(usage) => {
+            crate::metering::record_llm(app, selection.provider, usage);
+            crate::trace::record(
+                "llm",
+                t0.elapsed().as_millis() as u64,
+                serde_json::json!({
+                    "kind": "tracker",
+                    "provider": crate::trace::provider_label(selection.provider),
+                    "model": selection.model.clone(),
+                    "in": usage.input_tokens,
+                    "out": usage.output_tokens,
+                }),
+            );
+        }
         Err(_) => return, // best-effort: skip this pass
     }
     let Some(extraction) = parse_tracker_reply(&reply) else {

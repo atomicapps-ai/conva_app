@@ -31,6 +31,7 @@ pub fn speak(api_key: &str, text: &str) -> Result<(), CoreError> {
     }
 
     // 1. Fetch raw PCM (mono s16le @ AURA_RATE).
+    let synth_started = Instant::now();
     let url = format!(
         "https://api.deepgram.com/v1/speak?model={AURA_MODEL}&encoding=linear16&sample_rate={AURA_RATE}&container=none"
     );
@@ -44,6 +45,7 @@ pub fn speak(api_key: &str, text: &str) -> Result<(), CoreError> {
     resp.into_reader()
         .read_to_end(&mut bytes)
         .map_err(|e| CoreError::Audio(format!("aura read: {e}")))?;
+    let synth_ms = synth_started.elapsed().as_millis() as u64;
     if bytes.len() < 2 {
         return Err(CoreError::Audio("aura returned no audio".into()));
     }
@@ -122,7 +124,17 @@ pub fn speak(api_key: &str, text: &str) -> Result<(), CoreError> {
         std::thread::sleep(Duration::from_millis(20));
     }
     std::thread::sleep(Duration::from_millis(80));
+    let play_ms = started.elapsed().as_millis() as u64;
     drop(stream);
+    crate::trace::record(
+        "tts",
+        synth_started.elapsed().as_millis() as u64,
+        serde_json::json!({
+            "chars": text.chars().count(),
+            "synth_ms": synth_ms,
+            "play_ms": play_ms,
+        }),
+    );
     Ok(())
 }
 

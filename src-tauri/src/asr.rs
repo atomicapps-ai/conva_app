@@ -249,10 +249,19 @@ fn decode_loop(
                 continue;
             }
             if is_final {
+                let decode_ms = decode_started.elapsed().as_millis() as u64;
                 eprintln!(
-                    "[asr {side:?}] final: {} chars in {} ms decode",
-                    text.len(),
-                    decode_started.elapsed().as_millis()
+                    "[asr {side:?}] final: {} chars in {decode_ms} ms decode",
+                    text.len()
+                );
+                crate::trace::record(
+                    "stt",
+                    decode_ms,
+                    serde_json::json!({
+                        "side": format!("{side:?}").to_lowercase(),
+                        "chars": text.len(),
+                        "audio_ms": input.len() as u64 * 1000 / TARGET_SAMPLE_RATE_HZ as u64,
+                    }),
                 );
             }
             let end_ms = consumed_samples * 1000 / TARGET_SAMPLE_RATE_HZ as u64;

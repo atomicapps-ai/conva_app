@@ -202,18 +202,36 @@ fn respond(
     };
 
     let mut reply = String::new();
+    let t0 = std::time::Instant::now();
+    let mut first_ms: Option<u64> = None;
     let result = crate::llm::stream_completion(
         ctx.selection.provider,
         &ctx.llm_key,
         &ctx.selection.model,
         &request,
         &mut |tok| {
+            first_ms.get_or_insert_with(|| t0.elapsed().as_millis() as u64);
             reply.push_str(tok);
             emit(&reply, false);
         },
     );
     match result {
-        Ok(usage) => crate::metering::record_llm(app, ctx.selection.provider, usage),
+        Ok(usage) => {
+            crate::metering::record_llm(app, ctx.selection.provider, usage);
+            let total_ms = t0.elapsed().as_millis() as u64;
+            crate::trace::record(
+                "llm",
+                total_ms,
+                serde_json::json!({
+                    "kind": "persona",
+                    "provider": crate::trace::provider_label(ctx.selection.provider),
+                    "model": ctx.selection.model.clone(),
+                    "first_token_ms": first_ms.unwrap_or(total_ms),
+                    "in": usage.input_tokens,
+                    "out": usage.output_tokens,
+                }),
+            );
+        }
         Err(e) => {
             emit(&format!("(couldn't respond: {e})"), true);
             return;

@@ -20,6 +20,7 @@ mod rehearsal;
 mod secrets;
 mod session;
 mod simcon;
+mod trace;
 mod tracker;
 mod tts;
 mod vad_silero;
@@ -1069,6 +1070,9 @@ fn ally(
             let web_enabled =
                 selection.provider == ProviderId::Anthropic && simcon::load_tavily_key().is_some();
 
+            // Latency trace: time to first token + total.
+            let t0 = std::time::Instant::now();
+            let mut first_ms: Option<u64> = None;
             let result = if web_enabled {
                 let tools = ally_web_tools();
                 let mut run_tool = |name: &str, input: &serde_json::Value| -> String {
@@ -1079,7 +1083,10 @@ fn ally(
                     &selection.model,
                     &request,
                     &tools,
-                    &mut |token| emit(token, false, None),
+                    &mut |token| {
+                        first_ms.get_or_insert_with(|| t0.elapsed().as_millis() as u64);
+                        emit(token, false, None);
+                    },
                     &mut run_tool,
                     2,
                 )
@@ -1089,12 +1096,28 @@ fn ally(
                     &key,
                     &selection.model,
                     &request,
-                    &mut |token| emit(token, false, None),
+                    &mut |token| {
+                        first_ms.get_or_insert_with(|| t0.elapsed().as_millis() as u64);
+                        emit(token, false, None);
+                    },
                 )
             };
             match result {
                 Ok(usage) => {
                     metering::record_llm(&app, selection.provider, usage);
+                    let total_ms = t0.elapsed().as_millis() as u64;
+                    trace::record(
+                        "llm",
+                        total_ms,
+                        serde_json::json!({
+                            "kind": "ally",
+                            "provider": trace::provider_label(selection.provider),
+                            "model": selection.model.clone(),
+                            "first_token_ms": first_ms.unwrap_or(total_ms),
+                            "in": usage.input_tokens,
+                            "out": usage.output_tokens,
+                        }),
+                    );
                     emit("", true, None)
                 }
                 Err(e) => emit("", true, Some(e.to_string())),
@@ -1177,6 +1200,9 @@ pub fn run() {
                 .app_data_dir()
                 .expect("app data dir must resolve");
             let rag = Arc::new(RagStore::open(&data_dir).expect("open rag store"));
+
+            // Performance tracing → <app-data>/perf.jsonl (+ [perf] stderr lines).
+            trace::init(data_dir.join("perf.jsonl"));
 
             // Seed API keys from a committed encrypted secrets file when the
             // passphrase env var is set (fills only missing keys). Lets keys
