@@ -90,6 +90,9 @@ export interface AllySourcesEvent {
   sources: AllySource[];
 }
 
+/** Mirror of conva-core rag::DocSource — a library document's provenance. */
+export type DocSource = "file" | "pasted" | "generated";
+
 /** Mirror of conva-core rag::RagDocument. */
 export interface RagDocument {
   id: string;
@@ -97,6 +100,9 @@ export interface RagDocument {
   enabled: boolean;
   chunk_count: number;
   ingested_at_unix_ms: number;
+  source: DocSource;
+  /** Conversation Context ids this document is attached to. */
+  context_ids: string[];
 }
 
 export interface IngestReport {
@@ -273,6 +279,8 @@ export interface SimConSession {
 }
 
 /** Catalog entry for the SimCon list view. */
+/** Catalog entry for the Contexts list — carries enough to render the
+ * readiness checklist without loading the full session per row. */
 export interface SimConSummary {
   id: string;
   title: string;
@@ -280,6 +288,11 @@ export interface SimConSummary {
   status: SimConStatus;
   created_at_unix_ms: number;
   updated_at_unix_ms: number;
+  source_doc_count: number;
+  has_key_terms: boolean;
+  research_enabled: boolean;
+  has_job_description: boolean;
+  has_generated_resources: boolean;
 }
 
 export type ModelStatusEvent =

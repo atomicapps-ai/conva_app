@@ -127,6 +127,8 @@ export class WebBackend implements ConvaBackend {
     list: (): Promise<RagDocument[]> => todo("GET /v1/library"),
     setEnabled: (): Promise<void> => todo("PATCH /v1/library/:id"),
     delete: (): Promise<void> => todo("DELETE /v1/library/:id"),
+    attachContext: (): Promise<void> => todo("PATCH /v1/library/:id (context_ids)"),
+    detachContext: (): Promise<void> => todo("PATCH /v1/library/:id (context_ids)"),
     download: (): Promise<void> => unsupported("rag.download (file path)"),
     syncLibrary: (): Promise<string> => unsupported("rag.syncLibrary (git)"),
     analyzeTerms: (): Promise<string[]> => Promise.resolve([]),

@@ -144,6 +144,18 @@ export function ragDelete(id: string): Promise<void> {
   return invoke("rag_delete", { id });
 }
 
+/** Tag a library document as grounding a Conversation Context (drag-attach).
+ *  Also fold `contextId` into the context's own `source_doc_ids` via
+ *  `simconSave` — this only updates the library-side tag/badge. */
+export function ragAttachContext(id: string, contextId: string): Promise<void> {
+  return invoke("rag_attach_context", { id, contextId });
+}
+
+/** Remove a document's tag for a Conversation Context. See {@link ragAttachContext}. */
+export function ragDetachContext(id: string, contextId: string): Promise<void> {
+  return invoke("rag_detach_context", { id, contextId });
+}
+
 /** Download a document back to `dest` (original file, or reconstructed text). */
 export function ragDownload(id: string, dest: string): Promise<void> {
   return invoke("rag_download", { id, dest });

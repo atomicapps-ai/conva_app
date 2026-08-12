@@ -117,6 +117,10 @@ export interface ConvaBackend {
     list(): Promise<RagDocument[]>;
     setEnabled(id: string, enabled: boolean): Promise<void>;
     delete(id: string): Promise<void>;
+    /** Tag a document as grounding a Conversation Context (drag-attach). */
+    attachContext(id: string, contextId: string): Promise<void>;
+    /** Remove a document's tag for a Conversation Context. */
+    detachContext(id: string, contextId: string): Promise<void>;
     /** Desktop-only: write a doc back to a path. Web → download via browser. */
     download(id: string, dest: string): Promise<void>;
     /** Desktop-only: copy library originals into the repo `library/` folder. */

@@ -186,7 +186,9 @@ pub struct SimConSession {
 }
 
 /// Catalog entry for the SimCon list view (cheap to list without loading the
-/// full record + personas).
+/// full record + personas). Carries just enough to render the Conversation
+/// Context list row's readiness checklist without an extra load per row (the
+/// "at least one grounding source" gate — Conversation Context UI design).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SimConSummary {
     pub id: String,
@@ -195,6 +197,21 @@ pub struct SimConSummary {
     pub status: SimConStatus,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
+    /// Number of library documents attached at setup.
+    #[serde(default)]
+    pub source_doc_count: u32,
+    /// Whether the user declared any key terms.
+    #[serde(default)]
+    pub has_key_terms: bool,
+    /// Whether web research is enabled for this context.
+    #[serde(default)]
+    pub research_enabled: bool,
+    /// Whether a job description is attached (Interview-only relevance).
+    #[serde(default)]
+    pub has_job_description: bool,
+    /// Whether the Context Digest has been generated at least once.
+    #[serde(default)]
+    pub has_generated_resources: bool,
 }
 
 impl SimConCategory {

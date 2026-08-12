@@ -1,0 +1,223 @@
+import { useState } from "react";
+
+import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
+import { readinessOf } from "@/components/contexts/readiness";
+import { Icon } from "@/components/ui/Icon";
+import type { SimConCategory, SimConStatus, SimConSummary } from "@/lib/ipc";
+import { isDesktop } from "@/lib/platform";
+
+const CATEGORY_LABEL: Record<SimConCategory, string> = {
+  interview: "Interview",
+  company_meeting: "Company meeting",
+  sales_call: "Sales call",
+  other: "Other",
+};
+
+const STATUS_LABEL: Record<SimConStatus, string> = {
+  draft: "Draft",
+  ingesting: "Preparing…",
+  ready: "Ready",
+  running: "Running",
+  ended: "Ended",
+};
+
+const STATUS_TONE: Record<SimConStatus, string> = {
+  draft: "border-border-strong text-fg-faint",
+  ingesting: "border-outbound/50 bg-outbound/[0.12] text-fg",
+  ready: "border-ok/50 bg-ok/10 text-ok",
+  running: "border-outbound/50 bg-outbound/[0.12] text-fg",
+  ended: "border-border text-fg-faint",
+};
+
+/** One checklist line — a check, or an advisory warning (never blocks). */
+function ChecklistLine({ ok, label, advisory }: { ok: boolean; label: string; advisory?: boolean }) {
+  return (
+    <p className="flex items-center gap-1.5 text-[11px] text-fg-muted">
+      <Icon
+        name={ok ? "check" : advisory ? "lightbulb" : "close"}
+        size={12}
+        className={ok ? "text-ok" : advisory ? "text-fg-faint" : "text-rec"}
+      />
+      {label}
+    </p>
+  );
+}
+
+/**
+ * The Contexts pane of the unified Contexts & Library page. Rows are drop
+ * targets for a library row's drag payload (attach-by-drag); a Draft row
+ * shows its readiness checklist inline so "why is Generate disabled" is
+ * always visible. `onGenerate`/`onAttach` are async — the pane owns only the
+ * per-row busy/drag-over UI state, not the mutation itself.
+ */
+export function ContextsPane({
+  items,
+  selectedId,
+  onSelect,
+  onNew,
+  onOpen,
+  onEdit,
+  onDelete,
+  onAttach,
+  onGenerate,
+  generatingId,
+}: {
+  items: SimConSummary[];
+  selectedId: string | null;
+  /** Focus this context in the library pane (filter + attach target) — does
+   *  not navigate. */
+  onSelect: (id: string) => void;
+  /** Drill into the context's detail (personas / rehearse). */
+  onOpen: (id: string) => void;
+  onNew: () => void;
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+  onAttach: (contextId: string, docId: string) => void;
+  onGenerate: (contextId: string) => void;
+  generatingId: string | null;
+}) {
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  return (
+    <div className="card flex min-h-0 flex-col p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
+          Conversation contexts
+        </h3>
+        {isDesktop && (
+          <button
+            type="button"
+            onClick={onNew}
+            className="btn btn-primary px-2 py-1 text-[11px]"
+          >
+            <Icon name="simicon" size={13} />
+            New
+          </button>
+        )}
+      </div>
+
+      {items.length === 0 ? (
+        <p className="px-1 py-6 text-center text-[11px] leading-relaxed text-fg-faint">
+          Create a context to prep Ally for an interview, meeting, or call —
+          ground it in your library, then generate its own briefing.
+        </p>
+      ) : (
+        <ul className="min-h-0 flex-1 overflow-y-auto">
+          {items.map((s) => {
+            const readiness = readinessOf(s);
+            const isGenerating = generatingId === s.id;
+            const dragOver = dragOverId === s.id;
+            return (
+              <li
+                key={s.id}
+                onDragOver={(e) => {
+                  if (e.dataTransfer.types.includes(DOC_DRAG_MIME)) {
+                    e.preventDefault();
+                    setDragOverId(s.id);
+                  }
+                }}
+                onDragLeave={() => setDragOverId((id) => (id === s.id ? null : id))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOverId(null);
+                  const docId = e.dataTransfer.getData(DOC_DRAG_MIME);
+                  if (docId) onAttach(s.id, docId);
+                }}
+                className={[
+                  "mb-1.5 rounded-md border p-2 transition last:mb-0",
+                  dragOver
+                    ? "border-ai/60 bg-ai/[0.06]"
+                    : selectedId === s.id
+                      ? "border-outbound/40 bg-outbound/[0.06]"
+                      : "border-border",
+                ].join(" ")}
+              >
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onSelect(s.id)}
+                    title="Focus this context in the library"
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <p className="truncate text-[13px] font-semibold text-fg">{s.title}</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(s.id)}
+                    aria-label={`Open ${s.title}`}
+                    title="Open"
+                    className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                  >
+                    <Icon name="chevron" size={13} className="-rotate-90" />
+                  </button>
+                  <span className="shrink-0 rounded-full border border-border-strong px-1.5 py-0.5 text-[10px] text-fg-faint">
+                    {CATEGORY_LABEL[s.category]}
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] ${STATUS_TONE[s.status]}`}
+                  >
+                    {isGenerating ? "Generating…" : STATUS_LABEL[s.status]}
+                  </span>
+                </div>
+
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="text-[11px] text-fg-faint">
+                    {s.source_doc_count} doc{s.source_doc_count === 1 ? "" : "s"}
+                    {s.has_generated_resources ? " · generated" : ""}
+                  </span>
+                  <span className="flex-1" />
+                  <button
+                    type="button"
+                    disabled={!readiness.canGenerate || isGenerating}
+                    onClick={() => onGenerate(s.id)}
+                    title={
+                      readiness.canGenerate
+                        ? "Generate resources"
+                        : "Add a document, key terms, or enable research first"
+                    }
+                    aria-label={`Generate resources for ${s.title}`}
+                    className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
+                  >
+                    <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
+                      <Icon name="sparkle" size={14} />
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onEdit(s.id)}
+                    aria-label="Edit setup"
+                    title="Edit setup"
+                    className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                  >
+                    <Icon name="edit" size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(s.id)}
+                    aria-label="Delete"
+                    title="Delete"
+                    className="rounded-sm p-1 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
+                  >
+                    <Icon name="trash" size={13} />
+                  </button>
+                </div>
+
+                {s.status === "draft" && (
+                  <div className="mt-1.5 flex flex-col gap-0.5 border-t border-border pt-1.5">
+                    {readiness.checks.map((c) => (
+                      <ChecklistLine key={c.label} {...c} />
+                    ))}
+                  </div>
+                )}
+
+                {dragOver && (
+                  <p className="mt-1 text-[10px] font-semibold text-ai">Drop to attach</p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
