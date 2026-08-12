@@ -12,6 +12,9 @@ import type {
   AuthStatus,
   Conversation,
   ConversationSummary,
+  KnowledgeProfile,
+  SimConSession,
+  SimConSummary,
   IngestReport,
   ModelInfo,
   ProviderId,
@@ -21,6 +24,7 @@ import type {
   SecretsStatus,
   SessionSummary,
   TranscriptSegment,
+  UsageSummary,
   WhisperModelInfo,
 } from "@/lib/ipc";
 
@@ -186,6 +190,32 @@ export function analyzeTerms(text: string): Promise<string[]> {
   return invoke<string[]>("analyze_terms", { text });
 }
 
+/** Record 👍/👎 on a highlight term: "up" boosts, "down" suppresses, null
+ *  clears. Persisted on-device and applied to future highlighting (Phase 4). */
+export function recordHighlightFeedback(
+  term: string,
+  signal: "up" | "down" | null,
+): Promise<void> {
+  return invoke<void>("record_highlight_feedback", { term, signal });
+}
+
+/** Record an implicit 👍 — the user researched `term`. Repeated research
+ *  auto-boosts it for future highlighting (Phase 4b). */
+export function recordTermPick(term: string): Promise<void> {
+  return invoke<void>("record_term_pick", { term });
+}
+
+/** Test seam: inject a transcript segment (no audio) to drive the transcript UI
+ *  + highlighting pipeline for E2E. No-op unless the app was launched with the
+ *  CONVA_TEST_SEAM env var set. `side` is "inbound" (them) or "outbound" (you). */
+export function debugInjectSegment(
+  side: "inbound" | "outbound",
+  text: string,
+  isFinal = true,
+): Promise<void> {
+  return invoke<void>("debug_inject_segment", { side, text, isFinal });
+}
+
 /** Sign in with email + password (same account as Google / the website). */
 export function authSigninPassword(
   email: string,
@@ -246,6 +276,102 @@ export function conversationLoad(id: string): Promise<Conversation> {
 
 export function conversationDelete(id: string): Promise<void> {
   return invoke("conversation_delete", { id });
+}
+
+/* ── SimCon (Simulated Conversation) ── */
+
+/** Create or update a SimCon. An empty `id` mints a new record. */
+export function simconSave(session: SimConSession): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_save", { session });
+}
+
+export function simconList(): Promise<SimConSummary[]> {
+  return invoke<SimConSummary[]>("simcon_list");
+}
+
+export function simconLoad(id: string): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_load", { id });
+}
+
+export function simconDelete(id: string): Promise<void> {
+  return invoke("simcon_delete", { id });
+}
+
+/** Copy documents into a Sim Con's folder (named after its title); returns the
+ *  new in-folder paths to ingest into the RAG library. */
+export function simconStoreDocs(
+  title: string,
+  paths: string[],
+): Promise<string[]> {
+  return invoke<string[]>("simcon_store_docs", { title, paths });
+}
+
+/** Build the reusable KnowledgeProfile (docs + research) and mark the Sim Con
+ *  ready; returns the updated session. */
+export function simconPrepare(id: string): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_prepare", { id });
+}
+
+/** Load a Sim Con's knowledge base (attached docs + researched sources). */
+export function simconLoadProfile(profileId: string): Promise<KnowledgeProfile> {
+  return invoke<KnowledgeProfile>("simcon_load_profile", { profileId });
+}
+
+/** Generate the Ally prep dossier (saved to the library); returns the session. */
+export function simconGenerateDossier(id: string): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_generate_dossier", { id });
+}
+
+/** Reconstruct a library document's text (e.g. to show the prep dossier). */
+export function ragDocumentText(id: string): Promise<string | null> {
+  return invoke<string | null>("rag_document_text", { id });
+}
+
+/** Generate 3 counterparty personas with the configured LLM. */
+export function simconGeneratePersonas(id: string): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_generate_personas", { id });
+}
+
+/** Record the chosen persona. */
+export function simconChoosePersona(
+  id: string,
+  personaId: string,
+): Promise<SimConSession> {
+  return invoke<SimConSession>("simcon_choose_persona", { id, personaId });
+}
+
+/** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
+export function simconStartRehearsal(id: string): Promise<string> {
+  return invoke<string>("simcon_start_rehearsal", { id });
+}
+
+/** End the user's current rehearsal turn now (manual "your turn"). */
+export function simconRehearsalYourTurn(): Promise<void> {
+  return invoke("simcon_rehearsal_your_turn");
+}
+
+/** Inject a typed turn (e.g. an Ally-suggested answer) as the user's turn. */
+export function simconRehearsalSay(text: string): Promise<void> {
+  return invoke("simcon_rehearsal_say", { text });
+}
+
+/** Store (empty clears) the Tavily web-research key in the OS vault. */
+export function setTavilyKey(key: string): Promise<void> {
+  return invoke("set_tavily_key", { key });
+}
+
+export function tavilyKeyStatus(): Promise<boolean> {
+  return invoke<boolean>("tavily_key_status");
+}
+
+/** Usage snapshot (LLM tokens per provider + Tavily searches) for Settings. */
+export function usageSummary(): Promise<UsageSummary> {
+  return invoke<UsageSummary>("usage_summary");
+}
+
+/** Clear all usage counters; returns the emptied snapshot. */
+export function usageReset(): Promise<UsageSummary> {
+  return invoke<UsageSummary>("usage_reset");
 }
 
 /** Copy library originals into the repo `library/` folder for git commit. */

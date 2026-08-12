@@ -13,7 +13,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
@@ -27,6 +27,13 @@ use conva_core::CoreError;
 /// Loaded model shared by both per-side engines.
 pub struct SharedWhisper {
     context: WhisperContext,
+    /// Serializes GPU decodes across the two per-side engines. whisper.cpp's
+    /// compute backend (Vulkan/CUDA) is owned by the shared context; running
+    /// `full()` from both sides at once submits overlapping work to the same
+    /// GPU queue, which can corrupt memory and abort the process
+    /// (`STATUS_STACK_BUFFER_OVERRUN`). Holding this lock around each decode
+    /// keeps only one GPU pass in flight at a time.
+    gpu_lock: Mutex<()>,
 }
 
 /// Which whisper.cpp compute backend this binary was compiled with. GPU
@@ -50,7 +57,10 @@ impl SharedWhisper {
         let context =
             WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
                 .map_err(|e| CoreError::Asr(format!("load model: {e}")))?;
-        Ok(Arc::new(Self { context }))
+        Ok(Arc::new(Self {
+            context,
+            gpu_lock: Mutex::new(()),
+        }))
     }
 }
 
@@ -224,7 +234,7 @@ fn decode_loop(
             // the full window for accuracy.
             let input = decode_window(&samples, is_final);
             let decode_started = Instant::now();
-            let Some(text) = decode(&mut state, input, is_final) else {
+            let Some(text) = decode(&mut state, input, is_final, &shared.gpu_lock) else {
                 eprintln!("[asr {side:?}] decode failed");
                 continue;
             };
@@ -239,10 +249,19 @@ fn decode_loop(
                 continue;
             }
             if is_final {
+                let decode_ms = decode_started.elapsed().as_millis() as u64;
                 eprintln!(
-                    "[asr {side:?}] final: {} chars in {} ms decode",
-                    text.len(),
-                    decode_started.elapsed().as_millis()
+                    "[asr {side:?}] final: {} chars in {decode_ms} ms decode",
+                    text.len()
+                );
+                crate::trace::record(
+                    "stt",
+                    decode_ms,
+                    serde_json::json!({
+                        "side": format!("{side:?}").to_lowercase(),
+                        "chars": text.len(),
+                        "audio_ms": input.len() as u64 * 1000 / TARGET_SAMPLE_RATE_HZ as u64,
+                    }),
                 );
             }
             let end_ms = consumed_samples * 1000 / TARGET_SAMPLE_RATE_HZ as u64;
@@ -311,7 +330,12 @@ fn low_latency_config() -> SegmenterConfig {
 
 /// Run one whisper decode over an utterance window. Partials use greedy
 /// sampling; finals allow a slightly wider beam for quality (§2.5).
-fn decode(state: &mut whisper_rs::WhisperState, samples: &[f32], is_final: bool) -> Option<String> {
+fn decode(
+    state: &mut whisper_rs::WhisperState,
+    samples: &[f32],
+    is_final: bool,
+    gpu_lock: &Mutex<()>,
+) -> Option<String> {
     // whisper needs at least ~1000 ms of audio to behave; pad shorter
     // windows with trailing silence.
     const MIN_SAMPLES: usize = TARGET_SAMPLE_RATE_HZ as usize;
@@ -349,7 +373,13 @@ fn decode(state: &mut whisper_rs::WhisperState, samples: &[f32], is_final: bool)
     params.set_suppress_blank(true);
     params.set_no_timestamps(true);
 
-    state.full(params, audio).ok()?;
+    // Serialize the GPU compute: only one side's decode may run at a time
+    // (the shared whisper context / GPU backend is not concurrency-safe).
+    // Recover from a poisoned lock so one bad decode can't wedge the other side.
+    {
+        let _gpu = gpu_lock.lock().unwrap_or_else(|e| e.into_inner());
+        state.full(params, audio).ok()?;
+    }
 
     let n = state.full_n_segments().ok()?;
     let mut text = String::new();

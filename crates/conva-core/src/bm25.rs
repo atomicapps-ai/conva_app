@@ -64,6 +64,21 @@ impl Bm25Index {
         self.doc_lengths.is_empty()
     }
 
+    /// Plain corpus IDF `ln(N/df)` for a token — higher means rarer across the
+    /// indexed documents. Used by the highlighter's rarity signal. Returns 0.0
+    /// for a token absent from the corpus (unknown, not "rare") or an empty
+    /// index. `term` must be lowercased (as [`tokenize`] produces).
+    pub fn token_idf(&self, term: &str) -> f32 {
+        let n = self.doc_lengths.len();
+        if n == 0 {
+            return 0.0;
+        }
+        match self.postings.get(term) {
+            Some(posting) if !posting.is_empty() => (n as f32 / posting.len() as f32).ln(),
+            _ => 0.0,
+        }
+    }
+
     /// Top-k `(doc_index, score)` for the query, best first. Documents with
     /// zero overlap are never returned.
     pub fn search(&self, query: &str, k: usize) -> Vec<(usize, f32)> {
@@ -142,5 +157,15 @@ mod tests {
     fn k_bounds_results() {
         let idx = index(&["cat dog", "cat mouse", "cat bird"]);
         assert_eq!(idx.search("cat", 2).len(), 2);
+    }
+
+    #[test]
+    fn token_idf_ranks_rare_above_common() {
+        // "cat" is in all 3 docs (df=3 → idf 0); "mouse" in 1 (df=1 → idf ln3).
+        let idx = index(&["cat dog", "cat mouse", "cat bird"]);
+        assert!(idx.token_idf("mouse") > idx.token_idf("cat"));
+        assert_eq!(idx.token_idf("cat"), 0.0, "present everywhere → not rare");
+        assert_eq!(idx.token_idf("absent"), 0.0, "unknown token → 0, not rare");
+        assert_eq!(index(&[]).token_idf("cat"), 0.0, "empty index is safe");
     }
 }
