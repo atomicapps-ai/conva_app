@@ -48,3 +48,4 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: cargo clippy -p conva-app --all-targets -- -D warnings
+      - run: cargo test -p conva-app
