@@ -49,7 +49,7 @@ fn doc_overlap_phrases(message: &str, context: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut phrase: Vec<&str> = Vec::new();
 
-    let mut flush = |phrase: &mut Vec<&str>, out: &mut Vec<String>| {
+    let flush = |phrase: &mut Vec<&str>, out: &mut Vec<String>| {
         if !phrase.is_empty() {
             out.push(phrase.join(" "));
             phrase.clear();
@@ -105,7 +105,7 @@ fn proper_noun_phrases(message: &str) -> Vec<String> {
     let mut token = String::new();
     let mut sentence_start = true;
 
-    let mut flush = |phrase: &mut Vec<String>, out: &mut Vec<String>| {
+    let flush = |phrase: &mut Vec<String>, out: &mut Vec<String>| {
         if !phrase.is_empty() {
             out.push(phrase.join(" "));
             phrase.clear();
