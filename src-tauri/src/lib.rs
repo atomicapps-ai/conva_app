@@ -370,9 +370,15 @@ fn analyze_terms(state: State<AppState>, text: String) -> Vec<String> {
         .map(|c| c.text.as_str())
         .collect::<Vec<_>>()
         .join(" ");
-    // Phase 3a: doc-only context (no active conversation context, feedback, or
-    // rarity oracle wired yet — those arrive in 3b/3c).
-    let ctx = conva_core::highlight::HighlightContext::from_doc_text(&context);
+    // Phase 3b: rarity oracle from the library's BM25 document frequencies, so
+    // uncommon domain terms surface even without an active conversation context.
+    // (context_terms + feedback arrive in 3c / Phase 4.)
+    let rag = state.rag.clone();
+    let idf = move |term: &str| rag.token_idf(term);
+    let ctx = conva_core::highlight::HighlightContext {
+        rarity: Some(&idf),
+        ..conva_core::highlight::HighlightContext::from_doc_text(&context)
+    };
     conva_core::highlight::relevant_terms(&text, &ctx)
 }
 

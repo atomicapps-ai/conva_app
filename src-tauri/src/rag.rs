@@ -440,6 +440,14 @@ impl RagStore {
         self.retrieve_filtered(query, k, None)
     }
 
+    /// Corpus IDF (`ln(N/df)`) for a lowercased token — the rarity signal for
+    /// transcript highlighting. 0.0 when the token is absent or the index is
+    /// empty. Cheap: a read-lock + hash lookup, safe to call per candidate.
+    pub fn token_idf(&self, term: &str) -> f32 {
+        let inner = self.inner.read().expect("rag lock");
+        inner.index.as_ref().map_or(0.0, |i| i.token_idf(term))
+    }
+
     /// Like [`retrieve`], but restricted to a set of document ids (a Sim Con's
     /// KnowledgeProfile). An empty scope means "whole library" — so a Sim Con
     /// with no attached docs still grounds on everything available.
