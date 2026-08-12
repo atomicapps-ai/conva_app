@@ -158,6 +158,15 @@ pub struct SimConSession {
     /// setup and is user-overridable (decision 2 — research gated by type).
     #[serde(default)]
     pub research_enabled: bool,
+    /// User-declared key terms/points for this context ("Key contexts" at
+    /// setup). First-class highlight terms during the conversation (Phase 3c).
+    #[serde(default)]
+    pub key_terms: Vec<String>,
+    /// Glossary terms extracted from the generated Context Digest — derived, not
+    /// user-entered. Joined with [`key_terms`](Self::key_terms) to drive
+    /// context-aware highlighting.
+    #[serde(default)]
+    pub glossary: Vec<String>,
     /// The knowledge profile driving this session (reusable; referenced by id).
     #[serde(default)]
     pub knowledge_profile_id: Option<String>,
@@ -554,6 +563,54 @@ clearly general.",
     }
 }
 
+// ── Glossary extraction — digest → context-highlight terms (Phase 3c) ────────
+
+/// Max glossary terms harvested from a digest.
+const MAX_GLOSSARY_TERMS: usize = 24;
+
+/// Extract the glossary terms from a generated Context Digest — the entries
+/// under its `## Glossary` section. Prefers the **bolded** term in each bullet,
+/// falling back to the text before an em/en dash or colon. Case-insensitively
+/// deduped, capped at [`MAX_GLOSSARY_TERMS`]. Pure; the shell stores the result
+/// on the context (`SimConSession::glossary`) to drive context-aware
+/// highlighting (see `docs/technical/highlighting-relevance.md`).
+pub fn extract_glossary(digest_md: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut in_section = false;
+
+    for raw in digest_md.lines() {
+        let line = raw.trim();
+        if let Some(title) = line.strip_prefix("## ") {
+            in_section = title.trim().eq_ignore_ascii_case("glossary");
+            continue;
+        }
+        if !in_section || line.is_empty() {
+            continue;
+        }
+        let content = line.trim_start_matches(['-', '*', '+', '•']).trim_start();
+        let term = if let Some(rest) = content.strip_prefix("**") {
+            rest.split("**").next().unwrap_or("").trim().to_string()
+        } else {
+            content
+                .split(['—', '–', ':'])
+                .next()
+                .unwrap_or("")
+                .trim_matches(['*', ' '])
+                .to_string()
+        };
+        if term.is_empty() || term.chars().count() > 60 {
+            continue;
+        }
+        if !out.iter().any(|t| t.eq_ignore_ascii_case(&term)) {
+            out.push(term);
+        }
+        if out.len() >= MAX_GLOSSARY_TERMS {
+            break;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,6 +672,8 @@ mod tests {
             source_doc_ids: vec![],
             auto_generate_context: false,
             research_enabled: true,
+            key_terms: vec![],
+            glossary: vec![],
             knowledge_profile_id: None,
             personas: vec![],
             chosen_persona_id: None,
@@ -687,6 +746,21 @@ mod tests {
         assert!(req.system.contains("Your talking points"));
         assert!(req.system.contains("Watch-outs"));
         assert!(req.user.contains("Led the monthly close"));
+    }
+
+    #[test]
+    fn extract_glossary_pulls_bold_terms_from_the_section() {
+        let digest = "## Overview\nSome intro.\n\n## Glossary\n\
+- **Pensive theory** — a way of reasoning under doubt.\n\
+- **GAAP**: accounting standards.\n\
+- Deferred revenue – money not yet earned.\n\n\
+## Watch-outs\n- **Not a glossary term** here.";
+        let g = extract_glossary(digest);
+        assert!(g.iter().any(|t| t == "Pensive theory"), "{g:?}");
+        assert!(g.iter().any(|t| t == "GAAP"), "{g:?}");
+        assert!(g.iter().any(|t| t == "Deferred revenue"), "{g:?}");
+        // Terms outside the Glossary section are not harvested.
+        assert!(!g.iter().any(|t| t.contains("Not a glossary")), "{g:?}");
     }
 
     #[test]

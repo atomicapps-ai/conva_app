@@ -56,6 +56,7 @@ export function SimConSetup({
   const [jobDescription, setJobDescription] = useState(
     initial?.job_description ?? "",
   );
+  const [keyTerms, setKeyTerms] = useState((initial?.key_terms ?? []).join("\n"));
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [selected, setSelected] = useState<string[]>(
     initial?.source_doc_ids ?? [],
@@ -128,6 +129,12 @@ export function SimConSetup({
         source_doc_ids: selected,
         auto_generate_context: research,
         research_enabled: research,
+        key_terms: keyTerms
+          .split(/[\n,]/)
+          .map((t) => t.trim())
+          .filter(Boolean),
+        // Backend-derived (extracted from the digest) — preserve on re-save.
+        glossary: initial?.glossary ?? [],
         knowledge_profile_id: initial?.knowledge_profile_id ?? null,
         personas: initial?.personas ?? [],
         chosen_persona_id: initial?.chosen_persona_id ?? null,
@@ -248,6 +255,18 @@ export function SimConSetup({
                 ))}
               </ul>
             )}
+          </Section>
+          <Section
+            title="Key terms"
+            description="Terms or points that matter most in this conversation — conva highlights these when they come up. One per line. (The digest's glossary is added automatically.)"
+          >
+            <textarea
+              className="input"
+              rows={3}
+              value={keyTerms}
+              onChange={(e) => setKeyTerms(e.target.value)}
+              placeholder={"pensive theory\ndeferred revenue\nSOC 2"}
+            />
           </Section>
           <Section
             title="Let Ally research"

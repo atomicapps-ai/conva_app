@@ -54,6 +54,10 @@ struct AppState {
     rag: Arc<RagStore>,
     /// Usage ledger (LLM tokens + Tavily searches), mirrored to usage.json.
     usage: Mutex<UsageLedger>,
+    /// Terms of the active conversation context (a rehearsal's key terms +
+    /// digest glossary) — the strongest highlight signal. Empty when no context
+    /// is active; set on rehearsal start, cleared on stop (Phase 3c).
+    active_context_terms: Mutex<Vec<String>>,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -238,6 +242,8 @@ fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(
 
 #[tauri::command]
 async fn stop_session(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    // Deactivate any conversation-context highlight terms (Phase 3c).
+    state.active_context_terms.lock().expect("ctx lock").clear();
     state.session.stop(&app).map_err(|e| e.to_string())
 }
 
@@ -372,10 +378,13 @@ fn analyze_terms(state: State<AppState>, text: String) -> Vec<String> {
         .join(" ");
     // Phase 3b: rarity oracle from the library's BM25 document frequencies, so
     // uncommon domain terms surface even without an active conversation context.
-    // (context_terms + feedback arrive in 3c / Phase 4.)
     let rag = state.rag.clone();
     let idf = move |term: &str| rag.token_idf(term);
+    // Phase 3c: the active context's terms (a rehearsal's key terms + digest
+    // glossary) — the strongest highlight signal; empty when none is active.
+    let context_terms = state.active_context_terms.lock().expect("ctx lock").clone();
     let ctx = conva_core::highlight::HighlightContext {
+        context_terms: &context_terms,
         rarity: Some(&idf),
         ..conva_core::highlight::HighlightContext::from_doc_text(&context)
     };
@@ -711,6 +720,9 @@ fn simcon_generate_dossier(
     simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
     session.dossier_doc_id = Some(doc_id);
+    // Harvest the digest's glossary into structured context terms (Phase 3c) so
+    // the highlighter can surface them during the conversation.
+    session.glossary = conva_core::simcon::extract_glossary(&text);
     simcon::save(&app, session).map_err(|e| e.to_string())
 }
 
@@ -804,6 +816,15 @@ async fn simcon_start_rehearsal(
     let llm_key = resolve_key(selection.provider)?;
     // Aura reuses the Deepgram key; without one the rehearsal is text-only.
     let tts_key = asr_deepgram::load_api_key();
+
+    // Activate this context's highlight terms for the rehearsal (Phase 3c):
+    // user-declared key terms + the digest glossary. Cleared on stop_session.
+    {
+        let mut active = state.active_context_terms.lock().expect("ctx lock");
+        active.clear();
+        active.extend(session.key_terms.iter().cloned());
+        active.extend(session.glossary.iter().cloned());
+    }
 
     let rag = state.rag.clone();
     let simcon_title = session.title.clone();
@@ -1246,6 +1267,7 @@ pub fn run() {
                 session: SessionManager::new(),
                 rag,
                 usage: Mutex::new(usage),
+                active_context_terms: Mutex::new(Vec::new()),
             });
 
             // Account sign-in return path: catch conva://auth/… deep links,

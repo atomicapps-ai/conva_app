@@ -260,6 +260,10 @@ export interface SimConSession {
   /** Whether web research runs during prep — defaults from the type template,
    * user-overridable (decision 2 — research gated by type). */
   research_enabled?: boolean;
+  /** User-declared key terms/points — first-class highlight terms (Phase 3c). */
+  key_terms?: string[];
+  /** Glossary terms extracted from the generated digest (backend-derived). */
+  glossary?: string[];
   knowledge_profile_id: string | null;
   personas: SimConPersona[];
   chosen_persona_id: string | null;
