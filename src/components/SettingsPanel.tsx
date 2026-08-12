@@ -4,6 +4,7 @@ import { AllySettings } from "@/components/AllySettings";
 import { Notice, Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
+import { BUILD } from "@/lib/debug";
 import type {
   AuthStatus,
   ProviderInfo,
@@ -15,6 +16,38 @@ import type {
 import { isTauri } from "@/lib/ipc";
 import { isWeb } from "@/lib/platform";
 import { useAppStore } from "@/state/app";
+import { useNavStore } from "@/state/nav";
+
+/**
+ * About — the exact build the user is running (version + commit + build time),
+ * plus a jump to What's New. Belongs in Settings so a bug report can quote it;
+ * mirrors the status-bar stamp (SDLC §3.3). Rendered in both the configured and
+ * web-fallback Settings branches.
+ */
+function AboutSection() {
+  return (
+    <Section
+      title="About"
+      description="The exact build you're running — include this in any bug report."
+    >
+      <dl className="grid grid-cols-[6rem_1fr] gap-x-4 gap-y-1 text-[12px]">
+        <dt className="text-fg-faint">Version</dt>
+        <dd className="font-mono text-fg">v{BUILD.version}</dd>
+        <dt className="text-fg-faint">Build</dt>
+        <dd className="font-mono text-fg">{BUILD.sha}</dd>
+        <dt className="text-fg-faint">Built</dt>
+        <dd className="font-mono text-fg-muted">{BUILD.time}</dd>
+      </dl>
+      <button
+        type="button"
+        onClick={() => useNavStore.getState().setView("releases")}
+        className="btn mt-3"
+      >
+        What's new →
+      </button>
+    </Section>
+  );
+}
 
 function DeviceSelect({
   side,
@@ -956,6 +989,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             hosted backend. Manage your account on the website.
           </Notice>
         </Section>
+        <AboutSection />
       </ViewShell>
     );
   }
@@ -1068,6 +1102,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       <Section title="Portable secrets">
         <SecretsSettings />
       </Section>
+
+      <AboutSection />
     </ViewShell>
   );
 }

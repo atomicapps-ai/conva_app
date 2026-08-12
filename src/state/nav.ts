@@ -15,6 +15,7 @@ export type View =
   | "simcon"
   | "features"
   | "whatsnew"
+  | "releases"
   | "settings"
   | "profile";
 

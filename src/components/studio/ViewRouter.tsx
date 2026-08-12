@@ -2,6 +2,7 @@ import { ConversationsPanel } from "@/components/ConversationsPanel";
 import { DashboardView } from "@/components/dashboard/DashboardView";
 import { FeaturesView } from "@/components/product/FeaturesView";
 import { WhatsComingView } from "@/components/product/WhatsComingView";
+import { WhatsNewView } from "@/components/product/WhatsNewView";
 import { ProfileView } from "@/components/profile/ProfileView";
 import { RagPanel } from "@/components/RagPanel";
 import { SessionsPanel } from "@/components/SessionsPanel";
@@ -27,6 +28,7 @@ export function ViewRouter() {
       {view === "live" && <TranscriptView />}
       {view === "features" && <FeaturesView />}
       {view === "whatsnew" && <WhatsComingView />}
+      {view === "releases" && <WhatsNewView />}
       {view === "settings" && <SettingsPanel onClose={backToLive} />}
       {view === "profile" && <ProfileView />}
       {view === "library" && <RagPanel onClose={backToLive} />}
