@@ -1,7 +1,7 @@
 //! SimCon — Simulated Conversation: the data model.
 //!
-//! A **SimCon** is a rehearsal of a high-stakes call (interview, financial
-//! review, pitch). The user sets a name + purpose + category and attaches
+//! A **SimCon** is a rehearsal of a high-stakes call (interview, company
+//! meeting, sales call). The user sets a name + purpose + type and attaches
 //! library documents (or asks Ally to generate context); an async pipeline
 //! builds a reusable [`KnowledgeProfile`] (library docs + bounded web research,
 //! embedded into the RAG store); the AI generates [`SimConPersona`] options and
@@ -22,16 +22,46 @@ use crate::audio::StreamSide;
 use crate::llm::LlmRequest;
 use crate::rag::ScoredChunk;
 
-/// The kind of call being rehearsed — drives persona generation + the web
-/// research prompts.
+/// The kind of conversation this context is for — drives the setup template
+/// (documents to collect + digest sections), persona generation, and the
+/// web-research default. The launch set (Interview · Company Meeting ·
+/// Sales Call · Other) is fixed but extensible later; see
+/// `conva_core/docs/technical/conversation-context.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SimConCategory {
     Interview,
-    FinancialReview,
-    PerformanceReview,
-    SalesPitch,
+    CompanyMeeting,
+    SalesCall,
     Other,
+}
+
+/// One attachable document slot in a conversation type's setup template.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileSlot {
+    /// Stable key for wiring the upload control (e.g. "resume").
+    pub key: &'static str,
+    /// Human label shown in the setup wizard (e.g. "Résumé / CV").
+    pub label: &'static str,
+    /// Whether the user can attach more than one file to this slot.
+    pub multiple: bool,
+}
+
+/// The per-type setup + generation template: which documents to collect, what
+/// the Context Digest should contain, and whether web research is on by
+/// default. Static and derived from [`SimConCategory`] — the single source of
+/// truth for both the setup UI and the generation pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConversationTemplate {
+    /// Human phrase for prompts (e.g. "job interview").
+    pub label: &'static str,
+    /// Document slots offered at setup, in display order.
+    pub file_slots: &'static [FileSlot],
+    /// Section headings the generated digest should contain.
+    pub digest_sections: &'static [&'static str],
+    /// Web research on by default? (Interview/Sales yes; internal meetings no —
+    /// their documents are confidential and open-web results are often wrong.)
+    pub default_research_enabled: bool,
 }
 
 /// Lifecycle of a SimCon, start to finish.
@@ -123,6 +153,11 @@ pub struct SimConSession {
     /// Whether Ally should auto-generate context (Step 1, Path B) during ingest.
     #[serde(default)]
     pub auto_generate_context: bool,
+    /// Whether autonomous web research runs during preparation. Defaults from
+    /// the type template ([`SimConCategory::default_research_enabled`]) at
+    /// setup and is user-overridable (decision 2 — research gated by type).
+    #[serde(default)]
+    pub research_enabled: bool,
     /// The knowledge profile driving this session (reusable; referenced by id).
     #[serde(default)]
     pub knowledge_profile_id: Option<String>,
@@ -154,14 +189,90 @@ pub struct SimConSummary {
 }
 
 impl SimConCategory {
-    /// Human phrase for prompts.
+    /// Human phrase for prompts (e.g. "job interview").
     pub fn label(self) -> &'static str {
+        self.template().label
+    }
+
+    /// Whether web research is on by default for this type (decision 2).
+    pub fn default_research_enabled(self) -> bool {
+        self.template().default_research_enabled
+    }
+
+    /// The setup + generation template for this type — the single source of
+    /// truth for the setup wizard's document slots, the digest's sections, and
+    /// the web-research default.
+    pub fn template(self) -> ConversationTemplate {
         match self {
-            SimConCategory::Interview => "job interview",
-            SimConCategory::FinancialReview => "financial review",
-            SimConCategory::PerformanceReview => "performance review",
-            SimConCategory::SalesPitch => "sales pitch",
-            SimConCategory::Other => "high-stakes conversation",
+            SimConCategory::Interview => ConversationTemplate {
+                label: "job interview",
+                file_slots: &[
+                    FileSlot {
+                        key: "resume",
+                        label: "Résumé / CV",
+                        multiple: false,
+                    },
+                    FileSlot {
+                        key: "job_description",
+                        label: "Job description",
+                        multiple: false,
+                    },
+                    FileSlot {
+                        key: "interview_test",
+                        label: "Take-home / test",
+                        multiple: true,
+                    },
+                ],
+                digest_sections: &[
+                    "Likely questions",
+                    "Glossary",
+                    "Role & company background",
+                    "Your talking points",
+                ],
+                default_research_enabled: true,
+            },
+            SimConCategory::CompanyMeeting => ConversationTemplate {
+                label: "company meeting",
+                file_slots: &[
+                    FileSlot {
+                        key: "financials",
+                        label: "Financials / reports",
+                        multiple: true,
+                    },
+                    FileSlot {
+                        key: "decks",
+                        label: "Decks",
+                        multiple: true,
+                    },
+                    FileSlot {
+                        key: "minutes",
+                        label: "Prior minutes",
+                        multiple: true,
+                    },
+                ],
+                digest_sections: &["Key figures", "Glossary", "Likely discussion points"],
+                default_research_enabled: false,
+            },
+            SimConCategory::SalesCall => ConversationTemplate {
+                label: "sales call",
+                file_slots: &[FileSlot {
+                    key: "account",
+                    label: "Prospect / account docs",
+                    multiple: true,
+                }],
+                digest_sections: &["Company background", "Objections", "Talking points"],
+                default_research_enabled: true,
+            },
+            SimConCategory::Other => ConversationTemplate {
+                label: "high-stakes conversation",
+                file_slots: &[FileSlot {
+                    key: "files",
+                    label: "Files",
+                    multiple: true,
+                }],
+                digest_sections: &["Glossary", "Summary", "Likely questions"],
+                default_research_enabled: false,
+            },
         }
     }
 }
@@ -453,6 +564,31 @@ mod tests {
         assert!(parse_personas("no json here").is_empty());
     }
 
+    #[test]
+    fn every_type_has_a_nonempty_template() {
+        for cat in [
+            SimConCategory::Interview,
+            SimConCategory::CompanyMeeting,
+            SimConCategory::SalesCall,
+            SimConCategory::Other,
+        ] {
+            let t = cat.template();
+            assert!(!t.label.is_empty());
+            assert!(!t.file_slots.is_empty(), "{cat:?} has file slots");
+            assert!(!t.digest_sections.is_empty(), "{cat:?} has digest sections");
+            assert_eq!(cat.label(), t.label);
+        }
+    }
+
+    #[test]
+    fn research_defaults_match_decision_two() {
+        // Interview + sales: on (public info helps). Internal meeting: off.
+        assert!(SimConCategory::Interview.default_research_enabled());
+        assert!(SimConCategory::SalesCall.default_research_enabled());
+        assert!(!SimConCategory::CompanyMeeting.default_research_enabled());
+        assert!(!SimConCategory::Other.default_research_enabled());
+    }
+
     fn sample_session() -> SimConSession {
         SimConSession {
             id: "s1".into(),
@@ -465,6 +601,7 @@ mod tests {
             updated_at_unix_ms: 0,
             source_doc_ids: vec![],
             auto_generate_context: false,
+            research_enabled: true,
             knowledge_profile_id: None,
             personas: vec![],
             chosen_persona_id: None,

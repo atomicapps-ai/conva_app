@@ -15,9 +15,8 @@ import { isDesktop } from "@/lib/platform";
 
 const CATEGORY_LABEL: Record<SimConCategory, string> = {
   interview: "Interview",
-  financial_review: "Financial review",
-  performance_review: "Performance review",
-  sales_pitch: "Sales pitch",
+  company_meeting: "Company meeting",
+  sales_call: "Sales call",
   other: "Other",
 };
 

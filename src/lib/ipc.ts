@@ -197,12 +197,12 @@ export interface ConversationSummary {
    land in the shell (Phase A.2). Keep these in lockstep with
    `crates/conva-core/src/simcon.rs`. */
 
-/** The kind of call being rehearsed. */
+/** The kind of conversation this context is for. Launch set (fixed but
+ * extensible later); drives the setup template + web-research default. */
 export type SimConCategory =
   | "interview"
-  | "financial_review"
-  | "performance_review"
-  | "sales_pitch"
+  | "company_meeting"
+  | "sales_call"
   | "other";
 
 /** Lifecycle of a SimCon, start to finish. */
@@ -257,6 +257,9 @@ export interface SimConSession {
   source_doc_ids: string[];
   /** Whether Ally should auto-generate context (Path B) during ingest. */
   auto_generate_context: boolean;
+  /** Whether web research runs during prep — defaults from the type template,
+   * user-overridable (decision 2 — research gated by type). */
+  research_enabled?: boolean;
   knowledge_profile_id: string | null;
   personas: SimConPersona[];
   chosen_persona_id: string | null;
