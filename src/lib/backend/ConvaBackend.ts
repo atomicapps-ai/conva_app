@@ -128,6 +128,8 @@ export interface ConvaBackend {
       term: string,
       signal: "up" | "down" | null,
     ): Promise<void>;
+    /** Record an implicit 👍 — the user researched a term (Phase 4b). */
+    recordTermPick(term: string): Promise<void>;
     /** Reconstruct a document's text by id (e.g. to view the Ally dossier). */
     documentText(id: string): Promise<string | null>;
   };

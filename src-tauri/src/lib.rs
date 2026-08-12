@@ -410,6 +410,13 @@ fn record_highlight_feedback(app: AppHandle, term: String, signal: Option<String
     feedback::record(&app, &term, sig);
 }
 
+/// Record an implicit 👍 — the user researched `term` (Phase 4b). Repeated
+/// research auto-boosts the term for future highlighting.
+#[tauri::command]
+fn record_term_pick(app: AppHandle, term: String) {
+    feedback::record_pick(&app, &term);
+}
+
 #[tauri::command]
 fn rag_set_enabled(state: State<AppState>, id: String, enabled: bool) -> Result<(), String> {
     state
@@ -1372,6 +1379,7 @@ pub fn run() {
             rag_delete,
             analyze_terms,
             record_highlight_feedback,
+            record_term_pick,
             rag_download,
             secrets_status,
             secrets_export,

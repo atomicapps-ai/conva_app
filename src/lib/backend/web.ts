@@ -131,6 +131,7 @@ export class WebBackend implements ConvaBackend {
     syncLibrary: (): Promise<string> => unsupported("rag.syncLibrary (git)"),
     analyzeTerms: (): Promise<string[]> => Promise.resolve([]),
     recordHighlightFeedback: (): Promise<void> => Promise.resolve(),
+    recordTermPick: (): Promise<void> => Promise.resolve(),
     documentText: (): Promise<string | null> => todo("GET /v1/library/:id/text"),
   };
 

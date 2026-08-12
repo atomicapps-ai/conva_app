@@ -79,6 +79,7 @@ export class TauriBackend implements ConvaBackend {
     syncLibrary: cmd.ragSyncLibrary,
     analyzeTerms: cmd.analyzeTerms,
     recordHighlightFeedback: cmd.recordHighlightFeedback,
+    recordTermPick: cmd.recordTermPick,
     documentText: cmd.ragDocumentText,
   };
 

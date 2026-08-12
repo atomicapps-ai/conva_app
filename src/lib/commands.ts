@@ -199,6 +199,12 @@ export function recordHighlightFeedback(
   return invoke<void>("record_highlight_feedback", { term, signal });
 }
 
+/** Record an implicit 👍 — the user researched `term`. Repeated research
+ *  auto-boosts it for future highlighting (Phase 4b). */
+export function recordTermPick(term: string): Promise<void> {
+  return invoke<void>("record_term_pick", { term });
+}
+
 /** Sign in with email + password (same account as Google / the website). */
 export function authSigninPassword(
   email: string,

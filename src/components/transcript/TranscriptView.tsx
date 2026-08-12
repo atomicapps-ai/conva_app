@@ -208,7 +208,11 @@ function TermMenu({
           type="button"
           title={a.tip}
           aria-label={`${a.tip}: ${term}`}
-          onClick={() => onPick(a.action)}
+          onClick={() => {
+            // Researching a term is an implicit 👍 (Phase 4b).
+            void backend.rag.recordTermPick(term);
+            onPick(a.action);
+          }}
           className="rounded p-1.5 text-fg-faint transition-colors hover:bg-ai/10 hover:text-ai"
         >
           <Icon name={a.icon} size={16} />
