@@ -39,7 +39,8 @@ export type IconName =
   | "summarize"
   | "more"
   | "copy"
-  | "trash";
+  | "trash"
+  | "sparkle";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -109,6 +110,13 @@ const PATHS: Record<IconName, ReactNode> = {
       <circle cx="8" cy="10" r="0.9" />
       <circle cx="11.5" cy="10" r="0.9" />
       <circle cx="15" cy="10" r="0.9" />
+    </>
+  ),
+  // What's New — a sparkle (release highlights).
+  sparkle: (
+    <>
+      <path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z" />
+      <path d="M18.5 4l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z" />
     </>
   ),
   // Sessions — clock / history.
