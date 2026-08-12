@@ -205,6 +205,17 @@ export function recordTermPick(term: string): Promise<void> {
   return invoke<void>("record_term_pick", { term });
 }
 
+/** Test seam: inject a transcript segment (no audio) to drive the transcript UI
+ *  + highlighting pipeline for E2E. No-op unless the app was launched with the
+ *  CONVA_TEST_SEAM env var set. `side` is "inbound" (them) or "outbound" (you). */
+export function debugInjectSegment(
+  side: "inbound" | "outbound",
+  text: string,
+  isFinal = true,
+): Promise<void> {
+  return invoke<void>("debug_inject_segment", { side, text, isFinal });
+}
+
 /** Sign in with email + password (same account as Google / the website). */
 export function authSigninPassword(
   email: string,

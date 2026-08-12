@@ -417,6 +417,48 @@ fn record_term_pick(app: AppHandle, term: String) {
     feedback::record_pick(&app, &term);
 }
 
+/// Monotonic sequence for injected test segments.
+static INJECT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Test seam: inject a transcript segment as if it came from ASR, driving the
+/// transcript UI + the highlighting pipeline (RAG / context / rarity / feedback)
+/// without live audio — so E2E harnesses can exercise the app deterministically.
+/// **Inert unless the app was launched with `CONVA_TEST_SEAM` set**, so it is a
+/// no-op in normal use. `side` is "inbound" (them) or "outbound" (you); a final
+/// segment is also written to the session log.
+#[tauri::command]
+fn debug_inject_segment(
+    app: AppHandle,
+    state: State<AppState>,
+    side: String,
+    text: String,
+    is_final: bool,
+) {
+    if std::env::var("CONVA_TEST_SEAM").is_err() {
+        return;
+    }
+    let side = if side.eq_ignore_ascii_case("inbound") {
+        conva_core::audio::StreamSide::Inbound
+    } else {
+        conva_core::audio::StreamSide::Outbound
+    };
+    let start_ms = session::now_unix_ms().saturating_sub(state.session.session_started_ms());
+    let segment = TranscriptSegment {
+        side,
+        seq: INJECT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        text,
+        is_final,
+        start_ms,
+        end_ms: start_ms + 100,
+        confidence: None,
+        latency_ms: 0,
+    };
+    if is_final {
+        state.session.log_segment(&segment);
+    }
+    let _ = app.emit(events::TRANSCRIPT_SEGMENT, &segment);
+}
+
 #[tauri::command]
 fn rag_set_enabled(state: State<AppState>, id: String, enabled: bool) -> Result<(), String> {
     state
@@ -1380,6 +1422,7 @@ pub fn run() {
             analyze_terms,
             record_highlight_feedback,
             record_term_pick,
+            debug_inject_segment,
             rag_download,
             secrets_status,
             secrets_export,
