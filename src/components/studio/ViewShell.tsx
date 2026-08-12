@@ -17,6 +17,7 @@ export function ViewShell({
   actions,
   children,
   className = "",
+  wide = false,
 }: {
   icon: IconName;
   title: string;
@@ -25,6 +26,9 @@ export function ViewShell({
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** Drop the default `max-w-4xl` cap for multi-pane layouts (e.g. the
+   *  Contexts & Library page) that need the full window width. */
+  wide?: boolean;
 }) {
   return (
     <section className={`flex h-full flex-col ${className}`}>
@@ -54,7 +58,15 @@ export function ViewShell({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8">
-        <div className="mx-auto flex max-w-4xl flex-col gap-4">{children}</div>
+        <div
+          className={
+            wide
+              ? "flex h-full min-h-0 flex-col gap-4"
+              : "mx-auto flex max-w-4xl flex-col gap-4"
+          }
+        >
+          {children}
+        </div>
       </div>
     </section>
   );

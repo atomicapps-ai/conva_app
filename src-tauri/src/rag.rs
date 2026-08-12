@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use conva_core::bm25::Bm25Index;
 use conva_core::chunk::chunk_text;
-use conva_core::rag::{IngestReport, RagDocument, ScoredChunk};
+use conva_core::rag::{DocSource, IngestReport, RagDocument, ScoredChunk};
 use conva_core::CoreError;
 
 #[derive(Serialize, Deserialize)]
@@ -309,7 +309,13 @@ impl RagStore {
             .to_string();
 
         let (text, warnings) = extract_text(source)?;
-        self.store_text_document(file_name, text, Original::File(source), warnings)
+        self.store_text_document(
+            file_name,
+            text,
+            Original::File(source),
+            DocSource::File,
+            warnings,
+        )
     }
 
     /// Ingest raw text (e.g. pasted from the clipboard) as a `.txt`
@@ -323,17 +329,45 @@ impl RagStore {
             normalize_txt_name(name),
             text.to_string(),
             Original::PastedText,
+            DocSource::Pasted,
             Vec::new(),
         )
     }
 
-    /// Shared tail for both file and pasted-text ingestion: chunk, embed
-    /// (best-effort), retain the original, persist, and rebuild the index.
+    /// Ingest AI-generated content (e.g. a Context Digest) as a `.txt`
+    /// document, marked [`DocSource::Generated`] (the library's "By conva"
+    /// badge/filter) and immediately attached to the context that produced
+    /// it, so it never appears untagged.
+    pub fn ingest_generated(
+        &self,
+        name: &str,
+        text: &str,
+        context_id: &str,
+    ) -> Result<IngestReport, CoreError> {
+        if text.trim().is_empty() {
+            return Err(CoreError::Rag("no text to add".into()));
+        }
+        let mut report = self.store_text_document(
+            normalize_txt_name(name),
+            text.to_string(),
+            Original::PastedText,
+            DocSource::Generated,
+            Vec::new(),
+        )?;
+        self.attach_context(&report.document.id, context_id)?;
+        report.document.context_ids = vec![context_id.to_string()];
+        Ok(report)
+    }
+
+    /// Shared tail for file, pasted-text, and generated ingestion: chunk,
+    /// embed (best-effort), retain the original, persist, and rebuild the
+    /// index.
     fn store_text_document(
         &self,
         file_name: String,
         text: String,
         original: Original,
+        source: DocSource,
         mut warnings: Vec<String>,
     ) -> Result<IngestReport, CoreError> {
         let chunks = chunk_text(&text);
@@ -373,6 +407,8 @@ impl RagStore {
                 enabled: true,
                 chunk_count: chunks.len() as u32,
                 ingested_at_unix_ms: crate::session::now_unix_ms(),
+                source,
+                context_ids: Vec::new(),
             },
             chunks: chunks
                 .into_iter()
@@ -414,6 +450,37 @@ impl RagStore {
         let mut stored: StoredDocument =
             serde_json::from_str(&content).map_err(|e| CoreError::Rag(e.to_string()))?;
         stored.document.enabled = enabled;
+        let json = serde_json::to_string(&stored).map_err(|e| CoreError::Rag(e.to_string()))?;
+        fs::write(&path, json).map_err(|e| CoreError::Rag(e.to_string()))?;
+        self.reload()
+    }
+
+    /// Tag a document as grounding `context_id` (idempotent) — the library
+    /// side of attaching a document to a Conversation Context; the caller
+    /// also folds the id into the context's own `source_doc_ids` so the
+    /// engine actually grounds on it.
+    pub fn attach_context(&self, id: &str, context_id: &str) -> Result<(), CoreError> {
+        let path = self.doc_path(id);
+        let content = fs::read_to_string(&path).map_err(|e| CoreError::Rag(e.to_string()))?;
+        let mut stored: StoredDocument =
+            serde_json::from_str(&content).map_err(|e| CoreError::Rag(e.to_string()))?;
+        if !stored.document.context_ids.iter().any(|c| c == context_id) {
+            stored.document.context_ids.push(context_id.to_string());
+        }
+        let json = serde_json::to_string(&stored).map_err(|e| CoreError::Rag(e.to_string()))?;
+        fs::write(&path, json).map_err(|e| CoreError::Rag(e.to_string()))?;
+        self.reload()
+    }
+
+    /// Remove a document's tag for `context_id` (idempotent, no error if it
+    /// wasn't tagged). The library-side half of detaching; the caller should
+    /// also drop the id from the context's `source_doc_ids`.
+    pub fn detach_context(&self, id: &str, context_id: &str) -> Result<(), CoreError> {
+        let path = self.doc_path(id);
+        let content = fs::read_to_string(&path).map_err(|e| CoreError::Rag(e.to_string()))?;
+        let mut stored: StoredDocument =
+            serde_json::from_str(&content).map_err(|e| CoreError::Rag(e.to_string()))?;
+        stored.document.context_ids.retain(|c| c != context_id);
         let json = serde_json::to_string(&stored).map_err(|e| CoreError::Rag(e.to_string()))?;
         fs::write(&path, json).map_err(|e| CoreError::Rag(e.to_string()))?;
         self.reload()
@@ -921,6 +988,48 @@ mod tests {
         );
         assert_eq!(store.token_idf("common"), 0.0, "present everywhere → idf 0");
         assert_eq!(store.token_idf("absentterm"), 0.0, "unknown token → 0");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn doc_source_and_context_attach_detach() {
+        let dir = std::env::temp_dir().join(format!("conva-rag-ctx-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let store = RagStore::open(&dir).unwrap();
+
+        // ingest_text -> Pasted, untagged.
+        let pasted = store.ingest_text("note", "some pasted content").unwrap();
+        assert_eq!(pasted.document.source, DocSource::Pasted);
+        assert!(pasted.document.context_ids.is_empty());
+
+        // ingest_generated -> Generated, tagged to the context immediately.
+        let generated = store
+            .ingest_generated("digest", "generated content", "ctx-1")
+            .unwrap();
+        assert_eq!(generated.document.source, DocSource::Generated);
+        assert_eq!(generated.document.context_ids, vec!["ctx-1".to_string()]);
+
+        // attach is idempotent and additive; detach removes only the given id.
+        store.attach_context(&pasted.document.id, "ctx-1").unwrap();
+        store.attach_context(&pasted.document.id, "ctx-1").unwrap(); // no dupe
+        store.attach_context(&pasted.document.id, "ctx-2").unwrap();
+        let after_attach = store
+            .list()
+            .into_iter()
+            .find(|d| d.id == pasted.document.id)
+            .unwrap();
+        assert_eq!(after_attach.context_ids, vec!["ctx-1", "ctx-2"]);
+
+        store.detach_context(&pasted.document.id, "ctx-1").unwrap();
+        let after_detach = store
+            .list()
+            .into_iter()
+            .find(|d| d.id == pasted.document.id)
+            .unwrap();
+        assert_eq!(after_detach.context_ids, vec!["ctx-2"]);
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -52,7 +52,7 @@ export function CommandPalette() {
       go("live", "Go to Live", "live"),
       go("conversations", "Go to Conversations", "conversations"),
       go("sessions", "Go to Sessions", "sessions"),
-      go("library", "Go to Library", "library"),
+      go("simcon", "Go to Contexts", "simicon"),
       go("settings", "Go to Settings", "settings"),
     ];
     if (!isTauri()) return nav;

@@ -472,6 +472,37 @@ fn rag_delete(state: State<AppState>, id: String) -> Result<(), String> {
     state.rag.delete(&id).map_err(|e| e.to_string())
 }
 
+/// Tag a library document as grounding a Conversation Context (drag-attach in
+/// the unified Contexts & Library UI). The caller also folds the id into the
+/// context's own `source_doc_ids` (via `simcon_save`) so the engine grounds on
+/// it — this command only updates the library-side tag/badge.
+#[tauri::command]
+fn rag_attach_context(
+    state: State<AppState>,
+    id: String,
+    context_id: String,
+) -> Result<(), String> {
+    state
+        .rag
+        .attach_context(&id, &context_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Remove a document's tag for a Conversation Context. See
+/// [`rag_attach_context`] — the caller also drops the id from the context's
+/// `source_doc_ids`.
+#[tauri::command]
+fn rag_detach_context(
+    state: State<AppState>,
+    id: String,
+    context_id: String,
+) -> Result<(), String> {
+    state
+        .rag
+        .detach_context(&id, &context_id)
+        .map_err(|e| e.to_string())
+}
+
 /// Download a library document back to `dest` (chosen via the save dialog):
 /// the original uploaded file when retained, else its reconstructed text.
 #[tauri::command]
@@ -826,10 +857,12 @@ fn simcon_generate_dossier(
         profile.doc_ids.retain(|d| d != &old);
     }
 
+    // Generated (not pasted) content, tagged to this context — the library's
+    // "By conva" badge/filter (Conversation Context UI, organized library).
     let name = format!("{} — Ally prep", session.title.trim());
     let report = state
         .rag
-        .ingest_text(&name, &text)
+        .ingest_generated(&name, &text, &session.id)
         .map_err(|e| e.to_string())?;
     let doc_id = report.document.id.clone();
 
@@ -1451,6 +1484,8 @@ pub fn run() {
             rag_list,
             rag_set_enabled,
             rag_delete,
+            rag_attach_context,
+            rag_detach_context,
             analyze_terms,
             record_highlight_feedback,
             record_term_pick,

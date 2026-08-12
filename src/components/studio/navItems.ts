@@ -17,9 +17,11 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "dashboard", icon: "system", label: "Home" },
   { view: "live", icon: "live", label: "Live" },
   { view: "conversations", icon: "conversations", label: "Conversations" },
-  { view: "simcon", icon: "simicon", label: "Sim Con" },
+  // Contexts & Library are one unified page (conversation-context-ui.md) —
+  // "library" still routes here (deep links / muscle memory keep working),
+  // it just has no separate rail row anymore.
+  { view: "simcon", icon: "simicon", label: "Contexts" },
   { view: "sessions", icon: "sessions", label: "Sessions" },
-  { view: "library", icon: "library", label: "Library" },
   { view: "features", icon: "book", label: "What conva does" },
   { view: "whatsnew", icon: "lightbulb", label: "What's Coming" },
   { view: "releases", icon: "sparkle", label: "What's New" },

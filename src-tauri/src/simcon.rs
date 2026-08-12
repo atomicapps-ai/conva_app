@@ -97,6 +97,14 @@ pub fn list(app: &AppHandle) -> Result<Vec<SimConSummary>, CoreError> {
             status: s.status,
             created_at_unix_ms: s.created_at_unix_ms,
             updated_at_unix_ms: s.updated_at_unix_ms,
+            source_doc_count: s.source_doc_ids.len() as u32,
+            has_key_terms: !s.key_terms.is_empty(),
+            research_enabled: s.research_enabled,
+            has_job_description: s
+                .job_description
+                .as_deref()
+                .is_some_and(|jd| !jd.trim().is_empty()),
+            has_generated_resources: s.dossier_doc_id.is_some(),
         });
     }
     out.sort_by_key(|b| std::cmp::Reverse(b.updated_at_unix_ms));

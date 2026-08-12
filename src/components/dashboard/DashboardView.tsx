@@ -167,6 +167,12 @@ export function DashboardView() {
             onClick={go("live")}
           />
           <QuickLink
+            icon="simicon"
+            title="Conversation Contexts"
+            desc="Prime Ally for the call ahead"
+            onClick={go("simcon")}
+          />
+          <QuickLink
             icon="library"
             title="Your library"
             desc="Add documents Ally answers from"

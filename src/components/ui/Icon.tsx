@@ -40,7 +40,13 @@ export type IconName =
   | "more"
   | "copy"
   | "trash"
-  | "sparkle";
+  | "sparkle"
+  | "file"
+  | "clipboard"
+  | "upload"
+  | "download"
+  | "dragHandle"
+  | "check";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -225,6 +231,52 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M12 8v8M8 12h8" />
       <path d="M5 5l2 2M19 5l-2 2M5 19l2-2M19 19l-2-2" />
+    </>
+  ),
+  // File — generic document with a folded corner (library rows).
+  file: (
+    <>
+      <path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" />
+      <path d="M13.5 3.5v4h4" />
+    </>
+  ),
+  // Clipboard — pasted-note provenance + the paste-from-clipboard action.
+  clipboard: (
+    <>
+      <rect x="6" y="4.5" width="12" height="16.5" rx="2" />
+      <path d="M9.3 4.5V3.6a1.1 1.1 0 0 1 1.1-1.1h3.2a1.1 1.1 0 0 1 1.1 1.1v.9" />
+      <path d="M9 11h6M9 14.5h4" />
+    </>
+  ),
+  // Upload — add a document (file picker).
+  upload: (
+    <>
+      <path d="M12 15V4M8.5 7.5 12 4l3.5 3.5" />
+      <path d="M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15" />
+    </>
+  ),
+  // Download — write a library document back to disk.
+  download: (
+    <>
+      <path d="M12 4v11M8.5 11.5 12 15l3.5-3.5" />
+      <path d="M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15" />
+    </>
+  ),
+  // Check — a passing checklist line.
+  check: (
+    <>
+      <path d="M5 12.5l4.5 4.5L19 7" />
+    </>
+  ),
+  // Drag handle — a 2x3 grip of dots (draggable library rows).
+  dragHandle: (
+    <>
+      <circle cx="9" cy="6" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="6" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="12" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="12" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="9" cy="18" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="18" r="1.1" fill="currentColor" stroke="none" />
     </>
   ),
 };
