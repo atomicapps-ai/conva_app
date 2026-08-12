@@ -6,6 +6,7 @@ import { ProfileView } from "@/components/profile/ProfileView";
 import { RagPanel } from "@/components/RagPanel";
 import { SessionsPanel } from "@/components/SessionsPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { SimConView } from "@/components/simcon/SimConView";
 import { TranscriptView } from "@/components/transcript/TranscriptView";
 import { useNavStore } from "@/state/nav";
 
@@ -31,6 +32,7 @@ export function ViewRouter() {
       {view === "library" && <RagPanel onClose={backToLive} />}
       {view === "sessions" && <SessionsPanel onClose={backToLive} />}
       {view === "conversations" && <ConversationsPanel onClose={backToLive} />}
+      {view === "simcon" && <SimConView />}
     </>
   );
 }

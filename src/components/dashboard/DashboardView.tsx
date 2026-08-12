@@ -126,7 +126,7 @@ export function DashboardView() {
       <Section>
         <div className="flex items-center gap-4">
           <span
-            className="brand-ring flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-lg font-extrabold text-inbound"
+            className="brand-ring flex h-14 w-14 shrink-0 items-center justify-center rounded-lg text-lg font-extrabold text-inbound"
             aria-hidden
           >
             {signedIn ? initial(auth?.email ?? null) : <Icon name="account" size={24} />}

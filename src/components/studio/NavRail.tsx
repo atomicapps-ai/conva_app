@@ -36,7 +36,7 @@ function RailButton({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={[
-        "group relative flex h-[30px] w-[30px] items-center justify-center rounded-[7px] border transition",
+        "group relative flex h-[30px] w-[30px] items-center justify-center rounded-sm border transition",
         active
           ? "border-outbound/34 bg-outbound/[0.14] text-[var(--voice-you-text)]"
           : "border-transparent text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
@@ -77,7 +77,7 @@ export function NavRail() {
   return (
     <nav
       aria-label="Primary"
-      className="glass z-10 flex w-[52px] shrink-0 flex-col items-center gap-1 rounded-r-[14px] border-l-0 py-2.5"
+      className="glass z-10 flex w-[44px] shrink-0 flex-col items-center gap-1 rounded-r-lg border-l-0 py-2"
     >
       {/* Brand mark. */}
       <img

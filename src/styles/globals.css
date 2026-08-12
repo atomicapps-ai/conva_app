@@ -1,10 +1,17 @@
 @import "tailwindcss";
 
 /*
- * conva design system — brand v2 (desktop cockpit handoff). The single source
- * of colour/type/radius is the brand tokens below; components consume the
- * semantic aliases (bg-bg, text-ai, …) and utilities (.glass, .btn, …) — never
- * raw hex. Dark only (light mode is unspecified per the brand spec).
+ * conva design system — brand v2 + the conva Density System (2026-07,
+ * `conva_core/brand/Conva Density System design`). The single source of
+ * colour/type/radius is the brand tokens below; components consume the semantic
+ * aliases (bg-bg, text-ai, …) and utilities (.glass, .btn, …) — never raw hex.
+ * Dark only (light mode is unspecified per the brand spec).
+ *
+ * DENSITY LAW (CLAUDE.md rule 5): every pixel of chrome/padding/radius is spent
+ * against the transcript. Radii stop at 4px inside a panel (6 floating, 8 window
+ * only, pill for circular); padding on a 4px grid, 8 default / 16 ceiling; depth
+ * from 1px hairlines + one bg step, not shadows. The transcript + relationship
+ * spine are OUT OF SCOPE — never restyled here.
  *
  * Voice colours are semantic and permanent: cyan = them, violet = you,
  * gold = Ally. Magenta (--color-iris) is decorative only — never a speaker.
@@ -59,11 +66,14 @@
   --shadow-glow: 0 10px 32px rgba(123, 92, 255, 0.32),
     0 0 0 1px rgba(34, 228, 245, 0.18);
 
-  /* ---- Radii ---- */
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 28px;
+  /* ---- Radii — the conva Density System scale (was 8/12/18/28) ----
+     xs 2 · sm 3 · md 4 (panel default) · lg 6 (floating: dropdowns, modals,
+     HUD) · xl 8 (the OS window only). Pills stay 999 for circular affordances. */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
 
   /* ---- Glass ---- */
   --glass-blur: 18px;
@@ -119,10 +129,9 @@
    theme. Web-only *components* live in src/components/web/; web-only *behaviour*
    branches on capabilities()/isWeb — see src/lib/platform.ts. */
 :root[data-platform="web"] {
-  /* A browser tab has more room than the compact desktop window, so the web
-     surface reads a touch softer and roomier. Extend these as the web UI grows. */
-  --radius-lg: 20px;
-  --radius-xl: 32px;
+  /* The Density System is one scale for both surfaces — the web no longer bumps
+     radii (a browser tab is not a licence to waste space; §Density Law). Only a
+     slightly deeper glass blur remains, for the roomier chrome layers. */
   --glass-blur: 22px;
 }
 
@@ -144,6 +153,7 @@
   --color-rec: var(--color-rec);
   --color-ok: var(--color-ok);
 
+  --radius-xs: var(--radius-xs);
   --radius-sm: var(--radius-sm);
   --radius-DEFAULT: var(--radius);
   --radius-lg: var(--radius-lg);
@@ -373,12 +383,13 @@ body {
     color: var(--color-fg-muted);
   }
 
-  /* Glass section card — the grouping surface inside a view. */
+  /* Section card — the grouping surface inside a view. Density System: 4px
+     panel radius, hairline + one background step for depth (no drop shadow;
+     shadows on in-flow cards are illegal per the Density Law). */
   .card {
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius);
     border: 1px solid var(--color-border);
     background: color-mix(in oklab, var(--color-panel) 55%, transparent);
-    box-shadow: var(--shadow-sm);
   }
   /* A selectable list row — quiet until hovered/active. */
   .row {
@@ -573,7 +584,7 @@ html[data-window="hud"] #root::before {
   height: 100%;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: var(--radius-xl); /* floating window ceiling — 8px */
   border: 1px solid var(--color-border-strong);
   background: color-mix(
     in oklab,

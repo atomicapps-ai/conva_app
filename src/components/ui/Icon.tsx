@@ -28,9 +28,18 @@ export type IconName =
   | "account"
   | "expand"
   | "lightbulb"
+  | "thumbUp"
+  | "thumbDown"
   | "book"
   | "howto"
-  | "elaborate";
+  | "elaborate"
+  | "simicon"
+  | "edit"
+  | "reasoning"
+  | "summarize"
+  | "more"
+  | "copy"
+  | "trash";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -45,6 +54,61 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M5 4.5h9l3 3V19.5H5z" />
       <path d="M13.5 4.5v3.5H17" />
       <path d="M8 12h6M8 15h6" />
+    </>
+  ),
+  // Simicon — the icon for Sim Con (Simulated Conversation): an AI persona
+  // (person + sparkle), the AI-generated counterparty.
+  simicon: (
+    <>
+      <circle cx="12" cy="8" r="3" />
+      <path d="M6 19a6 6 0 0 1 12 0" />
+      <path d="M18.6 4.2l.55 1.5 1.5.55-1.5.55-.55 1.5-.55-1.5-1.5-.55 1.5-.55z" />
+    </>
+  ),
+  // Edit — a pencil.
+  edit: (
+    <>
+      <path d="M16.5 3.5l4 4L8 20l-4.5 1 1-4.5z" />
+      <path d="M14 6l4 4" />
+    </>
+  ),
+  // Trash — delete.
+  trash: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M9 7V5.2A1.7 1.7 0 0 1 10.7 3.5h2.6A1.7 1.7 0 0 1 15 5.2V7" />
+      <path d="M6 7l1 12.3A1.7 1.7 0 0 0 8.7 21h6.6A1.7 1.7 0 0 0 17 19.3L18 7" />
+      <path d="M10 11v6M14 11v6" />
+    </>
+  ),
+  // Summarize — condensed lines (a short recap).
+  summarize: (
+    <>
+      <path d="M4 6h16M4 10h16M4 14h11M4 18h7" />
+    </>
+  ),
+  // Copy — two overlapping sheets.
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+    </>
+  ),
+  // Overflow menu — kebab (three vertical dots).
+  more: (
+    <>
+      <circle cx="12" cy="5" r="1.1" />
+      <circle cx="12" cy="12" r="1.1" />
+      <circle cx="12" cy="19" r="1.1" />
+    </>
+  ),
+  // Reasoning / "thinking" — a thought bubble with an ellipsis (details behind).
+  reasoning: (
+    <>
+      <path d="M5 5.5h11a3 3 0 0 1 3 3v3a3 3 0 0 1-3 3h-5.5L7 18v-3.5H5a3 3 0 0 1-3-3v-3a3 3 0 0 1 3-3z" />
+      <circle cx="8" cy="10" r="0.9" />
+      <circle cx="11.5" cy="10" r="0.9" />
+      <circle cx="15" cy="10" r="0.9" />
     </>
   ),
   // Sessions — clock / history.
@@ -118,6 +182,19 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M12 3a6 6 0 0 0-3.6 10.8c.6.45 1.1 1.15 1.1 1.95V17h5v-1.25c0-.8.5-1.5 1.1-1.95A6 6 0 0 0 12 3z" />
       <path d="M9.7 20h4.6M10.7 22.2h2.6" />
       <path d="M12.7 7.2l-2.2 3.7h2.5L11 15" />
+    </>
+  ),
+  // Feedback — thumbs up / down (useful / not useful).
+  thumbUp: (
+    <>
+      <path d="M7 10v10H4.5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1H7z" />
+      <path d="M7 10l3.6-6.4a1.8 1.8 0 0 1 1.9 1.8V8h5.3a1.8 1.8 0 0 1 1.8 2.1l-1.1 7a1.8 1.8 0 0 1-1.8 1.5H7" />
+    </>
+  ),
+  thumbDown: (
+    <>
+      <path d="M17 14V4h2.5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H17z" />
+      <path d="M17 14l-3.6 6.4a1.8 1.8 0 0 1-1.9-1.8V16H6.2a1.8 1.8 0 0 1-1.8-2.1l1.1-7A1.8 1.8 0 0 1 7.3 5.4H17" />
     </>
   ),
   // Definition — an open book.

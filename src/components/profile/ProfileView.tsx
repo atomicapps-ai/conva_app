@@ -130,7 +130,7 @@ export function ProfileView() {
       }
     >
       <Section title="Account">
-        <div className="glass mb-3 flex items-center gap-4 rounded-2xl p-4">
+        <div className="glass mb-3 flex items-center gap-4 rounded-lg p-4">
           <span className="brand-gradient flex h-12 w-12 items-center justify-center rounded-full text-lg font-extrabold text-bg">
             {initial(status.email)}
           </span>

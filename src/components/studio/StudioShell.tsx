@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { ConsentGate } from "@/components/ConsentGate";
 import { PreparingOverlay } from "@/components/PreparingOverlay";
+import { RehearsalBar } from "@/components/simcon/RehearsalBar";
 import { SaveConversationDialog } from "@/components/SaveConversationDialog";
 import { CommandPalette } from "@/components/studio/CommandPalette";
 import { NavRail } from "@/components/studio/NavRail";
@@ -67,6 +68,7 @@ export function StudioShell() {
       )}
 
       {/* Overlays — render above any view. */}
+      <RehearsalBar />
       <ConsentGate />
       <PreparingOverlay />
       <SaveConversationDialog />
