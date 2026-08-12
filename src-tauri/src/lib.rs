@@ -370,7 +370,10 @@ fn analyze_terms(state: State<AppState>, text: String) -> Vec<String> {
         .map(|c| c.text.as_str())
         .collect::<Vec<_>>()
         .join(" ");
-    conva_core::highlight::relevant_terms(&text, &context)
+    // Phase 3a: doc-only context (no active conversation context, feedback, or
+    // rarity oracle wired yet — those arrive in 3b/3c).
+    let ctx = conva_core::highlight::HighlightContext::from_doc_text(&context);
+    conva_core::highlight::relevant_terms(&text, &ctx)
 }
 
 #[tauri::command]
