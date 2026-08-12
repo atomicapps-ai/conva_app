@@ -8,6 +8,7 @@ import { create } from "zustand";
 const FONT_KEY = "conva.ally.fontPx";
 const TRANSCRIPT_FONT_KEY = "conva.transcript.fontPx";
 const REASONING_KEY = "conva.ally.reasoningOpen";
+const COLLAPSE_YOU_KEY = "conva.transcript.collapseYou";
 const FONT_MIN = 11;
 const FONT_MAX = 20;
 const FONT_DEFAULT = 14;
@@ -25,16 +26,21 @@ interface UiPrefs {
   transcriptFontPx: number;
   /** Whether the reasoning ("thinking") block starts expanded. */
   reasoningDefaultOpen: boolean;
+  /** Keep the user's own ("you") turns collapsed by default. */
+  collapseYou: boolean;
   setAllyFontPx: (px: number) => void;
   bumpAllyFont: (delta: number) => void;
   bumpTranscriptFont: (delta: number) => void;
   setReasoningDefaultOpen: (open: boolean) => void;
+  setCollapseYou: (on: boolean) => void;
 }
 
 export const useUiPrefs = create<UiPrefs>((set) => ({
   allyFontPx: loadFont(FONT_KEY, FONT_DEFAULT),
   transcriptFontPx: loadFont(TRANSCRIPT_FONT_KEY, TRANSCRIPT_FONT_DEFAULT),
   reasoningDefaultOpen: localStorage.getItem(REASONING_KEY) === "1",
+  // Default on — the user rarely re-reads their own words.
+  collapseYou: localStorage.getItem(COLLAPSE_YOU_KEY) !== "0",
 
   setAllyFontPx: (px) => {
     const clamped = Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(px)));
@@ -59,6 +65,10 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
   setReasoningDefaultOpen: (open) => {
     localStorage.setItem(REASONING_KEY, open ? "1" : "0");
     set({ reasoningDefaultOpen: open });
+  },
+  setCollapseYou: (on) => {
+    localStorage.setItem(COLLAPSE_YOU_KEY, on ? "1" : "0");
+    set({ collapseYou: on });
   },
 }));
 

@@ -355,12 +355,17 @@ function SelectionMenu({
   );
 }
 
-/** A collapsed bubble: one dense line, with the full message revealed in a
- *  readable popup on hover; click pins it open. */
-function CollapsedPreview({ text }: { text: string }) {
+/** A collapsed bubble: one dense line; the full message peeks in a readable
+ *  popup on hover, and clicking expands the bubble. */
+function CollapsedPreview({
+  text,
+  onExpand,
+}: {
+  text: string;
+  onExpand: () => void;
+}) {
   const ref = useRef<HTMLButtonElement>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
-  const [pinned, setPinned] = useState(false);
   const open = () => {
     if (ref.current) setRect(ref.current.getBoundingClientRect());
   };
@@ -370,19 +375,15 @@ function CollapsedPreview({ text }: { text: string }) {
         ref={ref}
         type="button"
         onMouseEnter={open}
-        onMouseLeave={() => !pinned && setRect(null)}
-        onClick={() => {
-          setPinned((p) => !p);
-          open();
-        }}
+        onMouseLeave={() => setRect(null)}
+        onClick={onExpand}
+        title="Click to expand"
         className="line-clamp-1 block w-full text-left text-fg-muted"
       >
         {text || "…"}
       </button>
       {rect && (
         <div
-          onMouseEnter={open}
-          onMouseLeave={() => !pinned && setRect(null)}
           style={{
             position: "fixed",
             left: Math.max(8, rect.left),
@@ -390,7 +391,7 @@ function CollapsedPreview({ text }: { text: string }) {
             maxWidth: "min(620px, 92vw)",
             zIndex: 40,
           }}
-          className="glass-raised rounded-lg border border-border px-3 py-2 text-[13px] leading-relaxed text-fg shadow-[var(--shadow-lg)]"
+          className="glass-raised pointer-events-none rounded-lg border border-border px-3 py-2 text-[13px] leading-relaxed text-fg shadow-[var(--shadow-lg)]"
         >
           {text}
         </div>
@@ -465,6 +466,7 @@ function Bubble({
   onJumpLink,
   busy,
   fontPx,
+  sessionStartMs,
 }: {
   segments: TranscriptSegment[];
   turnKey: string;
@@ -481,6 +483,8 @@ function Bubble({
   onJumpLink: () => void;
   busy: boolean;
   fontPx: number;
+  /** Session start (epoch ms) so the time hover can show a wall-clock. */
+  sessionStartMs: number | null;
 }) {
   const backend = useBackend();
   const inbound = segments[0]?.side === "inbound";
@@ -526,17 +530,24 @@ function Bubble({
   const accent = inbound ? "bg-inbound" : "bg-outbound";
   const tint = inbound ? "bg-inbound/[0.05]" : "bg-outbound/[0.05]";
 
+  const timeMs = firstFinal ? firstFinal.start_ms : 0;
+  const timeLabel = firstFinal ? formatMs(timeMs) : "now";
+  const timeTitle =
+    sessionStartMs && sessionStartMs > 0
+      ? new Date(sessionStartMs + timeMs).toLocaleString()
+      : `${timeLabel} into the session`;
+
   return (
     <div
       ref={(el) => registerEl(turnKey, el)}
       onContextMenu={onContextMenu}
-      className="group flex w-full items-start gap-1"
+      className="group w-full"
     >
       <div
         onMouseUp={onMouseUp}
         style={{ fontSize: `${fontPx}px` }}
         className={[
-          "relative min-w-0 flex-1 rounded-[4px] border border-border py-1.5 pl-2.5 pr-2 transition-shadow",
+          "relative min-w-0 rounded-[4px] border border-border py-1.5 pl-2.5 pr-6 transition-shadow",
           tint,
           !hasFinal ? "border-dashed text-fg-muted" : "",
           highlighted ? "ring-2 ring-ai/60" : "",
@@ -551,23 +562,41 @@ function Bubble({
         {hasFinal && (
           <button
             type="button"
-            onClick={onToggleCollapse}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapse();
+            }}
             aria-expanded={!collapsed}
             title={collapsed ? "Expand" : "Collapse"}
             aria-label={collapsed ? "Expand turn" : "Collapse turn"}
-            className="absolute left-1/2 top-0 z-10 grid h-[15px] w-[15px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-panel text-fg-faint transition-colors hover:text-fg"
+            className="absolute left-1/2 top-0 z-20 grid h-[16px] w-[18px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-panel text-fg-faint transition-colors hover:border-ai/50 hover:text-ai"
           >
             <Icon
               name="chevron"
               size={12}
-              strokeWidth={2.4}
+              strokeWidth={2.6}
               className={collapsed ? "" : "rotate-180"}
             />
           </button>
         )}
+        {/* Ask Ally about the whole turn — top-right corner, saves inline space. */}
+        {hasFinal && (
+          <button
+            type="button"
+            disabled={busy}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onResearch}
+            title="Ask Ally about this turn"
+            aria-label="Ask Ally about this turn"
+            className="absolute right-0.5 top-0.5 z-10 rounded p-0.5 text-ai/60 transition-colors hover:bg-ai/10 hover:text-ai disabled:opacity-40"
+          >
+            <Icon name="lightbulb" size={14} />
+          </button>
+        )}
 
         {collapsed ? (
-          <CollapsedPreview text={combinedText} />
+          <CollapsedPreview text={combinedText} onExpand={onToggleCollapse} />
         ) : (
           <div className="min-w-0">
             {units.length > 0 && (
@@ -587,6 +616,25 @@ function Bubble({
             {units.length === 0 && !partialTail && (
               <span className="text-fg-muted">…</span>
             )}
+            {/* Time — the last item, right after the words; hover = full date. */}
+            {hasFinal && (
+              <span
+                title={timeTitle}
+                className="ml-1.5 cursor-help whitespace-nowrap align-baseline font-mono text-[9px] text-fg-faint"
+              >
+                {timeLabel}
+                {linkedSeq !== null && (
+                  <button
+                    type="button"
+                    onClick={onJumpLink}
+                    title={`Jump to Ally card A${linkedSeq}`}
+                    className="ml-1 rounded px-0.5 font-bold text-ai hover:bg-ai/10"
+                  >
+                    A{linkedSeq}
+                  </button>
+                )}
+              </span>
+            )}
           </div>
         )}
 
@@ -601,36 +649,6 @@ function Bubble({
           />
         )}
       </div>
-
-      {/* Outside-right controls: lightbulb (top), time (under), jump link. */}
-      {hasFinal && (
-        <div className="flex w-7 shrink-0 flex-col items-center gap-0.5 pt-0.5">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onResearch}
-            title="Ask Ally about this turn"
-            aria-label="Ask Ally about this turn"
-            className="rounded p-1 text-ai/70 transition-colors hover:bg-ai/10 hover:text-ai disabled:opacity-40"
-          >
-            <Icon name="lightbulb" size={15} />
-          </button>
-          <span className="font-mono text-[9px] leading-none text-fg-faint">
-            {firstFinal ? formatMs(firstFinal.start_ms) : "now"}
-          </span>
-          {linkedSeq !== null && (
-            <button
-              type="button"
-              onClick={onJumpLink}
-              title={`Jump to Ally card A${linkedSeq}`}
-              aria-label={`Jump to Ally card ${linkedSeq}`}
-              className="flex items-center gap-0.5 rounded px-0.5 text-[9px] font-bold text-ai transition-colors hover:bg-ai/10"
-            >
-              <span className="h-1 w-1 rounded-full bg-ai" />A{linkedSeq}
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -992,7 +1010,13 @@ export function TranscriptView() {
   const setReasoningDefaultOpen = useUiPrefs((s) => s.setReasoningDefaultOpen);
   const transcriptFontPx = useUiPrefs((s) => s.transcriptFontPx);
   const bumpTranscriptFont = useUiPrefs((s) => s.bumpTranscriptFont);
+  const collapseYou = useUiPrefs((s) => s.collapseYou);
+  const setCollapseYou = useUiPrefs((s) => s.setCollapseYou);
   const [allyMenu, setAllyMenu] = useState(false);
+  // Session start (epoch ms) — lets a bubble's time hover show a wall-clock.
+  const sessionEvent = useTranscriptStore((s) => s.session);
+  const sessionStartMs =
+    sessionEvent.state === "listening" ? sessionEvent.started_at_unix_ms : null;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const spineColRef = useRef<HTMLDivElement>(null);
@@ -1039,10 +1063,12 @@ export function TranscriptView() {
     return out;
   }, [merged]);
 
-  // Default-collapse the user's own ("you") turns — you rarely re-read your own
-  // words. Each key is seeded once, so re-expanding one sticks.
+  // Keep the user's own ("you") turns collapsed by default (a persisted pref) —
+  // you rarely re-read your own words. Each key is seeded once, so manually
+  // re-expanding one sticks.
   const seededYou = useRef<Set<string>>(new Set());
   useEffect(() => {
+    if (!collapseYou) return;
     const fresh = turns.filter(
       (t) => t.side === "outbound" && !seededYou.current.has(t.key),
     );
@@ -1055,7 +1081,24 @@ export function TranscriptView() {
       });
       return next;
     });
-  }, [turns]);
+  }, [turns, collapseYou]);
+
+  // The header toggle applies immediately to every "you" turn on screen.
+  const toggleCollapseYou = () => {
+    const next = !collapseYou;
+    setCollapseYou(next);
+    setCollapsed((prev) => {
+      const s = new Set(prev);
+      turns
+        .filter((t) => t.side === "outbound")
+        .forEach((t) => {
+          if (next) s.add(t.key);
+          else s.delete(t.key);
+          seededYou.current.add(t.key);
+        });
+      return s;
+    });
+  };
 
   const convo = useAutoScroll(merged[merged.length - 1]);
   const allyCol = useAutoScroll(cards[0]?.id);
@@ -1439,6 +1482,22 @@ export function TranscriptView() {
               A+
             </button>
             <span className="mx-0.5 h-4 w-px bg-border" />
+            {/* Keep my own turns collapsed (persisted). */}
+            <button
+              type="button"
+              onClick={toggleCollapseYou}
+              aria-pressed={collapseYou}
+              title={
+                collapseYou
+                  ? "Your turns are collapsed — click to show them"
+                  : "Collapse your own turns"
+              }
+              aria-label="Collapse your own turns"
+              className={`rounded p-1 transition-colors ${collapseYou ? "text-outbound" : "hover:text-fg"}`}
+            >
+              <Icon name="mic" size={15} />
+            </button>
+            <span className="mx-0.5 h-4 w-px bg-border" />
             <button
               type="button"
               onClick={expandAll}
@@ -1528,6 +1587,7 @@ export function TranscriptView() {
                   onJumpLink={() => link && inspect(link.id, key)}
                   busy={busy}
                   fontPx={transcriptFontPx}
+                  sessionStartMs={sessionStartMs}
                 />
               );
             })
