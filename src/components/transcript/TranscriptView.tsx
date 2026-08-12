@@ -14,7 +14,9 @@ import type { TranscriptSegment } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
+import { useRehearsalStore } from "@/state/rehearsal";
 import { useTranscriptStore } from "@/state/transcript";
+import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
 
 /** Stable identity for a transcript bubble (also the Ally-card link key). */
 function segmentKey(seg: TranscriptSegment): string {
@@ -31,7 +33,110 @@ function formatMs(ms: number): string {
 }
 
 function researchPrompt(text: string): string {
-  return `Research this statement from the conversation. Give concise, immediately useful context — key facts, definitions, and anything I should know or verify: "${text}"`;
+  return `On a live call — give me what I need to respond in seconds to: "${text}". Lead with the key facts/answer as short bold-highlighted bullets; put any deeper background below a --- line.`;
+}
+
+/** Inline **bold** → <strong>; everything else passes through. Keeps Ally's
+ *  call-ready answers scannable without a full markdown dependency. */
+function inlineMd(text: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  const re = /\*\*(.+?)\*\*/g;
+  let last = 0;
+  let k = 0;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(
+      <strong key={`b${k++}`} className="font-semibold text-fg">
+        {m[1]}
+      </strong>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+/** Minimal markdown for Ally answers: bullet lists, ### headings, **bold**,
+ *  paragraphs — enough for fast, scannable, call-ready output. */
+function AnswerBody({ text }: { text: string }) {
+  const blocks: ReactNode[] = [];
+  let bullets: string[] = [];
+  let key = 0;
+  const flushBullets = () => {
+    if (bullets.length === 0) return;
+    const items = bullets;
+    bullets = [];
+    blocks.push(
+      <ul key={`u${key++}`} className="ml-4 list-disc space-y-1">
+        {items.map((b, i) => (
+          <li key={i}>{inlineMd(b)}</li>
+        ))}
+      </ul>,
+    );
+  };
+  for (const raw of text.split("\n")) {
+    const line = raw.trimEnd();
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    const heading = line.match(/^#{1,4}\s+(.*)$/);
+    if (bullet) {
+      bullets.push(bullet[1] ?? "");
+      continue;
+    }
+    flushBullets();
+    if (heading) {
+      blocks.push(
+        <p key={`h${key++}`} className="font-bold text-fg">
+          {inlineMd(heading[1] ?? "")}
+        </p>,
+      );
+    } else if (line.trim() !== "") {
+      blocks.push(<p key={`p${key++}`}>{inlineMd(line)}</p>);
+    }
+  }
+  flushBullets();
+  return <div className="flex flex-col gap-1.5">{blocks}</div>;
+}
+
+/** Split an Ally answer into the at-a-glance part and the optional context that
+ *  follows a `---` line (the prompt asks Ally to separate them this way). */
+function splitReasoning(text: string): { answer: string; context: string } {
+  const m = text.match(/\n[ \t]*-{3,}[ \t]*(?:\n|$)/);
+  if (!m || m.index === undefined) return { answer: text, context: "" };
+  return {
+    answer: text.slice(0, m.index).trim(),
+    context: text.slice(m.index + m[0].length).trim(),
+  };
+}
+
+/** Collapsible "reasoning" region — default collapsed; keeps deeper context out
+ *  of the way during a call but one tap away. */
+function ReasoningBlock({ text }: { text: string }) {
+  const defaultOpen = useUiPrefs((s) => s.reasoningDefaultOpen);
+  const [open, setOpen] = useState(defaultOpen);
+  if (!text.trim()) return null;
+  return (
+    <div className="rounded-md border border-border/70 bg-bg/30">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-fg-faint transition-colors hover:text-fg-muted"
+      >
+        <Icon name="reasoning" size={13} />
+        Reasoning
+        <Icon
+          name="chevron"
+          size={12}
+          className={`ml-auto transition-transform ${open ? "" : "-rotate-90"}`}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-border/70 px-2.5 py-2 text-[12px] text-fg-muted">
+          <AnswerBody text={text} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 function cardLabel(card: AllyCard): string {
@@ -173,37 +278,178 @@ function HighlightedText({
   );
 }
 
-/** A caret that toggles a bubble/card between collapsed and expanded. */
-function Caret({
-  collapsed,
-  onToggle,
-  label,
+/** Icon menu shown when the user selects text inside a bubble: ask Ally about
+ *  the selection, copy it, or drop it into the Ask-Ally box. */
+function SelectionMenu({
+  x,
+  y,
+  text,
+  onAsk,
+  onSendToAsk,
+  onClose,
 }: {
-  collapsed: boolean;
-  onToggle: () => void;
-  label: string;
+  x: number;
+  y: number;
+  text: string;
+  onAsk: (t: string) => void;
+  onSendToAsk: (t: string) => void;
+  onClose: () => void;
 }) {
+  useEffect(() => {
+    const close = () => onClose();
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  const left = Math.max(8, Math.min(x - 52, window.innerWidth - 120));
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={!collapsed}
-      aria-label={`${collapsed ? "Expand" : "Collapse"} ${label}`}
-      title={collapsed ? "Expand" : "Collapse"}
-      className="shrink-0 rounded text-fg-faint transition-colors hover:text-fg"
+    <div
+      style={{ position: "fixed", left, top: y + 6, zIndex: 60 }}
+      onMouseDown={(e) => e.stopPropagation()}
+      role="menu"
+      className="glass-raised flex items-center gap-0.5 rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
     >
-      <Icon
-        name="chevron"
-        size={14}
-        className={`transition-transform ${collapsed ? "-rotate-90" : ""}`}
-      />
-    </button>
+      <button
+        type="button"
+        title="Ask Ally about this"
+        aria-label="Ask Ally about the selection"
+        onClick={() => {
+          onAsk(text);
+          onClose();
+        }}
+        className="rounded p-1.5 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
+      >
+        <Icon name="lightbulb" size={15} />
+      </button>
+      <button
+        type="button"
+        title="Copy"
+        aria-label="Copy the selection"
+        onClick={() => {
+          void navigator.clipboard.writeText(text);
+          onClose();
+        }}
+        className="rounded p-1.5 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+      >
+        <Icon name="copy" size={15} />
+      </button>
+      <button
+        type="button"
+        title="Send to Ask Ally"
+        aria-label="Send the selection to Ask Ally"
+        onClick={() => {
+          onSendToAsk(text);
+          onClose();
+        }}
+        className="rounded p-1.5 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+      >
+        <Icon name="chevron" size={15} className="rotate-90" />
+      </button>
+    </div>
   );
 }
 
-/** One conversation turn = consecutive segments from the same speaker (a new
- *  bubble starts only when the speaker switches). Them = cyan left, you =
- *  violet right; each utterance is its own line; controls sit on the right. */
+/** A collapsed bubble: one dense line; the full message peeks in a readable
+ *  popup on hover, and clicking expands the bubble. */
+function CollapsedPreview({
+  text,
+  onExpand,
+}: {
+  text: string;
+  onExpand: () => void;
+}) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const open = () => {
+    if (ref.current) setRect(ref.current.getBoundingClientRect());
+  };
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        onMouseEnter={open}
+        onMouseLeave={() => setRect(null)}
+        onClick={onExpand}
+        title="Click to expand"
+        className="line-clamp-1 block w-full text-left text-fg-muted"
+      >
+        {text || "…"}
+      </button>
+      {rect && (
+        <div
+          style={{
+            position: "fixed",
+            left: Math.max(8, rect.left),
+            top: rect.bottom + 4,
+            maxWidth: "min(620px, 92vw)",
+            zIndex: 40,
+          }}
+          className="glass-raised pointer-events-none rounded-lg border border-border px-3 py-2 text-[13px] leading-relaxed text-fg shadow-[var(--shadow-lg)]"
+        >
+          {text}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The expanded content: sentences flow on one continuous line, separated by a
+ *  coloured `|`. Hovering a sentence highlights it and reveals a lightbulb to
+ *  ask Ally about just that sentence; RAG terms stay clickable within. */
+function FlowText({
+  units,
+  terms,
+  onAskText,
+  onAskTerm,
+}: {
+  units: string[];
+  terms: string[];
+  onAskText: (t: string) => void;
+  onAskTerm: (action: TermAction, term: string) => void;
+}) {
+  return (
+    <span className="leading-snug">
+      {units.map((unit, i) => (
+        <span
+          key={i}
+          className="group/u rounded-[3px] px-0.5 transition-colors hover:bg-ai/10"
+        >
+          {i > 0 && (
+            <span className="mx-1 font-bold text-ai/70 select-none" aria-hidden>
+              |
+            </span>
+          )}
+          <HighlightedText text={unit} terms={terms} onAsk={onAskTerm} />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAskText(unit);
+            }}
+            title="Ask Ally about this"
+            aria-label="Ask Ally about this sentence"
+            className="ml-0.5 inline-flex align-middle text-ai/70 opacity-0 transition-opacity hover:text-ai group-hover/u:opacity-100"
+          >
+            <Icon name="lightbulb" size={12} />
+          </button>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** One conversation turn = consecutive segments from the same speaker. Full
+ *  width with a 2px voice-colour accent (cyan = them, violet = you); expanded
+ *  content flows with `|` separators, collapsed content peeks on hover. The
+ *  lightbulb + time sit outside the bubble on the right; the collapse toggle
+ *  floats at the top-centre edge. */
 function Bubble({
   segments,
   turnKey,
@@ -212,11 +458,15 @@ function Bubble({
   collapsed,
   onToggleCollapse,
   onResearch,
+  onAskText,
+  onSendToAsk,
   onAskTerm,
   onContextMenu,
   linkedSeq,
   onJumpLink,
   busy,
+  fontPx,
+  sessionStartMs,
 }: {
   segments: TranscriptSegment[];
   turnKey: string;
@@ -225,25 +475,36 @@ function Bubble({
   collapsed: boolean;
   onToggleCollapse: () => void;
   onResearch: () => void;
+  onAskText: (text: string) => void;
+  onSendToAsk: (text: string) => void;
   onAskTerm: (action: TermAction, term: string) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   linkedSeq: number | null;
   onJumpLink: () => void;
   busy: boolean;
+  fontPx: number;
+  /** Session start (epoch ms) so the time hover can show a wall-clock. */
+  sessionStartMs: number | null;
 }) {
   const backend = useBackend();
   const inbound = segments[0]?.side === "inbound";
   const finals = segments.filter((s) => s.is_final);
   const hasFinal = finals.length > 0;
   const firstFinal = finals[0];
-  const combinedText = finals.map((s) => s.text).join(" ");
+  const units = finals.map((s) => s.text.trim()).filter(Boolean);
+  const combinedText = units.join(" ");
+  const partialTail = segments
+    .filter((s) => !s.is_final && s.text.trim())
+    .map((s) => s.text.trim())
+    .join(" ");
 
   // RAG-grounded highlight terms for the whole turn (best-effort).
   const [terms, setTerms] = useState<string[]>([]);
   useEffect(() => {
     if (!combinedText || !isTauri()) return;
     let alive = true;
-    void backend.rag.analyzeTerms(combinedText)
+    void backend.rag
+      .analyzeTerms(combinedText)
       .then((t) => alive && setTerms(t))
       .catch(() => {});
     return () => {
@@ -251,85 +512,142 @@ function Bubble({
     };
   }, [combinedText, backend]);
 
+  // Selection → icon menu (ask / copy / send-to-ask).
+  const [sel, setSel] = useState<{ x: number; y: number; text: string } | null>(
+    null,
+  );
+  const onMouseUp = () => {
+    const s = window.getSelection();
+    const text = s?.toString().trim() ?? "";
+    if (!text || !s || s.rangeCount === 0) {
+      setSel(null);
+      return;
+    }
+    const r = s.getRangeAt(0).getBoundingClientRect();
+    setSel({ x: r.left + r.width / 2, y: r.bottom, text });
+  };
+
+  const accent = inbound ? "bg-inbound" : "bg-outbound";
+  const tint = inbound ? "bg-inbound/[0.05]" : "bg-outbound/[0.05]";
+
+  const timeMs = firstFinal ? firstFinal.start_ms : 0;
+  const timeLabel = firstFinal ? formatMs(timeMs) : "now";
+  const timeTitle =
+    sessionStartMs && sessionStartMs > 0
+      ? new Date(sessionStartMs + timeMs).toLocaleString()
+      : `${timeLabel} into the session`;
+
   return (
     <div
       ref={(el) => registerEl(turnKey, el)}
       onContextMenu={onContextMenu}
-      className={`flex max-w-[92%] items-start gap-2 ${inbound ? "self-start" : "self-end"}`}
+      className="group w-full"
     >
-      {/* Timestamp on the left — replaces the label row above to save height. */}
-      <span className="mt-2.5 shrink-0 font-mono text-[10px] leading-none text-fg-faint">
-        {firstFinal ? formatMs(firstFinal.start_ms) : "now"}
-      </span>
       <div
+        onMouseUp={onMouseUp}
+        style={{ fontSize: `${fontPx}px` }}
         className={[
-          "min-w-0 border px-4 py-2.5 text-sm leading-relaxed transition-shadow",
-          inbound
-            ? "rounded-2xl rounded-bl-[4px] border-inbound/28 bg-inbound/[0.09]"
-            : "rounded-2xl rounded-br-[4px] border-outbound/30 bg-outbound/10",
+          "relative min-w-0 rounded-[4px] border border-border py-1.5 pl-2.5 pr-6 transition-shadow",
+          tint,
           !hasFinal ? "border-dashed text-fg-muted" : "",
           highlighted ? "ring-2 ring-ai/60" : "",
         ].join(" ")}
       >
-        <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            {collapsed ? (
-              <span className="line-clamp-1 block">{combinedText || "…"}</span>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {segments.map((s, i) => (
-                  <span
-                    key={`${s.side}-${s.seq}-${i}`}
-                    className={s.is_final ? "" : "text-fg-muted"}
+        {/* 2px voice-colour accent bar (density law). */}
+        <span
+          className={`absolute inset-y-0 left-0 w-[2px] rounded-l ${accent}`}
+          aria-hidden
+        />
+        {/* Collapse toggle — floats at the top-centre edge (down = collapsed). */}
+        {hasFinal && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapse();
+            }}
+            aria-expanded={!collapsed}
+            title={collapsed ? "Expand" : "Collapse"}
+            aria-label={collapsed ? "Expand turn" : "Collapse turn"}
+            className="absolute left-1/2 top-0 z-20 grid h-[16px] w-[18px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-panel text-fg-faint transition-colors hover:border-ai/50 hover:text-ai"
+          >
+            <Icon
+              name="chevron"
+              size={12}
+              strokeWidth={2.6}
+              className={collapsed ? "" : "rotate-180"}
+            />
+          </button>
+        )}
+        {/* Ask Ally about the whole turn — top-right corner, saves inline space. */}
+        {hasFinal && (
+          <button
+            type="button"
+            disabled={busy}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={onResearch}
+            title="Ask Ally about this turn"
+            aria-label="Ask Ally about this turn"
+            className="absolute right-0.5 top-0.5 z-10 rounded p-0.5 text-ai/60 transition-colors hover:bg-ai/10 hover:text-ai disabled:opacity-40"
+          >
+            <Icon name="lightbulb" size={14} />
+          </button>
+        )}
+
+        {collapsed ? (
+          <CollapsedPreview text={combinedText} onExpand={onToggleCollapse} />
+        ) : (
+          <div className="min-w-0">
+            {units.length > 0 && (
+              <FlowText
+                units={units}
+                terms={terms}
+                onAskText={onAskText}
+                onAskTerm={onAskTerm}
+              />
+            )}
+            {partialTail && (
+              <span className="text-fg-muted">
+                {units.length > 0 ? " " : ""}
+                {partialTail}…
+              </span>
+            )}
+            {units.length === 0 && !partialTail && (
+              <span className="text-fg-muted">…</span>
+            )}
+            {/* Time — the last item, right after the words; hover = full date. */}
+            {hasFinal && (
+              <span
+                title={timeTitle}
+                className="ml-1.5 cursor-help whitespace-nowrap align-baseline font-mono text-[9px] text-fg-faint"
+              >
+                {timeLabel}
+                {linkedSeq !== null && (
+                  <button
+                    type="button"
+                    onClick={onJumpLink}
+                    title={`Jump to Ally card A${linkedSeq}`}
+                    className="ml-1 rounded px-0.5 font-bold text-ai hover:bg-ai/10"
                   >
-                    {s.is_final && s.text ? (
-                      <HighlightedText
-                        text={s.text}
-                        terms={terms}
-                        onAsk={onAskTerm}
-                      />
-                    ) : (
-                      s.text || (!s.is_final ? "…" : "")
-                    )}
-                  </span>
-                ))}
-              </div>
+                    A{linkedSeq}
+                  </button>
+                )}
+              </span>
             )}
           </div>
-          {hasFinal && (
-            <div className="flex shrink-0 items-center gap-0.5 self-center">
-              {/* Ask Ally — the lightbulb initiates the AI response for the turn. */}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onResearch}
-                title="Ask Ally"
-                aria-label="Ask Ally about this turn"
-                className="rounded p-1 text-ai/70 transition-colors hover:bg-ai/10 hover:text-ai disabled:opacity-40"
-              >
-                <Icon name="lightbulb" size={16} />
-              </button>
-              {/* Jump to the linked Ally card, if any (icon + number, no label). */}
-              {linkedSeq !== null && (
-                <button
-                  type="button"
-                  onClick={onJumpLink}
-                  title={`Jump to Ally card A${linkedSeq}`}
-                  aria-label={`Jump to Ally card ${linkedSeq}`}
-                  className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-bold text-ai transition-colors hover:bg-ai/10"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-ai" />
-                  A{linkedSeq}
-                </button>
-              )}
-              <Caret
-                collapsed={collapsed}
-                onToggle={onToggleCollapse}
-                label={inbound ? "received turn" : "sent turn"}
-              />
-            </div>
-          )}
-        </div>
+        )}
+
+        {sel && (
+          <SelectionMenu
+            x={sel.x}
+            y={sel.y}
+            text={sel.text}
+            onAsk={onAskText}
+            onSendToAsk={onSendToAsk}
+            onClose={() => setSel(null)}
+          />
+        )}
       </div>
     </div>
   );
@@ -356,6 +674,7 @@ function AllyCardView({
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const label = cardLabel(card);
+  const allyFontPx = useUiPrefs((s) => s.allyFontPx);
   const suggest = card.kind === "suggest_reply";
   const summary = card.kind === "summarize";
   const sources = [
@@ -431,7 +750,10 @@ function AllyCardView({
       </div>
 
       {!collapsed && !(summary && card.done) && (
-        <div className="flex flex-col gap-2.5 px-4 py-3">
+        <div
+          className="flex max-h-[46vh] flex-col gap-2.5 overflow-y-auto px-4 py-3"
+          style={{ fontSize: `${allyFontPx}px` }}
+        >
           {card.sourceQuote && (
             <p className="border-l-2 border-ai/40 pl-2 text-[11px] italic text-fg-muted">
               “
@@ -443,10 +765,18 @@ function AllyCardView({
           )}
           {card.error ? (
             <p className="text-xs text-rec">{card.error}</p>
+          ) : card.text ? (
+            (() => {
+              const { answer, context } = splitReasoning(card.text);
+              return (
+                <div className="flex flex-col gap-2 leading-relaxed">
+                  <AnswerBody text={answer} />
+                  <ReasoningBlock text={context} />
+                </div>
+              );
+            })()
           ) : (
-            <p className="whitespace-pre-wrap text-sm leading-relaxed">
-              {card.text || "…"}
-            </p>
+            <p className="text-sm leading-relaxed text-fg-muted">…</p>
           )}
 
           {(suggest || sources.length > 0) && (
@@ -668,6 +998,25 @@ export function TranscriptView() {
   const cards = useAllyStore((s) => s.cards);
   const busy = useAllyStore((s) => s.busy);
   const request = useAllyStore((s) => s.request);
+  const clearAlly = useAllyStore((s) => s.clear);
+  // While a rehearsal is running, the floating RehearsalBar sits over the
+  // bottom of both columns — pad them so their last content stays reachable.
+  const rehearsing = useRehearsalStore((s) => s.active);
+  const barPad = rehearsing ? " pb-16" : "";
+  // Ally column prefs (font size, reasoning default) + the 3-dot menu.
+  const allyFontPx = useUiPrefs((s) => s.allyFontPx);
+  const bumpAllyFont = useUiPrefs((s) => s.bumpAllyFont);
+  const reasoningDefaultOpen = useUiPrefs((s) => s.reasoningDefaultOpen);
+  const setReasoningDefaultOpen = useUiPrefs((s) => s.setReasoningDefaultOpen);
+  const transcriptFontPx = useUiPrefs((s) => s.transcriptFontPx);
+  const bumpTranscriptFont = useUiPrefs((s) => s.bumpTranscriptFont);
+  const collapseYou = useUiPrefs((s) => s.collapseYou);
+  const setCollapseYou = useUiPrefs((s) => s.setCollapseYou);
+  const [allyMenu, setAllyMenu] = useState(false);
+  // Session start (epoch ms) — lets a bubble's time hover show a wall-clock.
+  const sessionEvent = useTranscriptStore((s) => s.session);
+  const sessionStartMs =
+    sessionEvent.state === "listening" ? sessionEvent.started_at_unix_ms : null;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const spineColRef = useRef<HTMLDivElement>(null);
@@ -713,6 +1062,44 @@ export function TranscriptView() {
     }
     return out;
   }, [merged]);
+
+  // Keep the user's own ("you") turns collapsed by default (a persisted pref) —
+  // you rarely re-read your own words. Each key is seeded once, so manually
+  // re-expanding one sticks.
+  const seededYou = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!collapseYou) return;
+    const fresh = turns.filter(
+      (t) => t.side === "outbound" && !seededYou.current.has(t.key),
+    );
+    if (fresh.length === 0) return;
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      fresh.forEach((t) => {
+        next.add(t.key);
+        seededYou.current.add(t.key);
+      });
+      return next;
+    });
+  }, [turns, collapseYou]);
+
+  // The header toggle applies immediately to every "you" turn on screen.
+  const toggleCollapseYou = () => {
+    const next = !collapseYou;
+    setCollapseYou(next);
+    setCollapsed((prev) => {
+      const s = new Set(prev);
+      turns
+        .filter((t) => t.side === "outbound")
+        .forEach((t) => {
+          if (next) s.add(t.key);
+          else s.delete(t.key);
+          seededYou.current.add(t.key);
+        });
+      return s;
+    });
+  };
+
   const convo = useAutoScroll(merged[merged.length - 1]);
   const allyCol = useAutoScroll(cards[0]?.id);
 
@@ -900,6 +1287,15 @@ export function TranscriptView() {
     [request],
   );
 
+  // Ask Ally about an arbitrary slice (a sentence unit or a text selection).
+  const askText = useCallback(
+    (text: string) =>
+      void request("question", researchPrompt(text), { key: "", quote: text }),
+    [request],
+  );
+  // Drop a selection into the Ask-Ally box so the user can build a question.
+  const sendToAsk = useCallback((text: string) => setAsk(text), []);
+
   const submitAsk = () => {
     const q = ask.trim();
     if (!q) return;
@@ -980,6 +1376,33 @@ export function TranscriptView() {
     const sr = scroller.getBoundingClientRect();
     return er.bottom > sr.top + 4 && er.top < sr.bottom - 4;
   })();
+  // The transcript scroller's band, in container coordinates — used to clamp
+  // connectors so a line to an off-screen (scrolled-away) bubble never draws up
+  // into the column header (and over the header icons).
+  const paneBand = (() => {
+    const scr = convo.ref.current;
+    if (!scr || !base) return { top: 56, bottom: base ? base.height - 20 : 0 };
+    const r = scr.getBoundingClientRect();
+    return { top: r.top - base.top, bottom: r.bottom - base.top };
+  })();
+  const clampY = (y: number) =>
+    Math.max(paneBand.top, Math.min(paneBand.bottom, y));
+
+  // How many Ally-research source bubbles are scrolled above the visible pane —
+  // shown as a "+N" hint at the top rather than a connector into the header.
+  const researchAbove = (() => {
+    const scr = convo.ref.current;
+    if (!scr) return 0;
+    const sr = scr.getBoundingClientRect();
+    let n = 0;
+    for (const c of cards) {
+      if (!c.sourceKey) continue;
+      const b = bubbleEls.current.get(c.sourceKey);
+      if (b && b.getBoundingClientRect().bottom <= sr.top + 4) n += 1;
+    }
+    return n;
+  })();
+
   const connector =
     active && activeNode && base
       ? (() => {
@@ -987,14 +1410,14 @@ export function TranscriptView() {
           if (activeBubbleEl) {
             const b = activeBubbleEl.getBoundingClientRect();
             const bx = b.right - base.left;
-            const by = b.top + b.height / 2 - base.top;
+            const by = clampY(b.top + b.height / 2 - base.top);
             const mid = (bx + spineX) / 2;
             d += `M ${bx} ${by} C ${mid} ${by}, ${mid} ${activeNode.y}, ${spineX} ${activeNode.y} `;
           }
           if (activeCardEl) {
             const c = activeCardEl.getBoundingClientRect();
             const cx = c.left - base.left;
-            const cy = c.top + c.height / 2 - base.top;
+            const cy = clampY(c.top + c.height / 2 - base.top);
             const mid = (spineX + cx) / 2;
             d += `M ${spineX} ${activeNode.y} C ${mid} ${activeNode.y}, ${mid} ${cy}, ${cx} ${cy}`;
           }
@@ -1037,6 +1460,44 @@ export function TranscriptView() {
                 ✦ Ally{cards.length > 0 ? ` ${cards.length}` : ""}
               </button>
             )}
+            {/* Transcript text size. */}
+            <button
+              type="button"
+              onClick={() => bumpTranscriptFont(-1)}
+              disabled={transcriptFontPx <= ALLY_FONT_MIN}
+              title="Smaller transcript text"
+              aria-label="Smaller transcript text"
+              className="rounded px-1 text-[11px] font-semibold hover:text-fg disabled:opacity-30"
+            >
+              A−
+            </button>
+            <button
+              type="button"
+              onClick={() => bumpTranscriptFont(1)}
+              disabled={transcriptFontPx >= ALLY_FONT_MAX}
+              title="Larger transcript text"
+              aria-label="Larger transcript text"
+              className="rounded px-1 text-[13px] font-semibold hover:text-fg disabled:opacity-30"
+            >
+              A+
+            </button>
+            <span className="mx-0.5 h-4 w-px bg-border" />
+            {/* Keep my own turns collapsed (persisted). */}
+            <button
+              type="button"
+              onClick={toggleCollapseYou}
+              aria-pressed={collapseYou}
+              title={
+                collapseYou
+                  ? "Your turns are collapsed — click to show them"
+                  : "Collapse your own turns"
+              }
+              aria-label="Collapse your own turns"
+              className={`rounded p-1 transition-colors ${collapseYou ? "text-outbound" : "hover:text-fg"}`}
+            >
+              <Icon name="mic" size={15} />
+            </button>
+            <span className="mx-0.5 h-4 w-px bg-border" />
             <button
               type="button"
               onClick={expandAll}
@@ -1057,13 +1518,32 @@ export function TranscriptView() {
             </button>
           </div>
         </div>
+        {/* Research above: source bubbles for Ally cards scrolled off the top.
+            A vertical tick + "+N" near the spine edge, tap to scroll up. */}
+        {researchAbove > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              const el = convo.ref.current;
+              if (!el) return;
+              convo.setPinned(false);
+              el.scrollBy({ top: -el.clientHeight * 0.8, behavior: "smooth" });
+            }}
+            title={`${researchAbove} researched message${researchAbove > 1 ? "s" : ""} above — scroll up`}
+            aria-label={`${researchAbove} researched messages above; scroll up`}
+            className="glass-raised absolute right-1 top-[46px] z-10 flex items-center gap-1 rounded-full border border-ai/40 py-0.5 pl-1 pr-2 text-[10px] font-bold text-ai"
+          >
+            <Icon name="chevron" size={12} className="rotate-180" />
+            <span className="h-3 w-px bg-ai/50" />+{researchAbove}
+          </button>
+        )}
         <div
           ref={convo.ref}
           onScroll={() => {
             convo.onScroll();
             bump();
           }}
-          className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-5 py-5"
+          className={`flex flex-1 flex-col gap-2 overflow-y-auto px-2 py-3${barPad}`}
           role="log"
           aria-live="polite"
           aria-label="Conversation transcript"
@@ -1099,11 +1579,15 @@ export function TranscriptView() {
                   collapsed={collapsed.has(key)}
                   onToggleCollapse={() => toggleCollapse(key)}
                   onResearch={() => research(repSeg)}
+                  onAskText={askText}
+                  onSendToAsk={sendToAsk}
                   onAskTerm={askTerm}
                   onContextMenu={(e) => bubbleMenu(e, repSeg)}
                   linkedSeq={link ? link.seq : null}
                   onJumpLink={() => link && inspect(link.id, key)}
                   busy={busy}
+                  fontPx={transcriptFontPx}
+                  sessionStartMs={sessionStartMs}
                 />
               );
             })
@@ -1196,28 +1680,58 @@ export function TranscriptView() {
             : "flex min-w-[240px] flex-1 flex-col bg-panel/40"
         }
       >
-        <div className="flex h-11 shrink-0 items-center gap-3 border-b border-border px-5">
+        <div className="relative flex h-11 shrink-0 items-center gap-3 border-b border-border px-5">
           <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-ai">
             Ally
           </span>
           <div className="ml-auto flex items-center gap-0.5 text-fg-faint">
+            {/* One-tap Ally actions. */}
             <button
               type="button"
-              onClick={expandAll}
-              title="Expand all"
-              aria-label="Expand all Ally cards"
-              className="rounded p-1 hover:text-fg"
+              disabled={busy}
+              onClick={() => void request("suggest_reply")}
+              title="Suggest a reply"
+              aria-label="Suggest a reply"
+              className="rounded p-1 text-ai/80 hover:bg-ai/10 hover:text-ai disabled:opacity-40"
             >
-              <Icon name="unfoldMore" size={16} />
+              <Icon name="lightbulb" size={16} />
             </button>
             <button
               type="button"
-              onClick={collapseAll}
-              title="Collapse all"
-              aria-label="Collapse all Ally cards"
-              className="rounded p-1 hover:text-fg"
+              disabled={busy}
+              onClick={() => void request("summarize")}
+              title="Summarize the conversation"
+              aria-label="Summarize the conversation"
+              className="rounded p-1 hover:text-fg disabled:opacity-40"
             >
-              <Icon name="unfoldLess" size={16} />
+              <Icon name="summarize" size={16} />
+            </button>
+            {/* Fold/unfold everything (one intuitive toggle). */}
+            {(() => {
+              const allCollapsed =
+                allKeys.length > 0 && allKeys.every((k) => collapsed.has(k));
+              return (
+                <button
+                  type="button"
+                  onClick={allCollapsed ? expandAll : collapseAll}
+                  title={allCollapsed ? "Expand all" : "Collapse all"}
+                  aria-label={allCollapsed ? "Expand all" : "Collapse all"}
+                  className="rounded p-1 hover:text-fg"
+                >
+                  <Icon name={allCollapsed ? "unfoldMore" : "unfoldLess"} size={16} />
+                </button>
+              );
+            })()}
+            {/* Overflow: text size, reasoning default, clear. */}
+            <button
+              type="button"
+              onClick={() => setAllyMenu((o) => !o)}
+              title="Ally options"
+              aria-label="Ally options"
+              aria-expanded={allyMenu}
+              className={`rounded p-1 hover:text-fg ${allyMenu ? "text-fg" : ""}`}
+            >
+              <Icon name="more" size={16} />
             </button>
             {drawer && (
               <button
@@ -1231,6 +1745,76 @@ export function TranscriptView() {
               </button>
             )}
           </div>
+
+          {allyMenu && (
+            <>
+              <button
+                type="button"
+                aria-hidden
+                tabIndex={-1}
+                onClick={() => setAllyMenu(false)}
+                className="fixed inset-0 z-40 cursor-default"
+              />
+              <div
+                role="menu"
+                className="glass-raised absolute right-3 top-[42px] z-50 w-56 rounded-lg border border-border p-2 shadow-[var(--shadow-lg)]"
+              >
+                <div className="flex items-center justify-between px-1.5 py-1 text-[12px]">
+                  <span className="text-fg-muted">Text size</span>
+                  <span className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => bumpAllyFont(-1)}
+                      disabled={allyFontPx <= ALLY_FONT_MIN}
+                      aria-label="Smaller text"
+                      className="grid h-6 w-6 place-items-center rounded border border-border text-fg-muted hover:text-fg disabled:opacity-30"
+                    >
+                      A−
+                    </button>
+                    <span className="w-8 text-center font-mono text-[11px] text-fg-faint">
+                      {allyFontPx}px
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => bumpAllyFont(1)}
+                      disabled={allyFontPx >= ALLY_FONT_MAX}
+                      aria-label="Larger text"
+                      className="grid h-6 w-6 place-items-center rounded border border-border text-fg-muted hover:text-fg disabled:opacity-30"
+                    >
+                      A+
+                    </button>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={reasoningDefaultOpen}
+                  onClick={() => setReasoningDefaultOpen(!reasoningDefaultOpen)}
+                  className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-[12px] text-fg hover:bg-white/[0.06]"
+                >
+                  <span
+                    className={`grid h-4 w-4 place-items-center rounded-sm border ${reasoningDefaultOpen ? "border-ai bg-ai text-bg" : "border-border"}`}
+                  >
+                    {reasoningDefaultOpen && <Icon name="chevron" size={10} />}
+                  </span>
+                  Expand reasoning by default
+                </button>
+                <div className="my-1 h-px bg-border" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    clearAlly();
+                    setAllyMenu(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-[12px] text-fg-muted hover:bg-rec/10 hover:text-rec"
+                >
+                  <Icon name="trash" size={14} />
+                  Clear Ally cards
+                </button>
+              </div>
+            </>
+          )}
         </div>
         <div
           ref={allyCol.ref}
@@ -1238,7 +1822,7 @@ export function TranscriptView() {
             allyCol.onScroll();
             bump();
           }}
-          className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-5"
+          className={`flex flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-5${barPad}`}
           aria-label="Ally output"
         >
           {cards.length === 0 ? (
@@ -1261,26 +1845,6 @@ export function TranscriptView() {
               />
             ))
           )}
-        </div>
-        <div className="flex shrink-0 flex-col gap-2 border-t border-border px-3 py-2.5">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void request("suggest_reply")}
-              className="flex h-7 items-center rounded-md border border-ai/40 px-2.5 text-[12px] font-semibold text-ai hover:bg-ai/10 disabled:opacity-40"
-            >
-              Suggest reply
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void request("summarize")}
-              className="flex h-7 items-center rounded-md border border-border px-2.5 text-[12px] font-semibold text-fg-muted hover:text-fg disabled:opacity-40"
-            >
-              Summarize
-            </button>
-          </div>
         </div>
       </section>
 

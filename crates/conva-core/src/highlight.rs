@@ -39,26 +39,20 @@ fn significant_terms(context: &str) -> HashSet<String> {
         .collect()
 }
 
-/// Phrases in `message` that also appear as significant terms in `context`.
-/// Consecutive matching words merge into one phrase (e.g. "migration SLA").
-/// Returns deduped, original-cased phrases in first-seen order, capped.
-pub fn relevant_terms(message: &str, context: &str) -> Vec<String> {
+/// Phrases in `message` that also appear as significant terms in `context`
+/// (the RAG-grounded signal). Consecutive matching words merge into one phrase.
+fn doc_overlap_phrases(message: &str, context: &str) -> Vec<String> {
     let terms = significant_terms(context);
     if terms.is_empty() {
         return Vec::new();
     }
     let mut out: Vec<String> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
     let mut phrase: Vec<&str> = Vec::new();
 
-    let mut flush = |phrase: &mut Vec<&str>| {
-        if phrase.is_empty() {
-            return;
-        }
-        let p = phrase.join(" ");
-        phrase.clear();
-        if seen.insert(p.to_lowercase()) {
-            out.push(p);
+    let flush = |phrase: &mut Vec<&str>, out: &mut Vec<String>| {
+        if !phrase.is_empty() {
+            out.push(phrase.join(" "));
+            phrase.clear();
         }
     };
 
@@ -69,12 +63,103 @@ pub fn relevant_terms(message: &str, context: &str) -> Vec<String> {
         if terms.contains(&word.to_lowercase()) {
             phrase.push(word);
         } else {
-            flush(&mut phrase);
+            flush(&mut phrase, &mut out);
         }
     }
-    flush(&mut phrase);
+    flush(&mut phrase, &mut out);
+    out
+}
 
-    out.truncate(MAX_TERMS);
+/// Capitalized/entity-ish tokens that never warrant a research chip.
+fn is_noise_token(lower: &str) -> bool {
+    matches!(
+        lower,
+        "i" | "i'm" | "i've" | "i'll" | "i'd" | "ok" | "okay" | "yeah" | "yep" | "yes" | "no"
+    ) || STOPWORDS.contains(&lower)
+}
+
+/// Is `token` a proper noun (capitalized, not the sentence's first word) or an
+/// acronym (all-caps, distinctive anywhere)? Sentence-initial capitals ("The",
+/// "So", "Before") are excluded — they're grammar, not entities.
+fn is_entity_token(token: &str, sentence_start: bool) -> bool {
+    let lower = token.to_lowercase();
+    if is_noise_token(&lower) {
+        return false;
+    }
+    let letters: Vec<char> = token.chars().filter(|c| c.is_alphabetic()).collect();
+    if letters.len() < 2 {
+        return false; // drop single letters, bare numbers, timestamps
+    }
+    if letters.iter().all(|c| c.is_uppercase()) {
+        return true; // acronym (GAAP, SLA, API)
+    }
+    token.chars().next().is_some_and(|c| c.is_uppercase()) && !sentence_start
+}
+
+/// Proper nouns + acronyms in `message` — names, places, brands, products
+/// worth researching mid-conversation. Consecutive proper nouns merge
+/// ("Kansas City"); sentence boundaries reset the "first word" rule.
+fn proper_noun_phrases(message: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut phrase: Vec<String> = Vec::new();
+    let mut token = String::new();
+    let mut sentence_start = true;
+
+    let flush = |phrase: &mut Vec<String>, out: &mut Vec<String>| {
+        if !phrase.is_empty() {
+            out.push(phrase.join(" "));
+            phrase.clear();
+        }
+    };
+
+    for c in message.chars() {
+        if is_word_char(c) {
+            token.push(c);
+            continue;
+        }
+        if !token.is_empty() {
+            if is_entity_token(&token, sentence_start) {
+                phrase.push(std::mem::take(&mut token));
+            } else {
+                token.clear();
+                flush(&mut phrase, &mut out);
+            }
+            sentence_start = false;
+        }
+        if matches!(c, '.' | '!' | '?' | '…') {
+            flush(&mut phrase, &mut out);
+            sentence_start = true;
+        }
+    }
+    if !token.is_empty() && is_entity_token(&token, sentence_start) {
+        phrase.push(token);
+    }
+    flush(&mut phrase, &mut out);
+    out
+}
+
+/// Terms in `message` worth surfacing an Ally action on: **proper nouns /
+/// acronyms first** (names, places, brands — the things a user looks up
+/// mid-conversation, found regardless of the library), then **RAG-grounded
+/// terms** that also appear in the retrieved documents. Deduped (case-
+/// insensitive), first-seen order, capped at [`MAX_TERMS`].
+pub fn relevant_terms(message: &str, context: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for phrase in proper_noun_phrases(message)
+        .into_iter()
+        .chain(doc_overlap_phrases(message, context))
+    {
+        if phrase.trim().is_empty() {
+            continue;
+        }
+        if seen.insert(phrase.to_lowercase()) {
+            out.push(phrase);
+        }
+        if out.len() >= MAX_TERMS {
+            break;
+        }
+    }
     out
 }
 
@@ -110,6 +195,38 @@ mod tests {
     fn empty_when_no_overlap_or_no_context() {
         assert!(relevant_terms("hello there friend", "").is_empty());
         assert!(relevant_terms("completely unrelated words", "banana orange grape").is_empty());
+    }
+
+    #[test]
+    fn highlights_proper_nouns_not_sentence_starts() {
+        // Owner sample line — the researchable entities, no library needed.
+        let msg =
+            "Before I go ahead to Kansas City to meet Cole, I watched his YouTube videos online.";
+        let hits = relevant_terms(msg, "");
+        assert!(hits.iter().any(|h| h == "Kansas City"), "{hits:?}");
+        assert!(hits.iter().any(|h| h == "Cole"), "{hits:?}");
+        assert!(hits.iter().any(|h| h == "YouTube"), "{hits:?}");
+        // Sentence-initial word + pronoun must NOT be flagged.
+        assert!(!hits.iter().any(|h| h.eq_ignore_ascii_case("before")));
+        assert!(!hits.iter().any(|h| h.eq_ignore_ascii_case("i")));
+    }
+
+    #[test]
+    fn no_entities_from_lowercase_or_sentence_start_caps() {
+        // "So" / "People" are sentence-initial; nothing else is capitalized.
+        let msg = "So now, this is one of our number one games. People love shooting.";
+        assert!(
+            relevant_terms(msg, "").is_empty(),
+            "{:?}",
+            relevant_terms(msg, "")
+        );
+    }
+
+    #[test]
+    fn acronyms_are_flagged_anywhere() {
+        let hits = relevant_terms("We follow GAAP and track the SLA closely.", "");
+        assert!(hits.iter().any(|h| h == "GAAP"), "{hits:?}");
+        assert!(hits.iter().any(|h| h == "SLA"), "{hits:?}");
     }
 
     #[test]
