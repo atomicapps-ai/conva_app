@@ -449,6 +449,58 @@ fn auth_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir)
 }
 
+/// Complete a `conva://auth/…` deep link: exchange the PKCE code and emit
+/// AUTH_CHANGED with the result. A no-op for any URL outside the auth prefix.
+///
+/// Shared by both paths a deep link can arrive on:
+/// - `tauri_plugin_deep_link::on_open_url` — same-instance delivery (macOS,
+///   and a fresh launch on Windows/Linux when no instance is already running).
+/// - the single-instance callback below — on Windows/Linux, once conva is
+///   already running, the OS answers a `conva://` click by launching a
+///   *second* `conva-app.exe` with the URL as an argv entry; single-instance
+///   intercepts that doomed second process and forwards its argv/cwd here.
+///   The plugin's "deep-link" cargo feature auto-forwards that into
+///   `on_open_url` only for schemes registered at **install time**; ours are
+///   registered at **runtime** via `register_all()` (dev builds), which Tauri's
+///   own deep-link docs call out as a case the automatic forwarding doesn't
+///   cover — "when defining deep link schemes at runtime, you must also check
+///   `argv` here". Skipping that check was the actual bug behind sign-in never
+///   completing: the callback used to be `|_app, _argv, _cwd| {}`, silently
+///   dropping every Windows-delivered deep link.
+fn handle_auth_deep_link(handle: AppHandle, url: String) {
+    if !url.starts_with(auth::AUTH_DEEP_LINK_PREFIX) {
+        return;
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = match auth_dir(&handle) {
+            Ok(dir) => dir,
+            Err(e) => {
+                eprintln!("[auth] deep link ignored — no auth dir: {e}");
+                return;
+            }
+        };
+        let payload = match auth::complete_sign_in(&url, &dir) {
+            Ok(Some(status)) => {
+                eprintln!("[auth] sign-in completed via deep link");
+                auth::AuthChangedEvent {
+                    status: Some(status),
+                    error: None,
+                }
+            }
+            // Stale or duplicate link (nothing pending).
+            Ok(None) => return,
+            Err(e) => {
+                eprintln!("[auth] sign-in failed: {e}");
+                auth::AuthChangedEvent {
+                    status: None,
+                    error: Some(e),
+                }
+            }
+        };
+        let _ = handle.emit(events::AUTH_CHANGED, payload);
+    });
+}
+
 /// Begin interactive OAuth sign-in (PKCE + conva:// deep link). Opens the
 /// system browser and returns immediately; the outcome arrives as an
 /// AUTH_CHANGED event once the browser deep-links back into the app.
@@ -756,8 +808,20 @@ pub fn run() {
     // by launching a second copy of the exe, and this plugin forwards that
     // launch — URL included, via its "deep-link" feature — into the running
     // app before anything else initializes in the doomed second process.
+    //
+    // That auto-forward only covers schemes registered at install time,
+    // though — ours are registered at runtime (`register_all()` below, dev
+    // builds), so we still have to pull the URL out of `argv` ourselves and
+    // hand it to the same handler `on_open_url` uses. See
+    // `handle_auth_deep_link` for the full story (this was the sign-in bug).
     #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {}));
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        for arg in &argv {
+            if arg.starts_with(auth::AUTH_DEEP_LINK_PREFIX) {
+                handle_auth_deep_link(app.clone(), arg.clone());
+            }
+        }
+    }));
 
     let builder = builder
         .plugin(tauri_plugin_deep_link::init())
@@ -833,39 +897,7 @@ pub fn run() {
                 let handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {
                     for url in event.urls() {
-                        let url = url.to_string();
-                        if !url.starts_with(auth::AUTH_DEEP_LINK_PREFIX) {
-                            continue;
-                        }
-                        let handle = handle.clone();
-                        tauri::async_runtime::spawn_blocking(move || {
-                            let dir = match auth_dir(&handle) {
-                                Ok(dir) => dir,
-                                Err(e) => {
-                                    eprintln!("[auth] deep link ignored — no auth dir: {e}");
-                                    return;
-                                }
-                            };
-                            let payload = match auth::complete_sign_in(&url, &dir) {
-                                Ok(Some(status)) => {
-                                    eprintln!("[auth] sign-in completed via deep link");
-                                    auth::AuthChangedEvent {
-                                        status: Some(status),
-                                        error: None,
-                                    }
-                                }
-                                // Stale or duplicate link (nothing pending).
-                                Ok(None) => return,
-                                Err(e) => {
-                                    eprintln!("[auth] sign-in failed: {e}");
-                                    auth::AuthChangedEvent {
-                                        status: None,
-                                        error: Some(e),
-                                    }
-                                }
-                            };
-                            let _ = handle.emit(events::AUTH_CHANGED, payload);
-                        });
+                        handle_auth_deep_link(handle.clone(), url.to_string());
                     }
                 });
             }
