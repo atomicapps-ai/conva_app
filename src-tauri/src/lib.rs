@@ -10,6 +10,7 @@ mod audio;
 mod auth;
 mod conversations;
 mod embed;
+mod feedback;
 mod hud;
 mod llm;
 mod metering;
@@ -366,7 +367,7 @@ fn rag_list(state: State<AppState>) -> Vec<RagDocument> {
 /// it — the words worth offering an Ally action (definition / how-to /
 /// elaborate) on. Empty when the library is empty or nothing overlaps.
 #[tauri::command]
-fn analyze_terms(state: State<AppState>, text: String) -> Vec<String> {
+fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<String> {
     let chunks = state.rag.retrieve(&text, 4);
     if chunks.is_empty() {
         return Vec::new();
@@ -383,12 +384,30 @@ fn analyze_terms(state: State<AppState>, text: String) -> Vec<String> {
     // Phase 3c: the active context's terms (a rehearsal's key terms + digest
     // glossary) — the strongest highlight signal; empty when none is active.
     let context_terms = state.active_context_terms.lock().expect("ctx lock").clone();
+    // Phase 4: the user's on-device 👍/👎 — an explicit signal always wins
+    // (boost surfaces, suppress drops), whatever the heuristics scored.
+    let (boost, suppress) = feedback::sets(&app);
     let ctx = conva_core::highlight::HighlightContext {
         context_terms: &context_terms,
         rarity: Some(&idf),
+        boost: Some(&boost),
+        suppress: Some(&suppress),
         ..conva_core::highlight::HighlightContext::from_doc_text(&context)
     };
     conva_core::highlight::relevant_terms(&text, &ctx)
+}
+
+/// Record the user's 👍/👎 on a highlight term (Phase 4). `signal` is "up"
+/// (boost — always surface), "down" (suppress — never surface), or null to
+/// clear. Persisted on-device; consumed by `analyze_terms`.
+#[tauri::command]
+fn record_highlight_feedback(app: AppHandle, term: String, signal: Option<String>) {
+    let sig = match signal.as_deref() {
+        Some("up") | Some("boost") => Some(feedback::Signal::Boost),
+        Some("down") | Some("suppress") => Some(feedback::Signal::Suppress),
+        _ => None,
+    };
+    feedback::record(&app, &term, sig);
 }
 
 #[tauri::command]
@@ -1352,6 +1371,7 @@ pub fn run() {
             rag_set_enabled,
             rag_delete,
             analyze_terms,
+            record_highlight_feedback,
             rag_download,
             secrets_status,
             secrets_export,

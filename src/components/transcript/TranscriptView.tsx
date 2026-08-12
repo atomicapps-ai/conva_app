@@ -178,6 +178,11 @@ function TermMenu({
   onPick: (action: TermAction) => void;
   onClose: () => void;
 }) {
+  const backend = useBackend();
+  const feedback = (signal: "up" | "down") => {
+    void backend.rag.recordHighlightFeedback(term, signal);
+    onClose();
+  };
   useEffect(() => {
     const close = () => onClose();
     window.addEventListener("click", close);
@@ -209,6 +214,25 @@ function TermMenu({
           <Icon name={a.icon} size={16} />
         </button>
       ))}
+      <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+      <button
+        type="button"
+        title="Useful — surface terms like this"
+        aria-label={`Mark "${term}" useful`}
+        onClick={() => feedback("up")}
+        className="rounded p-1.5 text-fg-faint transition-colors hover:bg-ai/10 hover:text-ai"
+      >
+        <Icon name="thumbUp" size={16} />
+      </button>
+      <button
+        type="button"
+        title="Not useful — stop highlighting this"
+        aria-label={`Mark "${term}" not useful`}
+        onClick={() => feedback("down")}
+        className="rounded p-1.5 text-fg-faint transition-colors hover:bg-rec/10 hover:text-rec"
+      >
+        <Icon name="thumbDown" size={16} />
+      </button>
     </div>
   );
 }

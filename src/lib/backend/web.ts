@@ -130,6 +130,7 @@ export class WebBackend implements ConvaBackend {
     download: (): Promise<void> => unsupported("rag.download (file path)"),
     syncLibrary: (): Promise<string> => unsupported("rag.syncLibrary (git)"),
     analyzeTerms: (): Promise<string[]> => Promise.resolve([]),
+    recordHighlightFeedback: (): Promise<void> => Promise.resolve(),
     documentText: (): Promise<string | null> => todo("GET /v1/library/:id/text"),
   };
 

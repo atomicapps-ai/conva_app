@@ -190,6 +190,15 @@ export function analyzeTerms(text: string): Promise<string[]> {
   return invoke<string[]>("analyze_terms", { text });
 }
 
+/** Record 👍/👎 on a highlight term: "up" boosts, "down" suppresses, null
+ *  clears. Persisted on-device and applied to future highlighting (Phase 4). */
+export function recordHighlightFeedback(
+  term: string,
+  signal: "up" | "down" | null,
+): Promise<void> {
+  return invoke<void>("record_highlight_feedback", { term, signal });
+}
+
 /** Sign in with email + password (same account as Google / the website). */
 export function authSigninPassword(
   email: string,
