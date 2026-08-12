@@ -190,6 +190,32 @@ export function analyzeTerms(text: string): Promise<string[]> {
   return invoke<string[]>("analyze_terms", { text });
 }
 
+/** Record 👍/👎 on a highlight term: "up" boosts, "down" suppresses, null
+ *  clears. Persisted on-device and applied to future highlighting (Phase 4). */
+export function recordHighlightFeedback(
+  term: string,
+  signal: "up" | "down" | null,
+): Promise<void> {
+  return invoke<void>("record_highlight_feedback", { term, signal });
+}
+
+/** Record an implicit 👍 — the user researched `term`. Repeated research
+ *  auto-boosts it for future highlighting (Phase 4b). */
+export function recordTermPick(term: string): Promise<void> {
+  return invoke<void>("record_term_pick", { term });
+}
+
+/** Test seam: inject a transcript segment (no audio) to drive the transcript UI
+ *  + highlighting pipeline for E2E. No-op unless the app was launched with the
+ *  CONVA_TEST_SEAM env var set. `side` is "inbound" (them) or "outbound" (you). */
+export function debugInjectSegment(
+  side: "inbound" | "outbound",
+  text: string,
+  isFinal = true,
+): Promise<void> {
+  return invoke<void>("debug_inject_segment", { side, text, isFinal });
+}
+
 /** Sign in with email + password (same account as Google / the website). */
 export function authSigninPassword(
   email: string,

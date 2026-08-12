@@ -5,13 +5,27 @@ import { useBackend } from "@/lib/backend";
 import type { RagDocument, SimConCategory, SimConSession } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
-const CATEGORIES: { value: SimConCategory; label: string; hint: string }[] = [
-  { value: "interview", label: "Interview", hint: "Job or panel interview" },
-  { value: "financial_review", label: "Financial review", hint: "Numbers, GAAP, forecasts" },
-  { value: "performance_review", label: "Performance review", hint: "1:1, feedback, promotion" },
-  { value: "sales_pitch", label: "Sales pitch", hint: "Demo, objection handling" },
-  { value: "other", label: "Other", hint: "Anything high-stakes" },
+// Mirrors conva_core::simcon templates. `research` = the web-research default
+// for the type (decision 2 — on for interview/sales, off for internal meetings).
+const CATEGORIES: {
+  value: SimConCategory;
+  label: string;
+  hint: string;
+  research: boolean;
+}[] = [
+  { value: "interview", label: "Interview", hint: "Job or panel interview", research: true },
+  {
+    value: "company_meeting",
+    label: "Company meeting",
+    hint: "Internal — financials, reviews, planning",
+    research: false,
+  },
+  { value: "sales_call", label: "Sales call", hint: "Demo, objection handling", research: true },
+  { value: "other", label: "Other", hint: "Anything high-stakes", research: false },
 ];
+
+const researchDefault = (c: SimConCategory): boolean =>
+  CATEGORIES.find((x) => x.value === c)?.research ?? false;
 
 const DOC_EXTENSIONS = ["pdf", "docx", "md", "txt", "html"];
 const STEP_LABEL = ["the basics", "context & documents", "review"];
@@ -42,11 +56,22 @@ export function SimConSetup({
   const [jobDescription, setJobDescription] = useState(
     initial?.job_description ?? "",
   );
+  const [keyTerms, setKeyTerms] = useState((initial?.key_terms ?? []).join("\n"));
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [selected, setSelected] = useState<string[]>(
     initial?.source_doc_ids ?? [],
   );
-  const [autoGen, setAutoGen] = useState(initial?.auto_generate_context ?? true);
+  const [research, setResearch] = useState(
+    initial?.research_enabled ??
+      initial?.auto_generate_context ??
+      researchDefault(initial?.category ?? "interview"),
+  );
+
+  // Picking a type resets research to that type's default (user-overridable).
+  const pickCategory = (c: SimConCategory) => {
+    setCategory(c);
+    setResearch(researchDefault(c));
+  };
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,7 +127,14 @@ export function SimConSetup({
         created_at_unix_ms: initial?.created_at_unix_ms ?? 0,
         updated_at_unix_ms: 0,
         source_doc_ids: selected,
-        auto_generate_context: autoGen,
+        auto_generate_context: research,
+        research_enabled: research,
+        key_terms: keyTerms
+          .split(/[\n,]/)
+          .map((t) => t.trim())
+          .filter(Boolean),
+        // Backend-derived (extracted from the digest) — preserve on re-save.
+        glossary: initial?.glossary ?? [],
         knowledge_profile_id: initial?.knowledge_profile_id ?? null,
         personas: initial?.personas ?? [],
         chosen_persona_id: initial?.chosen_persona_id ?? null,
@@ -159,7 +191,7 @@ export function SimConSetup({
                     key={c.value}
                     type="button"
                     title={c.hint}
-                    onClick={() => setCategory(c.value)}
+                    onClick={() => pickCategory(c.value)}
                     className={`btn ${category === c.value ? "btn-primary" : ""}`}
                   >
                     {c.label}
@@ -225,16 +257,31 @@ export function SimConSetup({
             )}
           </Section>
           <Section
+            title="Key terms"
+            description="Terms or points that matter most in this conversation — conva highlights these when they come up. One per line. (The digest's glossary is added automatically.)"
+          >
+            <textarea
+              className="input"
+              rows={3}
+              value={keyTerms}
+              onChange={(e) => setKeyTerms(e.target.value)}
+              placeholder={"pensive theory\ndeferred revenue\nSOC 2"}
+            />
+          </Section>
+          <Section
             title="Let Ally research"
             description="Ally searches the web for relevant background — standard questions, company profile, market rates — and indexes it alongside your docs."
           >
             <label className="flex items-center gap-2 text-sm text-fg">
               <input
                 type="checkbox"
-                checked={autoGen}
-                onChange={(e) => setAutoGen(e.target.checked)}
+                checked={research}
+                onChange={(e) => setResearch(e.target.checked)}
               />
-              Auto-generate context for this Sim Con
+              Research the web for context
+              <span className="text-fg-faint">
+                (default for {CATEGORIES.find((c) => c.value === category)?.label})
+              </span>
             </label>
           </Section>
         </>
@@ -261,8 +308,8 @@ export function SimConSetup({
             )}
             <dt className="text-fg-faint">Documents</dt>
             <dd className="text-fg">{selected.length} attached</dd>
-            <dt className="text-fg-faint">Ally research</dt>
-            <dd className="text-fg">{autoGen ? "On" : "Off"}</dd>
+            <dt className="text-fg-faint">Web research</dt>
+            <dd className="text-fg">{research ? "On" : "Off"}</dd>
           </dl>
           <p className="mt-3 text-[12px] leading-relaxed text-fg-faint">
             Finishing saves this Sim Con. Building the knowledge base, generating

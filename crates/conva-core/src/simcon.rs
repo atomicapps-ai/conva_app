@@ -1,7 +1,7 @@
 //! SimCon — Simulated Conversation: the data model.
 //!
-//! A **SimCon** is a rehearsal of a high-stakes call (interview, financial
-//! review, pitch). The user sets a name + purpose + category and attaches
+//! A **SimCon** is a rehearsal of a high-stakes call (interview, company
+//! meeting, sales call). The user sets a name + purpose + type and attaches
 //! library documents (or asks Ally to generate context); an async pipeline
 //! builds a reusable [`KnowledgeProfile`] (library docs + bounded web research,
 //! embedded into the RAG store); the AI generates [`SimConPersona`] options and
@@ -22,16 +22,46 @@ use crate::audio::StreamSide;
 use crate::llm::LlmRequest;
 use crate::rag::ScoredChunk;
 
-/// The kind of call being rehearsed — drives persona generation + the web
-/// research prompts.
+/// The kind of conversation this context is for — drives the setup template
+/// (documents to collect + digest sections), persona generation, and the
+/// web-research default. The launch set (Interview · Company Meeting ·
+/// Sales Call · Other) is fixed but extensible later; see
+/// `conva_core/docs/technical/conversation-context.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SimConCategory {
     Interview,
-    FinancialReview,
-    PerformanceReview,
-    SalesPitch,
+    CompanyMeeting,
+    SalesCall,
     Other,
+}
+
+/// One attachable document slot in a conversation type's setup template.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileSlot {
+    /// Stable key for wiring the upload control (e.g. "resume").
+    pub key: &'static str,
+    /// Human label shown in the setup wizard (e.g. "Résumé / CV").
+    pub label: &'static str,
+    /// Whether the user can attach more than one file to this slot.
+    pub multiple: bool,
+}
+
+/// The per-type setup + generation template: which documents to collect, what
+/// the Context Digest should contain, and whether web research is on by
+/// default. Static and derived from [`SimConCategory`] — the single source of
+/// truth for both the setup UI and the generation pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConversationTemplate {
+    /// Human phrase for prompts (e.g. "job interview").
+    pub label: &'static str,
+    /// Document slots offered at setup, in display order.
+    pub file_slots: &'static [FileSlot],
+    /// Section headings the generated digest should contain.
+    pub digest_sections: &'static [&'static str],
+    /// Web research on by default? (Interview/Sales yes; internal meetings no —
+    /// their documents are confidential and open-web results are often wrong.)
+    pub default_research_enabled: bool,
 }
 
 /// Lifecycle of a SimCon, start to finish.
@@ -123,6 +153,20 @@ pub struct SimConSession {
     /// Whether Ally should auto-generate context (Step 1, Path B) during ingest.
     #[serde(default)]
     pub auto_generate_context: bool,
+    /// Whether autonomous web research runs during preparation. Defaults from
+    /// the type template ([`SimConCategory::default_research_enabled`]) at
+    /// setup and is user-overridable (decision 2 — research gated by type).
+    #[serde(default)]
+    pub research_enabled: bool,
+    /// User-declared key terms/points for this context ("Key contexts" at
+    /// setup). First-class highlight terms during the conversation (Phase 3c).
+    #[serde(default)]
+    pub key_terms: Vec<String>,
+    /// Glossary terms extracted from the generated Context Digest — derived, not
+    /// user-entered. Joined with [`key_terms`](Self::key_terms) to drive
+    /// context-aware highlighting.
+    #[serde(default)]
+    pub glossary: Vec<String>,
     /// The knowledge profile driving this session (reusable; referenced by id).
     #[serde(default)]
     pub knowledge_profile_id: Option<String>,
@@ -154,14 +198,90 @@ pub struct SimConSummary {
 }
 
 impl SimConCategory {
-    /// Human phrase for prompts.
+    /// Human phrase for prompts (e.g. "job interview").
     pub fn label(self) -> &'static str {
+        self.template().label
+    }
+
+    /// Whether web research is on by default for this type (decision 2).
+    pub fn default_research_enabled(self) -> bool {
+        self.template().default_research_enabled
+    }
+
+    /// The setup + generation template for this type — the single source of
+    /// truth for the setup wizard's document slots, the digest's sections, and
+    /// the web-research default.
+    pub fn template(self) -> ConversationTemplate {
         match self {
-            SimConCategory::Interview => "job interview",
-            SimConCategory::FinancialReview => "financial review",
-            SimConCategory::PerformanceReview => "performance review",
-            SimConCategory::SalesPitch => "sales pitch",
-            SimConCategory::Other => "high-stakes conversation",
+            SimConCategory::Interview => ConversationTemplate {
+                label: "job interview",
+                file_slots: &[
+                    FileSlot {
+                        key: "resume",
+                        label: "Résumé / CV",
+                        multiple: false,
+                    },
+                    FileSlot {
+                        key: "job_description",
+                        label: "Job description",
+                        multiple: false,
+                    },
+                    FileSlot {
+                        key: "interview_test",
+                        label: "Take-home / test",
+                        multiple: true,
+                    },
+                ],
+                digest_sections: &[
+                    "Likely questions",
+                    "Glossary",
+                    "Role & company background",
+                    "Your talking points",
+                ],
+                default_research_enabled: true,
+            },
+            SimConCategory::CompanyMeeting => ConversationTemplate {
+                label: "company meeting",
+                file_slots: &[
+                    FileSlot {
+                        key: "financials",
+                        label: "Financials / reports",
+                        multiple: true,
+                    },
+                    FileSlot {
+                        key: "decks",
+                        label: "Decks",
+                        multiple: true,
+                    },
+                    FileSlot {
+                        key: "minutes",
+                        label: "Prior minutes",
+                        multiple: true,
+                    },
+                ],
+                digest_sections: &["Key figures", "Glossary", "Likely discussion points"],
+                default_research_enabled: false,
+            },
+            SimConCategory::SalesCall => ConversationTemplate {
+                label: "sales call",
+                file_slots: &[FileSlot {
+                    key: "account",
+                    label: "Prospect / account docs",
+                    multiple: true,
+                }],
+                digest_sections: &["Company background", "Objections", "Talking points"],
+                default_research_enabled: true,
+            },
+            SimConCategory::Other => ConversationTemplate {
+                label: "high-stakes conversation",
+                file_slots: &[FileSlot {
+                    key: "files",
+                    label: "Files",
+                    multiple: true,
+                }],
+                digest_sections: &["Glossary", "Summary", "Likely questions"],
+                default_research_enabled: false,
+            },
         }
     }
 }
@@ -364,26 +484,39 @@ first line, in character.\n",
 /// Reference budget for the dossier prompt (docs + research it synthesizes).
 const DOSSIER_REFERENCE_CHAR_BUDGET: usize = 10_000;
 
-/// Build the `(system, user)` prompt for the **Ally prep dossier**: a concise,
-/// well-structured briefing Ally *writes* from the Sim Con's documents + web
-/// research, saved back to the library as a readable document. Distinct from
-/// retrieval — this is synthesis for the user (see
-/// `conva_core/docs/technical/rag-and-ally-grounding.md`).
+/// Build the `(system, user)` prompt for the **Context Digest** (a.k.a. the
+/// Ally prep dossier): one concise, dense, LLM-optimized briefing Ally *writes*
+/// from the context's documents + web research, saved back to the library as a
+/// readable document and re-indexed into RAG. Its sections come from the type's
+/// template ([`ConversationTemplate::digest_sections`]) so the digest is
+/// tailored to the conversation — likely questions for an interview, key
+/// figures for a meeting, and so on. Distinct from retrieval — this is
+/// synthesis (see `conva_core/docs/technical/conversation-context.md`).
 pub fn dossier_prompt(
     session: &SimConSession,
     research: &[ResearchSource],
     chunks: &[ScoredChunk],
     max_tokens: u32,
 ) -> LlmRequest {
+    let template = session.category.template();
+    // Required sections, in order: a short overview, the type's own sections,
+    // then watch-outs. Each becomes a `## ` Markdown heading.
+    let mut sections: Vec<&str> = Vec::with_capacity(template.digest_sections.len() + 2);
+    sections.push("Overview");
+    sections.extend(template.digest_sections.iter().copied());
+    sections.push("Watch-outs");
+    let section_list = sections.join(", ");
+
     let system = format!(
-        "You are Ally, preparing a concise pre-meeting briefing for the user before a {}. \
-Write a well-structured prep document in Markdown with these sections: \
-`## Overview` (2–3 sentences), `## Likely questions` (bulleted), `## Strong \
-talking points` (bulleted), `## Background & key facts` (bulleted, specific), \
-and `## Watch-outs` (bulleted). Ground everything in the provided material; be \
-specific and useful, never generic. Do not invent facts or figures. Output only \
-the Markdown document — no preamble.",
-        session.category.label(),
+        "You are Ally, writing a Context Digest — one dense, high-signal briefing \
+the user (and later the AI) will rely on before a {label}. Write it in Markdown \
+with exactly these `##` sections, in this order: {sections}. Give `## Overview` \
+2–3 sentences; keep every other section tight and scannable — short bullets, \
+**bold** the key term, name, or figure in each. Ground everything strictly in \
+the provided material: be specific, never generic, and never invent facts or \
+figures. Output only the Markdown document — no preamble.",
+        label = template.label,
+        sections = section_list,
     );
 
     let mut reference = String::new();
@@ -402,7 +535,7 @@ the Markdown document — no preamble.",
         reference.push_str(&block);
     }
 
-    let mut user = format!("Meeting: {}\nGoal: {}\n", session.title, session.purpose);
+    let mut user = format!("Context: {}\nGoal: {}\n", session.title, session.purpose);
     if let Some(jd) = session.job_description.as_deref() {
         let jd = jd.trim();
         if !jd.is_empty() {
@@ -414,9 +547,9 @@ the Markdown document — no preamble.",
     }
     if reference.is_empty() {
         user.push_str(
-            "\nNo documents or research were provided — write the briefing from \
-what a well-prepared person should know for this meeting, and keep it clearly \
-general.",
+            "\nNo documents or research were provided — write the digest from \
+what a well-prepared person should know for this conversation, and keep it \
+clearly general.",
         );
     } else {
         user.push_str("\nMaterial to synthesize:\n\n");
@@ -428,6 +561,54 @@ general.",
         user,
         max_tokens,
     }
+}
+
+// ── Glossary extraction — digest → context-highlight terms (Phase 3c) ────────
+
+/// Max glossary terms harvested from a digest.
+const MAX_GLOSSARY_TERMS: usize = 24;
+
+/// Extract the glossary terms from a generated Context Digest — the entries
+/// under its `## Glossary` section. Prefers the **bolded** term in each bullet,
+/// falling back to the text before an em/en dash or colon. Case-insensitively
+/// deduped, capped at [`MAX_GLOSSARY_TERMS`]. Pure; the shell stores the result
+/// on the context (`SimConSession::glossary`) to drive context-aware
+/// highlighting (see `docs/technical/highlighting-relevance.md`).
+pub fn extract_glossary(digest_md: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut in_section = false;
+
+    for raw in digest_md.lines() {
+        let line = raw.trim();
+        if let Some(title) = line.strip_prefix("## ") {
+            in_section = title.trim().eq_ignore_ascii_case("glossary");
+            continue;
+        }
+        if !in_section || line.is_empty() {
+            continue;
+        }
+        let content = line.trim_start_matches(['-', '*', '+', '•']).trim_start();
+        let term = if let Some(rest) = content.strip_prefix("**") {
+            rest.split("**").next().unwrap_or("").trim().to_string()
+        } else {
+            content
+                .split(['—', '–', ':'])
+                .next()
+                .unwrap_or("")
+                .trim_matches(['*', ' '])
+                .to_string()
+        };
+        if term.is_empty() || term.chars().count() > 60 {
+            continue;
+        }
+        if !out.iter().any(|t| t.eq_ignore_ascii_case(&term)) {
+            out.push(term);
+        }
+        if out.len() >= MAX_GLOSSARY_TERMS {
+            break;
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -453,6 +634,31 @@ mod tests {
         assert!(parse_personas("no json here").is_empty());
     }
 
+    #[test]
+    fn every_type_has_a_nonempty_template() {
+        for cat in [
+            SimConCategory::Interview,
+            SimConCategory::CompanyMeeting,
+            SimConCategory::SalesCall,
+            SimConCategory::Other,
+        ] {
+            let t = cat.template();
+            assert!(!t.label.is_empty());
+            assert!(!t.file_slots.is_empty(), "{cat:?} has file slots");
+            assert!(!t.digest_sections.is_empty(), "{cat:?} has digest sections");
+            assert_eq!(cat.label(), t.label);
+        }
+    }
+
+    #[test]
+    fn research_defaults_match_decision_two() {
+        // Interview + sales: on (public info helps). Internal meeting: off.
+        assert!(SimConCategory::Interview.default_research_enabled());
+        assert!(SimConCategory::SalesCall.default_research_enabled());
+        assert!(!SimConCategory::CompanyMeeting.default_research_enabled());
+        assert!(!SimConCategory::Other.default_research_enabled());
+    }
+
     fn sample_session() -> SimConSession {
         SimConSession {
             id: "s1".into(),
@@ -465,6 +671,9 @@ mod tests {
             updated_at_unix_ms: 0,
             source_doc_ids: vec![],
             auto_generate_context: false,
+            research_enabled: true,
+            key_terms: vec![],
+            glossary: vec![],
             knowledge_profile_id: None,
             personas: vec![],
             chosen_persona_id: None,
@@ -530,8 +739,39 @@ mod tests {
             score: 0.9,
         }];
         let req = dossier_prompt(&sample_session(), &[], &chunks, 1200);
-        assert!(req.system.contains("Likely questions"));
+        // Interview digest carries the interview template's sections + label.
         assert!(req.system.contains("job interview"));
+        assert!(req.system.contains("Overview"));
+        assert!(req.system.contains("Likely questions"));
+        assert!(req.system.contains("Your talking points"));
+        assert!(req.system.contains("Watch-outs"));
         assert!(req.user.contains("Led the monthly close"));
+    }
+
+    #[test]
+    fn extract_glossary_pulls_bold_terms_from_the_section() {
+        let digest = "## Overview\nSome intro.\n\n## Glossary\n\
+- **Pensive theory** — a way of reasoning under doubt.\n\
+- **GAAP**: accounting standards.\n\
+- Deferred revenue – money not yet earned.\n\n\
+## Watch-outs\n- **Not a glossary term** here.";
+        let g = extract_glossary(digest);
+        assert!(g.iter().any(|t| t == "Pensive theory"), "{g:?}");
+        assert!(g.iter().any(|t| t == "GAAP"), "{g:?}");
+        assert!(g.iter().any(|t| t == "Deferred revenue"), "{g:?}");
+        // Terms outside the Glossary section are not harvested.
+        assert!(!g.iter().any(|t| t.contains("Not a glossary")), "{g:?}");
+    }
+
+    #[test]
+    fn dossier_sections_are_type_specific() {
+        // A company meeting gets its own sections, not the interview's.
+        let mut session = sample_session();
+        session.category = SimConCategory::CompanyMeeting;
+        let req = dossier_prompt(&session, &[], &[], 1200);
+        assert!(req.system.contains("company meeting"));
+        assert!(req.system.contains("Key figures"));
+        assert!(req.system.contains("Likely discussion points"));
+        assert!(!req.system.contains("Your talking points"));
     }
 }

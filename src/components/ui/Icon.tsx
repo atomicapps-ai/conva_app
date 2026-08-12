@@ -28,6 +28,8 @@ export type IconName =
   | "account"
   | "expand"
   | "lightbulb"
+  | "thumbUp"
+  | "thumbDown"
   | "book"
   | "howto"
   | "elaborate"
@@ -180,6 +182,19 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M12 3a6 6 0 0 0-3.6 10.8c.6.45 1.1 1.15 1.1 1.95V17h5v-1.25c0-.8.5-1.5 1.1-1.95A6 6 0 0 0 12 3z" />
       <path d="M9.7 20h4.6M10.7 22.2h2.6" />
       <path d="M12.7 7.2l-2.2 3.7h2.5L11 15" />
+    </>
+  ),
+  // Feedback — thumbs up / down (useful / not useful).
+  thumbUp: (
+    <>
+      <path d="M7 10v10H4.5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1H7z" />
+      <path d="M7 10l3.6-6.4a1.8 1.8 0 0 1 1.9 1.8V8h5.3a1.8 1.8 0 0 1 1.8 2.1l-1.1 7a1.8 1.8 0 0 1-1.8 1.5H7" />
+    </>
+  ),
+  thumbDown: (
+    <>
+      <path d="M17 14V4h2.5a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H17z" />
+      <path d="M17 14l-3.6 6.4a1.8 1.8 0 0 1-1.9-1.8V16H6.2a1.8 1.8 0 0 1-1.8-2.1l1.1-7A1.8 1.8 0 0 1 7.3 5.4H17" />
     </>
   ),
   // Definition — an open book.

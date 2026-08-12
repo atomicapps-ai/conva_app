@@ -10,6 +10,7 @@ mod audio;
 mod auth;
 mod conversations;
 mod embed;
+mod feedback;
 mod hud;
 mod llm;
 mod metering;
@@ -54,6 +55,10 @@ struct AppState {
     rag: Arc<RagStore>,
     /// Usage ledger (LLM tokens + Tavily searches), mirrored to usage.json.
     usage: Mutex<UsageLedger>,
+    /// Terms of the active conversation context (a rehearsal's key terms +
+    /// digest glossary) — the strongest highlight signal. Empty when no context
+    /// is active; set on rehearsal start, cleared on stop (Phase 3c).
+    active_context_terms: Mutex<Vec<String>>,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -238,6 +243,8 @@ fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(
 
 #[tauri::command]
 async fn stop_session(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    // Deactivate any conversation-context highlight terms (Phase 3c).
+    state.active_context_terms.lock().expect("ctx lock").clear();
     state.session.stop(&app).map_err(|e| e.to_string())
 }
 
@@ -360,7 +367,7 @@ fn rag_list(state: State<AppState>) -> Vec<RagDocument> {
 /// it — the words worth offering an Ally action (definition / how-to /
 /// elaborate) on. Empty when the library is empty or nothing overlaps.
 #[tauri::command]
-fn analyze_terms(state: State<AppState>, text: String) -> Vec<String> {
+fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<String> {
     let chunks = state.rag.retrieve(&text, 4);
     if chunks.is_empty() {
         return Vec::new();
@@ -370,7 +377,86 @@ fn analyze_terms(state: State<AppState>, text: String) -> Vec<String> {
         .map(|c| c.text.as_str())
         .collect::<Vec<_>>()
         .join(" ");
-    conva_core::highlight::relevant_terms(&text, &context)
+    // Phase 3b: rarity oracle from the library's BM25 document frequencies, so
+    // uncommon domain terms surface even without an active conversation context.
+    let rag = state.rag.clone();
+    let idf = move |term: &str| rag.token_idf(term);
+    // Phase 3c: the active context's terms (a rehearsal's key terms + digest
+    // glossary) — the strongest highlight signal; empty when none is active.
+    let context_terms = state.active_context_terms.lock().expect("ctx lock").clone();
+    // Phase 4: the user's on-device 👍/👎 — an explicit signal always wins
+    // (boost surfaces, suppress drops), whatever the heuristics scored.
+    let (boost, suppress) = feedback::sets(&app);
+    let ctx = conva_core::highlight::HighlightContext {
+        context_terms: &context_terms,
+        rarity: Some(&idf),
+        boost: Some(&boost),
+        suppress: Some(&suppress),
+        ..conva_core::highlight::HighlightContext::from_doc_text(&context)
+    };
+    conva_core::highlight::relevant_terms(&text, &ctx)
+}
+
+/// Record the user's 👍/👎 on a highlight term (Phase 4). `signal` is "up"
+/// (boost — always surface), "down" (suppress — never surface), or null to
+/// clear. Persisted on-device; consumed by `analyze_terms`.
+#[tauri::command]
+fn record_highlight_feedback(app: AppHandle, term: String, signal: Option<String>) {
+    let sig = match signal.as_deref() {
+        Some("up") | Some("boost") => Some(feedback::Signal::Boost),
+        Some("down") | Some("suppress") => Some(feedback::Signal::Suppress),
+        _ => None,
+    };
+    feedback::record(&app, &term, sig);
+}
+
+/// Record an implicit 👍 — the user researched `term` (Phase 4b). Repeated
+/// research auto-boosts the term for future highlighting.
+#[tauri::command]
+fn record_term_pick(app: AppHandle, term: String) {
+    feedback::record_pick(&app, &term);
+}
+
+/// Monotonic sequence for injected test segments.
+static INJECT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Test seam: inject a transcript segment as if it came from ASR, driving the
+/// transcript UI + the highlighting pipeline (RAG / context / rarity / feedback)
+/// without live audio — so E2E harnesses can exercise the app deterministically.
+/// **Inert unless the app was launched with `CONVA_TEST_SEAM` set**, so it is a
+/// no-op in normal use. `side` is "inbound" (them) or "outbound" (you); a final
+/// segment is also written to the session log.
+#[tauri::command]
+fn debug_inject_segment(
+    app: AppHandle,
+    state: State<AppState>,
+    side: String,
+    text: String,
+    is_final: bool,
+) {
+    if std::env::var("CONVA_TEST_SEAM").is_err() {
+        return;
+    }
+    let side = if side.eq_ignore_ascii_case("inbound") {
+        conva_core::audio::StreamSide::Inbound
+    } else {
+        conva_core::audio::StreamSide::Outbound
+    };
+    let start_ms = session::now_unix_ms().saturating_sub(state.session.session_started_ms());
+    let segment = TranscriptSegment {
+        side,
+        seq: INJECT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        text,
+        is_final,
+        start_ms,
+        end_ms: start_ms + 100,
+        confidence: None,
+        latency_ms: 0,
+    };
+    if is_final {
+        state.session.log_segment(&segment);
+    }
+    let _ = app.emit(events::TRANSCRIPT_SEGMENT, &segment);
 }
 
 #[tauri::command]
@@ -702,6 +788,9 @@ fn simcon_generate_dossier(
     simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
     session.dossier_doc_id = Some(doc_id);
+    // Harvest the digest's glossary into structured context terms (Phase 3c) so
+    // the highlighter can surface them during the conversation.
+    session.glossary = conva_core::simcon::extract_glossary(&text);
     simcon::save(&app, session).map_err(|e| e.to_string())
 }
 
@@ -795,6 +884,15 @@ async fn simcon_start_rehearsal(
     let llm_key = resolve_key(selection.provider)?;
     // Aura reuses the Deepgram key; without one the rehearsal is text-only.
     let tts_key = asr_deepgram::load_api_key();
+
+    // Activate this context's highlight terms for the rehearsal (Phase 3c):
+    // user-declared key terms + the digest glossary. Cleared on stop_session.
+    {
+        let mut active = state.active_context_terms.lock().expect("ctx lock");
+        active.clear();
+        active.extend(session.key_terms.iter().cloned());
+        active.extend(session.glossary.iter().cloned());
+    }
 
     let rag = state.rag.clone();
     let simcon_title = session.title.clone();
@@ -1237,6 +1335,7 @@ pub fn run() {
                 session: SessionManager::new(),
                 rag,
                 usage: Mutex::new(usage),
+                active_context_terms: Mutex::new(Vec::new()),
             });
 
             // Account sign-in return path: catch conva://auth/… deep links,
@@ -1321,6 +1420,9 @@ pub fn run() {
             rag_set_enabled,
             rag_delete,
             analyze_terms,
+            record_highlight_feedback,
+            record_term_pick,
+            debug_inject_segment,
             rag_download,
             secrets_status,
             secrets_export,

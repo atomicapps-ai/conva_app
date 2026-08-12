@@ -440,6 +440,14 @@ impl RagStore {
         self.retrieve_filtered(query, k, None)
     }
 
+    /// Corpus IDF (`ln(N/df)`) for a lowercased token — the rarity signal for
+    /// transcript highlighting. 0.0 when the token is absent or the index is
+    /// empty. Cheap: a read-lock + hash lookup, safe to call per candidate.
+    pub fn token_idf(&self, term: &str) -> f32 {
+        let inner = self.inner.read().expect("rag lock");
+        inner.index.as_ref().map_or(0.0, |i| i.token_idf(term))
+    }
+
     /// Like [`retrieve`], but restricted to a set of document ids (a Sim Con's
     /// KnowledgeProfile). An empty scope means "whole library" — so a Sim Con
     /// with no attached docs still grounds on everything available.
@@ -883,6 +891,36 @@ mod tests {
 
         store.delete(&docs[0].id).unwrap();
         assert!(store.list().is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn token_idf_reflects_corpus_rarity() {
+        // Distinct dir from the other test — Rust runs tests in parallel.
+        let dir = std::env::temp_dir().join(format!("conva-rag-idf-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let store = RagStore::open(&dir).unwrap();
+        // Three chunks: "common" in all; "refrigerant" in one.
+        store
+            .ingest_text("a", "common maintenance details here")
+            .unwrap();
+        store
+            .ingest_text("b", "common refrigerant certification requirement")
+            .unwrap();
+        store
+            .ingest_text("c", "common office hours weekdays")
+            .unwrap();
+
+        // The rarity signal (Phase 3b): rarer term → higher IDF.
+        assert!(
+            store.token_idf("refrigerant") > store.token_idf("common"),
+            "rare term outscores the ubiquitous one"
+        );
+        assert_eq!(store.token_idf("common"), 0.0, "present everywhere → idf 0");
+        assert_eq!(store.token_idf("absentterm"), 0.0, "unknown token → 0");
 
         let _ = fs::remove_dir_all(&dir);
     }

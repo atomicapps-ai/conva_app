@@ -196,7 +196,9 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<SimConSession, CoreError> {
         .map(|p| p.created_at_unix_ms)
         .unwrap_or(now);
 
-    let research = if session.auto_generate_context {
+    // Web research runs when enabled for this context (defaults from the type
+    // template — decision 2). The legacy auto-generate flag still opts in.
+    let research = if session.research_enabled || session.auto_generate_context {
         match research(&session) {
             Ok((sources, searches)) => {
                 // Tavily bills per search — record what we actually issued.

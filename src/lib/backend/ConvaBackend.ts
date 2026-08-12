@@ -123,6 +123,13 @@ export interface ConvaBackend {
     syncLibrary(): Promise<string>;
     /** RAG-relevant phrases in a message, for transcript highlighting. */
     analyzeTerms(text: string): Promise<string[]>;
+    /** Record 👍/👎 on a highlight term ("up"/"down"/null=clear) — Phase 4. */
+    recordHighlightFeedback(
+      term: string,
+      signal: "up" | "down" | null,
+    ): Promise<void>;
+    /** Record an implicit 👍 — the user researched a term (Phase 4b). */
+    recordTermPick(term: string): Promise<void>;
     /** Reconstruct a document's text by id (e.g. to view the Ally dossier). */
     documentText(id: string): Promise<string | null>;
   };
