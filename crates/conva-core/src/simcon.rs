@@ -475,26 +475,39 @@ first line, in character.\n",
 /// Reference budget for the dossier prompt (docs + research it synthesizes).
 const DOSSIER_REFERENCE_CHAR_BUDGET: usize = 10_000;
 
-/// Build the `(system, user)` prompt for the **Ally prep dossier**: a concise,
-/// well-structured briefing Ally *writes* from the Sim Con's documents + web
-/// research, saved back to the library as a readable document. Distinct from
-/// retrieval — this is synthesis for the user (see
-/// `conva_core/docs/technical/rag-and-ally-grounding.md`).
+/// Build the `(system, user)` prompt for the **Context Digest** (a.k.a. the
+/// Ally prep dossier): one concise, dense, LLM-optimized briefing Ally *writes*
+/// from the context's documents + web research, saved back to the library as a
+/// readable document and re-indexed into RAG. Its sections come from the type's
+/// template ([`ConversationTemplate::digest_sections`]) so the digest is
+/// tailored to the conversation — likely questions for an interview, key
+/// figures for a meeting, and so on. Distinct from retrieval — this is
+/// synthesis (see `conva_core/docs/technical/conversation-context.md`).
 pub fn dossier_prompt(
     session: &SimConSession,
     research: &[ResearchSource],
     chunks: &[ScoredChunk],
     max_tokens: u32,
 ) -> LlmRequest {
+    let template = session.category.template();
+    // Required sections, in order: a short overview, the type's own sections,
+    // then watch-outs. Each becomes a `## ` Markdown heading.
+    let mut sections: Vec<&str> = Vec::with_capacity(template.digest_sections.len() + 2);
+    sections.push("Overview");
+    sections.extend(template.digest_sections.iter().copied());
+    sections.push("Watch-outs");
+    let section_list = sections.join(", ");
+
     let system = format!(
-        "You are Ally, preparing a concise pre-meeting briefing for the user before a {}. \
-Write a well-structured prep document in Markdown with these sections: \
-`## Overview` (2–3 sentences), `## Likely questions` (bulleted), `## Strong \
-talking points` (bulleted), `## Background & key facts` (bulleted, specific), \
-and `## Watch-outs` (bulleted). Ground everything in the provided material; be \
-specific and useful, never generic. Do not invent facts or figures. Output only \
-the Markdown document — no preamble.",
-        session.category.label(),
+        "You are Ally, writing a Context Digest — one dense, high-signal briefing \
+the user (and later the AI) will rely on before a {label}. Write it in Markdown \
+with exactly these `##` sections, in this order: {sections}. Give `## Overview` \
+2–3 sentences; keep every other section tight and scannable — short bullets, \
+**bold** the key term, name, or figure in each. Ground everything strictly in \
+the provided material: be specific, never generic, and never invent facts or \
+figures. Output only the Markdown document — no preamble.",
+        label = template.label,
+        sections = section_list,
     );
 
     let mut reference = String::new();
@@ -513,7 +526,7 @@ the Markdown document — no preamble.",
         reference.push_str(&block);
     }
 
-    let mut user = format!("Meeting: {}\nGoal: {}\n", session.title, session.purpose);
+    let mut user = format!("Context: {}\nGoal: {}\n", session.title, session.purpose);
     if let Some(jd) = session.job_description.as_deref() {
         let jd = jd.trim();
         if !jd.is_empty() {
@@ -525,9 +538,9 @@ the Markdown document — no preamble.",
     }
     if reference.is_empty() {
         user.push_str(
-            "\nNo documents or research were provided — write the briefing from \
-what a well-prepared person should know for this meeting, and keep it clearly \
-general.",
+            "\nNo documents or research were provided — write the digest from \
+what a well-prepared person should know for this conversation, and keep it \
+clearly general.",
         );
     } else {
         user.push_str("\nMaterial to synthesize:\n\n");
@@ -667,8 +680,24 @@ mod tests {
             score: 0.9,
         }];
         let req = dossier_prompt(&sample_session(), &[], &chunks, 1200);
-        assert!(req.system.contains("Likely questions"));
+        // Interview digest carries the interview template's sections + label.
         assert!(req.system.contains("job interview"));
+        assert!(req.system.contains("Overview"));
+        assert!(req.system.contains("Likely questions"));
+        assert!(req.system.contains("Your talking points"));
+        assert!(req.system.contains("Watch-outs"));
         assert!(req.user.contains("Led the monthly close"));
+    }
+
+    #[test]
+    fn dossier_sections_are_type_specific() {
+        // A company meeting gets its own sections, not the interview's.
+        let mut session = sample_session();
+        session.category = SimConCategory::CompanyMeeting;
+        let req = dossier_prompt(&session, &[], &[], 1200);
+        assert!(req.system.contains("company meeting"));
+        assert!(req.system.contains("Key figures"));
+        assert!(req.system.contains("Likely discussion points"));
+        assert!(!req.system.contains("Your talking points"));
     }
 }
