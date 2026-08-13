@@ -73,7 +73,7 @@ describe("ContextsPane", () => {
     expect(onGenerate).toHaveBeenCalledWith("s1");
   });
 
-  it("hides the New button off-desktop (web has no Sim Con folder to write to)", () => {
+  it("hides the Prime Ally button off-desktop (web has no Sim Con folder to write to)", () => {
     render(
       <ContextsPane
         items={[]}
@@ -89,7 +89,7 @@ describe("ContextsPane", () => {
       />,
     );
     // jsdom has no __TAURI__ global -> isDesktop is false -> button absent.
-    expect(screen.queryByRole("button", { name: "New" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Prime Ally" })).toBeNull();
   });
 
   it("keeps Open + Generate inline and tucks Edit/Delete behind the ⋮ menu", () => {

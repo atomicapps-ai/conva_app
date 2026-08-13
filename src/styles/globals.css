@@ -58,6 +58,10 @@
   --brand-to: var(--color-outbound);
   --iris-angle: 100deg;
   --iris: linear-gradient(100deg, #22e4f5 0%, #7b5cff 52%, #ff4fd8 100%);
+  /* Solid iris violet — the primary-button fill. The gradient itself stays
+     decorative-only (brand marks, hairline accents); a button needs one flat,
+     legible color under its label, not a moving 3-stop gradient. */
+  --color-primary: #7b5cff;
 
   /* ---- Elevation ---- */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -314,18 +318,21 @@ body {
     opacity: 0.5;
     pointer-events: none;
   }
-  /* Primary action — the aurora iris; used sparingly (one per view). */
+  /* Primary action — solid iris violet; used sparingly (one per view). Was
+     the aurora gradient with near-black text — hard to read/notice against
+     the rest of the UI (owner feedback); a flat fill + light text reads
+     unambiguously as "the button," and drops the glow shadow the density
+     law already discourages (depth from hairlines/bg-steps, not shadows). */
   .btn-primary {
     border-color: transparent;
-    color: var(--color-bg);
+    color: var(--color-fg);
     font-weight: 600;
-    background: var(--iris);
-    box-shadow: var(--shadow-glow);
+    background: var(--color-primary);
   }
   .btn-primary:hover {
-    color: var(--color-bg);
+    color: var(--color-fg);
     border-color: transparent;
-    filter: brightness(1.1);
+    filter: brightness(1.15);
   }
   /* Ally-accented action (gold) — save/confirm inside Ally-flavored surfaces. */
   .btn-accent {
