@@ -22,6 +22,14 @@ use crate::audio::StreamSide;
 use crate::llm::LlmRequest;
 use crate::rag::ScoredChunk;
 
+/// Reserved id of the always-present default context ("General conversation")
+/// — a baseline briefing Ally grounds in when nothing more specific has been
+/// chosen (session-grounding design, "required selection" — a fresh install
+/// has this from first launch, so requiring a selection never locks out
+/// Start Listening). System-managed: not user-deletable. Precedes the
+/// community-voting + LLM-inference evolution (design doc, not yet built).
+pub const DEFAULT_CONTEXT_ID: &str = "default";
+
 /// The kind of conversation this context is for — drives the setup template
 /// (documents to collect + digest sections), persona generation, and the
 /// web-research default. The launch set (Interview · Company Meeting ·

@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { autoNameGrounding, resolveGrounding } from "@/components/contexts/groundResolve";
 import { readinessOf } from "@/components/contexts/readiness";
 import { Icon } from "@/components/ui/Icon";
+import { ResponsiveLabel } from "@/components/ui/ResponsiveLabel";
 import { useBackend } from "@/lib/backend";
-import type { RagDocument, SimConSession, SimConSummary } from "@/lib/ipc";
+import { DEFAULT_CONTEXT_ID, type RagDocument, type SimConSession, type SimConSummary } from "@/lib/ipc";
 import { useGroundingStore } from "@/state/grounding";
 
 /** Per-context expansion state: fetched detail (doc ids + key terms) once
@@ -17,7 +18,7 @@ interface ContextState {
 }
 
 /**
- * "Ground Ally on…" — the session-grounding picker (design:
+ * "Select context" — the session-grounding picker (design:
  * `conva_core/docs/technical/conversation-context-session-grounding.md`).
  * A checkbox tree of saved contexts (checked = use as a block; expand to
  * cherry-pick its documents) plus a flat, searchable library section. Checking
@@ -25,14 +26,33 @@ interface ContextState {
  * combination — multiple contexts, extras, a cherry-picked subset — quick-
  * creates (or finishes) a context for that exact mix, generates its digest,
  * then activates it. Lives next to Start Listening in the `TopBar`.
+ *
+ * Selection is **required**: Ally is always grounded in something. On mount
+ * (and whenever nothing is active), this auto-activates the always-present
+ * `DEFAULT_CONTEXT_ID` ("General conversation") rather than blocking Start
+ * Listening — "required" is an invariant, not a gate the user must click
+ * through every session.
  */
 export function GroundPicker({ disabled }: { disabled?: boolean }) {
   const backend = useBackend();
+  const activeId = useGroundingStore((s) => s.activeId);
   const activeTitle = useGroundingStore((s) => s.activeTitle);
   const activating = useGroundingStore((s) => s.activating);
   const setActivating = useGroundingStore((s) => s.setActivating);
   const setActive = useGroundingStore((s) => s.setActive);
-  const clearActive = useGroundingStore((s) => s.clear);
+
+  // Session grounding is required: Ally is always grounded in *something*.
+  // Nothing active yet (first launch, or after a session ends) → fall back to
+  // the always-present default rather than blocking Start Listening.
+  useEffect(() => {
+    if (activeId || disabled) return;
+    void backend.simcon
+      .activateContext(DEFAULT_CONTEXT_ID)
+      .then((session) => setActive(session.id, session.title))
+      .catch(() => {
+        /* best-effort — Start Listening still works unscoped if this fails */
+      });
+  }, [activeId, disabled, backend, setActive]);
 
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
   const [contexts, setContexts] = useState<SimConSummary[]>([]);
@@ -228,7 +248,7 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
   return (
     <>
       {activeTitle ? (
-        <div className="flex items-center gap-1 rounded-[4px] border border-outbound/40 bg-outbound/[0.08] pl-2.5 pr-1 text-xs">
+        <div className="flex shrink-0 items-center gap-1 rounded-[4px] border border-outbound/40 bg-outbound/[0.08] pl-2.5 pr-1 text-xs">
           <button
             type="button"
             onClick={openPicker}
@@ -239,46 +259,50 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
             <Icon name="simicon" size={13} className="text-outbound" />
             <span className="max-w-[160px] truncate">{activeTitle}</span>
           </button>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => {
-              void backend.simcon.deactivateContext().then(clearActive);
-            }}
-            aria-label="Stop grounding on this context"
-            title="Stop grounding on this context"
-            className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Icon name="close" size={12} />
-          </button>
+          {activeId !== DEFAULT_CONTEXT_ID && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => {
+                void backend.simcon
+                  .activateContext(DEFAULT_CONTEXT_ID)
+                  .then((session) => setActive(session.id, session.title));
+              }}
+              aria-label="Reset to General conversation"
+              title="Reset to General conversation"
+              className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Icon name="close" size={12} />
+            </button>
+          )}
         </div>
       ) : (
         <button
           type="button"
           onClick={openPicker}
           disabled={disabled || activating}
-          title={
-            disabled
-              ? "Stop listening to ground Ally on a context"
-              : "Ground Ally in a context or documents before starting"
-          }
-          className="flex h-[28px] items-center gap-1.5 rounded-[4px] border border-border bg-white/[0.035] px-3 text-xs font-semibold text-fg-muted transition hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+          title={disabled ? "Stop listening to select a context" : "Select what Ally is grounded in"}
+          className="flex h-[28px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[4px] border border-border bg-white/[0.035] px-3 text-xs font-semibold text-fg-muted transition hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Icon name="simicon" size={14} />
-          {activating ? "Grounding…" : "Ground Ally on…"}
+          {activating ? (
+            "Selecting…"
+          ) : (
+            <ResponsiveLabel full="Select context" short="Select" />
+          )}
         </button>
       )}
 
       {open && (
         <div
           role="dialog"
-          aria-label="Ground Ally on"
+          aria-label="Select context"
           onClick={(e) => e.stopPropagation()}
           style={{ left: open.x, top: open.y }}
           className="glass-raised fixed z-50 flex max-h-[420px] w-[300px] flex-col gap-2 rounded-lg p-2.5"
         >
           <p className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
-            Ground Ally on
+            Select context
           </p>
 
           {loadingLists ? (
@@ -403,7 +427,7 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
               onClick={() => void apply()}
               className="btn btn-primary px-2.5 py-1 text-[11px] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {activating ? "Grounding…" : "Ground it"}
+              {activating ? "Selecting…" : "Select"}
             </button>
           </div>
         </div>

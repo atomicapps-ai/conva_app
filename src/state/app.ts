@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import { getBackend } from "@/lib/backend";
 import {
+  DEFAULT_CONTEXT_ID,
   isTauri,
   type AppConfig,
   type AudioDevice,
@@ -158,9 +159,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ busy: true });
     try {
       await getBackend().session.stop();
-      // stop_session already clears the backend's active-context scope —
-      // mirror that in the grounding pill so it doesn't show stale state.
-      useGroundingStore.getState().clear();
+      // Session grounding is required — never leave the app truly ungrounded.
+      // stop_session clears the backend's active-context scope; fall back to
+      // the always-present default rather than a bare "nothing active", so a
+      // *different* next call never silently inherits a stale, specific
+      // context (e.g. still grounded on "Acme interview").
+      try {
+        const session = await getBackend().simcon.activateContext(DEFAULT_CONTEXT_ID);
+        useGroundingStore.getState().setActive(session.id, session.title);
+      } catch {
+        useGroundingStore.getState().clear();
+      }
       // Offer to save the conversation when anything was transcribed
       // (owner flow: Stop → "save this conversation?").
       const [{ useTranscriptStore }, { useConversationStore }] =

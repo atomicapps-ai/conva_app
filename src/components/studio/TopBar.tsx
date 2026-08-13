@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { GroundPicker } from "@/components/contexts/GroundPicker";
 import { Icon } from "@/components/ui/Icon";
+import { ResponsiveLabel } from "@/components/ui/ResponsiveLabel";
 import wordmark from "@/assets/brand/conva-wordmark-white.png";
 import { isTauri, type AudioLevelEvent } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
@@ -211,7 +212,7 @@ export function TopBar() {
                     : "Record the call (stereo WAV: you left, them right)"
               }
               className={[
-                "flex h-[28px] items-center gap-2 rounded-[4px] border px-3 text-xs font-semibold transition disabled:opacity-40",
+                "flex h-[28px] shrink-0 items-center gap-2 whitespace-nowrap rounded-[4px] border px-3 text-xs font-semibold transition disabled:opacity-40",
                 recording
                   ? "border-rec/50 bg-rec/10 text-rec"
                   : "border-border bg-white/[0.035] text-fg-muted hover:text-fg",
@@ -221,7 +222,11 @@ export function TopBar() {
                 className={`h-2 w-2 rounded-full bg-rec ${recording ? "animate-pulse" : "opacity-70"}`}
                 aria-hidden
               />
-              {recording ? "Recording" : "Record"}
+              {recording ? (
+                <ResponsiveLabel full="Recording" short="Rec" />
+              ) : (
+                <ResponsiveLabel full="Record" short="Rec" />
+              )}
             </button>
 
             <button
@@ -229,7 +234,7 @@ export function TopBar() {
               disabled={busy || preparing}
               onClick={() => void (listening ? stop() : start())}
               title={listening ? "Stop listening" : "Start listening"}
-              className="flex h-[28px] items-center gap-2 rounded-[4px] border border-border-strong bg-panel-raised px-3.5 text-xs font-bold text-fg transition hover:brightness-110 disabled:opacity-50"
+              className="flex h-[28px] shrink-0 items-center gap-2 whitespace-nowrap rounded-[4px] border border-border-strong bg-panel-raised px-3.5 text-xs font-bold text-fg transition hover:brightness-110 disabled:opacity-50"
             >
               {listening ? (
                 <>
@@ -237,7 +242,7 @@ export function TopBar() {
                     className="h-[7px] w-[7px] animate-pulse rounded-full bg-ok"
                     aria-hidden
                   />
-                  Stop Listening
+                  <ResponsiveLabel full="Stop Listening" short="Stop" />
                   <span className="font-mono text-[11px] font-bold text-fg-muted">
                     {elapsed}
                   </span>
@@ -245,7 +250,11 @@ export function TopBar() {
               ) : (
                 <>
                   <Icon name="live" size={15} className="text-inbound" />
-                  {preparing ? "Preparing…" : "Start listening"}
+                  {preparing ? (
+                    "Preparing…"
+                  ) : (
+                    <ResponsiveLabel full="Start listening" short="Start" />
+                  )}
                 </>
               )}
             </button>
