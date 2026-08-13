@@ -176,6 +176,10 @@ export class WebBackend implements ConvaBackend {
     list: (): Promise<SimConSummary[]> => todo("GET /v1/simcon"),
     load: (): Promise<SimConSession> => todo("GET /v1/simcon/:id"),
     delete: (): Promise<void> => todo("DELETE /v1/simcon/:id"),
+    activateContext: (): Promise<SimConSession> =>
+      unsupported("simcon.activateContext (desktop session)"),
+    deactivateContext: (): Promise<void> =>
+      unsupported("simcon.deactivateContext (desktop session)"),
     storeDocs: (): Promise<string[]> =>
       unsupported("simcon.storeDocs (local file paths)"),
     prepare: (): Promise<SimConSession> => todo("POST /v1/simcon/:id/prepare"),

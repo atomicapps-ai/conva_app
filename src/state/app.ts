@@ -9,6 +9,7 @@ import {
   type ProviderId,
   type ProviderInfo,
 } from "@/lib/ipc";
+import { useGroundingStore } from "@/state/grounding";
 
 interface AppState {
   config: AppConfig | null;
@@ -157,6 +158,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ busy: true });
     try {
       await getBackend().session.stop();
+      // stop_session already clears the backend's active-context scope —
+      // mirror that in the grounding pill so it doesn't show stale state.
+      useGroundingStore.getState().clear();
       // Offer to save the conversation when anything was transcribed
       // (owner flow: Stop → "save this conversation?").
       const [{ useTranscriptStore }, { useConversationStore }] =

@@ -252,12 +252,7 @@ async fn stop_session(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
     // Deactivate any conversation-context highlight terms (Phase 3c) and
     // retrieval scope (session grounding) — a stopped session always returns
     // to the unscoped default.
-    state.active_context_terms.lock().expect("ctx lock").clear();
-    state
-        .active_context_doc_ids
-        .lock()
-        .expect("ctx lock")
-        .clear();
+    clear_active_context(&state);
     state.session.stop(&app).map_err(|e| e.to_string())
 }
 
@@ -783,6 +778,63 @@ fn simcon_load(app: AppHandle, id: String) -> Result<SimConSession, String> {
 #[tauri::command]
 fn simcon_delete(app: AppHandle, id: String) -> Result<(), String> {
     simcon::delete(&app, &id).map_err(|e| e.to_string())
+}
+
+/// Clear both halves of the active-context scope (session grounding). Shared
+/// by `stop_session` (a stopped session always returns to unscoped) and
+/// `deactivate_context` (the picker's explicit clear).
+fn clear_active_context(state: &AppState) {
+    state.active_context_terms.lock().expect("ctx lock").clear();
+    state
+        .active_context_doc_ids
+        .lock()
+        .expect("ctx lock")
+        .clear();
+}
+
+/// Activate a conversation context for the **next** live session (session
+/// grounding): fills the same two scopes rehearsal already sets on start —
+/// highlight terms (key terms + digest glossary) and the retrieval scope
+/// `ally()` grounds answers in — so a plain live session can ground on a
+/// context exactly like a rehearsal does. Takes effect immediately (not just
+/// on the next Start); cleared by `deactivate_context` or `stop_session`.
+/// Returns the loaded session so the caller can show its title without a
+/// second round-trip.
+#[tauri::command]
+fn activate_context(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<SimConSession, String> {
+    let session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+
+    // The profile's doc_ids (docs + any generated dossier) is the same
+    // grounding scope rehearsal's persona prompt already uses. A context with
+    // no profile yet (never prepared) activates with highlight terms only —
+    // still useful, just not retrieval-scoped.
+    let profile_doc_ids = session
+        .knowledge_profile_id
+        .as_deref()
+        .and_then(|pid| simcon::load_profile(&app, pid).ok())
+        .map(|p| p.doc_ids)
+        .unwrap_or_default();
+
+    {
+        let mut terms = state.active_context_terms.lock().expect("ctx lock");
+        terms.clear();
+        terms.extend(session.key_terms.iter().cloned());
+        terms.extend(session.glossary.iter().cloned());
+    }
+    *state.active_context_doc_ids.lock().expect("ctx lock") = profile_doc_ids;
+
+    Ok(session)
+}
+
+/// Clear the active conversation context (session grounding) without
+/// stopping a session — e.g. the picker's "clear" action before Start.
+#[tauri::command]
+fn deactivate_context(state: State<AppState>) {
+    clear_active_context(&state);
 }
 
 /// Copy documents into a Sim Con's folder (named after its title); returns the
@@ -1539,6 +1591,8 @@ pub fn run() {
             simcon_list,
             simcon_load,
             simcon_delete,
+            activate_context,
+            deactivate_context,
             simcon_store_docs,
             simcon_prepare,
             simcon_load_profile,
