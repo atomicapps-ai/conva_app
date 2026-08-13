@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { GroundPicker } from "@/components/contexts/GroundPicker";
 import { Icon } from "@/components/ui/Icon";
 import wordmark from "@/assets/brand/conva-wordmark-white.png";
 import { isTauri, type AudioLevelEvent } from "@/lib/ipc";
@@ -193,6 +194,8 @@ export function TopBar() {
           </IconBtn>
 
           <div className="ml-1 flex items-center gap-2 border-l border-border pl-3">
+            <GroundPicker disabled={listening} />
+
             <button
               type="button"
               disabled={!listening}

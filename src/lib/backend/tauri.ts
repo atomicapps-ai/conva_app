@@ -113,6 +113,8 @@ export class TauriBackend implements ConvaBackend {
     list: cmd.simconList,
     load: cmd.simconLoad,
     delete: cmd.simconDelete,
+    activateContext: cmd.activateContext,
+    deactivateContext: cmd.deactivateContext,
     storeDocs: cmd.simconStoreDocs,
     prepare: cmd.simconPrepare,
     loadProfile: cmd.simconLoadProfile,

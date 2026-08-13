@@ -309,6 +309,18 @@ export function simconDelete(id: string): Promise<void> {
   return invoke("simcon_delete", { id });
 }
 
+/** Ground the next live session in this context (session grounding): fills
+ *  the same highlight-term + retrieval scopes rehearsal already sets. Takes
+ *  effect immediately; cleared by `deactivateContext` or stopping a session. */
+export function activateContext(id: string): Promise<SimConSession> {
+  return invoke<SimConSession>("activate_context", { id });
+}
+
+/** Clear the active conversation context without stopping a session. */
+export function deactivateContext(): Promise<void> {
+  return invoke("deactivate_context");
+}
+
 /** Copy documents into a Sim Con's folder (named after its title); returns the
  *  new in-folder paths to ingest into the RAG library. */
 export function simconStoreDocs(

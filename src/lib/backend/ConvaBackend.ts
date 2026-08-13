@@ -183,6 +183,11 @@ export interface ConvaBackend {
     list(): Promise<SimConSummary[]>;
     load(id: string): Promise<SimConSession>;
     delete(id: string): Promise<void>;
+    /** Ground the next live session in this context (highlight terms +
+     *  retrieval scope). Takes effect immediately. */
+    activateContext(id: string): Promise<SimConSession>;
+    /** Clear the active context without stopping a session. */
+    deactivateContext(): Promise<void>;
     /** Copy documents into this Sim Con's folder; returns paths to ingest. */
     storeDocs(title: string, paths: string[]): Promise<string[]>;
     /** Build the reusable knowledge profile (docs + research) and mark ready. */
