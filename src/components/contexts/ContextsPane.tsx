@@ -164,17 +164,17 @@ export function ContextsPane({
   return (
     <div className="card flex min-h-0 flex-col p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
+        <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-fg-muted">
           Conversation contexts
         </h3>
         {isDesktop && (
           <button
             type="button"
             onClick={onNew}
-            className="btn btn-primary px-2 py-1 text-[11px]"
+            className="btn btn-primary shrink-0 whitespace-nowrap px-2 py-1 text-[11px]"
           >
             <Icon name="simicon" size={13} />
-            New
+            New context
           </button>
         )}
       </div>

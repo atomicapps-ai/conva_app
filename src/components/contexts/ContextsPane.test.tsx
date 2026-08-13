@@ -89,7 +89,7 @@ describe("ContextsPane", () => {
       />,
     );
     // jsdom has no __TAURI__ global -> isDesktop is false -> button absent.
-    expect(screen.queryByRole("button", { name: "New" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New context" })).toBeNull();
   });
 
   it("keeps Open + Generate inline and tucks Edit/Delete behind the ⋮ menu", () => {
