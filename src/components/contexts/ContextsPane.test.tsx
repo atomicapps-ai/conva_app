@@ -92,6 +92,36 @@ describe("ContextsPane", () => {
     expect(screen.queryByRole("button", { name: "New" })).toBeNull();
   });
 
+  it("keeps Open + Generate inline and tucks Edit/Delete behind the ⋮ menu", () => {
+    const onEdit = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <ContextsPane
+        items={[summary({ has_key_terms: true })]}
+        selectedId={null}
+        onSelect={noop}
+        onOpen={noop}
+        onNew={noop}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onAttach={noop}
+        onGenerate={noop}
+        generatingId={null}
+      />,
+    );
+    // Edit/Delete aren't inline row buttons — only behind the menu.
+    expect(screen.queryByRole("button", { name: "Edit setup" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /more actions for acme interview/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /edit setup/i }));
+    expect(onEdit).toHaveBeenCalledWith("s1");
+
+    fireEvent.click(screen.getByRole("button", { name: /more actions for acme interview/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
+    expect(onDelete).toHaveBeenCalledWith("s1");
+  });
+
   it("Ready contexts don't show the checklist", () => {
     render(
       <ContextsPane

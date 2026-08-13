@@ -59,6 +59,12 @@ struct AppState {
     /// digest glossary) — the strongest highlight signal. Empty when no context
     /// is active; set on rehearsal start, cleared on stop (Phase 3c).
     active_context_terms: Mutex<Vec<String>>,
+    /// `RagDocument` ids the active conversation context is grounded in — when
+    /// non-empty, Ally's retrieval is scoped to exactly these instead of the
+    /// whole library. Empty means "no active context" (today's default,
+    /// unscoped). Set by context activation (session-grounding picker),
+    /// cleared on stop.
+    active_context_doc_ids: Mutex<Vec<String>>,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -243,8 +249,15 @@ fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(
 
 #[tauri::command]
 async fn stop_session(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    // Deactivate any conversation-context highlight terms (Phase 3c).
+    // Deactivate any conversation-context highlight terms (Phase 3c) and
+    // retrieval scope (session grounding) — a stopped session always returns
+    // to the unscoped default.
     state.active_context_terms.lock().expect("ctx lock").clear();
+    state
+        .active_context_doc_ids
+        .lock()
+        .expect("ctx lock")
+        .clear();
     state.session.stop(&app).map_err(|e| e.to_string())
 }
 
@@ -1212,7 +1225,19 @@ fn ally(
     let chunks = if query.trim().is_empty() {
         Vec::new()
     } else {
-        state.rag.retrieve(&query, 8)
+        // Session grounding: when a conversation context is active, ground
+        // Ally's answer in exactly its documents instead of the whole
+        // library — the same retrieve_scoped rehearsal already uses.
+        let scope = state
+            .active_context_doc_ids
+            .lock()
+            .expect("ctx lock")
+            .clone();
+        if scope.is_empty() {
+            state.rag.retrieve(&query, 8)
+        } else {
+            state.rag.retrieve_scoped(&query, 8, &scope)
+        }
     };
     // R5 "peek": tell the UI which sources ground this answer, up front.
     let _ = app.emit(
@@ -1433,6 +1458,7 @@ pub fn run() {
                 rag,
                 usage: Mutex::new(usage),
                 active_context_terms: Mutex::new(Vec::new()),
+                active_context_doc_ids: Mutex::new(Vec::new()),
             });
 
             // Account sign-in return path: catch conva://auth/… deep links,
