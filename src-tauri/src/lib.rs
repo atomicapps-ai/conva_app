@@ -777,6 +777,9 @@ fn simcon_load(app: AppHandle, id: String) -> Result<SimConSession, String> {
 
 #[tauri::command]
 fn simcon_delete(app: AppHandle, id: String) -> Result<(), String> {
+    if id == conva_core::simcon::DEFAULT_CONTEXT_ID {
+        return Err("The default context can't be deleted.".into());
+    }
     simcon::delete(&app, &id).map_err(|e| e.to_string())
 }
 
@@ -1472,6 +1475,14 @@ pub fn run() {
                 .app_data_dir()
                 .expect("app data dir must resolve");
             let rag = Arc::new(RagStore::open(&data_dir).expect("open rag store"));
+
+            // Session grounding's "required selection" invariant: a fresh
+            // install always has the always-present default context to select
+            // from. Local-only (no network) — safe to run synchronously here,
+            // before anything can call activate_context("default").
+            if let Err(e) = simcon::ensure_default_context(app.handle(), &rag) {
+                eprintln!("[conva] couldn't seed the default context: {e}");
+            }
 
             // Performance tracing → <app-data>/perf.jsonl (+ [perf] stderr lines).
             trace::init(data_dir.join("perf.jsonl"));

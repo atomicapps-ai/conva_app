@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { readinessOf } from "@/components/contexts/readiness";
 import { Icon } from "@/components/ui/Icon";
-import type { SimConCategory, SimConStatus, SimConSummary } from "@/lib/ipc";
+import { DEFAULT_CONTEXT_ID, type SimConCategory, type SimConStatus, type SimConSummary } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
 const CATEGORY_LABEL: Record<SimConCategory, string> = {
@@ -191,10 +191,14 @@ export function ContextsPane({
             const readiness = readinessOf(s);
             const isGenerating = generatingId === s.id;
             const dragOver = dragOverId === s.id;
+            // The always-present default: not editable, deletable, or a drag
+            // target — system-managed until the community/LLM evolution owns it.
+            const isDefault = s.id === DEFAULT_CONTEXT_ID;
             return (
               <li
                 key={s.id}
                 onDragOver={(e) => {
+                  if (isDefault) return;
                   if (e.dataTransfer.types.includes(DOC_DRAG_MIME)) {
                     e.preventDefault();
                     setDragOverId(s.id);
@@ -202,6 +206,7 @@ export function ContextsPane({
                 }}
                 onDragLeave={() => setDragOverId((id) => (id === s.id ? null : id))}
                 onDrop={(e) => {
+                  if (isDefault) return;
                   e.preventDefault();
                   setDragOverId(null);
                   const docId = e.dataTransfer.getData(DOC_DRAG_MIME);
@@ -234,9 +239,15 @@ export function ContextsPane({
                   >
                     <Icon name="chevron" size={13} className="-rotate-90" />
                   </button>
-                  <span className="shrink-0 rounded-full border border-border-strong px-1.5 py-0.5 text-[10px] text-fg-faint">
-                    {CATEGORY_LABEL[s.category]}
-                  </span>
+                  {isDefault ? (
+                    <span className="shrink-0 rounded-full border border-outbound/40 bg-outbound/[0.1] px-1.5 py-0.5 text-[10px] text-outbound">
+                      Default
+                    </span>
+                  ) : (
+                    <span className="shrink-0 rounded-full border border-border-strong px-1.5 py-0.5 text-[10px] text-fg-faint">
+                      {CATEGORY_LABEL[s.category]}
+                    </span>
+                  )}
                   <span
                     className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] ${STATUS_TONE[s.status]}`}
                   >
@@ -250,27 +261,31 @@ export function ContextsPane({
                     {s.has_generated_resources ? " · generated" : ""}
                   </span>
                   <span className="flex-1" />
-                  <button
-                    type="button"
-                    disabled={!readiness.canGenerate || isGenerating}
-                    onClick={() => onGenerate(s.id)}
-                    title={
-                      readiness.canGenerate
-                        ? "Generate resources"
-                        : "Add a document, key terms, or enable research first"
-                    }
-                    aria-label={`Generate resources for ${s.title}`}
-                    className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
-                  >
-                    <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
-                      <Icon name="sparkle" size={14} />
-                    </span>
-                  </button>
-                  <RowMenu
-                    title={s.title}
-                    onEdit={() => onEdit(s.id)}
-                    onDelete={() => onDelete(s.id)}
-                  />
+                  {!isDefault && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={!readiness.canGenerate || isGenerating}
+                        onClick={() => onGenerate(s.id)}
+                        title={
+                          readiness.canGenerate
+                            ? "Generate resources"
+                            : "Add a document, key terms, or enable research first"
+                        }
+                        aria-label={`Generate resources for ${s.title}`}
+                        className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
+                      >
+                        <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
+                          <Icon name="sparkle" size={14} />
+                        </span>
+                      </button>
+                      <RowMenu
+                        title={s.title}
+                        onEdit={() => onEdit(s.id)}
+                        onDelete={() => onDelete(s.id)}
+                      />
+                    </>
+                  )}
                 </div>
 
                 {s.status === "draft" && (

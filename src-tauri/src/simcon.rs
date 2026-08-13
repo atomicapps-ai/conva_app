@@ -12,11 +12,21 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use conva_core::simcon::{
-    KnowledgeProfile, ResearchSource, SimConSession, SimConStatus, SimConSummary,
+    extract_glossary, KnowledgeProfile, ResearchSource, SimConCategory, SimConSession,
+    SimConStatus, SimConSummary, DEFAULT_CONTEXT_ID,
 };
 use conva_core::CoreError;
 
+use crate::rag::RagStore;
 use crate::session::now_unix_ms;
+
+/// Baseline "General conversation" briefing, compiled into the binary so it's
+/// always present regardless of packaging/cwd (unlike the repo-relative
+/// `library/`/`conva.config.json` seed convention, which only resolves in a
+/// git checkout). v1, hand-authored; the community-voting + LLM-inference
+/// evolution (design doc) replaces this with something that keeps itself
+/// current.
+const DEFAULT_DIGEST_TEXT: &str = include_str!("../resources/default-context.md");
 
 fn simcon_dir(app: &AppHandle) -> Result<PathBuf, CoreError> {
     let dir = app
@@ -33,6 +43,67 @@ fn validate_id(id: &str) -> Result<(), CoreError> {
     if id.is_empty() || id.contains(['/', '\\', '.']) {
         return Err(CoreError::Audio("invalid simcon id".into()));
     }
+    Ok(())
+}
+
+/// Seed the always-present default context ("General conversation") on first
+/// launch — the target of session-grounding's "required selection" invariant
+/// (a fresh install has something to select from turn one). Idempotent:
+/// no-ops once `DEFAULT_CONTEXT_ID` already exists, so it's safe to call on
+/// every startup and never overwrites a later smart-evolution update. Purely
+/// local (no network) — safe to run synchronously during app setup.
+pub fn ensure_default_context(app: &AppHandle, rag: &RagStore) -> Result<(), CoreError> {
+    if load(app, DEFAULT_CONTEXT_ID).is_ok() {
+        return Ok(()); // already seeded (or since updated by a future version)
+    }
+
+    let report = rag.ingest_generated(
+        "General conversation — baseline briefing",
+        DEFAULT_DIGEST_TEXT,
+        DEFAULT_CONTEXT_ID,
+    )?;
+    let doc_id = report.document.id.clone();
+    let now = now_unix_ms();
+
+    let profile_id = format!("kp-{DEFAULT_CONTEXT_ID}");
+    save_profile(
+        app,
+        &KnowledgeProfile {
+            id: profile_id.clone(),
+            title: "General conversation".to_string(),
+            created_at_unix_ms: now,
+            updated_at_unix_ms: now,
+            doc_ids: vec![doc_id.clone()],
+            research: Vec::new(),
+            ready: true,
+        },
+    )?;
+
+    save(
+        app,
+        SimConSession {
+            id: DEFAULT_CONTEXT_ID.to_string(),
+            title: "General conversation".to_string(),
+            purpose: "Baseline grounding for any call — used when nothing more \
+specific is active."
+                .to_string(),
+            job_description: None,
+            category: SimConCategory::Other,
+            status: SimConStatus::Ready,
+            created_at_unix_ms: now,
+            updated_at_unix_ms: now,
+            source_doc_ids: vec![doc_id.clone()],
+            auto_generate_context: false,
+            research_enabled: false,
+            key_terms: Vec::new(),
+            glossary: extract_glossary(DEFAULT_DIGEST_TEXT),
+            knowledge_profile_id: Some(profile_id),
+            personas: Vec::new(),
+            chosen_persona_id: None,
+            conversation_id: None,
+            dossier_doc_id: Some(doc_id),
+        },
+    )?;
     Ok(())
 }
 
@@ -355,4 +426,37 @@ fn research(session: &SimConSession) -> Result<(Vec<ResearchSource>, u64), CoreE
         }
     }
     Ok((out, searches))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ensure_default_context() itself needs a real AppHandle (no
+    // tauri::test mocking is wired into this crate yet) — these cover the
+    // pure part: the shipped digest's shape, so an edit that breaks its
+    // `## Glossary` heading or leaves it empty fails CI, not a live user.
+
+    #[test]
+    fn default_digest_is_non_empty_and_well_formed() {
+        assert!(!DEFAULT_DIGEST_TEXT.trim().is_empty());
+        for heading in ["## Overview", "## Glossary", "## Good practices"] {
+            assert!(
+                DEFAULT_DIGEST_TEXT.contains(heading),
+                "missing {heading} in default-context.md"
+            );
+        }
+    }
+
+    #[test]
+    fn default_digest_glossary_extracts_cleanly() {
+        let terms = extract_glossary(DEFAULT_DIGEST_TEXT);
+        assert!(!terms.is_empty(), "no glossary terms extracted");
+        for expected in ["Stakeholder", "ROI", "SLA", "KPI"] {
+            assert!(
+                terms.iter().any(|t| t == expected),
+                "expected {expected} in {terms:?}"
+            );
+        }
+    }
 }

@@ -203,6 +203,11 @@ export interface ConversationSummary {
    land in the shell (Phase A.2). Keep these in lockstep with
    `crates/conva-core/src/simcon.rs`. */
 
+/** Mirror of conva_core::simcon::DEFAULT_CONTEXT_ID — the reserved id of the
+ * always-present "General conversation" default context (session-grounding's
+ * "required selection" invariant). Not user-deletable. */
+export const DEFAULT_CONTEXT_ID = "default";
+
 /** The kind of conversation this context is for. Launch set (fixed but
  * extensible later); drives the setup template + web-research default. */
 export type SimConCategory =

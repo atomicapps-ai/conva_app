@@ -293,6 +293,11 @@ body {
    tokens directly (never raw hex). Utilities still win in the cascade. */
 @layer components {
   /* Pill buttons — the default is a quiet hairline; variants add intent. */
+  /* Standing rule: no button ever wraps its label to a second line — a
+     squeezed button either clips (whitespace-nowrap, shrink-0 on the flex
+     item) or, where labels genuinely need to shrink under real space
+     pressure, drops through the 3 tiers in ResponsiveLabel (full text ->
+     short text -> icon-only + tooltip). See CLAUDE.md's Density System. */
   .btn {
     display: inline-flex;
     align-items: center;
@@ -302,6 +307,7 @@ body {
     padding: 3px 10px;
     font-size: 0.75rem;
     line-height: 1;
+    white-space: nowrap;
     color: var(--color-fg-muted);
     background: transparent;
     transition:

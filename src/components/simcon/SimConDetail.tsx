@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
-import type { KnowledgeProfile, RagDocument, SimConSession } from "@/lib/ipc";
+import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type SimConSession } from "@/lib/ipc";
 import { useNavStore } from "@/state/nav";
 import { useRehearsalStore } from "@/state/rehearsal";
 
@@ -156,15 +156,19 @@ export function SimConDetail({
       subtitle={session?.purpose || "Rehearse a high-stakes call."}
       actions={
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={onEdit}
-            title="Edit setup"
-            aria-label="Edit setup"
-            className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-          >
-            <Icon name="edit" size={15} />
-          </button>
+          {/* The default context is system-managed — no Edit (matches the
+              same guard on its ContextsPane row). */}
+          {session && session.id !== DEFAULT_CONTEXT_ID && (
+            <button
+              type="button"
+              onClick={onEdit}
+              title="Edit setup"
+              aria-label="Edit setup"
+              className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+            >
+              <Icon name="edit" size={15} />
+            </button>
+          )}
           <button type="button" className="btn" onClick={onBack}>
             Back
           </button>

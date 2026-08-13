@@ -6,7 +6,7 @@ import { SimConDetail } from "@/components/simcon/SimConDetail";
 import { SimConSetup } from "@/components/simcon/SimConSetup";
 import { ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
-import type { SimConSession, SimConSummary } from "@/lib/ipc";
+import { DEFAULT_CONTEXT_ID, type SimConSession, type SimConSummary } from "@/lib/ipc";
 
 type Mode =
   | { k: "list" }
@@ -33,7 +33,14 @@ export function ContextsView() {
     backend.simcon
       .list()
       .then((list) => {
-        setItems(list);
+        // Pin the always-present default to the top regardless of recency —
+        // otherwise it sinks as the user creates newer contexts. Stable sort:
+        // everything else keeps the backend's own (updated-at) order.
+        setItems(
+          [...list].sort((a, b) =>
+            a.id === DEFAULT_CONTEXT_ID ? -1 : b.id === DEFAULT_CONTEXT_ID ? 1 : 0,
+          ),
+        );
         setError(null);
       })
       .catch(() => setError("Contexts run on the desktop app for now."));
