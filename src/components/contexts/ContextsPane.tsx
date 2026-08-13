@@ -171,10 +171,11 @@ export function ContextsPane({
           <button
             type="button"
             onClick={onNew}
+            title="Prime Ally — build a new context to ground it in for a call"
             className="btn btn-primary shrink-0 whitespace-nowrap px-2 py-1 text-[11px]"
           >
             <Icon name="simicon" size={13} />
-            New context
+            Prime Ally
           </button>
         )}
       </div>
