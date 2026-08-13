@@ -63,13 +63,12 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M8 12h6M8 15h6" />
     </>
   ),
-  // Simicon — the icon for Sim Con (Simulated Conversation): an AI persona
-  // (person + sparkle), the AI-generated counterparty.
+  // Simicon — the icon for Conversation Contexts / Sim Con: two overlapping
+  // speech bubbles, a conversation always being two-way.
   simicon: (
     <>
-      <circle cx="12" cy="8" r="3" />
-      <path d="M6 19a6 6 0 0 1 12 0" />
-      <path d="M18.6 4.2l.55 1.5 1.5.55-1.5.55-.55 1.5-.55-1.5-1.5-.55 1.5-.55z" />
+      <path d="M3 6.5c0-1 .8-1.8 1.8-1.8h7.4c1 0 1.8.8 1.8 1.8v4.4c0 1-.8 1.8-1.8 1.8H8l-3 2.4v-2.4H4.8A1.8 1.8 0 0 1 3 10.9z" />
+      <path d="M10 13.7h7.2c1 0 1.8.8 1.8 1.8v3.5c0 1-.8 1.8-1.8 1.8h-.8v2.2l-3-2.2H10c-1 0-1.8-.8-1.8-1.8v-1.6" />
     </>
   ),
   // Edit — a pencil.
