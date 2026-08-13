@@ -1033,4 +1033,40 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn retrieve_scoped_restricts_to_the_given_documents() {
+        // Session grounding (ally() scoped retrieve): retrieve_scoped must
+        // only surface chunks from the given doc ids, even when an unscoped
+        // query would match a document outside the scope.
+        let dir = std::env::temp_dir().join(format!("conva-rag-scope-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let store = RagStore::open(&dir).unwrap();
+        let a = store
+            .ingest_text("a", "the maintenance plan costs ninety dollars yearly")
+            .unwrap()
+            .document;
+        let b = store
+            .ingest_text("b", "the maintenance plan also covers filters")
+            .unwrap()
+            .document;
+
+        // Unscoped: both documents are eligible.
+        let unscoped = store.retrieve("maintenance plan", 5);
+        assert!(unscoped.iter().any(|c| c.document_id == a.id));
+        assert!(unscoped.iter().any(|c| c.document_id == b.id));
+
+        // Scoped to `a` only: `b` never appears, however well it matches.
+        let scoped = store.retrieve_scoped("maintenance plan", 5, std::slice::from_ref(&a.id));
+        assert!(!scoped.is_empty());
+        assert!(scoped.iter().all(|c| c.document_id == a.id));
+
+        // Empty scope means "whole library" (a context-free session).
+        let empty_scope = store.retrieve_scoped("maintenance plan", 5, &[]);
+        assert!(empty_scope.iter().any(|c| c.document_id == b.id));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

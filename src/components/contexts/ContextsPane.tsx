@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { readinessOf } from "@/components/contexts/readiness";
@@ -40,6 +40,89 @@ function ChecklistLine({ ok, label, advisory }: { ok: boolean; label: string; ad
       />
       {label}
     </p>
+  );
+}
+
+/** A row's overflow actions (Edit, Delete, …) behind one ⋮ button — the same
+ *  fixed-position, close-on-outside-action popover pattern as the transcript's
+ *  term menu, so row actions read consistently across the app. Keeps only
+ *  Open + Generate inline on the row itself; this is where future per-context
+ *  actions land as the feature grows. */
+function RowMenu({
+  title,
+  onEdit,
+  onDelete,
+}: {
+  title: string;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(null);
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          setOpen((o) => (o ? null : { x: r.right, y: r.bottom }));
+        }}
+        aria-label={`More actions for ${title}`}
+        aria-expanded={open !== null}
+        title="More actions"
+        className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+      >
+        <Icon name="more" size={13} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label={`Actions for ${title}`}
+          onClick={(e) => e.stopPropagation()}
+          style={{ left: Math.min(open.x, window.innerWidth - 148) - 132, top: open.y + 4 }}
+          className="glass-raised fixed z-50 w-[132px] rounded-lg p-1"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(null);
+              onEdit();
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-panel-raised/70"
+          >
+            <Icon name="edit" size={13} className="text-fg-muted" />
+            Edit setup
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(null);
+              onDelete();
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-rec transition hover:bg-rec/10"
+          >
+            <Icon name="trash" size={13} />
+            Delete
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -182,24 +265,11 @@ export function ContextsPane({
                       <Icon name="sparkle" size={14} />
                     </span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onEdit(s.id)}
-                    aria-label="Edit setup"
-                    title="Edit setup"
-                    className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-                  >
-                    <Icon name="edit" size={13} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onDelete(s.id)}
-                    aria-label="Delete"
-                    title="Delete"
-                    className="rounded-sm p-1 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
-                  >
-                    <Icon name="trash" size={13} />
-                  </button>
+                  <RowMenu
+                    title={s.title}
+                    onEdit={() => onEdit(s.id)}
+                    onDelete={() => onDelete(s.id)}
+                  />
                 </div>
 
                 {s.status === "draft" && (
