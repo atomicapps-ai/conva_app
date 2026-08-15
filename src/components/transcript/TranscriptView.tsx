@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { TrackerRail } from "@/components/TrackerRail";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import type { TranscriptSegment } from "@/lib/ipc";
@@ -1156,6 +1157,11 @@ export function TranscriptView() {
   // proportion holds as the window resizes. Persisted across launches.
   const SPINE_W = 28; // px — keep in sync with the spine column width (w-7)
   const MIN_COL = 240; // px — floor for both flexible columns
+  const TRACKER_W = 256; // px — TrackerRail's own w-64
+  // Only show the tracker rail once transcript + spine + Ally can hold their
+  // floors AND still leave it room — otherwise it'd squeeze the 3-column
+  // instrument below its own MIN_COL floor.
+  const showTracker = !drawer && width >= MIN_COL * 2 + SPINE_W + TRACKER_W;
   const [splitRatio, setSplitRatio] = useState(() => {
     const v = Number(localStorage.getItem("conva.layout.split"));
     return v > 0.2 && v < 0.8 ? v : 0.608; // default ≈ the old 1.55 : 1
@@ -1875,6 +1881,12 @@ export function TranscriptView() {
           )}
         </div>
       </section>
+
+      {/* Commitments & entities (FANER Engine — §6.3) — a persistent side rail
+          once the tracker has produced something; collapsible to a thin edge
+          tab. Hidden until the window is wide enough that it doesn't squeeze
+          the transcript/Ally columns below their own floor. */}
+      {showTracker && <TrackerRail />}
 
       {/* Overlay: connector + floating spine nodes + hover preview */}
       <div className="pointer-events-none absolute inset-0">
