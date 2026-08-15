@@ -6,12 +6,16 @@ import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { isTauri, type AuthStatus } from "@/lib/ipc";
 import { PLATFORM } from "@/lib/platform";
+import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
 
 /**
- * The Studio's left instrument rail (52px). View selectors with the conva mark
- * up top and the ⌘K palette trigger at the foot. The active view gets a 3px
- * violet indicator on its leading edge and a violet-tinted chip (brand v2).
+ * The Studio's left instrument rail — a **file cabinet**, not a strip of
+ * equal icon buttons (V4.0, `conva_core/brand/UI/AppUI_V4.0`). Rows carry a
+ * label (icon-only in compact mode, matching the old rail exactly — the
+ * window is too narrow for text there anyway). The active row takes the
+ * panel background and a 2px azure spine on its leading edge — the accent,
+ * never a voice colour; voice identity is never borrowed by chrome.
  */
 
 /** The shared nav list resolved for THIS platform (base rows + desktop rows). */
@@ -20,11 +24,17 @@ const RAIL_ITEMS = NAV_ITEMS.filter((i) => !i.only || i.only === PLATFORM);
 function RailButton({
   active,
   label,
+  displayLabel,
+  compact,
   onClick,
   children,
 }: {
   active?: boolean;
+  /** Full description — always the tooltip/aria-label. */
   label: string;
+  /** Short row text shown when !compact. Falls back to `label`. */
+  displayLabel?: string;
+  compact: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -36,21 +46,28 @@ function RailButton({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={[
-        "group relative flex h-[30px] w-[30px] items-center justify-center rounded-sm border transition",
+        "group relative flex shrink-0 items-center gap-2.5 rounded-[var(--radius)] border border-transparent text-[13px] font-semibold transition",
+        compact
+          ? "h-[30px] w-[30px] justify-center"
+          : "h-[34px] w-full justify-start px-2.5",
         active
-          ? "border-outbound/34 bg-outbound/[0.14] text-[var(--voice-you-text)]"
-          : "border-transparent text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
+          ? "border-border-strong bg-panel text-fg"
+          : "text-fg-muted hover:bg-white/[0.045] hover:text-fg",
       ].join(" ")}
     >
-      {/* 3px violet indicator on the leading edge of the active view. */}
+      {/* Leading-edge spine on the active row — the accent, not a voice
+          colour (was a 3px violet bar keyed to "you"; V4.0 §5). */}
       <span
         className={[
-          "absolute -left-2 h-4 w-[3px] rounded-full bg-outbound transition-opacity",
+          "absolute -left-[5px] top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-primary transition-opacity",
           active ? "opacity-100" : "opacity-0",
         ].join(" ")}
         aria-hidden
       />
-      {children}
+      <span className="flex shrink-0 items-center justify-center">
+        {children}
+      </span>
+      {!compact && <span className="truncate">{displayLabel ?? label}</span>}
     </button>
   );
 }
@@ -60,6 +77,7 @@ export function NavRail() {
   const view = useNavStore((s) => s.view);
   const setView = useNavStore((s) => s.setView);
   const openPalette = useNavStore((s) => s.openPalette);
+  const compact = useAppStore((s) => s.compact);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -77,7 +95,10 @@ export function NavRail() {
   return (
     <nav
       aria-label="Primary"
-      className="glass z-10 flex w-[44px] shrink-0 flex-col items-center gap-1 rounded-r-lg border-l-0 py-2"
+      className={[
+        "z-10 flex shrink-0 flex-col gap-0.5 rounded-r-lg border border-l-0 border-border bg-bg-2 py-2",
+        compact ? "w-[44px] items-center" : "w-[188px] items-stretch px-1.5",
+      ].join(" ")}
     >
       {/* Brand mark. */}
       <img
@@ -85,7 +106,7 @@ export function NavRail() {
         alt="conva"
         title="conva"
         draggable={false}
-        className="mb-2 h-[22px] w-[22px]"
+        className={compact ? "mb-2 h-[22px] w-[22px] self-center" : "mb-2 ml-1.5 h-[22px] w-[22px]"}
       />
 
       {RAIL_ITEMS.map((item) => (
@@ -93,20 +114,32 @@ export function NavRail() {
           key={item.view}
           active={view === item.view}
           label={item.label}
+          compact={compact}
           onClick={() => setView(item.view)}
         >
           <Icon name={item.icon} size={20} />
         </RailButton>
       ))}
 
-      <div className="mt-auto flex flex-col items-center gap-1.5 pt-2">
-        <RailButton label="Command palette (⌘K)" onClick={openPalette}>
+      <div
+        className={[
+          "mt-auto flex gap-0.5 pt-2",
+          compact ? "flex-col items-center" : "flex-col items-stretch",
+        ].join(" ")}
+      >
+        <RailButton
+          label="Command palette (⌘K)"
+          displayLabel="Search"
+          compact={compact}
+          onClick={openPalette}
+        >
           <Icon name="search" size={19} />
         </RailButton>
 
         {/* Floating HUD panel — always-on-top, non-activating overlay. */}
         <RailButton
           label="Floating HUD"
+          compact={compact}
           onClick={() => {
             if (isTauri()) void backend.hud.toggle().catch(() => {});
           }}
@@ -123,7 +156,9 @@ export function NavRail() {
                 ? `${auth.email ?? "Signed in"} — account menu`
                 : "Account — sign in"
             }
+            displayLabel={auth?.signed_in ? (auth.email ?? "Account") : "Sign in"}
             active={menuOpen}
+            compact={compact}
             onClick={() => {
               if (auth?.signed_in) setMenuOpen((o) => !o);
               else setView("settings");
