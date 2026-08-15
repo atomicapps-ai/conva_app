@@ -4,6 +4,10 @@
 //!
 //! This module owns the prompt and the (defensive) parsing of the model's
 //! JSON; the shell owns batching, the LLM call, and dedupe/merge.
+//!
+//! One of three tiers of the **FANER Engine** (proprietary live extraction
+//! layer, alongside `radar.rs` and `highlight.rs`) — see
+//! `conva_core/docs/technical/faner-engine.md`.
 
 use serde::{Deserialize, Serialize};
 
