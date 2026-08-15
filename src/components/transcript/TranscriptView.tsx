@@ -595,7 +595,13 @@ function Bubble({
         onMouseUp={onMouseUp}
         style={{ fontSize: `${fontPx}px` }}
         className={[
-          "relative min-w-0 rounded-[4px] border border-border py-1.5 pl-2.5 pr-6 transition-shadow",
+          // Contour (V4.0 §10): squared at the speaker's corner, rounded
+          // away elsewhere — them bottom-left, you bottom-right. Width,
+          // padding, and every other bubble dimension are unchanged.
+          "relative min-w-0 rounded-tl-[var(--radius-bubble)] rounded-tr-[var(--radius-bubble)] border border-border py-1.5 pl-2.5 pr-6 transition-shadow",
+          inbound
+            ? "rounded-br-[var(--radius-bubble)] rounded-bl-[4px]"
+            : "rounded-bl-[var(--radius-bubble)] rounded-br-[4px]",
           tint,
           !hasFinal ? "border-dashed text-fg-muted" : "",
           highlighted ? "ring-2 ring-ai/60" : "",

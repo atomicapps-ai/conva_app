@@ -83,13 +83,18 @@
   /* ---- Radii — V4.0 (was xs2/sm3/md4/lg6/xl8). Contour is silhouette/edge
      treatment, not bigger corners — the cap still holds, it's just less
      uniform: 6px in-panel (chips through cards, one value, not three) ·
-     8px floating (dropdowns, modals, HUD) · window unchanged at 8.
-     Transcript bubble radius is a separate, locked token — untouched here. */
+     8px floating (dropdowns, modals, HUD) · window unchanged at 8. */
   --radius-xs: 6px;
   --radius-sm: 6px;
   --radius: 6px;
   --radius-lg: 8px;
   --radius-xl: 8px;
+  /* Transcript bubble — its own token, on the locked surface. V4.0's
+     contour vocabulary: "a voice is a bubble squared at the speaker's
+     corner, rounded away." Applied only to the corner treatment (Bubble
+     in TranscriptView.tsx) — width, padding, and collapse behaviour on
+     that surface are untouched. */
+  --radius-bubble: 14px;
 
   /* ---- Glass ---- */
   --glass-blur: 18px;
