@@ -10,7 +10,7 @@ import {
 
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
-import type { TranscriptSegment } from "@/lib/ipc";
+import type { AllyKind, TranscriptSegment } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
@@ -714,12 +714,148 @@ function Bubble({
   );
 }
 
+/** Large detail drawer for one Ally card (V4.0 §7) — SAY THIS, grounding,
+ *  why Ally suggests it, and action chips. Elevated (a true floating layer,
+ *  --shadow-lg/r-float), slides over the transcript from the right. Reuses
+ *  splitReasoning/AnswerBody so this stays in lockstep with the inline card
+ *  instead of re-deriving its own copy of "what the answer is." */
+function ThreadViewer({
+  card,
+  onClose,
+  onRequest,
+}: {
+  card: AllyCard | null;
+  onClose: () => void;
+  onRequest: (
+    kind: AllyKind,
+    question?: string,
+    source?: { key: string; quote: string },
+  ) => void;
+}) {
+  if (!card) return null;
+  const label = cardLabel(card);
+  const { answer, context } = splitReasoning(card.text);
+  const sayText = answer || card.text;
+  const sources = [
+    ...new Set(card.sources.map((s) => `${s.file_name} · ${s.location}`)),
+  ];
+  const rephrase = () =>
+    onRequest(
+      "question",
+      `Rephrase this a different way, same meaning: "${sayText}"`,
+      card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
+    );
+  const researchMore = () =>
+    onRequest(
+      "question",
+      `Research this further and go deeper: "${sayText}"`,
+      card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
+    );
+
+  return (
+    <div
+      role="dialog"
+      aria-label={`A${card.seq} — ${label}, full detail`}
+      className="glass-raised absolute right-0 top-0 z-40 flex h-full w-[min(600px,88%)] flex-col border-l border-border-strong shadow-[var(--shadow-lg)]"
+    >
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
+        <span
+          className={`h-2.5 w-2.5 shrink-0 rounded-full ${card.error ? "bg-rec" : "bg-ai"}`}
+          aria-hidden
+        />
+        <h3 className="min-w-0 flex-1 truncate text-[15px] font-bold text-fg">
+          A{card.seq} · {label}
+        </h3>
+        <button
+          type="button"
+          onClick={onClose}
+          title="Close"
+          aria-label="Close viewer"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-[var(--radius)] border border-border-strong bg-bg-2 text-fg-muted transition hover:text-fg"
+        >
+          <Icon name="close" size={15} />
+        </button>
+      </div>
+
+      <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
+        <div>
+          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
+            {card.error ? "Error" : "Say this"}
+          </p>
+          {card.error ? (
+            <p className="mt-2 text-sm text-rec">{card.error}</p>
+          ) : (
+            <div className="mt-2 border-l-[3px] border-ai/50 pl-3 text-[15px] leading-relaxed text-fg">
+              <AnswerBody text={sayText || "…"} />
+            </div>
+          )}
+        </div>
+
+        {(card.sourceQuote || sources.length > 0) && (
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-faint">
+              Grounding
+            </p>
+            {card.sourceQuote && (
+              <p className="mt-1.5 text-[13px] italic leading-relaxed text-fg-muted">
+                “{card.sourceQuote}”
+              </p>
+            )}
+            {sources.length > 0 && (
+              <p className="mt-1.5 text-[12px] text-fg-faint">{sources.join(" · ")}</p>
+            )}
+          </div>
+        )}
+
+        {context && (
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-faint">
+              Why Ally suggests this
+            </p>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">{context}</p>
+          </div>
+        )}
+
+        {!card.error && (
+          <div className="mt-1 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void navigator.clipboard.writeText(sayText)}
+              title="Copy the line to use it as-is"
+              className="rounded-full bg-ai px-3.5 py-1.5 text-[12px] font-bold text-bg transition hover:brightness-110"
+            >
+              Use it
+            </button>
+            <button
+              type="button"
+              onClick={rephrase}
+              className="rounded-full border border-ai/40 px-3.5 py-1.5 text-[12px] font-bold text-ai transition hover:bg-ai/10"
+            >
+              Rephrase
+            </button>
+            <button
+              type="button"
+              onClick={researchMore}
+              className="rounded-full border border-border-strong px-3.5 py-1.5 text-[12px] font-medium text-fg-muted transition hover:text-fg"
+            >
+              Research this line
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** One Ally card: A# badge + typed treatment + collapse + docs-hover citation. */
 function AllyCardView({
   card,
   registerEl,
   highlighted,
   collapsed,
+  pinned,
+  onTogglePin,
+  onOpenViewer,
   onToggleCollapse,
   onHover,
   onInspect,
@@ -729,6 +865,11 @@ function AllyCardView({
   registerEl: (id: string, el: HTMLElement | null) => void;
   highlighted: boolean;
   collapsed: boolean;
+  /** V4.0 §7: pinned cards rise to the top under a PINNED divider. */
+  pinned: boolean;
+  onTogglePin: () => void;
+  /** Opens the large detail drawer (V4.0 §7) — hover-revealed, like `onTogglePin`. */
+  onOpenViewer: () => void;
   onToggleCollapse: () => void;
   onHover: (a: Active | null) => void;
   onInspect: () => void;
@@ -749,9 +890,10 @@ function AllyCardView({
       onMouseLeave={() => onHover(null)}
       onContextMenu={onContextMenu}
       className={[
-        "min-h-[40px] overflow-hidden rounded-2xl border transition-shadow",
+        "group min-h-[40px] overflow-hidden rounded-2xl border transition-shadow",
         suggest ? "border-ai/34 bg-ai/[0.08]" : "border-border bg-panel",
         highlighted ? "ring-2 ring-ai/40" : "",
+        pinned ? "ring-1 ring-ai/50" : "",
       ].join(" ")}
     >
       {/* One click anywhere on the header collapses/expands (owner request). */}
@@ -791,7 +933,40 @@ function AllyCardView({
             {card.text}
           </span>
         )}
-        <div className="ml-auto flex shrink-0 items-center gap-2.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {/* Pin + open-in-viewer — hover-revealed (V4.0 §7); pin stays
+              visible once pinned so its state is legible without hovering. */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePin();
+            }}
+            title={pinned ? `Unpin A${card.seq}` : `Pin A${card.seq} to the top`}
+            aria-label={pinned ? "Unpin" : "Pin to the top"}
+            aria-pressed={pinned}
+            className={[
+              "rounded p-0.5 transition-opacity",
+              pinned
+                ? "text-ai opacity-100"
+                : "text-fg-faint opacity-0 hover:text-ai group-hover:opacity-100",
+            ].join(" ")}
+          >
+            <Icon name="pin" size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenViewer();
+            }}
+            title="Open in viewer"
+            aria-label={`Open A${card.seq} in the viewer`}
+            className="rounded p-0.5 text-fg-faint opacity-0 transition-opacity hover:text-ai group-hover:opacity-100"
+          >
+            <Icon name="expand" size={13} />
+          </button>
+          <span className="mx-0.5 h-3 w-px bg-border" aria-hidden />
           <button
             type="button"
             onClick={(e) => {
@@ -1101,6 +1276,22 @@ export function TranscriptView() {
     const t = setTimeout(() => setFlash(null), 900);
     return () => clearTimeout(t);
   }, [flash]);
+
+  // Pinned Ally cards (V4.0 §7) — session-only, not persisted, same as
+  // `collapsed` below. Pinned rise to the top under a divider; order among
+  // themselves follows the existing newest-first `cards` order.
+  const [pinned, setPinned] = useState<Set<string>>(new Set());
+  const togglePin = useCallback((id: string) => {
+    setPinned((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // The card currently open in the large detail drawer (V4.0 §7).
+  const [viewerCardId, setViewerCardId] = useState<string | null>(null);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleCollapse = useCallback((k: string) => {
@@ -1911,19 +2102,51 @@ export function TranscriptView() {
               Ask Ally beneath the conversation.
             </p>
           ) : (
-            cards.map((card) => (
-              <AllyCardView
-                key={card.id}
-                card={card}
-                registerEl={registerCard}
-                highlighted={active?.cardId === card.id}
-                collapsed={collapsed.has(card.id)}
-                onToggleCollapse={() => toggleCollapse(card.id)}
-                onHover={setHover}
-                onInspect={() => inspect(card.id, card.sourceKey)}
-                onContextMenu={(e) => cardMenu(e, card)}
-              />
-            ))
+            <>
+              {/* Pinned rise under a divider (V4.0 §7) — order among
+                  themselves follows the normal newest-first list order. */}
+              {cards.filter((c) => pinned.has(c.id)).length > 0 && (
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-ai/70">
+                  Pinned
+                </span>
+              )}
+              {cards
+                .filter((c) => pinned.has(c.id))
+                .map((card) => (
+                  <AllyCardView
+                    key={card.id}
+                    card={card}
+                    registerEl={registerCard}
+                    highlighted={active?.cardId === card.id}
+                    collapsed={collapsed.has(card.id)}
+                    pinned
+                    onTogglePin={() => togglePin(card.id)}
+                    onOpenViewer={() => setViewerCardId(card.id)}
+                    onToggleCollapse={() => toggleCollapse(card.id)}
+                    onHover={setHover}
+                    onInspect={() => inspect(card.id, card.sourceKey)}
+                    onContextMenu={(e) => cardMenu(e, card)}
+                  />
+                ))}
+              {cards
+                .filter((c) => !pinned.has(c.id))
+                .map((card) => (
+                  <AllyCardView
+                    key={card.id}
+                    card={card}
+                    registerEl={registerCard}
+                    highlighted={active?.cardId === card.id}
+                    collapsed={collapsed.has(card.id)}
+                    pinned={false}
+                    onTogglePin={() => togglePin(card.id)}
+                    onOpenViewer={() => setViewerCardId(card.id)}
+                    onToggleCollapse={() => toggleCollapse(card.id)}
+                    onHover={setHover}
+                    onInspect={() => inspect(card.id, card.sourceKey)}
+                    onContextMenu={(e) => cardMenu(e, card)}
+                  />
+                ))}
+            </>
           )}
         </div>
         {/* Minimized-cards dock (V4.0 §6: "a dock of toggle icon-buttons...
@@ -1961,6 +2184,14 @@ export function TranscriptView() {
           );
         })()}
       </section>
+
+      <ThreadViewer
+        card={cards.find((c) => c.id === viewerCardId) ?? null}
+        onClose={() => setViewerCardId(null)}
+        onRequest={(kind, question, source) =>
+          void request(kind, question, source)
+        }
+      />
 
       {/* Overlay: connector + floating spine nodes + hover preview */}
       <div className="pointer-events-none absolute inset-0">

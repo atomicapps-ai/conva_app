@@ -46,7 +46,8 @@ export type IconName =
   | "upload"
   | "download"
   | "dragHandle"
-  | "check";
+  | "check"
+  | "pin";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -276,6 +277,13 @@ const PATHS: Record<IconName, ReactNode> = {
       <circle cx="15" cy="12" r="1.1" fill="currentColor" stroke="none" />
       <circle cx="9" cy="18" r="1.1" fill="currentColor" stroke="none" />
       <circle cx="15" cy="18" r="1.1" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Pin — a thumbtack, for pinning a thread/card to the top of a list.
+  pin: (
+    <>
+      <path d="M9 3h6l1 6-2 2h-6l-2-2 1-6z" />
+      <path d="M12 17v5" />
     </>
   ),
 };
