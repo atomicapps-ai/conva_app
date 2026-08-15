@@ -152,6 +152,7 @@ export function SimConDetail({
   return (
     <ViewShell
       icon="simicon"
+      breadcrumb="Contexts"
       title={session?.title || "Sim Con"}
       subtitle={session?.purpose || "Rehearse a high-stakes call."}
       actions={

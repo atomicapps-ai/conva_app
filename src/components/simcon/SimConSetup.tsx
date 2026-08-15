@@ -153,6 +153,7 @@ export function SimConSetup({
   return (
     <ViewShell
       icon="simicon"
+      breadcrumb="Contexts"
       title={initial ? "Edit Sim Con" : "New Sim Con"}
       subtitle={`Step ${step} of 3 — ${STEP_LABEL[step - 1]}`}
       actions={

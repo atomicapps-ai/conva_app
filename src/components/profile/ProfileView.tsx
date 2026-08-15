@@ -92,6 +92,7 @@ export function ProfileView() {
     return (
       <ViewShell
         icon="account"
+        breadcrumb="Account"
         title="Profile"
         subtitle="Your conva identity — one account for desktop and web."
       >
@@ -116,6 +117,7 @@ export function ProfileView() {
   return (
     <ViewShell
       icon="account"
+      breadcrumb="Account"
       title="Profile"
       subtitle="Your conva identity — one account for desktop and web."
       actions={

@@ -4,13 +4,22 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 
 /**
  * Shared chrome for every routed Studio view (UI overhaul M3). A consistent
- * crown — gradient icon chip, title, optional subtitle/badge, and a right-hand
- * action slot — over a scrolling, width-capped body. Views compose this with
- * {@link Section} cards so Settings/Library/Sessions/Conversations all read as
- * one instrument rather than four ad-hoc panels.
+ * crown — breadcrumb, gradient icon chip, title, optional subtitle/badge,
+ * and a right-hand action slot — over a scrolling, width-capped body. Views
+ * compose this with {@link Section} cards so Settings/Library/Sessions/
+ * Conversations all read as one instrument rather than four ad-hoc panels.
+ *
+ * The breadcrumb is "always," per the app-UI brief's nav-zones rule
+ * (`docs/product/designer-handoff-2026-08/BRIEF-app-ui.md` §4.1) — it's the
+ * only place the user learns where they are, so every view gets one even
+ * when it's flat: with no `breadcrumb` parent, the trail is just the view's
+ * own title, small and muted above the real headline. Pass `breadcrumb` for
+ * genuine sub-views (Sim Con setup/detail, reached from Contexts) to get a
+ * real two-level trail instead.
  */
 export function ViewShell({
   icon,
+  breadcrumb,
   title,
   subtitle,
   badge,
@@ -20,6 +29,8 @@ export function ViewShell({
   wide = false,
 }: {
   icon: IconName;
+  /** Parent segment(s) — omit for a flat, top-level view. */
+  breadcrumb?: string;
   title: string;
   subtitle?: ReactNode;
   badge?: ReactNode;
@@ -40,6 +51,15 @@ export function ViewShell({
           <Icon name={icon} size={19} />
         </span>
         <div className="min-w-0">
+          <p className="truncate font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
+            {breadcrumb ? (
+              <>
+                {breadcrumb} <span aria-hidden>›</span> {title}
+              </>
+            ) : (
+              title
+            )}
+          </p>
           <div className="flex items-center gap-2">
             <h2 className="text-base font-extrabold tracking-tight text-fg">
               {title}
