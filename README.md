@@ -2,7 +2,7 @@
 
 A real-time AI conversation assistant: intercepts both sides of the host computer's audio (microphone + system output), transcribes them live into a dual-column chat UI, and lets a RAG-grounded AI agent process the conversation inline at any moment.
 
-**Design blueprint:** [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md) — tech stack, module boundaries, latency budgets, milestones, and the resolved decision checklist. Read it before touching code.
+**Design blueprint:** [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md) is a pointer stub — the real doc (tech stack, module boundaries, latency budgets, milestones, and the resolved decision checklist) lives in `conva_core/docs/technical/phase-1-design-and-spec.md` (core is the single source of truth for design docs). Read it before touching code.
 
 ## Stack
 
