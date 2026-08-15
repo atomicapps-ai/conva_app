@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ConsentGate } from "@/components/ConsentGate";
 import { PreparingOverlay } from "@/components/PreparingOverlay";
@@ -37,11 +37,36 @@ export function StudioShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [togglePalette]);
 
+  // Responsive tiers (V4.0 §"Responsive"): shed order is label text →
+  // secondary pane → breadcrumb depth → the rail, driven by actual
+  // available width, not just the manual Compact toggle. The packet's own
+  // real-window mapping is "~1240 wide / ~900 medium" — below 900 the rail
+  // drops its labels automatically, same threshold semantics as the Ally
+  // panel's own already-existing width-driven drawer collapse at 640
+  // (TranscriptView.tsx) — labels shed first, at the wider breakpoint, the
+  // secondary pane second, at the narrower one, matching the stated order.
+  // `narrow` is additive to the manual `compact` store flag, never a
+  // replacement for it — Compact still does its own (window-resizing) thing.
+  const shellRef = useRef<HTMLDivElement>(null);
+  const [shellWidth, setShellWidth] = useState(0);
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((es) => {
+      const r = es[0];
+      if (r) setShellWidth(r.contentRect.width);
+    });
+    ro.observe(el);
+    setShellWidth(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, []);
+  const narrow = shellWidth > 0 && shellWidth < 900;
+
   return (
     <div className="flex h-full flex-col">
       <UpdateBanner />
-      <div className="flex min-h-0 flex-1 gap-1 p-1">
-        <NavRail />
+      <div ref={shellRef} className="flex min-h-0 flex-1 gap-1 p-1">
+        <NavRail narrow={narrow} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <TopBar />
           <main className="min-h-0 flex-1 overflow-hidden">

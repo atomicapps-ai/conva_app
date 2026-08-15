@@ -12,10 +12,12 @@ import { useNavStore } from "@/state/nav";
 /**
  * The Studio's left instrument rail — a **file cabinet**, not a strip of
  * equal icon buttons (V4.0, `conva_core/brand/UI/AppUI_V4.0`). Rows carry a
- * label (icon-only in compact mode, matching the old rail exactly — the
- * window is too narrow for text there anyway). The active row takes the
- * panel background and a 2px azure spine on its leading edge — the accent,
- * never a voice colour; voice identity is never borrowed by chrome.
+ * label, dropped to icon-only either in the app's manual Compact mode or
+ * automatically once the shell narrows below the responsive-tiers Medium
+ * threshold (`narrow` prop, driven by StudioShell's own ResizeObserver —
+ * see the shed-order note there). The active row takes the panel background
+ * and a 2px azure spine on its leading edge — the accent, never a voice
+ * colour; voice identity is never borrowed by chrome.
  */
 
 /** The shared nav list resolved for THIS platform (base rows + desktop rows). */
@@ -77,12 +79,16 @@ function RailButton({
   );
 }
 
-export function NavRail() {
+export function NavRail({ narrow = false }: { narrow?: boolean }) {
   const backend = useBackend();
   const view = useNavStore((s) => s.view);
   const setView = useNavStore((s) => s.setView);
   const openPalette = useNavStore((s) => s.openPalette);
-  const compact = useAppStore((s) => s.compact);
+  // Manual Compact (physically shrinks the OS window) is independent of
+  // `narrow` (a pure visual response to available shell width) — either one
+  // is enough to drop the rail to icon-only.
+  const manualCompact = useAppStore((s) => s.compact);
+  const compact = manualCompact || narrow;
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
