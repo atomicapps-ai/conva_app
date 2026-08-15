@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useBackend } from "@/lib/backend";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
+import { Icon } from "@/components/ui/Icon";
 import type { SessionSummary } from "@/lib/ipc";
 import { useTranscriptStore } from "@/state/transcript";
 
@@ -70,9 +71,11 @@ export function SessionsPanel({ onClose }: { onClose: () => void }) {
             type="button"
             disabled={segments.length === 0}
             onClick={() => void exportCurrent()}
-            className="btn"
+            title="Export shown transcript…"
+            aria-label="Export shown transcript"
+            className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
           >
-            Export shown transcript…
+            <Icon name="download" size={16} />
           </button>
           <button type="button" onClick={onClose} className="btn">
             Done

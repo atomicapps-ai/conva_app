@@ -47,7 +47,10 @@ export type IconName =
   | "download"
   | "dragHandle"
   | "check"
-  | "pin";
+  | "pin"
+  | "save"
+  | "add"
+  | "link";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -284,6 +287,31 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M9 3h6l1 6-2 2h-6l-2-2 1-6z" />
       <path d="M12 17v5" />
+    </>
+  ),
+  // Save — a floppy disk, for committing the live/current state as a named
+  // record (distinct from "download," which writes an existing library
+  // document to a user-chosen disk path).
+  save: (
+    <>
+      <path d="M5 4.5h11.5l2.5 2.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1z" />
+      <path d="M8 4.5v4h6.5v-4" />
+      <path d="M8 20v-5.5h8V20" />
+    </>
+  ),
+  // Add / new — a circled plus, for starting a fresh record.
+  add: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 8v8M8 12h8" />
+    </>
+  ),
+  // Link — two overlapping chain links, for attaching a library doc to the
+  // open conversation.
+  link: (
+    <>
+      <path d="M9.3 14.7a3 3 0 0 0 4.4.2l2-2a3 3 0 0 0-4.3-4.3l-1 1" />
+      <path d="M14.7 9.3a3 3 0 0 0-4.4-.2l-2 2a3 3 0 0 0 4.3 4.3l1-1" />
     </>
   ),
 };

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useBackend } from "@/lib/backend";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
+import { Icon } from "@/components/ui/Icon";
 import type { ConversationSummary } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
 
@@ -73,9 +74,11 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={() => setSavePromptOpen(true)}
-            className="btn btn-accent"
+            title="Save current conversation…"
+            aria-label="Save current conversation"
+            className="rounded-sm p-1.5 text-ai transition hover:bg-ai/10"
           >
-            Save current…
+            <Icon name="save" size={16} />
           </button>
           <button
             type="button"
@@ -83,9 +86,11 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
               newConversation();
               setNotice("Started a new conversation.");
             }}
-            className="btn"
+            title="New conversation"
+            aria-label="Start a new conversation"
+            className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
           >
-            New
+            <Icon name="add" size={16} />
           </button>
           <button type="button" onClick={onClose} className="btn">
             Done
@@ -123,9 +128,10 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
                 type="button"
                 onClick={() => void remove(c.id)}
                 aria-label={`Delete conversation ${c.title}`}
-                className="btn-danger shrink-0 px-1 text-[11px]"
+                title="Delete"
+                className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
               >
-                Delete
+                <Icon name="trash" size={13} />
               </button>
             </li>
           ))}

@@ -413,19 +413,24 @@ export function LibraryPane({
                     type="button"
                     onClick={() => void toggleLinkedDoc(doc.id)}
                     aria-pressed={linkedDocs.includes(doc.id)}
-                    title={
+                    aria-label={
                       linkedDocs.includes(doc.id)
                         ? `Unlink from "${conversationTitle}"`
                         : `Link to "${conversationTitle}"`
                     }
-                    className={[
-                      "shrink-0 rounded-full border px-1.5 py-0.5 text-[9px]",
+                    title={
                       linkedDocs.includes(doc.id)
-                        ? "border-ai/60 text-ai"
-                        : "border-border text-fg-faint hover:text-fg",
+                        ? `Linked to "${conversationTitle}" — click to unlink`
+                        : `Link to "${conversationTitle}"`
+                    }
+                    className={[
+                      "shrink-0 rounded-sm p-1 transition",
+                      linkedDocs.includes(doc.id)
+                        ? "text-ai hover:bg-ai/10"
+                        : "text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
                     ].join(" ")}
                   >
-                    {linkedDocs.includes(doc.id) ? "Linked" : "Link"}
+                    <Icon name="link" size={12} />
                   </button>
                 )}
                 {isTauri() && (
