@@ -169,7 +169,7 @@ export function DashboardView() {
           <QuickLink
             icon="simicon"
             title="Conversation Contexts"
-            desc="Prime Ally for the call ahead"
+            desc="Brief Ally for the call ahead"
             onClick={go("simcon")}
           />
           <QuickLink
