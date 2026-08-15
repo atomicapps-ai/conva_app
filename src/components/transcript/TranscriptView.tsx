@@ -1874,6 +1874,40 @@ export function TranscriptView() {
             ))
           )}
         </div>
+        {/* Minimized-cards dock (V4.0 §6: "a dock of toggle icon-buttons...
+            minimize/maximize each card"). The reference packet assumes a
+            fixed, named set of cards (Live summary/Open threads/Grounding);
+            this app's Ally column is an open-ended, chronological feed
+            instead, so an icon-only dock wouldn't stay legible. Adapted as a
+            restore tray: a slim strip, one labeled chip per currently
+            collapsed card, that appears only when there's something to
+            restore — same intent (glance-and-recall what's tucked away)
+            without forcing cards out of their scroll position. */}
+        {(() => {
+          const minimized = cards.filter((c) => collapsed.has(c.id));
+          if (minimized.length === 0) return null;
+          return (
+            <div
+              className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-t border-border bg-bg-2 px-3 py-2"
+              aria-label="Minimized Ally cards"
+            >
+              {minimized.map((card) => (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() => inspect(card.id, card.sourceKey)}
+                  title={`Restore — A${card.seq} ${cardLabel(card)}`}
+                  className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius)] border border-border bg-panel px-2 py-1 text-[11px] font-semibold text-fg-muted transition hover:border-ai/40 hover:text-ai"
+                >
+                  <span className="font-mono text-[9px] text-fg-faint">
+                    A{card.seq}
+                  </span>
+                  {cardLabel(card)}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
       </section>
 
       {/* Overlay: connector + floating spine nodes + hover preview */}
