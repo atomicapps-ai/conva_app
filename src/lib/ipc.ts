@@ -124,6 +124,10 @@ export interface AuthStatus {
   email: string | null;
   user_id: string | null;
   expires_at_unix: number | null;
+  /** Supabase's `last_sign_in_at` — ISO 8601, passed through as-is (no
+   *  Rust-side date parsing). Reflects the most recent actual
+   *  authentication, not token refreshes. `new Date(iso)` parses it fine. */
+  last_sign_in_at: string | null;
   /** False when no Supabase anon key is configured — sign-in unavailable. */
   configured: boolean;
 }

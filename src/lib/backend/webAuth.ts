@@ -53,6 +53,10 @@ interface WebSession {
   expires_at: number | null; // unix seconds
   email: string | null;
   user_id: string | null;
+  /** Supabase's own `last_sign_in_at` (GoTrue) — mirrors auth.rs's field of
+   *  the same name. Absent on session records written before this field
+   *  existed; treated as unknown (null), never guessed at. */
+  last_sign_in_at: string | null;
 }
 
 // ------------------------------------------------------------- session store
@@ -72,7 +76,7 @@ function saveSession(t: {
   refresh_token?: string;
   expires_at?: number;
   expires_in?: number;
-  user?: { email?: string; id?: string };
+  user?: { email?: string; id?: string; last_sign_in_at?: string };
 }): WebSession {
   const expires_at =
     t.expires_at ?? (t.expires_in ? Math.floor(Date.now() / 1000) + t.expires_in : null);
@@ -82,6 +86,7 @@ function saveSession(t: {
     expires_at,
     email: t.user?.email ?? null,
     user_id: t.user?.id ?? null,
+    last_sign_in_at: t.user?.last_sign_in_at ?? null,
   };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   notify();
@@ -101,6 +106,7 @@ export function toStatus(s: WebSession | null): AuthStatus {
     email: signed_in ? (s?.email ?? null) : null,
     user_id: signed_in ? (s?.user_id ?? null) : null,
     expires_at_unix: signed_in ? (s?.expires_at ?? null) : null,
+    last_sign_in_at: signed_in ? (s?.last_sign_in_at ?? null) : null,
     configured: !!ANON_KEY,
   };
 }
@@ -144,6 +150,7 @@ if (typeof window !== "undefined") {
             expires_at: s.expires_at ?? null,
             email: s.email ?? null,
             user_id: s.user_id ?? null,
+            last_sign_in_at: s.last_sign_in_at ?? null,
           } satisfies WebSession),
         );
       }

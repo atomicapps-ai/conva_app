@@ -150,6 +150,11 @@ export function ProfileView() {
           <Row label="Sign-in method">
             {provider ? provider[0]?.toUpperCase() + provider.slice(1) : "—"}
           </Row>
+          <Row label="Last sign-in">
+            {status.last_sign_in_at
+              ? new Date(status.last_sign_in_at).toLocaleString()
+              : "—"}
+          </Row>
           <Row label="Plan">
             {beta === true
               ? "Beta — invited"

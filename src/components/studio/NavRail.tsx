@@ -28,6 +28,28 @@ function initial(email: string | null): string {
   return (email?.trim()?.[0] ?? "?").toUpperCase();
 }
 
+/** "today 09:14" / "yesterday 09:14" / "Aug 12" — terse, matches the
+ *  reference's "Last in · today 09:14". Full detail lives in the popover
+ *  (and Profile's Row) via toLocaleString(); this is a rail-row-width label. */
+function formatLastIn(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const now = new Date();
+  const time = d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  if (sameDay(d, now)) return `today ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(d, yesterday)) return `yesterday ${time}`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 function RailButton({
   active,
   label,
@@ -188,6 +210,11 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
                 <span className="block truncate text-[12.5px] font-semibold text-fg">
                   {auth.email}
                 </span>
+                {auth.last_sign_in_at && (
+                  <span className="block truncate font-mono text-[9.5px] text-fg-faint">
+                    Last in · {formatLastIn(auth.last_sign_in_at)}
+                  </span>
+                )}
               </span>
             </button>
           ) : (
@@ -214,15 +241,13 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
           )}
 
           {/* Hover/focus identity popover — informational only, separate
-              from the click menu below. V4.0 also asks for a "last-login"
-              line under the row and a sign-in date/time inside this
-              popover; I've left both out rather than fake them. The auth
-              IPC (`AuthStatus`) only carries email/user_id/token expiry —
-              no display name and no real sign-in timestamp (token expiry
-              is a different thing and would be misleading to show as
-              "signed in at"). Wiring real values means extending
-              AuthStatus on the Rust side and both IPC mirrors — flagging
-              rather than guessing. */}
+              from the click menu below. Sign-in time is now real (Supabase's
+              own last_sign_in_at, extended into AuthStatus on the Rust side
+              + both IPC mirrors — see auth.rs). Still no display name: it's
+              provider-dependent (present for OAuth via user_metadata,
+              usually absent for email/password accounts), so showing it
+              only sometimes would read as broken rather than showing it
+              never — email is the one identity string every account has. */}
           {!compact && auth?.signed_in && !menuOpen && (
             <div
               role="tooltip"
@@ -231,7 +256,11 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
               <p className="truncate text-[12.5px] font-bold text-fg">
                 {auth.email}
               </p>
-              <p className="mt-0.5 font-mono text-[10.5px] text-ok">Signed in</p>
+              <p className="mt-0.5 font-mono text-[10.5px] text-ok">
+                {auth.last_sign_in_at
+                  ? `Signed in · ${new Date(auth.last_sign_in_at).toLocaleString()}`
+                  : "Signed in"}
+              </p>
             </div>
           )}
 
