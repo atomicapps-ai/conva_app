@@ -483,6 +483,7 @@ function Bubble({
   turnKey,
   registerEl,
   highlighted,
+  flashToken,
   collapsed,
   onToggleCollapse,
   onResearch,
@@ -500,6 +501,9 @@ function Bubble({
   turnKey: string;
   registerEl: (key: string, el: HTMLElement | null) => void;
   highlighted: boolean;
+  /** Non-null → play the one-shot azure jump-flash; changes each jump so it
+   *  replays even on a repeat click (V4.0 §8). */
+  flashToken: number | null;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onResearch: () => void;
@@ -581,6 +585,19 @@ function Bubble({
           highlighted ? "ring-2 ring-ai/60" : "",
         ].join(" ")}
       >
+        {/* One-shot azure flash — a thread just opened to this bubble
+            (V4.0 §8). The accent, not a voice colour: this is chrome
+            feedback, not speaker identity. Separate from `highlighted`
+            above (gold, persistent) so "currently linked" and "just
+            jumped here" stay visually distinct. Keyed by token so it
+            remounts — and replays — on every jump, including repeats. */}
+        {flashToken !== null && (
+          <span
+            key={flashToken}
+            className="pointer-events-none absolute inset-0 rounded-[4px] ring-2 ring-primary/70 animate-flash-ring"
+            aria-hidden
+          />
+        )}
         {/* 2px voice-colour accent bar (density law). */}
         <span
           className={`absolute inset-y-0 left-0 w-[2px] rounded-l ${accent}`}
@@ -1055,6 +1072,20 @@ export function TranscriptView() {
   const [inspected, setInspected] = useState<Active | null>(null);
   const active = inspected ?? hover;
 
+  // One-shot azure flash on the bubble a thread opens to (V4.0 §8) — layered
+  // on top of the persistent `highlighted` ring above, not a replacement for
+  // it. `token` forces the flash element to remount (via its React `key`) so
+  // jumping to the same bubble twice in a row still replays the animation.
+  const [flash, setFlash] = useState<{ key: string; token: number } | null>(
+    null,
+  );
+  const flashToken = useRef(0);
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 900);
+    return () => clearTimeout(t);
+  }, [flash]);
+
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleCollapse = useCallback((k: string) => {
     setCollapsed((prev) => {
@@ -1262,6 +1293,10 @@ export function TranscriptView() {
     (cardId: string, sourceKey: string | null) => {
       setInspected({ cardId, sourceKey });
       setDrawerOpen(true);
+      if (sourceKey) {
+        flashToken.current += 1;
+        setFlash({ key: sourceKey, token: flashToken.current });
+      }
       // Expand both if collapsed.
       setCollapsed((prev) => {
         const n = new Set(prev);
@@ -1604,6 +1639,7 @@ export function TranscriptView() {
                   turnKey={key}
                   registerEl={registerBubble}
                   highlighted={active?.sourceKey === key}
+                  flashToken={flash?.key === key ? flash.token : null}
                   collapsed={collapsed.has(key)}
                   onToggleCollapse={() => toggleCollapse(key)}
                   onResearch={() => research(repSeg)}

@@ -523,6 +523,23 @@ body {
   animation: conva-pulse-ring 2s var(--ease-out) infinite;
 }
 
+/* Thread → bubble jump (V4.0 §8): a single azure pulse, not a loop — opening
+   a thread should flash its source once, not keep drawing the eye. */
+@keyframes conva-flash-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-primary) 70%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.animate-flash-ring {
+  animation: conva-flash-ring 900ms var(--ease-out) 1;
+}
+
 /* The sonar Core (listening instrument): a rotating sweep, an orbiting node,
    and a breathing center. Used by the <Core> component at every size. */
 @keyframes conva-sweep {
@@ -585,7 +602,8 @@ body {
   .animate-rise,
   .animate-fade,
   .pulse-ring,
-  .spine-ping {
+  .spine-ping,
+  .animate-flash-ring {
     transition: none;
     animation: none;
   }
