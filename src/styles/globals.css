@@ -1,20 +1,25 @@
 @import "tailwindcss";
 
 /*
- * conva design system — brand v2 + the conva Density System (2026-07,
- * `conva_core/brand/Conva Density System design`). The single source of
- * colour/type/radius is the brand tokens below; components consume the semantic
- * aliases (bg-bg, text-ai, …) and utilities (.glass, .btn, …) — never raw hex.
- * Dark only (light mode is unspecified per the brand spec).
+ * conva design system — AppUI V4.0 "Instrument" (2026-08, owner-approved,
+ * `conva_core/brand/UI/AppUI_V4.0`) on top of the conva Density System
+ * (2026-07, `conva_core/brand/Conva Density System design`). The single
+ * source of colour/type/radius is the brand tokens below; components consume
+ * the semantic aliases (bg-bg, text-ai, …) and utilities (.glass, .btn, …) —
+ * never raw hex. Dark only (light mode is unspecified per the brand spec).
  *
- * DENSITY LAW (CLAUDE.md rule 5): every pixel of chrome/padding/radius is spent
- * against the transcript. Radii stop at 4px inside a panel (6 floating, 8 window
- * only, pill for circular); padding on a 4px grid, 8 default / 16 ceiling; depth
- * from 1px hairlines + one bg step, not shadows. The transcript + relationship
- * spine are OUT OF SCOPE — never restyled here.
+ * DENSITY LAW (CLAUDE.md rule 5) still holds — V4.0 is a treatment change,
+ * not a density change: padding stays on a 4px grid, 8 default / 16 ceiling,
+ * every pixel of chrome spent against the transcript. What V4.0 changes is
+ * the treatment: radii now 6px in-panel / 8px floating (was 4/6), real
+ * elevation on floating layers only, the old three-voice gradient replaced by
+ * a single azure accent, and colour split cleanly into two jobs — voice
+ * (who's speaking) and state (what's happening). The transcript + relationship
+ * spine remain OUT OF SCOPE — never restyled here.
  *
- * Voice colours are semantic and permanent: cyan = them, violet = you,
- * gold = Ally. Magenta (--color-iris) is decorative only — never a speaker.
+ * Voice colours are semantic and permanent: green = them, lavender = you,
+ * gold = Ally (V4.0 palette, owner-approved 2026-08-14 — supersedes the
+ * earlier cyan/violet lock). Never borrowed by chrome, in any state.
  */
 
 /* Self-hosted OFL fonts (no runtime CDN — the app is CSP-locked). Manrope is
@@ -43,40 +48,47 @@
   --color-fg-muted: #a3accc;
   --color-fg-faint: #6e7799;
 
-  /* ---- Voice accents (semantic, permanent) ---- */
-  --color-inbound: #22e4f5; /* THEM */
-  --color-outbound: #8b6bff; /* YOU */
-  --color-ai: #ffc24b; /* Ally */
-  --color-iris: #ff4fd8; /* gradient tail — decorative only */
+  /* ---- Voice accents (semantic, permanent) — V4.0 palette ---- */
+  --color-inbound: #35e0a6; /* THEM (was cyan #22e4f5) */
+  --color-outbound: #b79cff; /* YOU (was violet #8b6bff) */
+  --color-ai: #ffc24b; /* Ally — unchanged */
+  --color-iris: #4fb8ff; /* was magenta gradient-tail; V4.0 retires the
+    gradient, so anything still reading this token gets the single accent. */
 
-  /* ---- State ---- */
-  --color-rec: #ff4d5e;
-  --color-ok: #2fd08a;
+  /* ---- State — what is happening (kept distinct from voice, above) ---- */
+  --color-rec: #ff4d5e; /* stop / danger / recording */
+  --color-ok: #2fd08a; /* ready / healthy / complete */
+  --color-notice: #ff8a4c; /* notice — worth knowing, not urgent. Carried on
+    FORM (outline chip + icon), never a filled swatch — a solid gold fill
+    means Ally, only. Shifted off gold on purpose (collision #1). */
 
-  /* ---- Signature gradient (the iris) ---- */
-  --brand-from: var(--color-inbound);
-  --brand-to: var(--color-outbound);
+  /* ---- Accent — the single chrome/primary colour (V4.0; replaces the old
+     three-voice iris gradient). Drives the primary button, the active-tab
+     spine, the listening core, checkboxes, focus rings. ---- */
+  --brand-from: var(--color-primary);
+  --brand-to: var(--color-primary);
   --iris-angle: 100deg;
-  --iris: linear-gradient(100deg, #22e4f5 0%, #7b5cff 52%, #ff4fd8 100%);
-  /* Solid iris violet — the primary-button fill. The gradient itself stays
-     decorative-only (brand marks, hairline accents); a button needs one flat,
-     legible color under its label, not a moving 3-stop gradient. */
-  --color-primary: #7b5cff;
+  --iris: var(--color-primary);
+  --color-primary: #4fb8ff;
+  --color-primary-ink: #04121f; /* dark text on top of the (bright) accent */
 
-  /* ---- Elevation ---- */
+  /* ---- Elevation — floating layers only (menus, drawers, tooltips, HUD).
+     In the flow of a screen, depth is a background step, never a shadow. ---- */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.55);
-  --shadow-glow: 0 10px 32px rgba(123, 92, 255, 0.32),
-    0 0 0 1px rgba(34, 228, 245, 0.18);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45); /* == V4.0 --shadow-float */
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.55); /* == V4.0 --shadow-hud */
+  --shadow-glow: 0 10px 32px rgba(79, 184, 255, 0.32),
+    0 0 0 1px rgba(79, 184, 255, 0.18);
 
-  /* ---- Radii — the conva Density System scale (was 8/12/18/28) ----
-     xs 2 · sm 3 · md 4 (panel default) · lg 6 (floating: dropdowns, modals,
-     HUD) · xl 8 (the OS window only). Pills stay 999 for circular affordances. */
-  --radius-xs: 2px;
-  --radius-sm: 3px;
-  --radius: 4px;
-  --radius-lg: 6px;
+  /* ---- Radii — V4.0 (was xs2/sm3/md4/lg6/xl8). Contour is silhouette/edge
+     treatment, not bigger corners — the cap still holds, it's just less
+     uniform: 6px in-panel (chips through cards, one value, not three) ·
+     8px floating (dropdowns, modals, HUD) · window unchanged at 8.
+     Transcript bubble radius is a separate, locked token — untouched here. */
+  --radius-xs: 6px;
+  --radius-sm: 6px;
+  --radius: 6px;
+  --radius-lg: 8px;
   --radius-xl: 8px;
 
   /* ---- Glass ---- */
@@ -85,10 +97,10 @@
   --glass-hairline: rgba(255, 255, 255, 0.1);
 
   /* ---- Voice tints (derived; so bubbles don't hand-roll rgba) ---- */
-  --tint-inbound: rgba(34, 228, 245, 0.09);
-  --line-inbound: rgba(34, 228, 245, 0.28);
-  --tint-outbound: rgba(139, 107, 255, 0.1);
-  --line-outbound: rgba(139, 107, 255, 0.3);
+  --tint-inbound: rgba(53, 224, 166, 0.1);
+  --line-inbound: rgba(53, 224, 166, 0.3);
+  --tint-outbound: rgba(183, 156, 255, 0.1);
+  --line-outbound: rgba(183, 156, 255, 0.3);
   --tint-ai: rgba(255, 194, 75, 0.08);
   --line-ai: rgba(255, 194, 75, 0.3);
 
@@ -113,9 +125,9 @@
   /* voice aliases — point at the brand tokens; use these in cockpit code */
   --voice-them: var(--color-inbound);
   --voice-you: var(--color-outbound);
-  --voice-you-text: #a48dff; /* violet fails AA under 14px; small labels use this */
+  --voice-you-text: #c7b4ff; /* lavender fails AA under 14px; small labels use this (V4.0 --you-14) */
   --voice-ai: var(--color-ai);
-  --accent-iris: var(--color-iris);
+  --accent-iris: var(--color-primary); /* was --color-iris (magenta); V4.0 is single-accent */
 
   /* spine */
   --spine-line: rgba(255, 194, 75, 0.22);
@@ -156,6 +168,9 @@
   --color-edge: var(--color-edge);
   --color-rec: var(--color-rec);
   --color-ok: var(--color-ok);
+  --color-notice: var(--color-notice);
+  --color-primary: var(--color-primary);
+  --color-primary-ink: var(--color-primary-ink);
 
   --radius-xs: var(--radius-xs);
   --radius-sm: var(--radius-sm);
@@ -190,9 +205,11 @@ body {
   overflow: hidden;
 }
 
-/* Ambient atmosphere — the "aurora floor" (brand v2): soft radials anchored
-   below the screen, violet dominant with cyan + magenta at half strength.
-   Fixed behind everything so flat surfaces read as depth, not a solid fill. */
+/* Ambient atmosphere — V4.0: the three-voice aurora (brand v2) is retired.
+   Two soft azure radials (top-right + bottom-left), single-hue, low opacity —
+   surfaces stay "cool navy, no green undertone" per the V4.0 tokens even
+   though a voice is now green. Fixed behind everything so flat surfaces read
+   as depth, not a solid fill. */
 #root::before {
   content: "";
   position: fixed;
@@ -201,19 +218,14 @@ body {
   pointer-events: none;
   background:
     radial-gradient(
-      52% 40% at 50% 120%,
-      rgba(123, 92, 255, 0.24),
-      transparent 70%
+      120% 80% at 82% -8%,
+      rgba(79, 184, 255, 0.1),
+      transparent 60%
     ),
     radial-gradient(
-      36% 30% at 12% 114%,
-      rgba(34, 228, 245, 0.12),
-      transparent 70%
-    ),
-    radial-gradient(
-      38% 30% at 88% 116%,
-      rgba(255, 79, 216, 0.11),
-      transparent 70%
+      90% 70% at 0% 100%,
+      rgba(79, 184, 255, 0.06),
+      transparent 55%
     ),
     linear-gradient(180deg, var(--color-bg), var(--color-bg-2));
 }
@@ -255,7 +267,9 @@ body {
     box-shadow: var(--shadow-glow);
   }
 
-  /* Brand signature gradient — the aurora iris (them + you + Ally). */
+  /* Brand signature fill — V4.0: was the three-voice aurora iris, now the
+     single azure accent (kept as --iris/.brand-gradient for call sites; the
+     old cyan/violet/magenta gradient is gone). */
   .brand-gradient {
     background: var(--iris);
   }
@@ -302,7 +316,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    border-radius: 4px;
+    border-radius: var(--radius);
     border: 1px solid var(--color-border);
     padding: 3px 10px;
     font-size: 0.75rem;
@@ -324,21 +338,22 @@ body {
     opacity: 0.5;
     pointer-events: none;
   }
-  /* Primary action — solid iris violet; used sparingly (one per view). Was
-     the aurora gradient with near-black text — hard to read/notice against
-     the rest of the UI (owner feedback); a flat fill + light text reads
-     unambiguously as "the button," and drops the glow shadow the density
-     law already discourages (depth from hairlines/bg-steps, not shadows). */
+  /* Primary action — solid azure fill (V4.0); used sparingly (one per view).
+     Azure is bright enough that light text fails contrast, so — unlike the
+     old violet fill — this one pairs with dark ink text (--color-primary-ink),
+     per the V4.0 tokens. Flat fill, no gradient, drops the glow shadow the
+     density law already discourages (depth from hairlines/bg-steps, not
+     shadows). */
   .btn-primary {
     border-color: transparent;
-    color: var(--color-fg);
+    color: var(--color-primary-ink);
     font-weight: 600;
     background: var(--color-primary);
   }
   .btn-primary:hover {
-    color: var(--color-fg);
+    color: var(--color-primary-ink);
     border-color: transparent;
-    filter: brightness(1.15);
+    filter: brightness(1.1);
   }
   /* Ally-accented action (gold) — save/confirm inside Ally-flavored surfaces. */
   .btn-accent {
@@ -372,7 +387,7 @@ body {
   .input,
   .select {
     width: 100%;
-    border-radius: 4px;
+    border-radius: var(--radius);
     border: 1px solid var(--color-border);
     background: color-mix(in oklab, var(--color-bg) 70%, transparent);
     padding: 4px 8px;
@@ -396,9 +411,9 @@ body {
     color: var(--color-fg-muted);
   }
 
-  /* Section card — the grouping surface inside a view. Density System: 4px
-     panel radius, hairline + one background step for depth (no drop shadow;
-     shadows on in-flow cards are illegal per the Density Law). */
+  /* Section card — the grouping surface inside a view. Density System: 6px
+     panel radius (V4.0), hairline + one background step for depth (no drop
+     shadow; shadows on in-flow cards are illegal per the Density Law). */
   .card {
     border-radius: var(--radius);
     border: 1px solid var(--color-border);
@@ -442,15 +457,16 @@ body {
   border-radius: 999px;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: var(--color-inbound);
+  background: var(--color-primary);
   background-clip: content-box;
 }
 
-/* Consistent, on-brand focus ring for keyboard users. */
+/* Consistent, on-brand focus ring for keyboard users. V4.0: driven by the
+   accent, not a voice colour — voice identity is never borrowed by chrome. */
 :focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--color-inbound) 70%, transparent);
+  outline: 2px solid color-mix(in oklab, var(--color-primary) 70%, transparent);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius);
 }
 
 ::selection {
@@ -632,7 +648,7 @@ html[data-window="hud"] #root::before {
   justify-content: center;
   height: 22px;
   width: 22px;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   color: var(--color-fg-faint, #8b93bf);
   transition: background 120ms, color 120ms;
 }
@@ -665,7 +681,7 @@ html[data-window="hud"] #root::before {
 }
 .hud-opacity input[type="range"] {
   flex: 1;
-  accent-color: var(--color-outbound, #7b5cff);
+  accent-color: var(--color-primary, #4fb8ff);
   cursor: pointer;
 }
 .hud-opacity-val {
