@@ -1420,6 +1420,19 @@ export function TranscriptView() {
   useEffect(() => {
     localStorage.setItem("conva.layout.split", String(splitRatio));
   }, [splitRatio]);
+
+  // Ally header action cluster (V4.0 §4/item 4): the text-size control folds
+  // into the ⋯ overflow menu when the header is too narrow to hold it as a
+  // standalone A−/A+ pair, same "shed a known order" principle as the rest
+  // of the responsive work — just one level deeper (icon count, not layout
+  // tier). Reuses the width/splitRatio signals already tracked above rather
+  // than a second ResizeObserver: in drawer mode the Ally column is a fixed
+  // `min(452px, 88%)` overlay (always roomy); inline, its rendered width is
+  // its flex share of the space left after the spine.
+  const allyColWidth = drawer
+    ? 452
+    : Math.max(0, (width - SPINE_W) * (1 - splitRatio));
+  const allyHeaderCramped = allyColWidth > 0 && allyColWidth < 280;
   const startSplitDrag = useCallback(
     (e: React.PointerEvent) => {
       if (drawer) return; // Ally is an overlay here — nothing to resize against
@@ -1995,6 +2008,33 @@ export function TranscriptView() {
             >
               <Icon name="summarize" size={16} />
             </button>
+            {/* Text size — a standalone A−/A+ pair when there's room; folds
+                into the ⋯ overflow menu below once the header gets cramped
+                (V4.0 item 4). */}
+            {!allyHeaderCramped && (
+              <span className="flex items-center gap-0.5 border-l border-border pl-1">
+                <button
+                  type="button"
+                  onClick={() => bumpAllyFont(-1)}
+                  disabled={allyFontPx <= ALLY_FONT_MIN}
+                  title="Smaller Ally text"
+                  aria-label="Smaller Ally text"
+                  className="grid h-6 w-5 place-items-center rounded text-[11px] font-semibold hover:bg-white/[0.06] hover:text-fg disabled:opacity-30"
+                >
+                  A−
+                </button>
+                <button
+                  type="button"
+                  onClick={() => bumpAllyFont(1)}
+                  disabled={allyFontPx >= ALLY_FONT_MAX}
+                  title="Larger Ally text"
+                  aria-label="Larger Ally text"
+                  className="grid h-6 w-5 place-items-center rounded text-[11px] font-semibold hover:bg-white/[0.06] hover:text-fg disabled:opacity-30"
+                >
+                  A+
+                </button>
+              </span>
+            )}
             {/* Fold/unfold everything (one intuitive toggle). */}
             {(() => {
               const allCollapsed =
@@ -2048,32 +2088,37 @@ export function TranscriptView() {
                 role="menu"
                 className="glass-raised absolute right-3 top-[42px] z-50 w-56 rounded-lg border border-border p-2 shadow-[var(--shadow-lg)]"
               >
-                <div className="flex items-center justify-between px-1.5 py-1 text-[12px]">
-                  <span className="text-fg-muted">Text size</span>
-                  <span className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => bumpAllyFont(-1)}
-                      disabled={allyFontPx <= ALLY_FONT_MIN}
-                      aria-label="Smaller text"
-                      className="grid h-6 w-6 place-items-center rounded border border-border text-fg-muted hover:text-fg disabled:opacity-30"
-                    >
-                      A−
-                    </button>
-                    <span className="w-8 text-center font-mono text-[11px] text-fg-faint">
-                      {allyFontPx}px
+                {/* Only carried here when the header is too cramped for the
+                    standalone A−/A+ pair above — otherwise this would be a
+                    second, redundant control for the same setting. */}
+                {allyHeaderCramped && (
+                  <div className="flex items-center justify-between px-1.5 py-1 text-[12px]">
+                    <span className="text-fg-muted">Text size</span>
+                    <span className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => bumpAllyFont(-1)}
+                        disabled={allyFontPx <= ALLY_FONT_MIN}
+                        aria-label="Smaller text"
+                        className="grid h-6 w-6 place-items-center rounded border border-border text-fg-muted hover:text-fg disabled:opacity-30"
+                      >
+                        A−
+                      </button>
+                      <span className="w-8 text-center font-mono text-[11px] text-fg-faint">
+                        {allyFontPx}px
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => bumpAllyFont(1)}
+                        disabled={allyFontPx >= ALLY_FONT_MAX}
+                        aria-label="Larger text"
+                        className="grid h-6 w-6 place-items-center rounded border border-border text-fg-muted hover:text-fg disabled:opacity-30"
+                      >
+                        A+
+                      </button>
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => bumpAllyFont(1)}
-                      disabled={allyFontPx >= ALLY_FONT_MAX}
-                      aria-label="Larger text"
-                      className="grid h-6 w-6 place-items-center rounded border border-border text-fg-muted hover:text-fg disabled:opacity-30"
-                    >
-                      A+
-                    </button>
-                  </span>
-                </div>
+                  </div>
+                )}
                 <button
                   type="button"
                   role="menuitemcheckbox"
