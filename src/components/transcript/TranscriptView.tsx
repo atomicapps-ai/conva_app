@@ -1232,6 +1232,18 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
  * the bubble it was derived from; hovering reveals a preview + connectors,
  * clicking brings the pair into view. Everything collapses; new lines never
  * yank the view. Compact mode keeps the single merged feed.
+ *
+ * Breadcrumb-header audit (V4.0): every other routed view composes
+ * `ViewShell`, which gives it a `breadcrumb › title` crown per the app-UI
+ * brief's "always" rule (§4.1). This is the one deliberate exception — Live
+ * renders straight into its two/three-column layout with no crown above it.
+ * ViewShell's own crown costs ~64-68px of vertical height, taken directly
+ * from the transcript; §4.3 says "never shrink the transcript first" and §8
+ * locks this surface as the one everything else modernizes *around*. TopBar
+ * (always visible one strip up, mounted by StudioShell for every view) plus
+ * the nav rail's active-row highlight already tell you you're on Live
+ * without spending any of this view's own height on it — so the omission is
+ * a deliberate trade, not an oversight.
  */
 export function TranscriptView() {
   const liveSegments = useTranscriptStore((s) => s.segments);

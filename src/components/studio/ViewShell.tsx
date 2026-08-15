@@ -11,11 +11,16 @@ import { Icon, type IconName } from "@/components/ui/Icon";
  *
  * The breadcrumb is "always," per the app-UI brief's nav-zones rule
  * (`docs/product/designer-handoff-2026-08/BRIEF-app-ui.md` §4.1) — it's the
- * only place the user learns where they are, so every view gets one even
- * when it's flat: with no `breadcrumb` parent, the trail is just the view's
- * own title, small and muted above the real headline. Pass `breadcrumb` for
- * genuine sub-views (Sim Con setup/detail, reached from Contexts) to get a
- * real two-level trail instead.
+ * only place the user learns where they are, so every routed view built on
+ * ViewShell gets one even when it's flat: with no `breadcrumb` parent, the
+ * trail is just the view's own title, small and muted above the real
+ * headline. Pass `breadcrumb` for genuine sub-views (Sim Con setup/detail,
+ * reached from Contexts) to get a real two-level trail instead.
+ *
+ * One deliberate exception: Live (`TranscriptView`) doesn't compose
+ * ViewShell at all, so it carries no breadcrumb/title crown — see the note
+ * at the top of that file for why §4.3/§8 (never shrink the transcript;
+ * it's the locked surface) outrank the "always" rule there.
  */
 export function ViewShell({
   icon,
