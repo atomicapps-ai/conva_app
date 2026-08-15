@@ -21,6 +21,11 @@ import { useNavStore } from "@/state/nav";
 /** The shared nav list resolved for THIS platform (base rows + desktop rows). */
 const RAIL_ITEMS = NAV_ITEMS.filter((i) => !i.only || i.only === PLATFORM);
 
+/** First letter of the email, for the monogram avatar (same as Dashboard/Profile). */
+function initial(email: string | null): string {
+  return (email?.trim()?.[0] ?? "?").toUpperCase();
+}
+
 function RailButton({
   active,
   label,
@@ -147,33 +152,82 @@ export function NavRail() {
           <Icon name="expand" size={18} />
         </RailButton>
 
-        {/* Account. Signed in: hover shows the email; click opens a small menu
-            (Profile / Settings). Signed out: click jumps to Settings to sign in. */}
-        <div className="relative">
-          <RailButton
-            label={
-              auth?.signed_in
-                ? `${auth.email ?? "Signed in"} — account menu`
-                : "Account — sign in"
-            }
-            displayLabel={auth?.signed_in ? (auth.email ?? "Account") : "Sign in"}
-            active={menuOpen}
-            compact={compact}
-            onClick={() => {
-              if (auth?.signed_in) setMenuOpen((o) => !o);
-              else setView("settings");
-            }}
-          >
-            <span className="relative flex items-center justify-center">
-              <Icon name="account" size={20} />
-              {auth?.signed_in && (
-                <span
-                  className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-ok"
-                  aria-hidden
-                />
-              )}
-            </span>
-          </RailButton>
+        {/* Account block — under Settings (V4.0 §5). Signed in + !compact:
+            avatar + email row; hovering/focusing reveals an identity
+            popover (name/email — see the note on the popover below for what
+            V4.0 additionally asks for that isn't wired up yet). Click still
+            opens the existing Profile/Settings menu, unchanged. Compact or
+            signed-out: falls back to the plain icon button, as before. */}
+        <div className="group relative">
+          {!compact && auth?.signed_in ? (
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              className={[
+                "flex w-full items-center gap-2.5 rounded-[var(--radius)] border border-transparent px-2 py-1.5 text-left transition",
+                menuOpen
+                  ? "border-border-strong bg-panel"
+                  : "hover:bg-white/[0.045]",
+              ].join(" ")}
+            >
+              <span
+                className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-full bg-primary font-mono text-[10.5px] font-bold text-primary-ink"
+                aria-hidden
+              >
+                {initial(auth.email)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12.5px] font-semibold text-fg">
+                  {auth.email}
+                </span>
+              </span>
+            </button>
+          ) : (
+            <RailButton
+              label={auth?.signed_in ? `${auth.email ?? "Signed in"} — account menu` : "Account — sign in"}
+              displayLabel={auth?.signed_in ? (auth.email ?? "Account") : "Sign in"}
+              active={menuOpen}
+              compact={compact}
+              onClick={() => {
+                if (auth?.signed_in) setMenuOpen((o) => !o);
+                else setView("settings");
+              }}
+            >
+              <span className="relative flex items-center justify-center">
+                <Icon name="account" size={20} />
+                {auth?.signed_in && (
+                  <span
+                    className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-ok"
+                    aria-hidden
+                  />
+                )}
+              </span>
+            </RailButton>
+          )}
+
+          {/* Hover/focus identity popover — informational only, separate
+              from the click menu below. V4.0 also asks for a "last-login"
+              line under the row and a sign-in date/time inside this
+              popover; I've left both out rather than fake them. The auth
+              IPC (`AuthStatus`) only carries email/user_id/token expiry —
+              no display name and no real sign-in timestamp (token expiry
+              is a different thing and would be misleading to show as
+              "signed in at"). Wiring real values means extending
+              AuthStatus on the Rust side and both IPC mirrors — flagging
+              rather than guessing. */}
+          {!compact && auth?.signed_in && !menuOpen && (
+            <div
+              role="tooltip"
+              className="glass-raised pointer-events-none absolute bottom-0 left-[calc(100%+8px)] z-50 w-[200px] rounded-lg border border-border-strong p-3 opacity-0 shadow-[var(--shadow-lg)] transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+            >
+              <p className="truncate text-[12.5px] font-bold text-fg">
+                {auth.email}
+              </p>
+              <p className="mt-0.5 font-mono text-[10.5px] text-ok">Signed in</p>
+            </div>
+          )}
 
           {menuOpen && auth?.signed_in && (
             <>
