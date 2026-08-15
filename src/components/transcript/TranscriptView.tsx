@@ -151,11 +151,16 @@ interface Active {
   sourceKey: string | null;
 }
 
-/** Term actions — icons only; the tooltip names the action (owner request). */
+/** Term actions — icons only; the tooltip names the action (owner request).
+ *  Labels align with V4.0 §9's "Ask Ally about this · Explain the term" —
+ *  same prompts underneath, retitled to match. "Research → new thread" from
+ *  the same spec line isn't buildable yet (there's no Threads list to file
+ *  into — README #7); "How-to" stays as a bonus fourth action rather than
+ *  being dropped to force an exact 3-slot match. */
 const TERM_ACTIONS: { action: TermAction; icon: IconName; tip: string }[] = [
-  { action: "definition", icon: "book", tip: "Definition" },
+  { action: "definition", icon: "book", tip: "Explain the term" },
   { action: "howto", icon: "howto", tip: "How-to" },
-  { action: "elaborate", icon: "elaborate", tip: "Elaborate" },
+  { action: "elaborate", icon: "elaborate", tip: "Ask Ally about this" },
 ];
 type TermAction = "definition" | "howto" | "elaborate";
 
@@ -164,7 +169,10 @@ function escapeRegExp(s: string): string {
 }
 
 /** A small icon popover anchored to a highlighted word: definition / how-to /
- *  elaborate. Closes on outside click, scroll, or resize. */
+ *  elaborate. Opens upward from the term (V4.0 §9) so it never collides with
+ *  the turn below — `y` is the term's TOP edge; `position: fixed` already
+ *  escapes the transcript's scroll clipping, translateY does the rest.
+ *  Closes on outside click, scroll, or resize. */
 function TermMenu({
   term,
   x,
@@ -174,6 +182,8 @@ function TermMenu({
 }: {
   term: string;
   x: number;
+  /** The highlighted term's top edge (viewport coords) — the menu grows
+   *  upward from here, not down from the bottom edge. */
   y: number;
   onPick: (action: TermAction) => void;
   onClose: () => void;
@@ -196,7 +206,13 @@ function TermMenu({
   }, [onClose]);
   return (
     <div
-      style={{ position: "fixed", left: x, top: y + 4, zIndex: 60 }}
+      style={{
+        position: "fixed",
+        left: x,
+        top: y - 4,
+        transform: "translateY(-100%)",
+        zIndex: 60,
+      }}
       onClick={(e) => e.stopPropagation()}
       role="menu"
       aria-label={`Ask Ally about "${term}"`}
@@ -275,9 +291,9 @@ function HighlightedText({
         onClick={(e) => {
           e.stopPropagation();
           const r = e.currentTarget.getBoundingClientRect();
-          setMenu({ term: word, x: r.left, y: r.bottom });
+          setMenu({ term: word, x: r.left, y: r.top });
         }}
-        className="rounded-[3px] bg-ai/15 px-0.5 font-semibold text-ai decoration-ai/40 decoration-dotted underline-offset-2 hover:bg-ai/25 hover:underline"
+        className="rounded-[3px] bg-ai/15 px-0.5 font-semibold text-ai underline decoration-ai/50 decoration-dotted underline-offset-2 hover:bg-ai/25 hover:decoration-ai"
       >
         {word}
       </button>,
