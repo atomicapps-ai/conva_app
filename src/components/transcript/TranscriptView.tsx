@@ -1265,7 +1265,7 @@ function AllyMetaPanel({
   const restCards = cards.filter((c) => !pinned.has(c.id));
 
   return (
-    <aside className={`flex w-[300px] shrink-0 flex-col border-l border-border bg-bg-2${barPad}`}>
+    <aside className={`flex h-full w-[300px] shrink-0 flex-col border-l border-border bg-bg-2${barPad}`}>
       <div className="relative flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
         <Icon name="ally" size={15} className="text-ai" />
         <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
@@ -2121,7 +2121,12 @@ export function TranscriptView() {
           className={
             drawer
               ? `absolute right-0 top-0 z-30 h-full w-[min(320px,88%)] shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
-              : ""
+              // Not a flex item of `main` in the drawer case (it's absolutely
+              // positioned), but inline it IS one — without an explicit
+              // height it shrink-wraps to content instead of filling the
+              // column, which is why the dock ("tabs") wasn't pinned to the
+              // bottom when there wasn't much to show above it.
+              : "flex h-full"
           }
         >
           <AllyMetaPanel
