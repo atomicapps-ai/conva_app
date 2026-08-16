@@ -11,14 +11,26 @@ const SUPPORTED = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
  * rows to attach the dragged document (native HTML5 DnD, no OS file path). */
 export const DOC_DRAG_MIME = "application/x-conva-doc-id";
 
-/** Name a pasted note from its first non-empty line (else a fallback). */
+/** Default title for a pasted note (owner spec): the first few whole words
+ *  of the text, capped at 20 chars — trimmed at the last word boundary that
+ *  still fits, not mid-word, so it reads like a title instead of a cutoff.
+ *  Still just a *default*: the title field is editable before saving. */
+const NOTE_TITLE_MAX = 20;
 function deriveNoteName(text: string): string {
   const firstLine = text
     .split("\n")
     .map((l) => l.trim())
     .find((l) => l.length > 0);
   if (!firstLine) return "Pasted note";
-  return firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
+  if (firstLine.length <= NOTE_TITLE_MAX) return firstLine;
+  let out = "";
+  for (const word of firstLine.split(/\s+/)) {
+    const next = out ? `${out} ${word}` : word;
+    if (next.length > NOTE_TITLE_MAX) break;
+    out = next;
+  }
+  // A single word longer than the cap (e.g. a URL) — hard-truncate it.
+  return out ? `${out}…` : `${firstLine.slice(0, NOTE_TITLE_MAX)}…`;
 }
 
 type Filter = "all" | "context" | "pasted" | "generated";
@@ -59,6 +71,13 @@ export function LibraryPane({
   const [dragOver, setDragOver] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
+  const [pasteTitle, setPasteTitle] = useState("");
+  // Once the owner edits the title by hand, stop overwriting it as the text
+  // changes — auto-derive is a default, not a fight for control of the field.
+  const [titleTouched, setTitleTouched] = useState(false);
+  useEffect(() => {
+    if (!titleTouched) setPasteTitle(deriveNoteName(pasteText));
+  }, [pasteText, titleTouched]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const conversationOpen = useConversationStore((s) => s.openId !== null);
@@ -172,10 +191,11 @@ export function LibraryPane({
       setNotice("Nothing to add — paste or type some text first.");
       return;
     }
+    const title = pasteTitle.trim() || deriveNoteName(text);
     setBusy(true);
     setNotice("Adding pasted text…");
     try {
-      const report = await backend.rag.ingestText(deriveNoteName(text), text);
+      const report = await backend.rag.ingestText(title, text);
       setNotice(
         report.warnings.length > 0
           ? `Added with warnings: ${report.warnings.join("; ")}`
@@ -183,6 +203,8 @@ export function LibraryPane({
       );
       if (selectedContextId) onAttachToSelected(report.document.id);
       setPasteText("");
+      setPasteTitle("");
+      setTitleTouched(false);
       setPasteOpen(false);
       await refresh();
     } catch (e) {
@@ -297,6 +319,17 @@ export function LibraryPane({
               Paste from clipboard
             </button>
           </div>
+          <input
+            value={pasteTitle}
+            onChange={(e) => {
+              setPasteTitle(e.target.value);
+              setTitleTouched(true);
+            }}
+            placeholder="Title"
+            aria-label="Note title"
+            title="Defaults to the first few words of the text — edit to rename"
+            className="input mb-1.5 h-[26px] text-xs font-semibold"
+          />
           <textarea
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
@@ -320,6 +353,8 @@ export function LibraryPane({
               onClick={() => {
                 setPasteOpen(false);
                 setPasteText("");
+                setPasteTitle("");
+                setTitleTouched(false);
               }}
               className="btn px-2 py-1 text-[11px]"
             >

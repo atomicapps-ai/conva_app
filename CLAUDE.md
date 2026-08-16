@@ -87,6 +87,15 @@ swap a layer without asking the owner.**
    **degrades to BM25-only** when the embedder isn't ready — hybrid is an
    upgrade, never a hard dependency. Ingestion supports pdf/docx/md/txt/html
    plus pasted text (stored as `.txt`).
+8. **`dragDropEnabled: false` is required for intra-app HTML5 drag-and-drop.**
+   Tauri's window-level native drag-drop (on by default) intercepts drag
+   events at the OS/webview boundary, which silently breaks in-page
+   `draggable`/`dataTransfer` DnD (e.g. Library → Contexts attach) even
+   though the elements and handlers are all correct — nothing errors, drops
+   just never fire. OS file-drop-onto-window (Library's own file ingest)
+   doesn't need the native handler either — it already goes through
+   `getCurrentWebview().onDragDropEvent`, so disabling this in
+   `tauri.conf.json`'s window config doesn't cost anything.
 
 ## Build & run
 
