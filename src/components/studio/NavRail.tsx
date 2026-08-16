@@ -81,13 +81,24 @@ function RailButton({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={[
-        "group relative flex shrink-0 items-center gap-2.5 rounded-[var(--radius)] border border-transparent text-[13px] font-semibold transition",
+        "group relative flex shrink-0 items-center gap-2.5 border border-transparent text-[13px] font-semibold transition",
         compact
-          ? "h-[30px] w-[30px] justify-center"
+          ? "h-[30px] w-[30px] justify-center rounded-[var(--radius)]"
           : "h-[34px] w-full justify-start px-2.5",
         active
-          ? "border-border-strong bg-panel text-fg"
-          : "text-fg-muted hover:bg-white/[0.045] hover:text-fg",
+          ? [
+              "border-border-strong bg-panel text-fg",
+              // The join (V4.0 "file cabinet"): flat on the edge that meets
+              // the content pane, rounded on the other three, and bled past
+              // the rail's own right padding + border (px-1.5 + border =
+              // 7px) so the row visually crosses onto the pane instead of
+              // stopping at a gap. Compact/icon-only rows skip this — at
+              // that width there's no pane-adjacent edge worth joining.
+              compact
+                ? "rounded-[var(--radius)]"
+                : "-mr-[7px] rounded-l-[var(--radius)] rounded-r-none border-r-0",
+            ].join(" ")
+          : "rounded-[var(--radius)] text-fg-muted hover:bg-white/[0.045] hover:text-fg",
       ].join(" ")}
     >
       {/* Leading-edge spine on the active row — the accent, not a voice
@@ -135,7 +146,10 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
     <nav
       aria-label="Primary"
       className={[
-        "z-10 flex shrink-0 flex-col gap-0.5 rounded-r-lg border border-l-0 border-border bg-bg-2 py-2",
+        // One continuous frame with the content pane (V4.0 "file cabinet") —
+        // no rounding, no top/bottom border of its own; the single right
+        // border IS the join, same as the mockup's `.sidebar`.
+        "z-10 flex shrink-0 flex-col gap-0.5 border-r border-border bg-bg-2 py-2",
         compact ? "w-[44px] items-center" : "w-[188px] items-stretch px-1.5",
       ].join(" ")}
     >

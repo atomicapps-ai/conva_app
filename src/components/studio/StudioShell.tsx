@@ -70,9 +70,18 @@ export function StudioShell() {
     <div className="flex h-full flex-col">
       <WindowChrome />
       <UpdateBanner />
-      <div ref={shellRef} className="flex min-h-0 flex-1 gap-1 p-1">
+      {/* One continuous frame (V4.0's "file cabinet") — rail and content sit
+          flush, joined by NavRail's own right border, not a gap between two
+          floating cards. No padding/gap here: the window's own edges are the
+          frame boundary now (WindowChrome plays the role of the mockup's
+          `.appframe` top edge), so there's nothing left to inset against. */}
+      <div ref={shellRef} className="flex min-h-0 flex-1">
         <NavRail narrow={narrow} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
+        {/* bg-panel — same surface the active rail row takes on, so its
+            join reads as "becomes the pane" rather than "a differently-
+            colored block next to the pane" (mockup's `.main{background:
+            var(--color-panel)}`). */}
+        <div className="flex min-w-0 flex-1 flex-col bg-panel">
           <main className="min-h-0 flex-1 overflow-hidden">
             <ViewRouter />
           </main>

@@ -44,7 +44,12 @@ export function StatusBar() {
 
   return (
     <footer
-      className="glass flex h-[22px] shrink-0 items-center gap-3 border-b-0 px-4 text-[11px] text-fg-faint"
+      // Flush background-step footer, not a floating `.glass` card — V4.0's
+      // own rule is elevation (blur/shadow) only where something actually
+      // floats over content; in the flow of the screen, depth is a
+      // background step (bg → bg-2 → panel), not a drop shadow. Also keeps
+      // it flush with the continuous rail+pane frame above it (no gap).
+      className="flex h-[22px] shrink-0 items-center gap-3 border-t border-border bg-bg-2 px-4 text-[11px] text-fg-faint"
       aria-label="Status"
     >
       <span className="flex items-center gap-1.5 text-ok" title="Audio and transcripts stay on this device">
