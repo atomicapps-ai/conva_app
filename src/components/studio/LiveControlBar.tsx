@@ -28,6 +28,9 @@ import { useTranscriptStore } from "@/state/transcript";
  * - `End & summarise` → today's Stop, which already opens
  *   `SaveConversationDialog` to save the transcript as a named conversation
  *   — a genuine semantic match, not a relabel.
+ * - Record sits here too (owner feedback) — it was stranded alone up in
+ *   `LiveTopBar`; it's a session-lifecycle action, same family as Start/Stop
+ *   and End & summarise, so it belongs grouped with them.
  */
 export function LiveControlBar() {
   const session = useTranscriptStore((s) => s.session);
@@ -38,6 +41,9 @@ export function LiveControlBar() {
   const modelStatus = useAppStore((s) => s.modelStatus);
   const start = useAppStore((s) => s.start);
   const stop = useAppStore((s) => s.stop);
+  const recording = useAppStore((s) => s.recording);
+  const startRecording = useAppStore((s) => s.startRecording);
+  const stopRecording = useAppStore((s) => s.stopRecording);
   const elapsed = useElapsed(listening);
 
   const statusText = (() => {
@@ -133,6 +139,29 @@ export function LiveControlBar() {
           </kbd>
         </span>
       )}
+
+      <button
+        type="button"
+        disabled={!listening}
+        onClick={() => void (recording ? stopRecording() : startRecording())}
+        aria-pressed={recording}
+        title={
+          !listening
+            ? "Start listening first to record"
+            : recording
+              ? "Stop recording"
+              : "Record the call (stereo WAV: you left, them right)"
+        }
+        className={[
+          "flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] border px-3 text-[13px] font-bold transition disabled:opacity-40",
+          recording
+            ? "border-rec/50 bg-rec/10 text-rec"
+            : "border-border-strong text-fg-muted hover:text-fg",
+        ].join(" ")}
+      >
+        <Icon name="record" size={15} />
+        <ResponsiveLabel full={recording ? "Recording" : "Record"} short="Rec" />
+      </button>
 
       <button
         type="button"

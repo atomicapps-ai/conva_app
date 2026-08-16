@@ -17,13 +17,14 @@ type Mode =
  * rail destination (V4.0 `conva_core/brand/UI/AppUI_V4.0` — the reference
  * nav lists them as two separate items; owner decision, 2026-08-16).
  *
- * KNOWN GAP from the un-merge: attaching a library document to a context
- * used to be drag-and-drop between the two panes on one screen
- * (conversation-context-ui.md §2) — that gesture has no source pane to drag
- * FROM now that Library is a separate screen. The slower path still works:
- * open a context (New/Edit) and check its documents in SimConSetup's own
- * picker. A faster replacement (a per-row "attach…" document picker here,
- * or on the Library screen) is an open question, not yet built.
+ * The un-merge broke drag-and-drop attach (it used to be between the two
+ * panes on one screen) — restored on the Library screen instead
+ * (`AttachDropRow` in `LibraryView.tsx`), since that's the page with both a
+ * drag source (each row) and something to drop onto (a context) in view at
+ * once. `ContextsPane`'s own drop targets below are wired to the same real
+ * mutation (`backend.rag.attachContext`) for correctness/forward-compat,
+ * even though nothing on this screen currently drags — there's no document
+ * list here to drag FROM.
  */
 export function ContextsView() {
   const backend = useBackend();
@@ -32,6 +33,7 @@ export function ContextsView() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     backend.simcon
@@ -94,6 +96,19 @@ export function ContextsView() {
     [backend, refresh],
   );
 
+  const attach = useCallback(
+    async (contextId: string, docId: string) => {
+      try {
+        await backend.rag.attachContext(docId, contextId);
+        setNotice("Attached.");
+        refresh();
+      } catch (e) {
+        setNotice(String(e));
+      }
+    },
+    [backend, refresh],
+  );
+
   if (mode.k === "setup") {
     return (
       <SimConSetup
@@ -123,7 +138,7 @@ export function ContextsView() {
       actions={
         error ? null : (
           <p className="text-[11px] text-fg-faint">
-            {items.length} context{items.length === 1 ? "" : "s"}
+            {notice ?? `${items.length} context${items.length === 1 ? "" : "s"}`}
           </p>
         )
       }
@@ -139,9 +154,7 @@ export function ContextsView() {
           onNew={() => setMode({ k: "setup", initial: null })}
           onEdit={(id) => void edit(id)}
           onDelete={(id) => void remove(id)}
-          // No drop source on this screen anymore (see the file doc comment)
-          // — attach still works from a context's own Edit picker.
-          onAttach={() => {}}
+          onAttach={(contextId, docId) => void attach(contextId, docId)}
           onGenerate={(id) => void generate(id)}
           generatingId={generatingId}
         />
