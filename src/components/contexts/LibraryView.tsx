@@ -12,6 +12,16 @@ import { useBackend } from "@/lib/backend";
  * "drag-attach" in its own doc comment) both already existed; only a drop
  * target survived nowhere once Contexts moved to its own screen. This row
  * puts one back on the screen that still has both docs and contexts in view.
+ *
+ * `onDragOver`/`onDragEnter` call `preventDefault()` unconditionally rather
+ * than gating on `dataTransfer.types.includes(DOC_DRAG_MIME)` first — some
+ * Chromium-embedding webviews (WebView2 included) don't reliably populate
+ * `types` for custom, non-standard MIME types during `dragover`, only at
+ * `drop`. Gating on it meant `preventDefault()` could silently never run,
+ * which blocks `drop` from firing at all — a real, plausible reason
+ * drag-and-drop looked broken end-to-end. Unconditional `preventDefault()`
+ * is safe here: this element has no other purpose, and the drop handler
+ * still checks `getData()` came back non-empty before doing anything.
  */
 function AttachDropRow({
   contextTitles,
@@ -33,9 +43,13 @@ function AttachDropRow({
         return (
           <span
             key={id}
-            onDragOver={(e) => {
-              if (!e.dataTransfer.types.includes(DOC_DRAG_MIME)) return;
+            onDragEnter={(e) => {
               e.preventDefault();
+              setDragOverId(id);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "link";
               setDragOverId(id);
             }}
             onDragLeave={() => setDragOverId((cur) => (cur === id ? null : cur))}

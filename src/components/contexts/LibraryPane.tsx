@@ -11,26 +11,32 @@ const SUPPORTED = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
  * rows to attach the dragged document (native HTML5 DnD, no OS file path). */
 export const DOC_DRAG_MIME = "application/x-conva-doc-id";
 
-/** Default title for a pasted note (owner spec): the first few whole words
- *  of the text, capped at 20 chars — trimmed at the last word boundary that
- *  still fits, not mid-word, so it reads like a title instead of a cutoff.
- *  Still just a *default*: the title field is editable before saving. */
+/** Default title for a pasted note (owner spec): words + numbers only — no
+ *  punctuation/symbols — spaces replaced with underscores, capped at the
+ *  first few whole words that fit in 20 chars (trimmed at a word boundary,
+ *  not mid-word). Still just a *default*: the title field is editable
+ *  before saving. */
 const NOTE_TITLE_MAX = 20;
 function deriveNoteName(text: string): string {
   const firstLine = text
     .split("\n")
     .map((l) => l.trim())
     .find((l) => l.length > 0);
-  if (!firstLine) return "Pasted note";
-  if (firstLine.length <= NOTE_TITLE_MAX) return firstLine;
+  if (!firstLine) return "Pasted_note";
+  const cleaned = firstLine
+    .replace(/[^\p{L}\p{N}\s]/gu, "") // drop everything but letters/numbers/whitespace
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!cleaned) return "Pasted_note";
   let out = "";
-  for (const word of firstLine.split(/\s+/)) {
+  for (const word of cleaned.split(" ")) {
     const next = out ? `${out} ${word}` : word;
     if (next.length > NOTE_TITLE_MAX) break;
     out = next;
   }
-  // A single word longer than the cap (e.g. a URL) — hard-truncate it.
-  return out ? `${out}…` : `${firstLine.slice(0, NOTE_TITLE_MAX)}…`;
+  // A single word longer than the cap (e.g. a long compound word) — hard-truncate it.
+  const words = out || cleaned.slice(0, NOTE_TITLE_MAX);
+  return words.replace(/\s+/g, "_");
 }
 
 type Filter = "all" | "context" | "pasted" | "generated";

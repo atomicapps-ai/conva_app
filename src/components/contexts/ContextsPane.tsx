@@ -197,12 +197,23 @@ export function ContextsPane({
             return (
               <li
                 key={s.id}
+                // preventDefault() unconditionally rather than gating on
+                // dataTransfer.types.includes(DOC_DRAG_MIME) first — some
+                // Chromium-embedding webviews don't reliably populate `types`
+                // for custom MIME types during dragover, only at drop, which
+                // would silently skip preventDefault() and block drop from
+                // ever firing (see AttachDropRow's doc comment). getData()
+                // on drop is still the real gate.
+                onDragEnter={(e) => {
+                  if (isDefault) return;
+                  e.preventDefault();
+                  setDragOverId(s.id);
+                }}
                 onDragOver={(e) => {
                   if (isDefault) return;
-                  if (e.dataTransfer.types.includes(DOC_DRAG_MIME)) {
-                    e.preventDefault();
-                    setDragOverId(s.id);
-                  }
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "link";
+                  setDragOverId(s.id);
                 }}
                 onDragLeave={() => setDragOverId((id) => (id === s.id ? null : id))}
                 onDrop={(e) => {
