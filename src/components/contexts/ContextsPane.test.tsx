@@ -36,7 +36,6 @@ describe("ContextsPane", () => {
         onNew={noop}
         onEdit={noop}
         onDelete={noop}
-        onAttach={noop}
         onGenerate={noop}
         generatingId={null}
       />,
@@ -60,7 +59,6 @@ describe("ContextsPane", () => {
         onNew={noop}
         onEdit={noop}
         onDelete={noop}
-        onAttach={noop}
         onGenerate={onGenerate}
         generatingId={null}
       />,
@@ -83,7 +81,6 @@ describe("ContextsPane", () => {
         onNew={noop}
         onEdit={noop}
         onDelete={noop}
-        onAttach={noop}
         onGenerate={noop}
         generatingId={null}
       />,
@@ -104,7 +101,6 @@ describe("ContextsPane", () => {
         onNew={noop}
         onEdit={onEdit}
         onDelete={onDelete}
-        onAttach={noop}
         onGenerate={noop}
         generatingId={null}
       />,
@@ -132,7 +128,6 @@ describe("ContextsPane", () => {
         onNew={noop}
         onEdit={noop}
         onDelete={noop}
-        onAttach={noop}
         onGenerate={noop}
         generatingId={null}
       />,

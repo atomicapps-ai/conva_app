@@ -7,9 +7,6 @@ import { isTauri } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
 
 const SUPPORTED = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
-/** The custom drag payload MIME a library row carries — read by ContextsPane
- * rows to attach the dragged document (native HTML5 DnD, no OS file path). */
-export const DOC_DRAG_MIME = "application/x-conva-doc-id";
 
 /** Default title for a pasted note (owner spec): words + numbers only — no
  *  punctuation/symbols — spaces replaced with underscores, capped at the
@@ -39,34 +36,124 @@ function deriveNoteName(text: string): string {
   return words.replace(/\s+/g, "_");
 }
 
-type Filter = "all" | "context" | "pasted" | "generated";
+type Filter = "all" | "pasted" | "generated";
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "All" },
-  { key: "context", label: "In this context" },
   { key: "pasted", label: "Pasted" },
   { key: "generated", label: "By conva" },
 ];
 
+/** A row's "attach to a context" control — click, pick a context, done.
+ *  Already-attached contexts show a check and are unclickable. Replaces
+ *  the earlier drag-to-attach gesture (see the doc comment on
+ *  `LibraryPane` for why). */
+function AttachMenu({
+  doc,
+  contextTitles,
+  onAttach,
+}: {
+  doc: RagDocument;
+  contextTitles: Record<string, string>;
+  onAttach: (docId: string, contextId: string) => void;
+}) {
+  const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
+  const entries = Object.entries(contextTitles);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(null);
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [open]);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <span className="relative shrink-0">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          setOpen((o) => (o ? null : { x: r.left, y: r.bottom + 4 }));
+        }}
+        title="Attach to a context…"
+        aria-label={`Attach ${doc.file_name} to a context`}
+        aria-haspopup="menu"
+        aria-expanded={open !== null}
+        className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai"
+      >
+        <Icon name="simicon" size={13} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label={`Attach ${doc.file_name} to a context`}
+          onClick={(e) => e.stopPropagation()}
+          style={{ position: "fixed", left: open.x, top: open.y, zIndex: 60 }}
+          className="glass-raised min-w-[180px] rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
+        >
+          {entries.map(([id, title]) => {
+            const attached = doc.context_ids.includes(id);
+            return (
+              <button
+                key={id}
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={attached}
+                disabled={attached}
+                onClick={() => {
+                  onAttach(doc.id, id);
+                  setOpen(null);
+                }}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
+              >
+                <Icon
+                  name="check"
+                  size={12}
+                  className={attached ? "text-ok" : "invisible"}
+                />
+                <span className="min-w-0 flex-1 truncate">{title}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </span>
+  );
+}
+
 /**
- * The Library pane of the unified Contexts & Library page (Conversation
- * Context UI design): search + filter chips, drag-drop or pick files,
- * paste-as-note, and — new — each row is a native drag SOURCE carrying its
- * doc id, so dropping it on a context row (ContextsPane) attaches it.
- * `selectedContextId` narrows the "In this context" filter and labels the
- * paste/attach flow; `contextTitles` renders a doc's context tags by name.
+ * The Library pane: search + filter chips, add/paste documents, and a
+ * simple per-row "attach to a context" picker (`AttachMenu`) — owner
+ * decision, 2026-08-16, replacing an earlier native HTML5 drag-and-drop
+ * attempt (row → context row/chip). That approach hit real, hard-to-verify
+ * webview drag-and-drop gaps (Tauri's window-level native drag interception
+ * plus a Chromium/WebView2 quirk around custom MIME types during
+ * `dragover`) that were slow to diagnose blind and, per the owner, not
+ * worth it: "drag and drop... should be easy and intuitive... we don't
+ * have to allow any" — a click-to-attach popover is exactly as fast, has
+ * none of those failure modes, and works the same on every platform this
+ * app targets (including a future mobile companion, where drag-and-drop
+ * isn't a thing at all). `contextTitles` (id → title) drives both the
+ * picker and a doc's own context-tag label.
  */
 export function LibraryPane({
-  selectedContextId,
-  selectedContextTitle,
   contextTitles,
-  onAttachToSelected,
+  onAttach,
   refreshToken,
 }: {
-  selectedContextId: string | null;
-  selectedContextTitle: string | null;
   contextTitles: Record<string, string>;
-  onAttachToSelected: (docId: string) => void;
+  /** Attach `docId` to `contextId` — the real mutation
+   *  (`backend.rag.attachContext`) lives with the caller. */
+  onAttach: (docId: string, contextId: string) => void;
   /** Bump this to force a refresh from outside (e.g. after generating). */
   refreshToken?: number;
 }) {
@@ -207,7 +294,6 @@ export function LibraryPane({
           ? `Added with warnings: ${report.warnings.join("; ")}`
           : `Added "${report.document.file_name}".`,
       );
-      if (selectedContextId) onAttachToSelected(report.document.id);
       setPasteText("");
       setPasteTitle("");
       setTitleTouched(false);
@@ -224,14 +310,11 @@ export function LibraryPane({
     const q = search.trim().toLowerCase();
     return documents.filter((d) => {
       if (q && !d.file_name.toLowerCase().includes(q)) return false;
-      if (filter === "context") {
-        return selectedContextId ? d.context_ids.includes(selectedContextId) : false;
-      }
       if (filter === "pasted") return d.source === "pasted";
       if (filter === "generated") return d.source === "generated";
       return true;
     });
-  }, [documents, search, filter, selectedContextId]);
+  }, [documents, search, filter]);
 
   const rowIcon = (d: RagDocument) =>
     d.source === "generated" ? "sparkle" : d.source === "pasted" ? "clipboard" : "file";
@@ -285,37 +368,28 @@ export function LibraryPane({
       />
 
       <div className="mb-2 flex flex-wrap gap-1.5">
-        {FILTERS.map((f) => {
-          const disabled = f.key === "context" && !selectedContextId;
-          return (
-            <button
-              key={f.key}
-              type="button"
-              disabled={disabled}
-              onClick={() => setFilter(f.key)}
-              title={
-                disabled ? "Select a context to filter its documents" : undefined
-              }
-              className={[
-                "rounded-full border px-2 py-0.5 text-[11px] transition disabled:opacity-40",
-                filter === f.key
-                  ? "border-primary/50 bg-primary/[0.12] text-fg"
-                  : "border-border text-fg-faint hover:text-fg",
-              ].join(" ")}
-            >
-              {f.key === "context" && selectedContextTitle
-                ? selectedContextTitle
-                : f.label}
-            </button>
-          );
-        })}
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            onClick={() => setFilter(f.key)}
+            className={[
+              "rounded-full border px-2 py-0.5 text-[11px] transition",
+              filter === f.key
+                ? "border-primary/50 bg-primary/[0.12] text-fg"
+                : "border-border text-fg-faint hover:text-fg",
+            ].join(" ")}
+          >
+            {f.label}
+          </button>
+        ))}
       </div>
 
       {pasteOpen && (
         <div className="mb-2 rounded-md border border-border p-2">
           <div className="mb-1.5 flex items-center gap-2">
             <span className="text-[10px] text-fg-faint">
-              Saved as a named .txt{selectedContextTitle ? ` · attaches to "${selectedContextTitle}"` : ""}
+              Saved as a named .txt — attach it to a context after, from its row
             </span>
             <button
               type="button"
@@ -392,16 +466,8 @@ export function LibraryPane({
               return (
               <li
                 key={doc.id}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData(DOC_DRAG_MIME, doc.id);
-                  e.dataTransfer.effectAllowed = "link";
-                }}
                 className="flex items-center gap-1.5 border-b border-border py-1.5 text-[12px] last:border-0"
               >
-                <span className="cursor-grab text-fg-faint" aria-hidden>
-                  <Icon name="dragHandle" size={13} />
-                </span>
                 <input
                   type="checkbox"
                   checked={doc.enabled}
@@ -438,17 +504,7 @@ export function LibraryPane({
                     {doc.context_ids.length > 1 ? ` +${doc.context_ids.length - 1}` : ""}
                   </span>
                 )}
-                {selectedContextId && !doc.context_ids.includes(selectedContextId) && (
-                  <button
-                    type="button"
-                    onClick={() => onAttachToSelected(doc.id)}
-                    title={`Attach to "${selectedContextTitle ?? "selected context"}"`}
-                    aria-label={`Attach ${doc.file_name} to the selected context`}
-                    className="shrink-0 grid h-4 w-4 place-items-center rounded-sm text-[13px] leading-none text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai"
-                  >
-                    +
-                  </button>
-                )}
+                <AttachMenu doc={doc} contextTitles={contextTitles} onAttach={onAttach} />
                 {conversationOpen && (
                   <button
                     type="button"

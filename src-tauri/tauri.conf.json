@@ -18,8 +18,7 @@
         "height": 540,
         "minWidth": 380,
         "minHeight": 440,
-        "decorations": false,
-        "dragDropEnabled": false
+        "decorations": false
       }
     ],
     "security": {

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { readinessOf } from "@/components/contexts/readiness";
 import { Icon } from "@/components/ui/Icon";
 import { DEFAULT_CONTEXT_ID, type SimConCategory, type SimConStatus, type SimConSummary } from "@/lib/ipc";
@@ -127,11 +126,15 @@ function RowMenu({
 }
 
 /**
- * The Contexts pane of the unified Contexts & Library page. Rows are drop
- * targets for a library row's drag payload (attach-by-drag); a Draft row
- * shows its readiness checklist inline so "why is Generate disabled" is
- * always visible. `onGenerate`/`onAttach` are async — the pane owns only the
- * per-row busy/drag-over UI state, not the mutation itself.
+ * The Contexts pane: create/edit/delete/generate. A Draft row shows its
+ * readiness checklist inline so "why is Generate disabled" is always
+ * visible. `onGenerate` is async — the pane owns only per-row busy UI
+ * state, not the mutation itself.
+ *
+ * Used to also be a drop target for a library row's drag payload
+ * (attach-by-drag) — retired (owner decision, 2026-08-16) in favor of a
+ * click-to-attach picker living on the Library row itself
+ * (`AttachMenu`/`LibraryPane`); see that file's doc comment for why.
  */
 export function ContextsPane({
   items,
@@ -141,26 +144,21 @@ export function ContextsPane({
   onOpen,
   onEdit,
   onDelete,
-  onAttach,
   onGenerate,
   generatingId,
 }: {
   items: SimConSummary[];
   selectedId: string | null;
-  /** Focus this context in the library pane (filter + attach target) — does
-   *  not navigate. */
+  /** Focus this context in the library pane (filter) — does not navigate. */
   onSelect: (id: string) => void;
   /** Drill into the context's detail (personas / rehearse). */
   onOpen: (id: string) => void;
   onNew: () => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
-  onAttach: (contextId: string, docId: string) => void;
   onGenerate: (contextId: string) => void;
   generatingId: string | null;
 }) {
-  const [dragOverId, setDragOverId] = useState<string | null>(null);
-
   return (
     <div className="card flex min-h-0 flex-col p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -190,46 +188,17 @@ export function ContextsPane({
           {items.map((s) => {
             const readiness = readinessOf(s);
             const isGenerating = generatingId === s.id;
-            const dragOver = dragOverId === s.id;
-            // The always-present default: not editable, deletable, or a drag
-            // target — system-managed until the community/LLM evolution owns it.
+            // The always-present default: not editable or deletable —
+            // system-managed until the community/LLM evolution owns it.
             const isDefault = s.id === DEFAULT_CONTEXT_ID;
             return (
               <li
                 key={s.id}
-                // preventDefault() unconditionally rather than gating on
-                // dataTransfer.types.includes(DOC_DRAG_MIME) first — some
-                // Chromium-embedding webviews don't reliably populate `types`
-                // for custom MIME types during dragover, only at drop, which
-                // would silently skip preventDefault() and block drop from
-                // ever firing (see AttachDropRow's doc comment). getData()
-                // on drop is still the real gate.
-                onDragEnter={(e) => {
-                  if (isDefault) return;
-                  e.preventDefault();
-                  setDragOverId(s.id);
-                }}
-                onDragOver={(e) => {
-                  if (isDefault) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "link";
-                  setDragOverId(s.id);
-                }}
-                onDragLeave={() => setDragOverId((id) => (id === s.id ? null : id))}
-                onDrop={(e) => {
-                  if (isDefault) return;
-                  e.preventDefault();
-                  setDragOverId(null);
-                  const docId = e.dataTransfer.getData(DOC_DRAG_MIME);
-                  if (docId) onAttach(s.id, docId);
-                }}
                 className={[
                   "mb-1.5 rounded-md border p-2 transition last:mb-0",
-                  dragOver
-                    ? "border-ai/60 bg-ai/[0.06]"
-                    : selectedId === s.id
-                      ? "border-primary/40 bg-primary/[0.06]"
-                      : "border-border",
+                  selectedId === s.id
+                    ? "border-primary/40 bg-primary/[0.06]"
+                    : "border-border",
                 ].join(" ")}
               >
                 <div className="flex items-center gap-1.5">
@@ -305,10 +274,6 @@ export function ContextsPane({
                       <ChecklistLine key={c.label} {...c} />
                     ))}
                   </div>
-                )}
-
-                {dragOver && (
-                  <p className="mt-1 text-[10px] font-semibold text-ai">Drop to attach</p>
                 )}
               </li>
             );

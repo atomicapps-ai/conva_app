@@ -87,15 +87,20 @@ swap a layer without asking the owner.**
    **degrades to BM25-only** when the embedder isn't ready — hybrid is an
    upgrade, never a hard dependency. Ingestion supports pdf/docx/md/txt/html
    plus pasted text (stored as `.txt`).
-8. **`dragDropEnabled: false` is required for intra-app HTML5 drag-and-drop.**
-   Tauri's window-level native drag-drop (on by default) intercepts drag
-   events at the OS/webview boundary, which silently breaks in-page
-   `draggable`/`dataTransfer` DnD (e.g. Library → Contexts attach) even
-   though the elements and handlers are all correct — nothing errors, drops
-   just never fire. OS file-drop-onto-window (Library's own file ingest)
-   doesn't need the native handler either — it already goes through
-   `getCurrentWebview().onDragDropEvent`, so disabling this in
-   `tauri.conf.json`'s window config doesn't cost anything.
+8. **No in-app HTML5 drag-and-drop (owner decision).** An attach-by-dragging
+   flow (Library row → Contexts row/chip) was tried and dropped — Tauri's
+   window-level native drag-drop (on by default) intercepts drag events at
+   the OS/webview boundary and silently breaks in-page `draggable`/
+   `dataTransfer` DnD (nothing errors, drops just never fire), and the usual
+   fix (`dragDropEnabled: false`) trades that away for something worse: it
+   also disables `getCurrentWebview().onDragDropEvent`, which is what
+   Library's own **OS file-drop-onto-window ingest** (drag files from
+   Explorer/Finder onto the app) actually depends on — a real, working
+   feature. Attach-a-document-to-a-context is a click-to-pick popover
+   instead (`AttachMenu` in `LibraryPane.tsx`) — same speed, none of the
+   above, and it works identically on a future mobile target where
+   drag-and-drop isn't a thing at all. Don't re-introduce `draggable`/
+   `dataTransfer` DnD without re-reading this.
 
 ## Build & run
 

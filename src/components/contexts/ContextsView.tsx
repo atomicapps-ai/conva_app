@@ -17,14 +17,10 @@ type Mode =
  * rail destination (V4.0 `conva_core/brand/UI/AppUI_V4.0` — the reference
  * nav lists them as two separate items; owner decision, 2026-08-16).
  *
- * The un-merge broke drag-and-drop attach (it used to be between the two
- * panes on one screen) — restored on the Library screen instead
- * (`AttachDropRow` in `LibraryView.tsx`), since that's the page with both a
- * drag source (each row) and something to drop onto (a context) in view at
- * once. `ContextsPane`'s own drop targets below are wired to the same real
- * mutation (`backend.rag.attachContext`) for correctness/forward-compat,
- * even though nothing on this screen currently drags — there's no document
- * list here to drag FROM.
+ * Attaching a library document to a context happens from the Library
+ * screen's own per-row picker (`AttachMenu`) — the un-merge's original
+ * drag-and-drop replacement, drag-and-drop itself, both got retired (owner
+ * decision, 2026-08-16); see `LibraryPane.tsx`'s doc comment for why.
  */
 export function ContextsView() {
   const backend = useBackend();
@@ -33,7 +29,6 @@ export function ContextsView() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     backend.simcon
@@ -96,19 +91,6 @@ export function ContextsView() {
     [backend, refresh],
   );
 
-  const attach = useCallback(
-    async (contextId: string, docId: string) => {
-      try {
-        await backend.rag.attachContext(docId, contextId);
-        setNotice("Attached.");
-        refresh();
-      } catch (e) {
-        setNotice(String(e));
-      }
-    },
-    [backend, refresh],
-  );
-
   if (mode.k === "setup") {
     return (
       <SimConSetup
@@ -138,7 +120,7 @@ export function ContextsView() {
       actions={
         error ? null : (
           <p className="text-[11px] text-fg-faint">
-            {notice ?? `${items.length} context${items.length === 1 ? "" : "s"}`}
+            {items.length} context{items.length === 1 ? "" : "s"}
           </p>
         )
       }
@@ -154,7 +136,6 @@ export function ContextsView() {
           onNew={() => setMode({ k: "setup", initial: null })}
           onEdit={(id) => void edit(id)}
           onDelete={(id) => void remove(id)}
-          onAttach={(contextId, docId) => void attach(contextId, docId)}
           onGenerate={(id) => void generate(id)}
           generatingId={generatingId}
         />
