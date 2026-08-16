@@ -155,25 +155,21 @@ export function SimConDetail({
       breadcrumb="Contexts"
       title={session?.title || "Sim Con"}
       subtitle={session?.purpose || "Rehearse a high-stakes call."}
+      onBack={onBack}
       actions={
-        <div className="flex items-center gap-1">
-          {/* The default context is system-managed — no Edit (matches the
-              same guard on its ContextsPane row). */}
-          {session && session.id !== DEFAULT_CONTEXT_ID && (
-            <button
-              type="button"
-              onClick={onEdit}
-              title="Edit setup"
-              aria-label="Edit setup"
-              className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-            >
-              <Icon name="edit" size={15} />
-            </button>
-          )}
-          <button type="button" className="btn" onClick={onBack}>
-            Back
+        // The default context is system-managed — no Edit (matches the
+        // same guard on its ContextsPane row).
+        session && session.id !== DEFAULT_CONTEXT_ID ? (
+          <button
+            type="button"
+            onClick={onEdit}
+            title="Edit setup"
+            aria-label="Edit setup"
+            className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+          >
+            <Icon name="edit" size={15} />
           </button>
-        </div>
+        ) : null
       }
     >
       {error && (

@@ -87,20 +87,22 @@ swap a layer without asking the owner.**
    **degrades to BM25-only** when the embedder isn't ready — hybrid is an
    upgrade, never a hard dependency. Ingestion supports pdf/docx/md/txt/html
    plus pasted text (stored as `.txt`).
-8. **No in-app HTML5 drag-and-drop (owner decision).** An attach-by-dragging
-   flow (Library row → Contexts row/chip) was tried and dropped — Tauri's
+8. **In-app HTML5 drag-and-drop (Library row → Contexts row) needs
+   `dragDropEnabled: false`, and that has a real, known cost.** Tauri's
    window-level native drag-drop (on by default) intercepts drag events at
    the OS/webview boundary and silently breaks in-page `draggable`/
-   `dataTransfer` DnD (nothing errors, drops just never fire), and the usual
-   fix (`dragDropEnabled: false`) trades that away for something worse: it
-   also disables `getCurrentWebview().onDragDropEvent`, which is what
-   Library's own **OS file-drop-onto-window ingest** (drag files from
-   Explorer/Finder onto the app) actually depends on — a real, working
-   feature. Attach-a-document-to-a-context is a click-to-pick popover
-   instead (`AttachMenu` in `LibraryPane.tsx`) — same speed, none of the
-   above, and it works identically on a future mobile target where
-   drag-and-drop isn't a thing at all. Don't re-introduce `draggable`/
-   `dataTransfer` DnD without re-reading this.
+   `dataTransfer` DnD (nothing errors, drops just never fire) — the fix is
+   `dragDropEnabled: false` in `tauri.conf.json`'s window config, currently
+   set. That setting **also disables `getCurrentWebview().onDragDropEvent`**,
+   which is what Library's own **OS file-drop-onto-window ingest** (drag
+   files from Explorer/Finder onto the app) depends on — a separate, real
+   feature that this trade-off puts at risk every time it's touched. This
+   went back and forth once already this session (dropped for a
+   click-to-pick popover, `AttachMenu` in `LibraryPane.tsx`, over exactly
+   this cost; reinstated per owner decision, 2026-08-16, wanting drag back
+   now that Library sits next to Contexts again). `AttachMenu` is still
+   there as the always-available fallback. If OS file-drop ingest ever
+   needs fixing, it's this setting first, not the ingest code.
 
 ## Build & run
 

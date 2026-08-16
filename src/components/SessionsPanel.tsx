@@ -58,6 +58,7 @@ export function SessionsPanel({ onClose }: { onClose: () => void }) {
       icon="sessions"
       title="Sessions"
       subtitle="Every listening run is saved automatically — reopen or export a transcript."
+      onBack={onClose}
       badge={
         viewing ? (
           <span className="rounded-full border border-ai/40 px-2 py-0.5 text-[10px] text-ai">
@@ -76,9 +77,6 @@ export function SessionsPanel({ onClose }: { onClose: () => void }) {
             className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
           >
             <Icon name="download" size={16} />
-          </button>
-          <button type="button" onClick={onClose} className="btn">
-            Done
           </button>
         </>
       }

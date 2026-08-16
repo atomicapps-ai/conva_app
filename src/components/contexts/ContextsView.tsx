@@ -108,12 +108,19 @@ export function ContextsView() {
     [backend, refresh],
   );
 
+  // Shared by attach and detach — either changes both a context's doc count
+  // (needs `refresh()`) and Library's own per-row context tags (needs
+  // `libraryRefreshToken` to bump, so LibraryPane re-fetches).
+  const bumpDocs = () => {
+    setLibraryRefreshToken((t) => t + 1);
+    refresh();
+  };
+
   const attach = async (docId: string, contextId: string) => {
     try {
       await backend.rag.attachContext(docId, contextId);
       setNotice(`Attached to "${contextTitles[contextId] ?? "context"}".`);
-      setLibraryRefreshToken((t) => t + 1);
-      refresh(); // a context's own doc count changed too
+      bumpDocs();
     } catch (e) {
       setNotice(String(e));
     }
@@ -166,7 +173,10 @@ export function ContextsView() {
             onEdit={(id) => void edit(id)}
             onDelete={(id) => void remove(id)}
             onGenerate={(id) => void generate(id)}
+            onAttach={(contextId, docId) => void attach(docId, contextId)}
+            onDocsChanged={bumpDocs}
             generatingId={generatingId}
+            refreshToken={libraryRefreshToken}
           />
           <LibraryPane
             contextTitles={contextTitles}

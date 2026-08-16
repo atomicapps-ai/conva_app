@@ -980,11 +980,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         icon="settings"
         title="Settings"
         subtitle="App settings arrive with the hosted backend."
-        actions={
-          <button type="button" onClick={onClose} className="btn">
-            Done
-          </button>
-        }
+        onBack={onClose}
       >
         <Section title="Settings">
           <Notice>
@@ -1012,11 +1008,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       icon="settings"
       title="Settings"
       subtitle="Devices, transcription, Ally providers, and portable config."
-      actions={
-        <button type="button" onClick={onClose} className="btn">
-          Done
-        </button>
-      }
+      onBack={onClose}
     >
       <Section
         title="Account"

@@ -1,7 +1,10 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ContextsPane } from "@/components/contexts/ContextsPane";
+import { BackendProvider } from "@/lib/backend";
+import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 import type { SimConSummary } from "@/lib/ipc";
 
 afterEach(cleanup);
@@ -25,9 +28,25 @@ function summary(overrides: Partial<SimConSummary> = {}): SimConSummary {
 
 const noop = () => undefined;
 
+// ContextsPane fetches the document list itself (to render each context's
+// expanded child-doc tree) — a bare-bones fake is enough for these tests,
+// none of which expand a row.
+function fakeBackend(): ConvaBackend {
+  return {
+    rag: {
+      list: vi.fn().mockResolvedValue([]),
+      detachContext: vi.fn().mockResolvedValue(undefined),
+    },
+  } as unknown as ConvaBackend;
+}
+
+function renderPane(ui: ReactElement) {
+  return render(<BackendProvider backend={fakeBackend()}>{ui}</BackendProvider>);
+}
+
 describe("ContextsPane", () => {
   it("disables Generate until the context has a grounding source, and shows why", () => {
-    render(
+    renderPane(
       <ContextsPane
         items={[summary()]}
         selectedId={null}
@@ -37,6 +56,7 @@ describe("ContextsPane", () => {
         onEdit={noop}
         onDelete={noop}
         onGenerate={noop}
+        onAttach={noop}
         generatingId={null}
       />,
     );
@@ -50,7 +70,7 @@ describe("ContextsPane", () => {
 
   it("enables Generate once key terms are declared, and calls onGenerate", () => {
     const onGenerate = vi.fn();
-    render(
+    renderPane(
       <ContextsPane
         items={[summary({ has_key_terms: true })]}
         selectedId={null}
@@ -60,6 +80,7 @@ describe("ContextsPane", () => {
         onEdit={noop}
         onDelete={noop}
         onGenerate={onGenerate}
+        onAttach={noop}
         generatingId={null}
       />,
     );
@@ -72,7 +93,7 @@ describe("ContextsPane", () => {
   });
 
   it("hides the Brief Ally button off-desktop (web has no Sim Con folder to write to)", () => {
-    render(
+    renderPane(
       <ContextsPane
         items={[]}
         selectedId={null}
@@ -82,6 +103,7 @@ describe("ContextsPane", () => {
         onEdit={noop}
         onDelete={noop}
         onGenerate={noop}
+        onAttach={noop}
         generatingId={null}
       />,
     );
@@ -92,7 +114,7 @@ describe("ContextsPane", () => {
   it("keeps Open + Generate inline and tucks Edit/Delete behind the ⋮ menu", () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
-    render(
+    renderPane(
       <ContextsPane
         items={[summary({ has_key_terms: true })]}
         selectedId={null}
@@ -102,6 +124,7 @@ describe("ContextsPane", () => {
         onEdit={onEdit}
         onDelete={onDelete}
         onGenerate={noop}
+        onAttach={noop}
         generatingId={null}
       />,
     );
@@ -119,7 +142,7 @@ describe("ContextsPane", () => {
   });
 
   it("Ready contexts don't show the checklist", () => {
-    render(
+    renderPane(
       <ContextsPane
         items={[summary({ status: "ready", has_key_terms: true })]}
         selectedId={null}
@@ -129,6 +152,7 @@ describe("ContextsPane", () => {
         onEdit={noop}
         onDelete={noop}
         onGenerate={noop}
+        onAttach={noop}
         generatingId={null}
       />,
     );

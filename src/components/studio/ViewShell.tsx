@@ -29,6 +29,7 @@ export function ViewShell({
   subtitle,
   badge,
   actions,
+  onBack,
   children,
   className = "",
   wide = false,
@@ -40,6 +41,11 @@ export function ViewShell({
   subtitle?: ReactNode;
   badge?: ReactNode;
   actions?: ReactNode;
+  /** A sub-view reached from somewhere (Sim Con setup/detail, Settings,
+   *  Sessions, Conversations) gets a back control HERE — top-left, next to
+   *  the icon chip — never in `actions` (top-right). Navigation controls and
+   *  page-specific actions are different zones; don't mix them. */
+  onBack?: () => void;
   children: ReactNode;
   className?: string;
   /** Drop the default `max-w-4xl` cap for multi-pane layouts (e.g. the
@@ -49,6 +55,17 @@ export function ViewShell({
   return (
     <section className={`flex h-full flex-col ${className}`}>
       <header className="flex shrink-0 items-center gap-3 px-6 py-4">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            title="Back"
+            aria-label="Back"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border-strong bg-bg-2 text-fg-muted transition hover:text-fg"
+          >
+            <Icon name="chevron" size={16} className="rotate-90" />
+          </button>
+        )}
         <span
           className="brand-ring flex h-9 w-9 items-center justify-center rounded-xl text-primary"
           aria-hidden

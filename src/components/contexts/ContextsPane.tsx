@@ -1,8 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { readinessOf } from "@/components/contexts/readiness";
 import { Icon } from "@/components/ui/Icon";
-import { DEFAULT_CONTEXT_ID, type SimConCategory, type SimConStatus, type SimConSummary } from "@/lib/ipc";
+import { useBackend } from "@/lib/backend";
+import {
+  DEFAULT_CONTEXT_ID,
+  type RagDocument,
+  type SimConCategory,
+  type SimConStatus,
+  type SimConSummary,
+} from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
 const CATEGORY_LABEL: Record<SimConCategory, string> = {
@@ -125,16 +133,60 @@ function RowMenu({
   );
 }
 
+/** One document nested under an expanded context — read-only aside from the
+ *  detach action. Ally-generated docs (the prep dossier, etc.) get a small
+ *  "conva" tag, same treatment as their Library row. */
+function ChildDocRow({
+  doc,
+  onDetach,
+}: {
+  doc: RagDocument;
+  onDetach: () => void;
+}) {
+  return (
+    <li className="group flex items-center gap-1.5 py-1 pl-1 text-[11.5px]">
+      <Icon
+        name={doc.source === "generated" ? "sparkle" : "file"}
+        size={12}
+        className={doc.source === "generated" ? "shrink-0 text-ai" : "shrink-0 text-fg-faint"}
+      />
+      <span className="min-w-0 flex-1 truncate text-fg-muted" title={doc.file_name}>
+        {doc.file_name}
+      </span>
+      {doc.source === "generated" && (
+        <span className="shrink-0 rounded-full bg-ai/10 px-1.5 py-0.5 text-[9px] font-semibold text-ai">
+          conva
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onDetach}
+        title={`Remove ${doc.file_name} from this context`}
+        aria-label={`Remove ${doc.file_name} from this context`}
+        className="shrink-0 rounded p-0.5 text-fg-faint opacity-0 transition hover:bg-rec/10 hover:text-rec group-hover:opacity-100"
+      >
+        <Icon name="close" size={11} />
+      </button>
+    </li>
+  );
+}
+
 /**
- * The Contexts pane: create/edit/delete/generate. A Draft row shows its
- * readiness checklist inline so "why is Generate disabled" is always
- * visible. `onGenerate` is async — the pane owns only per-row busy UI
- * state, not the mutation itself.
+ * The Contexts pane: create/edit/delete/generate, each row expandable to
+ * show the documents grounding it (including anything Ally generated) —
+ * and a drop target for a Library row's drag payload, so dragging a
+ * document from the Library pane onto a context attaches it (owner
+ * decision, 2026-08-16, reinstating drag-and-drop after Library moved back
+ * onto this same screen — `AttachMenu`'s click-to-pick popover on the
+ * Library row still works too; this is an additional, faster path now that
+ * both panes are visible together again, not a replacement for it).
  *
- * Used to also be a drop target for a library row's drag payload
- * (attach-by-drag) — retired (owner decision, 2026-08-16) in favor of a
- * click-to-attach picker living on the Library row itself
- * (`AttachMenu`/`LibraryPane`); see that file's doc comment for why.
+ * `onDragOver`/`onDragEnter` call `preventDefault()` unconditionally rather
+ * than gating on `dataTransfer.types.includes(DOC_DRAG_MIME)` first — some
+ * Chromium-embedding webviews don't reliably populate `types` for custom
+ * MIME types during `dragover`, only at `drop`; gating on it can silently
+ * skip `preventDefault()` and block `drop` from ever firing. `getData()` on
+ * drop is still the real gate.
  */
 export function ContextsPane({
   items,
@@ -145,7 +197,10 @@ export function ContextsPane({
   onEdit,
   onDelete,
   onGenerate,
+  onAttach,
+  onDocsChanged,
   generatingId,
+  refreshToken,
 }: {
   items: SimConSummary[];
   selectedId: string | null;
@@ -157,8 +212,44 @@ export function ContextsPane({
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
   onGenerate: (contextId: string) => void;
+  /** Attach `docId` to `contextId` — dropped from the Library pane. */
+  onAttach: (contextId: string, docId: string) => void;
+  /** A detach here changed the doc's context tags — let the caller refresh
+   *  the Library pane too (it holds its own, separate copy of the list). */
+  onDocsChanged?: () => void;
   generatingId: string | null;
+  /** Bump this to re-fetch the child-doc list (e.g. after an attach). */
+  refreshToken?: number;
 }) {
+  const backend = useBackend();
+  const [docs, setDocs] = useState<RagDocument[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const refreshDocs = useCallback(() => {
+    backend.rag.list().then(setDocs).catch(() => {});
+  }, [backend]);
+
+  useEffect(() => {
+    refreshDocs();
+  }, [refreshDocs, refreshToken]);
+
+  const toggleExpand = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const detach = (docId: string, contextId: string) => {
+    void backend.rag.detachContext(docId, contextId).then(() => {
+      refreshDocs();
+      onDocsChanged?.();
+    });
+  };
+
   return (
     <div className="card flex min-h-0 flex-col p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -191,17 +282,55 @@ export function ContextsPane({
             // The always-present default: not editable or deletable —
             // system-managed until the community/LLM evolution owns it.
             const isDefault = s.id === DEFAULT_CONTEXT_ID;
+            const isOpen = expanded.has(s.id);
+            const dragOver = dragOverId === s.id;
+            const children = docs.filter((d) => d.context_ids.includes(s.id));
             return (
               <li
                 key={s.id}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  setDragOverId(s.id);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "link";
+                  setDragOverId(s.id);
+                }}
+                onDragLeave={() => setDragOverId((id) => (id === s.id ? null : id))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOverId(null);
+                  const docId = e.dataTransfer.getData(DOC_DRAG_MIME);
+                  if (docId) {
+                    onAttach(s.id, docId);
+                    setExpanded((prev) => new Set(prev).add(s.id));
+                  }
+                }}
                 className={[
                   "mb-1.5 rounded-md border p-2 transition last:mb-0",
-                  selectedId === s.id
-                    ? "border-primary/40 bg-primary/[0.06]"
-                    : "border-border",
+                  dragOver
+                    ? "border-ai/60 bg-ai/[0.06]"
+                    : selectedId === s.id
+                      ? "border-primary/40 bg-primary/[0.06]"
+                      : "border-border",
                 ].join(" ")}
               >
                 <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(s.id)}
+                    aria-expanded={isOpen}
+                    aria-label={isOpen ? `Collapse ${s.title}` : `Expand ${s.title}`}
+                    title={isOpen ? "Hide documents" : "Show documents"}
+                    className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                  >
+                    <Icon
+                      name="chevron"
+                      size={13}
+                      className={isOpen ? "" : "-rotate-90"}
+                    />
+                  </button>
                   <button
                     type="button"
                     onClick={() => onSelect(s.id)}
@@ -235,7 +364,7 @@ export function ContextsPane({
                   </span>
                 </div>
 
-                <div className="mt-1.5 flex items-center gap-2">
+                <div className="mt-1.5 flex items-center gap-2 pl-5">
                   <span className="text-[11px] text-fg-faint">
                     {s.source_doc_count} doc{s.source_doc_count === 1 ? "" : "s"}
                     {s.has_generated_resources ? " · generated" : ""}
@@ -267,6 +396,22 @@ export function ContextsPane({
                     </>
                   )}
                 </div>
+
+                {isOpen && (
+                  <ul className="ml-5 mt-1 flex flex-col divide-y divide-border border-l border-border pl-2">
+                    {children.length === 0 ? (
+                      <li className="py-1 pl-1 text-[11px] text-fg-faint">
+                        {dragOver
+                          ? "Drop to attach"
+                          : "No documents yet — drag one from the library, or use its Attach button."}
+                      </li>
+                    ) : (
+                      children.map((d) => (
+                        <ChildDocRow key={d.id} doc={d} onDetach={() => detach(d.id, s.id)} />
+                      ))
+                    )}
+                  </ul>
+                )}
 
                 {s.status === "draft" && (
                   <div className="mt-1.5 flex flex-col gap-0.5 border-t border-border pt-1.5">

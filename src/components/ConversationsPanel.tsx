@@ -62,6 +62,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
       icon="conversations"
       title="Conversations"
       subtitle="Named threads you can reopen and continue — new listening runs append to the open one."
+      onBack={onClose}
       badge={
         openId ? (
           <span className="max-w-[14rem] truncate rounded-full border border-ai/40 px-2 py-0.5 text-[10px] text-ai">
@@ -91,9 +92,6 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
             className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
           >
             <Icon name="add" size={16} />
-          </button>
-          <button type="button" onClick={onClose} className="btn">
-            Done
           </button>
         </>
       }

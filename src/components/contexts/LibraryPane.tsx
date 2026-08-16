@@ -7,6 +7,11 @@ import { isTauri } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
 
 const SUPPORTED = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
+/** The custom drag payload MIME a library row carries — read by ContextsPane
+ * rows to attach the dragged document. Reinstated (owner decision,
+ * 2026-08-16) now that Library sits next to Contexts on one screen again —
+ * `AttachMenu` below is still there as the click alternative. */
+export const DOC_DRAG_MIME = "application/x-conva-doc-id";
 
 /** Default title for a pasted note (owner spec): words + numbers only — no
  *  punctuation/symbols — spaces replaced with underscores, capped at the
@@ -131,19 +136,17 @@ function AttachMenu({
 }
 
 /**
- * The Library pane: search + filter chips, add/paste documents, and a
- * simple per-row "attach to a context" picker (`AttachMenu`) — owner
- * decision, 2026-08-16, replacing an earlier native HTML5 drag-and-drop
- * attempt (row → context row/chip). That approach hit real, hard-to-verify
- * webview drag-and-drop gaps (Tauri's window-level native drag interception
- * plus a Chromium/WebView2 quirk around custom MIME types during
- * `dragover`) that were slow to diagnose blind and, per the owner, not
- * worth it: "drag and drop... should be easy and intuitive... we don't
- * have to allow any" — a click-to-attach popover is exactly as fast, has
- * none of those failure modes, and works the same on every platform this
- * app targets (including a future mobile companion, where drag-and-drop
- * isn't a thing at all). `contextTitles` (id → title) drives both the
- * picker and a doc's own context-tag label.
+ * The Library pane: search + filter chips, add/paste documents, each row a
+ * drag SOURCE (`DOC_DRAG_MIME`) for dropping onto a context in
+ * `ContextsPane`, plus a click-to-pick popover (`AttachMenu`) as the
+ * always-available alternative — dragging a webview element can fail in
+ * ways that are hard to diagnose remotely (this pairing was dropped once
+ * this session over exactly that, then reinstated per owner decision,
+ * 2026-08-16, now that Library sits next to Contexts on one screen again).
+ * Requires `dragDropEnabled: false` on the window (`tauri.conf.json`) —
+ * see that file and CLAUDE.md's drag-and-drop note for the real trade-off
+ * this carries for Library's own OS file-drop ingest. `contextTitles`
+ * (id → title) drives both the picker and a doc's own context-tag label.
  */
 export function LibraryPane({
   contextTitles,
@@ -481,8 +484,16 @@ export function LibraryPane({
               return (
               <li
                 key={doc.id}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(DOC_DRAG_MIME, doc.id);
+                  e.dataTransfer.effectAllowed = "link";
+                }}
                 className="flex items-center gap-1.5 border-b border-border py-1.5 text-[12px] last:border-0"
               >
+                <span className="shrink-0 cursor-grab text-fg-faint" aria-hidden>
+                  <Icon name="dragHandle" size={13} />
+                </span>
                 <input
                   type="checkbox"
                   checked={doc.enabled}
