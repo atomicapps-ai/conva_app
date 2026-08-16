@@ -175,17 +175,6 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
           <Icon name="search" size={19} />
         </RailButton>
 
-        {/* Floating HUD panel — always-on-top, non-activating overlay. */}
-        <RailButton
-          label="Floating HUD"
-          compact={compact}
-          onClick={() => {
-            if (isTauri()) void backend.hud.toggle().catch(() => {});
-          }}
-        >
-          <Icon name="expand" size={18} />
-        </RailButton>
-
         {/* Home — V4.0's rail has no full-width Home row; this small icon
             (plus the WindowChrome mark) is the way back instead. */}
         <RailButton

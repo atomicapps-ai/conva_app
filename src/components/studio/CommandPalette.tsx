@@ -57,6 +57,9 @@ export function CommandPalette() {
       go("sessions", "Go to History", "sessions"),
       go("conversations", "Go to Conversations", "conversations"),
       go("settings", "Go to Settings", "settings"),
+      // Off the rail (owner decision, 2026-08-16 — see navItems.ts) but still
+      // real views; keep them one keystroke away via the palette.
+      go("about", "Go to About & extras", "sparkle"),
     ];
     if (!isTauri()) return nav;
 

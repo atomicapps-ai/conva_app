@@ -1,3 +1,4 @@
+import { AboutMoreView } from "@/components/about/AboutMoreView";
 import { AllyView } from "@/components/ally/AllyView";
 import { ConversationsPanel } from "@/components/ConversationsPanel";
 import { ContextsView } from "@/components/contexts/ContextsView";
@@ -39,6 +40,7 @@ export function ViewRouter() {
       {view === "library" && <LibraryView />}
       {view === "ally" && <AllyView />}
       {view === "rehearsal" && <RehearsalView />}
+      {view === "about" && <AboutMoreView />}
     </>
   );
 }
