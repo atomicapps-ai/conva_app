@@ -53,7 +53,8 @@ export type IconName =
   | "link"
   | "home"
   | "ally"
-  | "rehearsal";
+  | "rehearsal"
+  | "pause";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -154,6 +155,13 @@ const PATHS: Record<IconName, ReactNode> = {
     </>
   ),
   record: <circle cx="12" cy="12" r="5" fill="currentColor" stroke="none" />,
+  // Pause — two bars (V4.0 control bar; not yet wired to a backend command).
+  pause: (
+    <>
+      <path d="M9 6v12" />
+      <path d="M15 6v12" />
+    </>
+  ),
   // Compact — a docked right panel.
   compact: (
     <>

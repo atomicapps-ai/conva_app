@@ -20,7 +20,7 @@ export type NavItem = {
  * product/marketing pages — appended after it rather than dropped (owner
  * decision, 2026-08-16). "dashboard" (Home) is filtered OUT of the desktop
  * rail specifically in NavRail.tsx — the mockup has no Home row there, only
- * the TopBar wordmark + a small icon above the account block — but stays
+ * the WindowChrome mark + a small icon above the account block — but stays
  * here so WebTopNav (no equivalent rail-bottom shortcut) still shows it.
  */
 export const NAV_ITEMS: NavItem[] = [

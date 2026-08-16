@@ -8,9 +8,11 @@ import {
   type ReactNode,
 } from "react";
 
+import { LiveControlBar } from "@/components/studio/LiveControlBar";
+import { LiveTopBar } from "@/components/studio/LiveTopBar";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
-import type { AllyKind, TranscriptSegment } from "@/lib/ipc";
+import type { AllyKind, AudioLevelEvent, TranscriptSegment } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
@@ -30,6 +32,36 @@ function formatMs(ms: number): string {
   const s = total % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
+/** dBFS [-60,0] → 0..1. */
+function levelUnit(level: AudioLevelEvent | null): number {
+  if (!level) return 0;
+  return Math.max(0, Math.min(1, (level.rms_dbfs + 60) / 60));
+}
+
+/** Tiny live level meter — moved here from the now-removed global `TopBar`
+ *  (V4.0's `chanhead` puts Them/You meters in the transcript header itself,
+ *  not a separate global strip). */
+function Bars({ level, color }: { level: AudioLevelEvent | null; color: string }) {
+  const u = levelUnit(level);
+  const shape = [0.5, 0.8, 1, 0.75, 0.55];
+  const H = 14;
+  return (
+    <span className="flex h-[14px] items-end gap-[2px]" aria-hidden>
+      {shape.map((k, i) => (
+        <span
+          key={i}
+          className="w-[2px] rounded-full transition-[height,opacity] duration-100 ease-out"
+          style={{
+            height: `${Math.max(2, u * k * H)}px`,
+            background: color,
+            opacity: 0.3 + u * 0.7,
+          }}
+        />
+      ))}
+    </span>
+  );
 }
 
 function researchPrompt(text: string): string {
@@ -1233,20 +1265,21 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
  * clicking brings the pair into view. Everything collapses; new lines never
  * yank the view. Compact mode keeps the single merged feed.
  *
- * Breadcrumb-header audit (V4.0): every other routed view composes
- * `ViewShell`, which gives it a `breadcrumb › title` crown per the app-UI
- * brief's "always" rule (§4.1). This is the one deliberate exception — Live
- * renders straight into its two/three-column layout with no crown above it.
- * ViewShell's own crown costs ~64-68px of vertical height, taken directly
- * from the transcript; §4.3 says "never shrink the transcript first" and §8
- * locks this surface as the one everything else modernizes *around*. TopBar
- * (always visible one strip up, mounted by StudioShell for every view) plus
- * the nav rail's active-row highlight already tell you you're on Live
- * without spending any of this view's own height on it — so the omission is
- * a deliberate trade, not an oversight.
+ * Breadcrumb-header audit (V4.0 full rebuild): every other routed view
+ * composes `ViewShell`, which gives it a `breadcrumb › title` crown per the
+ * app-UI brief's "always" rule (§4.1). Live used to be the one deliberate
+ * exception (ViewShell's crown cost ~64-68px taken from the transcript,
+ * and §4.3/§8 said never shrink the transcript first). The mockup's own
+ * Live cockpit *does* carry a crown though (`Contexts › Amazon Interview`),
+ * so that exception is retired: `LiveTopBar` gives Live its own lighter
+ * crown (no scrolling-body wrapper, just the header row) and `LiveControlBar`
+ * replaces the Start/Stop/Record cluster that used to live in the now-
+ * removed global `TopBar` — see both files for the mockup mapping and the
+ * gaps found along the way (Pause/mic-mute/Ally-mute have no backend yet).
  */
 export function TranscriptView() {
   const liveSegments = useTranscriptStore((s) => s.segments);
+  const levels = useTranscriptStore((s) => s.levels);
   const archived = useTranscriptStore((s) => s.archived);
   const compact = useAppStore((s) => s.compact);
   const cards = useAllyStore((s) => s.cards);
@@ -1657,7 +1690,18 @@ export function TranscriptView() {
     setMenu({ x: e.clientX, y: e.clientY, items });
   };
 
-  if (compact) return <CompactFeed segments={merged} />;
+  // Compact mode shrinks the window to a narrow strip — skip the crown
+  // (decorative context name) but keep the control bar, since Start/Stop/
+  // End-&-summarise used to be reachable here via the (now-removed) global
+  // TopBar and must stay reachable.
+  if (compact) {
+    return (
+      <div className="flex h-full flex-col">
+        <CompactFeed segments={merged} />
+        <LiveControlBar />
+      </div>
+    );
+  }
 
   const activeNode = active
     ? nodes.find((n) => n.cardId === active.cardId)
@@ -1727,12 +1771,14 @@ export function TranscriptView() {
       : "";
 
   return (
-    <main
-      ref={containerRef}
-      className={`relative flex h-full min-h-0 min-w-0 flex-1${
-        dragging ? " cursor-col-resize select-none" : ""
-      }`}
-    >
+    <div className="flex h-full min-h-0 flex-col">
+      <LiveTopBar />
+      <main
+        ref={containerRef}
+        className={`relative flex min-h-0 min-w-0 flex-1${
+          dragging ? " cursor-col-resize select-none" : ""
+        }`}
+      >
       {/* Transcript — left (flexes proportionally with the Ally column) */}
       <section
         data-col="transcript"
@@ -1746,10 +1792,12 @@ export function TranscriptView() {
           <span className="flex items-center gap-1.5 text-[11px] font-semibold text-inbound">
             <span className="h-[7px] w-[7px] rounded-full bg-inbound" />
             Them
+            {isTauri() && <Bars level={levels.inbound} color="var(--color-inbound)" />}
           </span>
           <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--voice-you-text)]">
             <span className="h-[7px] w-[7px] rounded-full bg-outbound" />
             You
+            {isTauri() && <Bars level={levels.outbound} color="var(--color-outbound)" />}
           </span>
           <div className="ml-auto flex items-center gap-1 text-fg-faint">
             {drawer && (
@@ -2311,6 +2359,8 @@ export function TranscriptView() {
       </div>
 
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
-    </main>
+      </main>
+      <LiveControlBar />
+    </div>
   );
 }

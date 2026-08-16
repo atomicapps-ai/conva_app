@@ -22,7 +22,7 @@ import { useNavStore } from "@/state/nav";
 
 /** The shared nav list resolved for THIS platform (base rows + desktop rows).
  *  "dashboard" is deliberately excluded here — V4.0's rail has no Home row;
- *  the way back to it is the TopBar wordmark + the small icon above the
+ *  the way back to it is the WindowChrome mark + the small icon above the
  *  account block below. WebTopNav still shows Home normally (it has no
  *  equivalent bottom-of-rail utility cluster to hang a shortcut off of). */
 const RAIL_ITEMS = NAV_ITEMS.filter(
@@ -187,7 +187,7 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
         </RailButton>
 
         {/* Home — V4.0's rail has no full-width Home row; this small icon
-            (plus the TopBar wordmark) is the way back instead. */}
+            (plus the WindowChrome mark) is the way back instead. */}
         <RailButton
           label="Home"
           active={view === "dashboard"}

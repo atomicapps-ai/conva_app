@@ -7,7 +7,6 @@ import { SaveConversationDialog } from "@/components/SaveConversationDialog";
 import { CommandPalette } from "@/components/studio/CommandPalette";
 import { NavRail } from "@/components/studio/NavRail";
 import { StatusBar } from "@/components/studio/StatusBar";
-import { TopBar } from "@/components/studio/TopBar";
 import { ViewRouter } from "@/components/studio/ViewRouter";
 import { WindowChrome } from "@/components/studio/WindowChrome";
 import { Icon } from "@/components/ui/Icon";
@@ -16,10 +15,14 @@ import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
 
 /**
- * The DESKTOP shell (UI overhaul M2): a left NavRail selecting the active view,
- * a curved TopBar carrying the Core + Start/Stop control, and a routed content
- * area (ViewRouter). Web uses a separate WebShell over the same views. ⌘K opens
- * the command palette from anywhere.
+ * The DESKTOP shell (V4.0 full rebuild): a left NavRail selecting the active
+ * view, and a routed content area (ViewRouter). There is no global per-view
+ * strip anymore — the mockup doesn't have one; each view owns its own crown
+ * (`ViewShell`'s breadcrumb/title for most views, `LiveTopBar` +
+ * `LiveControlBar` for Live specifically, which is also where Start/Stop
+ * live now — see the note at the top of `TranscriptView.tsx`). Web uses a
+ * separate WebShell over the same views. ⌘K opens the command palette from
+ * anywhere.
  */
 export function StudioShell() {
   const togglePalette = useNavStore((s) => s.togglePalette);
@@ -70,7 +73,6 @@ export function StudioShell() {
       <div ref={shellRef} className="flex min-h-0 flex-1 gap-1 p-1">
         <NavRail narrow={narrow} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <TopBar />
           <main className="min-h-0 flex-1 overflow-hidden">
             <ViewRouter />
           </main>

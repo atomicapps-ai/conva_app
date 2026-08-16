@@ -5,6 +5,7 @@ import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import { Icon } from "@/components/ui/Icon";
 import { isTauri } from "@/lib/ipc";
 import { useElapsed } from "@/lib/useElapsed";
+import { useNavStore } from "@/state/nav";
 import { useTranscriptStore } from "@/state/transcript";
 
 /**
@@ -21,6 +22,7 @@ import { useTranscriptStore } from "@/state/transcript";
  * in Tauri; the region only captures drags that start on empty background.
  */
 export function WindowChrome() {
+  const setView = useNavStore((s) => s.setView);
   const session = useTranscriptStore((s) => s.session);
   const listening = session.state === "listening";
   const elapsed = useElapsed(listening);
@@ -60,16 +62,27 @@ export function WindowChrome() {
       data-tauri-drag-region
       className="flex h-8 shrink-0 select-none items-center gap-2.5 border-b border-border bg-bg-2 pl-3"
     >
-      <img
-        src={mark}
-        alt=""
-        draggable={false}
-        className="h-4 w-4 opacity-90"
-        aria-hidden
-      />
-      <span className="font-mono text-[11px] font-bold tracking-[0.14em] text-fg-faint">
-        CONVA
-      </span>
+      {/* Click → home. This used to live on the (now-removed) global
+          TopBar's wordmark — moved here so "click the mark to go home"
+          keeps working now that TopBar is gone. */}
+      <button
+        type="button"
+        onClick={() => setView("dashboard")}
+        title="conva — go home"
+        aria-label="Go home"
+        className="flex items-center gap-2.5 rounded transition hover:opacity-80"
+      >
+        <img
+          src={mark}
+          alt=""
+          draggable={false}
+          className="h-4 w-4 opacity-90"
+          aria-hidden
+        />
+        <span className="font-mono text-[11px] font-bold tracking-[0.14em] text-fg-faint">
+          CONVA
+        </span>
+      </button>
 
       {listening && (
         <span className="flex items-center gap-1.5 rounded-full border border-rec/40 bg-rec/10 px-2 py-0.5 text-[10.5px] font-bold text-rec">
