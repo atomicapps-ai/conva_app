@@ -211,7 +211,7 @@ export function CommandPalette() {
                 <Icon
                   name={cmd.icon}
                   size={17}
-                  className={i === active ? "text-inbound" : "text-fg-faint"}
+                  className={i === active ? "text-primary" : "text-fg-faint"}
                 />
                 <span className="flex-1">{cmd.label}</span>
                 {cmd.hint && (

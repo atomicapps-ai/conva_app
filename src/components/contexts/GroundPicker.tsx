@@ -248,7 +248,7 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
   return (
     <>
       {activeTitle ? (
-        <div className="flex shrink-0 items-center gap-1 rounded-[4px] border border-outbound/40 bg-outbound/[0.08] pl-2.5 pr-1 text-xs">
+        <div className="flex shrink-0 items-center gap-1 rounded-[4px] border border-primary/40 bg-primary/[0.08] pl-2.5 pr-1 text-xs">
           <button
             type="button"
             onClick={openPicker}
@@ -256,7 +256,7 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
             title={disabled ? "Stop listening to change this" : "Change what Ally is grounded on"}
             className="flex h-[26px] items-center gap-1.5 font-semibold text-fg disabled:cursor-not-allowed"
           >
-            <Icon name="simicon" size={13} className="text-outbound" />
+            <Icon name="simicon" size={13} className="text-primary" />
             <span className="max-w-[160px] truncate">{activeTitle}</span>
           </button>
           {activeId !== DEFAULT_CONTEXT_ID && (

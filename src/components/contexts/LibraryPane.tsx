@@ -271,7 +271,7 @@ export function LibraryPane({
               className={[
                 "rounded-full border px-2 py-0.5 text-[11px] transition disabled:opacity-40",
                 filter === f.key
-                  ? "border-outbound/50 bg-outbound/[0.12] text-fg"
+                  ? "border-primary/50 bg-primary/[0.12] text-fg"
                   : "border-border text-fg-faint hover:text-fg",
               ].join(" ")}
             >

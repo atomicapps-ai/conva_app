@@ -249,7 +249,7 @@ export function TopBar() {
                 </>
               ) : (
                 <>
-                  <Icon name="live" size={15} className="text-inbound" />
+                  <Icon name="live" size={15} className="text-ok" />
                   {preparing ? (
                     "Preparing…"
                   ) : (

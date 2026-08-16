@@ -50,7 +50,7 @@ export function ViewShell({
     <section className={`flex h-full flex-col ${className}`}>
       <header className="flex shrink-0 items-center gap-3 px-6 py-4">
         <span
-          className="brand-ring flex h-9 w-9 items-center justify-center rounded-xl text-inbound"
+          className="brand-ring flex h-9 w-9 items-center justify-center rounded-xl text-primary"
           aria-hidden
         >
           <Icon name={icon} size={19} />

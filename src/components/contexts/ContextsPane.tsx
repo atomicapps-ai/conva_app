@@ -23,9 +23,9 @@ const STATUS_LABEL: Record<SimConStatus, string> = {
 
 const STATUS_TONE: Record<SimConStatus, string> = {
   draft: "border-border-strong text-fg-faint",
-  ingesting: "border-outbound/50 bg-outbound/[0.12] text-fg",
+  ingesting: "border-primary/50 bg-primary/[0.12] text-fg",
   ready: "border-ok/50 bg-ok/10 text-ok",
-  running: "border-outbound/50 bg-outbound/[0.12] text-fg",
+  running: "border-primary/50 bg-primary/[0.12] text-fg",
   ended: "border-border text-fg-faint",
 };
 
@@ -217,7 +217,7 @@ export function ContextsPane({
                   dragOver
                     ? "border-ai/60 bg-ai/[0.06]"
                     : selectedId === s.id
-                      ? "border-outbound/40 bg-outbound/[0.06]"
+                      ? "border-primary/40 bg-primary/[0.06]"
                       : "border-border",
                 ].join(" ")}
               >
@@ -240,7 +240,7 @@ export function ContextsPane({
                     <Icon name="chevron" size={13} className="-rotate-90" />
                   </button>
                   {isDefault ? (
-                    <span className="shrink-0 rounded-full border border-outbound/40 bg-outbound/[0.1] px-1.5 py-0.5 text-[10px] text-outbound">
+                    <span className="shrink-0 rounded-full border border-primary/40 bg-primary/[0.1] px-1.5 py-0.5 text-[10px] text-primary">
                       Default
                     </span>
                   ) : (

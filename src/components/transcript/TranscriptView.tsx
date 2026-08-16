@@ -1904,7 +1904,7 @@ export function TranscriptView() {
             <span className="h-[7px] w-[7px] rounded-full bg-rec" />
             <span className="font-bold">{newCount > 0 ? `${newCount} new` : "Live"}</span>
             <span className="h-3.5 w-px bg-border-strong" />
-            <span className="font-semibold text-inbound">Jump to live</span>
+            <span className="font-semibold text-primary">Jump to live</span>
           </button>
         )}
 

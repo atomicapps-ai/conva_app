@@ -24,7 +24,7 @@ export function FeaturesView() {
             >
               <div className="flex items-center gap-2.5">
                 <span
-                  className="brand-ring flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-inbound"
+                  className="brand-ring flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary"
                   aria-hidden
                 >
                   <Icon name={f.icon} size={17} />

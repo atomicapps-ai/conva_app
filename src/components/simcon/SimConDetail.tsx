@@ -210,7 +210,7 @@ export function SimConDetail({
                     key={p.id}
                     className={`rounded border p-3 transition ${
                       isChosen
-                        ? "border-outbound/50 bg-outbound/[0.08]"
+                        ? "border-primary/50 bg-primary/[0.08]"
                         : "border-border"
                     }`}
                   >
