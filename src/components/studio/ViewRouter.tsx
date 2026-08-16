@@ -2,7 +2,6 @@ import { AboutMoreView } from "@/components/about/AboutMoreView";
 import { AllyView } from "@/components/ally/AllyView";
 import { ConversationsPanel } from "@/components/ConversationsPanel";
 import { ContextsView } from "@/components/contexts/ContextsView";
-import { LibraryView } from "@/components/contexts/LibraryView";
 import { DashboardView } from "@/components/dashboard/DashboardView";
 import { FeaturesView } from "@/components/product/FeaturesView";
 import { WhatsComingView } from "@/components/product/WhatsComingView";
@@ -37,7 +36,6 @@ export function ViewRouter() {
       {view === "sessions" && <SessionsPanel onClose={backToLive} />}
       {view === "conversations" && <ConversationsPanel onClose={backToLive} />}
       {view === "simcon" && <ContextsView />}
-      {view === "library" && <LibraryView />}
       {view === "ally" && <AllyView />}
       {view === "rehearsal" && <RehearsalView />}
       {view === "about" && <AboutMoreView />}

@@ -149,6 +149,7 @@ export function LibraryPane({
   contextTitles,
   onAttach,
   refreshToken,
+  quickAction,
 }: {
   contextTitles: Record<string, string>;
   /** Attach `docId` to `contextId` — the real mutation
@@ -156,6 +157,10 @@ export function LibraryPane({
   onAttach: (docId: string, contextId: string) => void;
   /** Bump this to force a refresh from outside (e.g. after generating). */
   refreshToken?: number;
+  /** One-shot: open the file picker or the paste box on mount — driven by
+   *  ⌘K's quick-add commands (`useLibraryQuickAdd`), consumed by the
+   *  caller before it ever reaches here, so this only ever fires once. */
+  quickAction?: "upload" | "paste" | null;
 }) {
   const backend = useBackend();
   const [documents, setDocuments] = useState<RagDocument[]>([]);
@@ -251,6 +256,16 @@ export function LibraryPane({
     });
     if (picked) void ingest(Array.isArray(picked) ? picked : [picked]);
   };
+
+  // Quick-add, run once on mount (see the prop doc comment above).
+  useEffect(() => {
+    if (quickAction === "upload" && isTauri()) void pickFiles();
+    else if (quickAction === "paste") {
+      setPasteOpen(true);
+      setNotice(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickAction]);
 
   const readClipboard = async () => {
     try {

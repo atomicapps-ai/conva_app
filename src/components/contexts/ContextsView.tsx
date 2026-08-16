@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ContextsPane } from "@/components/contexts/ContextsPane";
+import { LibraryPane } from "@/components/contexts/LibraryPane";
 import { SimConDetail } from "@/components/simcon/SimConDetail";
 import { SimConSetup } from "@/components/simcon/SimConSetup";
 import { ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
 import { DEFAULT_CONTEXT_ID, type SimConSession, type SimConSummary } from "@/lib/ipc";
+import { useLibraryQuickAdd } from "@/state/libraryQuickAdd";
 
 type Mode =
   | { k: "list" }
@@ -13,22 +15,37 @@ type Mode =
   | { k: "detail"; id: string };
 
 /**
- * The Conversation Contexts page. Un-merged from Library back into its own
- * rail destination (V4.0 `conva_core/brand/UI/AppUI_V4.0` — the reference
- * nav lists them as two separate items; owner decision, 2026-08-16).
+ * The Conversation Contexts page — Contexts and Library on one screen
+ * (owner decision, 2026-08-16, reversing an earlier same-day un-merge):
+ * "do not have library separate... make it part of conversation [Contexts]."
+ * `LibraryPane` sits alongside `ContextsPane`; attaching a document to a
+ * context is still the click-to-pick popover (`AttachMenu`), not
+ * drag-and-drop — that call stands regardless of the two panes being back
+ * on one screen (see `LibraryPane.tsx`'s doc comment for the full why).
  *
- * Attaching a library document to a context happens from the Library
- * screen's own per-row picker (`AttachMenu`) — the un-merge's original
- * drag-and-drop replacement, drag-and-drop itself, both got retired (owner
- * decision, 2026-08-16); see `LibraryPane.tsx`'s doc comment for why.
+ * Quick-add: ⌘K's "Add a document…" / "Paste a note…" / "New context…"
+ * commands (`CommandPalette.tsx`) set an intent in `useLibraryQuickAdd` and
+ * navigate here; consumed once on mount below, so a document/paste/context
+ * flow is reachable from anywhere in the app, not just once you're already
+ * on this screen.
  */
 export function ContextsView() {
   const backend = useBackend();
   const [items, setItems] = useState<SimConSummary[]>([]);
-  const [mode, setMode] = useState<Mode>({ k: "list" });
+  const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
+  const [quickAction] = useState(() => useLibraryQuickAdd.getState().consume());
+  const [mode, setMode] = useState<Mode>(
+    quickAction === "new_context" ? { k: "setup", initial: null } : { k: "list" },
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const contextTitles = useMemo(
+    () => Object.fromEntries(items.map((s) => [s.id, s.title])),
+    [items],
+  );
 
   const refresh = useCallback(() => {
     backend.simcon
@@ -91,6 +108,17 @@ export function ContextsView() {
     [backend, refresh],
   );
 
+  const attach = async (docId: string, contextId: string) => {
+    try {
+      await backend.rag.attachContext(docId, contextId);
+      setNotice(`Attached to "${contextTitles[contextId] ?? "context"}".`);
+      setLibraryRefreshToken((t) => t + 1);
+      refresh(); // a context's own doc count changed too
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
+
   if (mode.k === "setup") {
     return (
       <SimConSetup
@@ -120,7 +148,7 @@ export function ContextsView() {
       actions={
         error ? null : (
           <p className="text-[11px] text-fg-faint">
-            {items.length} context{items.length === 1 ? "" : "s"}
+            {notice ?? `${items.length} context${items.length === 1 ? "" : "s"}`}
           </p>
         )
       }
@@ -128,17 +156,25 @@ export function ContextsView() {
       {error && <p className="text-sm text-fg-muted">{error}</p>}
 
       {!error && (
-        <ContextsPane
-          items={items}
-          selectedId={selectedId}
-          onSelect={(id) => setSelectedId((cur) => (cur === id ? null : id))}
-          onOpen={(id) => setMode({ k: "detail", id })}
-          onNew={() => setMode({ k: "setup", initial: null })}
-          onEdit={(id) => void edit(id)}
-          onDelete={(id) => void remove(id)}
-          onGenerate={(id) => void generate(id)}
-          generatingId={generatingId}
-        />
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+          <ContextsPane
+            items={items}
+            selectedId={selectedId}
+            onSelect={(id) => setSelectedId((cur) => (cur === id ? null : id))}
+            onOpen={(id) => setMode({ k: "detail", id })}
+            onNew={() => setMode({ k: "setup", initial: null })}
+            onEdit={(id) => void edit(id)}
+            onDelete={(id) => void remove(id)}
+            onGenerate={(id) => void generate(id)}
+            generatingId={generatingId}
+          />
+          <LibraryPane
+            contextTitles={contextTitles}
+            onAttach={(docId, contextId) => void attach(docId, contextId)}
+            refreshToken={libraryRefreshToken}
+            quickAction={quickAction === "upload" || quickAction === "paste" ? quickAction : null}
+          />
+        </div>
       )}
     </ViewShell>
   );

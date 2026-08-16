@@ -168,15 +168,9 @@ export function DashboardView() {
           />
           <QuickLink
             icon="simicon"
-            title="Conversation Contexts"
-            desc="Brief Ally for the call ahead"
+            title="Contexts & Library"
+            desc="Brief Ally for the call ahead, add documents it answers from"
             onClick={go("simcon")}
-          />
-          <QuickLink
-            icon="library"
-            title="Your library"
-            desc="Add documents Ally answers from"
-            onClick={go("library")}
           />
           <QuickLink
             icon="book"

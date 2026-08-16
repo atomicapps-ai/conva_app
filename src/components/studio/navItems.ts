@@ -14,14 +14,22 @@ export type NavItem = {
 };
 
 /**
- * Order + labels follow the V4.0 "Instrument" reference nav exactly
- * (Live session · Contexts · Library · Ally · Rehearsal · History), with the
- * items the mockup doesn't cover — Home and Conversations — appended after
- * it rather than dropped (owner decision, 2026-08-16). "dashboard" (Home) is
- * filtered OUT of the desktop rail specifically in NavRail.tsx — the mockup
- * has no Home row there, only the WindowChrome mark + a small icon above the
+ * Order + labels follow the V4.0 "Instrument" reference nav closely (Live
+ * session · Contexts · Ally · Rehearsal · History), with the items the
+ * mockup doesn't cover — Home and Conversations — appended after it rather
+ * than dropped (owner decision, 2026-08-16). "dashboard" (Home) is filtered
+ * OUT of the desktop rail specifically in NavRail.tsx — the mockup has no
+ * Home row there, only the WindowChrome mark + a small icon above the
  * account block — but stays here so WebTopNav (no equivalent rail-bottom
  * shortcut) still shows it.
+ *
+ * Library is NOT its own rail item (owner decision, 2026-08-16, reversing
+ * an earlier un-merge of the same date): it lives inside the Contexts
+ * screen (`ContextsView` + `LibraryPane`) instead of a separate
+ * destination — "don't have library separate... make it part of
+ * conversation [Contexts]". Quick-add (add a document / paste a note / new
+ * context) from anywhere in the app is ⌘K → the palette jumps to Contexts
+ * and triggers the flow — see `state/libraryQuickAdd.ts`.
  *
  * The three product/marketing pages (What conva does / What's Coming /
  * What's New) and the Floating HUD toggle used to live here too but were
@@ -33,13 +41,7 @@ export type NavItem = {
 export const NAV_ITEMS: NavItem[] = [
   { view: "dashboard", icon: "home", label: "Home" },
   { view: "live", icon: "live", label: "Live session" },
-  // Contexts & Library were one unified page (conversation-context-ui.md);
-  // un-merged back into two rail items to match the reference exactly
-  // (owner decision, 2026-08-16) — the cross-pane drag-to-attach flow that
-  // depended on both panes being visible together no longer has a home and
-  // needs a replacement interaction; see ContextsPane/LibraryPane TODOs.
   { view: "simcon", icon: "simicon", label: "Contexts" },
-  { view: "library", icon: "library", label: "Library" },
   // Placeholders (owner decision, 2026-08-16): the reference lists these as
   // real destinations but neither has a specced screen yet — Ally is today
   // only the Live view's side panel, Rehearsal only a floating overlay bar

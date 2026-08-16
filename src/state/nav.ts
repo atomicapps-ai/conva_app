@@ -9,7 +9,6 @@ import { create } from "zustand";
 export type View =
   | "dashboard"
   | "live"
-  | "library"
   | "sessions"
   | "conversations"
   | "simcon"
