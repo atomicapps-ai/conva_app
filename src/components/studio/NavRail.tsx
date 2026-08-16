@@ -20,8 +20,14 @@ import { useNavStore } from "@/state/nav";
  * colour; voice identity is never borrowed by chrome.
  */
 
-/** The shared nav list resolved for THIS platform (base rows + desktop rows). */
-const RAIL_ITEMS = NAV_ITEMS.filter((i) => !i.only || i.only === PLATFORM);
+/** The shared nav list resolved for THIS platform (base rows + desktop rows).
+ *  "dashboard" is deliberately excluded here — V4.0's rail has no Home row;
+ *  the way back to it is the TopBar wordmark + the small icon above the
+ *  account block below. WebTopNav still shows Home normally (it has no
+ *  equivalent bottom-of-rail utility cluster to hang a shortcut off of). */
+const RAIL_ITEMS = NAV_ITEMS.filter(
+  (i) => (!i.only || i.only === PLATFORM) && i.view !== "dashboard",
+);
 
 /** First letter of the email, for the monogram avatar (same as Dashboard/Profile). */
 function initial(email: string | null): string {
@@ -178,6 +184,17 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
           }}
         >
           <Icon name="expand" size={18} />
+        </RailButton>
+
+        {/* Home — V4.0's rail has no full-width Home row; this small icon
+            (plus the TopBar wordmark) is the way back instead. */}
+        <RailButton
+          label="Home"
+          active={view === "dashboard"}
+          compact={compact}
+          onClick={() => setView("dashboard")}
+        >
+          <Icon name="home" size={19} />
         </RailButton>
 
         {/* Account block — under Settings (V4.0 §5). Signed in + !compact:

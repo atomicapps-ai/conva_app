@@ -50,7 +50,10 @@ export type IconName =
   | "pin"
   | "save"
   | "add"
-  | "link";
+  | "link"
+  | "home"
+  | "ally"
+  | "rehearsal";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -312,6 +315,30 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M9.3 14.7a3 3 0 0 0 4.4.2l2-2a3 3 0 0 0-4.3-4.3l-1 1" />
       <path d="M14.7 9.3a3 3 0 0 0-4.4-.2l-2 2a3 3 0 0 0 4.3 4.3l1-1" />
+    </>
+  ),
+  // Home — a simple roofline + base, for the "go home" rail shortcut.
+  home: (
+    <>
+      <path d="M4 11.5 12 4l8 7.5" />
+      <path d="M6 10v9.5a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V10" />
+      <path d="M10 20.5V15h4v5.5" />
+    </>
+  ),
+  // Ally — a faceted gem (placeholder rail destination; V4.0's own "gem +
+  // soundwave" motif, minus the soundwave until the real screen is specced).
+  ally: (
+    <>
+      <path d="M7 4h10l3.5 5-8.5 11-8.5-11z" />
+      <path d="M3.5 9h17M7 4l1.8 5L12 20l3.2-11L17 4" />
+    </>
+  ),
+  // Rehearsal — a repeat/practice-run loop.
+  rehearsal: (
+    <>
+      <path d="M4 12a8 8 0 0 1 8-8 8 8 0 0 1 6.5 3.3" />
+      <path d="M20 12a8 8 0 0 1-8 8 8 8 0 0 1-6.5-3.3" />
+      <path d="M18.5 3.5v4h-4M5.5 20.5v-4h4" />
     </>
   ),
 };

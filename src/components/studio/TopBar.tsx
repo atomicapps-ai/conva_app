@@ -134,6 +134,7 @@ export function TopBar() {
   const startRecording = useAppStore((s) => s.startRecording);
   const stopRecording = useAppStore((s) => s.stopRecording);
   const openPalette = useNavStore((s) => s.openPalette);
+  const setView = useNavStore((s) => s.setView);
   const listening = session.state === "listening";
   const preparing = session.state === "preparing";
   const elapsed = useElapsed(listening);
@@ -163,12 +164,20 @@ export function TopBar() {
 
   return (
     <header className="glass flex h-[38px] shrink-0 items-center gap-2.5 border-t-0 px-3">
-      <img
-        src={wordmark}
-        alt="conva"
-        className="h-[14px] w-auto opacity-90"
-        draggable={false}
-      />
+      <button
+        type="button"
+        onClick={() => setView("dashboard")}
+        title="conva — go home"
+        aria-label="Go home"
+        className="shrink-0 rounded transition hover:opacity-100"
+      >
+        <img
+          src={wordmark}
+          alt="conva"
+          className="h-[14px] w-auto opacity-90"
+          draggable={false}
+        />
+      </button>
       <span className="h-4 w-px bg-border" />
 
       {isTauri() && <MeterCluster />}

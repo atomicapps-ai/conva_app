@@ -13,6 +13,8 @@ export type View =
   | "sessions"
   | "conversations"
   | "simcon"
+  | "ally"
+  | "rehearsal"
   | "features"
   | "whatsnew"
   | "releases"

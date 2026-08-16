@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { ContextsPane } from "@/components/contexts/ContextsPane";
-import { LibraryPane } from "@/components/contexts/LibraryPane";
 import { SimConDetail } from "@/components/simcon/SimConDetail";
 import { SimConSetup } from "@/components/simcon/SimConSetup";
 import { ViewShell } from "@/components/studio/ViewShell";
@@ -14,11 +13,17 @@ type Mode =
   | { k: "detail"; id: string };
 
 /**
- * The unified Conversation Contexts & Library page (design:
- * conva_core/docs/technical/conversation-context-ui.md). Two panes on one
- * screen — contexts on the left, the library on the right — so grounding a
- * context is drag-and-drop, not a modal. Replaces the standalone Sim Con and
- * Library views; both nav routes land here.
+ * The Conversation Contexts page. Un-merged from Library back into its own
+ * rail destination (V4.0 `conva_core/brand/UI/AppUI_V4.0` — the reference
+ * nav lists them as two separate items; owner decision, 2026-08-16).
+ *
+ * KNOWN GAP from the un-merge: attaching a library document to a context
+ * used to be drag-and-drop between the two panes on one screen
+ * (conversation-context-ui.md §2) — that gesture has no source pane to drag
+ * FROM now that Library is a separate screen. The slower path still works:
+ * open a context (New/Edit) and check its documents in SimConSetup's own
+ * picker. A faster replacement (a per-row "attach…" document picker here,
+ * or on the Library screen) is an open question, not yet built.
  */
 export function ContextsView() {
   const backend = useBackend();
@@ -27,7 +32,6 @@ export function ContextsView() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
-  const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
 
   const refresh = useCallback(() => {
     backend.simcon
@@ -49,12 +53,6 @@ export function ContextsView() {
   useEffect(() => {
     refresh();
   }, [refresh]);
-
-  const contextTitles = useMemo(
-    () => Object.fromEntries(items.map((s) => [s.id, s.title])),
-    [items],
-  );
-  const selected = items.find((s) => s.id === selectedId) ?? null;
 
   const edit = async (id: string) => {
     try {
@@ -79,30 +77,6 @@ export function ContextsView() {
     refresh();
   };
 
-  // Drag- or click-attach a library document to a context: folds the doc id
-  // into the context's own source_doc_ids (what the engine actually grounds
-  // on) and tags the document (library filter/badge). Kept in sync — see
-  // conversation-context-ui.md §2.
-  const attach = useCallback(
-    async (contextId: string, docId: string) => {
-      try {
-        const session = await backend.simcon.load(contextId);
-        if (!session.source_doc_ids.includes(docId)) {
-          await backend.simcon.save({
-            ...session,
-            source_doc_ids: [...session.source_doc_ids, docId],
-          });
-        }
-        await backend.rag.attachContext(docId, contextId);
-        refresh();
-        setLibraryRefreshToken((t) => t + 1);
-      } catch (e) {
-        setError(String(e));
-      }
-    },
-    [backend, refresh],
-  );
-
   const generate = useCallback(
     async (id: string) => {
       setGeneratingId(id);
@@ -115,7 +89,6 @@ export function ContextsView() {
       } finally {
         setGeneratingId(null);
         refresh();
-        setLibraryRefreshToken((t) => t + 1);
       }
     },
     [backend, refresh],
@@ -155,34 +128,23 @@ export function ContextsView() {
         )
       }
     >
-      {error && (
-        <p className="text-sm text-fg-muted">{error}</p>
-      )}
+      {error && <p className="text-sm text-fg-muted">{error}</p>}
 
       {!error && (
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[1.3fr_1fr]">
-          <ContextsPane
-            items={items}
-            selectedId={selectedId}
-            onSelect={(id) => setSelectedId((cur) => (cur === id ? null : id))}
-            onOpen={(id) => setMode({ k: "detail", id })}
-            onNew={() => setMode({ k: "setup", initial: null })}
-            onEdit={(id) => void edit(id)}
-            onDelete={(id) => void remove(id)}
-            onAttach={(contextId, docId) => void attach(contextId, docId)}
-            onGenerate={(id) => void generate(id)}
-            generatingId={generatingId}
-          />
-          <LibraryPane
-            selectedContextId={selectedId}
-            selectedContextTitle={selected?.title ?? null}
-            contextTitles={contextTitles}
-            onAttachToSelected={(docId) => {
-              if (selectedId) void attach(selectedId, docId);
-            }}
-            refreshToken={libraryRefreshToken}
-          />
-        </div>
+        <ContextsPane
+          items={items}
+          selectedId={selectedId}
+          onSelect={(id) => setSelectedId((cur) => (cur === id ? null : id))}
+          onOpen={(id) => setMode({ k: "detail", id })}
+          onNew={() => setMode({ k: "setup", initial: null })}
+          onEdit={(id) => void edit(id)}
+          onDelete={(id) => void remove(id)}
+          // No drop source on this screen anymore (see the file doc comment)
+          // — attach still works from a context's own Edit picker.
+          onAttach={() => {}}
+          onGenerate={(id) => void generate(id)}
+          generatingId={generatingId}
+        />
       )}
     </ViewShell>
   );

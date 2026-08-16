@@ -116,7 +116,7 @@ export function DashboardView() {
 
   return (
     <ViewShell
-      icon="system"
+      icon="home"
       title="Home"
       subtitle="Your conva account and quick access to the product."
     >

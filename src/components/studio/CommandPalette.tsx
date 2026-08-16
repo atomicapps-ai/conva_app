@@ -50,9 +50,12 @@ export function CommandPalette() {
     });
     const nav: Command[] = [
       go("live", "Go to Live", "live"),
-      go("conversations", "Go to Conversations", "conversations"),
-      go("sessions", "Go to Sessions", "sessions"),
       go("simcon", "Go to Contexts", "simicon"),
+      go("library", "Go to Library", "library"),
+      go("ally", "Go to Ally", "ally"),
+      go("rehearsal", "Go to Rehearsal", "rehearsal"),
+      go("sessions", "Go to History", "sessions"),
+      go("conversations", "Go to Conversations", "conversations"),
       go("settings", "Go to Settings", "settings"),
     ];
     if (!isTauri()) return nav;
