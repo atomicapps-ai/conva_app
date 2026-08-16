@@ -9,6 +9,7 @@ import { NavRail } from "@/components/studio/NavRail";
 import { StatusBar } from "@/components/studio/StatusBar";
 import { TopBar } from "@/components/studio/TopBar";
 import { ViewRouter } from "@/components/studio/ViewRouter";
+import { WindowChrome } from "@/components/studio/WindowChrome";
 import { Icon } from "@/components/ui/Icon";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { useAppStore } from "@/state/app";
@@ -64,6 +65,7 @@ export function StudioShell() {
 
   return (
     <div className="flex h-full flex-col">
+      <WindowChrome />
       <UpdateBanner />
       <div ref={shellRef} className="flex min-h-0 flex-1 gap-1 p-1">
         <NavRail narrow={narrow} />
@@ -78,14 +80,16 @@ export function StudioShell() {
 
       {/* Compact mode shrinks the window to a narrow strip; the header's
           Compact toggle can scroll out of reach, so guarantee a way back with
-          an always-visible floating Expand control. */}
+          an always-visible floating Expand control. top-10, not top-2 — sits
+          below WindowChrome's own h-8 bar + its minimize/maximize/close
+          controls in the same top-right corner. */}
       {compact && (
         <button
           type="button"
           onClick={() => void toggleCompact()}
           title="Expand — leave compact mode"
           aria-label="Expand — leave compact mode"
-          className="fixed right-2 top-2 z-50 flex items-center gap-1.5 rounded-full border border-border-strong bg-panel-raised px-3 py-1.5 text-[11px] font-semibold text-fg shadow-lg transition hover:brightness-110"
+          className="fixed right-2 top-10 z-50 flex items-center gap-1.5 rounded-full border border-border-strong bg-panel-raised px-3 py-1.5 text-[11px] font-semibold text-fg shadow-lg transition hover:brightness-110"
         >
           <Icon name="expand" size={14} />
           Expand

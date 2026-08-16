@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-
 import { GroundPicker } from "@/components/contexts/GroundPicker";
 import { Icon } from "@/components/ui/Icon";
 import { ResponsiveLabel } from "@/components/ui/ResponsiveLabel";
 import wordmark from "@/assets/brand/conva-wordmark-white.png";
 import { isTauri, type AudioLevelEvent } from "@/lib/ipc";
+import { useElapsed } from "@/lib/useElapsed";
 import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
 import { useTranscriptStore } from "@/state/transcript";
@@ -13,34 +12,6 @@ import { useTranscriptStore } from "@/state/transcript";
 function levelUnit(level: AudioLevelEvent | null): number {
   if (!level) return 0;
   return Math.max(0, Math.min(1, (level.rms_dbfs + 60) / 60));
-}
-
-function clock(ms: number): string {
-  const t = Math.floor(ms / 1000);
-  const m = Math.floor(t / 60);
-  const s = t % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-/** Elapsed mm:ss since `active` went true; resets when it goes false. */
-function useElapsed(active: boolean): string {
-  const [ms, setMs] = useState(0);
-  const startRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!active) {
-      startRef.current = null;
-      setMs(0);
-      return;
-    }
-    startRef.current = Date.now();
-    setMs(0);
-    const id = setInterval(
-      () => setMs(Date.now() - (startRef.current ?? Date.now())),
-      1000,
-    );
-    return () => clearInterval(id);
-  }, [active]);
-  return clock(ms);
 }
 
 /** Level meter for one stream — heights ride real RMS, animate smoothly, and
