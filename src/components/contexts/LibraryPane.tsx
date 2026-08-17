@@ -87,7 +87,16 @@ function AttachMenu({
         onClick={(e) => {
           e.stopPropagation();
           const r = e.currentTarget.getBoundingClientRect();
-          setOpen((o) => (o ? null : { x: r.left, y: r.bottom + 4 }));
+          // Same viewport clamp as GroundPicker (owner-reported there,
+          // 2026-08-17) — this menu had the identical unclamped-left bug,
+          // just not yet hit because Library rows sit further from the
+          // right edge than GroundPicker's trigger.
+          const MARGIN = 8;
+          const MENU_W = 220;
+          const MENU_H = Math.min(entries.length * 30 + 8, 320);
+          const x = Math.max(MARGIN, Math.min(r.left, window.innerWidth - MENU_W - MARGIN));
+          const y = Math.max(MARGIN, Math.min(r.bottom + 4, window.innerHeight - MENU_H - MARGIN));
+          setOpen((o) => (o ? null : { x, y }));
         }}
         title="Attach to a context…"
         aria-label={`Attach ${doc.file_name} to a context`}
@@ -103,7 +112,7 @@ function AttachMenu({
           aria-label={`Attach ${doc.file_name} to a context`}
           onClick={(e) => e.stopPropagation()}
           style={{ position: "fixed", left: open.x, top: open.y, zIndex: 60 }}
-          className="glass-raised min-w-[180px] rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
+          className="glass-raised max-h-[320px] min-w-[180px] max-w-[220px] overflow-y-auto rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
         >
           {entries.map(([id, title]) => {
             const attached = doc.context_ids.includes(id);
