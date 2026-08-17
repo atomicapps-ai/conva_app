@@ -109,6 +109,18 @@
   --tint-ai: rgba(255, 194, 75, 0.08);
   --line-ai: rgba(255, 194, 75, 0.3);
 
+  /* ---- State tints (derived; feeds .pill's state family below) ---- */
+  --tint-ok: rgba(47, 208, 138, 0.12);
+  --line-ok: rgba(47, 208, 138, 0.34);
+  --tint-rec: rgba(255, 77, 94, 0.12);
+  --line-rec: rgba(255, 77, 94, 0.34);
+  --tint-notice: rgba(255, 138, 76, 0.12);
+  --line-notice: rgba(255, 138, 76, 0.4);
+  --tint-neutral: rgba(110, 119, 153, 0.14);
+  --line-neutral: rgba(110, 119, 153, 0.34);
+  --tint-primary: rgba(79, 184, 255, 0.12);
+  --line-primary: rgba(79, 184, 255, 0.34);
+
   /* ---- Motion ---- */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.4, 0.5, 1);
@@ -442,6 +454,113 @@ body {
     border-color: var(--color-border-strong);
     background: color-mix(in oklab, var(--color-panel) 55%, transparent);
   }
+
+  /* Pills — V4.0's "a state is always a true pill" contour. Two LOCKED
+     families, never mixed: VOICE (them/you/ally — identity, permanent,
+     never borrowed by chrome) and STATE (ready/rec/notice/idle/danger —
+     what's happening right now). `.pill-busy` is this codebase's one
+     addition beyond the mockup's set, for an async/in-progress chrome
+     state (ingesting/running) the mockup's locked state palette has no
+     colour for — it uses the single azure accent, which is fine (azure is
+     chrome, not a voice), never green/red/amber.
+     Default height 26px per the mockup; dense contexts (list rows) pass
+     `.pill-sm` the same way the mockup's row demo inline-overrides to
+     22px, rather than inventing a second component. */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 11px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .pill-sm {
+    height: 20px;
+    padding: 0 8px;
+    gap: 4px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+  .pill .d {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  .pill-sm .d {
+    width: 6px;
+    height: 6px;
+  }
+  /* Voice pills — locked. */
+  .pill-them {
+    color: var(--color-inbound);
+    border-color: var(--line-inbound);
+    background: var(--tint-inbound);
+  }
+  .pill-you {
+    color: var(--voice-you-text, var(--color-outbound));
+    border-color: var(--line-outbound);
+    background: var(--tint-outbound);
+  }
+  .pill-ally {
+    color: var(--color-ai);
+    border-color: var(--line-ai);
+    background: var(--tint-ai);
+  }
+  /* State pills — what's happening, kept out of the voice palette. */
+  .pill-ready {
+    color: var(--color-ok);
+    border-color: var(--line-ok);
+    background: var(--tint-ok);
+  }
+  .pill-rec {
+    color: var(--color-rec);
+    border-color: var(--line-rec);
+    background: var(--tint-rec);
+  }
+  .pill-rec .d {
+    animation: conva-recpulse 1.6s ease-in-out infinite;
+  }
+  /* Notice is form-carried — outline + icon, never a filled swatch (a solid
+     gold fill means Ally, only; see the --color-notice token comment). */
+  .pill-notice {
+    color: var(--color-notice);
+    border-color: var(--line-notice);
+    background: transparent;
+  }
+  .pill-notice svg {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+  }
+  .pill-idle {
+    color: var(--color-fg-faint);
+    border-color: var(--line-neutral);
+    background: var(--tint-neutral);
+  }
+  /* Danger is the one FILLED state pill (destructive, unmissable). */
+  .pill-danger {
+    color: var(--color-bg);
+    border-color: var(--color-rec);
+    background: var(--color-rec);
+  }
+  /* This codebase's addition: informational chrome outside the locked
+     voice/state sets — an in-progress status (ingesting/running), a
+     "Default" marker, etc. Azure, same as every other chrome accent (never
+     a voice colour, so it can't collide with the locked state palette). */
+  .pill-accent {
+    color: var(--color-primary);
+    border-color: var(--line-primary);
+    background: var(--tint-primary);
+  }
 }
 
 /* --------------------------------------------------------------- primitives */
@@ -516,6 +635,18 @@ body {
   }
   100% {
     box-shadow: 0 0 0 0 transparent;
+  }
+}
+/* The .pill-rec dot's live-recording breathe (V4.0 §3 pill spec). */
+@keyframes conva-recpulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.82);
   }
 }
 .animate-rise {
@@ -608,7 +739,8 @@ body {
   .animate-fade,
   .pulse-ring,
   .spine-ping,
-  .animate-flash-ring {
+  .animate-flash-ring,
+  .pill-rec .d {
     transition: none;
     animation: none;
   }

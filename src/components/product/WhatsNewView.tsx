@@ -14,11 +14,7 @@ export function WhatsNewView() {
       icon="sparkle"
       title="What's New"
       subtitle="What changed in each release of conva."
-      badge={
-        <span className="inline-flex items-center rounded-full border border-border-strong bg-panel-raised/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
-          You're on v{BUILD.version}
-        </span>
-      }
+      badge={<span className="pill pill-sm pill-idle">You're on v{BUILD.version}</span>}
     >
       {RELEASES.map((rel) => {
         const current = rel.version === BUILD.version;
@@ -31,7 +27,8 @@ export function WhatsNewView() {
             }
           >
             {current && (
-              <p className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-ok/40 bg-ok/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ok">
+              <p className="pill pill-sm pill-ready mb-3">
+                <span className="d" aria-hidden />
                 You're running this
               </p>
             )}

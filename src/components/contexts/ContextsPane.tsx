@@ -28,12 +28,15 @@ const STATUS_LABEL: Record<SimConStatus, string> = {
   ended: "Ended",
 };
 
+// Maps each session status to a shared `.pill-*` modifier (globals.css) —
+// draft/ended read as idle (neutral), ready is the one true "state" pill,
+// ingesting/running are transient chrome (azure), not a voice/state colour.
 const STATUS_TONE: Record<SimConStatus, string> = {
-  draft: "border-border-strong text-fg-faint",
-  ingesting: "border-primary/50 bg-primary/[0.12] text-fg",
-  ready: "border-ok/50 bg-ok/10 text-ok",
-  running: "border-primary/50 bg-primary/[0.12] text-fg",
-  ended: "border-border text-fg-faint",
+  draft: "pill-idle",
+  ingesting: "pill-accent",
+  ready: "pill-ready",
+  running: "pill-accent",
+  ended: "pill-idle",
 };
 
 /** One checklist line — a check, or an advisory warning (never blocks). */
@@ -349,17 +352,13 @@ export function ContextsPane({
                     <Icon name="chevron" size={13} className="-rotate-90" />
                   </button>
                   {isDefault ? (
-                    <span className="shrink-0 rounded-full border border-primary/40 bg-primary/[0.1] px-1.5 py-0.5 text-[10px] text-primary">
-                      Default
-                    </span>
+                    <span className="pill pill-sm pill-accent shrink-0">Default</span>
                   ) : (
-                    <span className="shrink-0 rounded-full border border-border-strong px-1.5 py-0.5 text-[10px] text-fg-faint">
+                    <span className="pill pill-sm pill-idle shrink-0">
                       {CATEGORY_LABEL[s.category]}
                     </span>
                   )}
-                  <span
-                    className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] ${STATUS_TONE[s.status]}`}
-                  >
+                  <span className={`pill pill-sm shrink-0 ${STATUS_TONE[s.status]}`}>
                     {isGenerating ? "Generating…" : STATUS_LABEL[s.status]}
                   </span>
                 </div>

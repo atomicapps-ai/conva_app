@@ -55,7 +55,7 @@ export function GateView() {
 
   return (
     <div className="grid h-full min-h-0 flex-1 place-items-center overflow-y-auto bg-bg p-6">
-      <div className="glass w-full max-w-md rounded-3xl p-9 text-center">
+      <div className="glass w-full max-w-md rounded-xl p-9 text-center">
         <span className="brand-gradient mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full text-xl font-extrabold text-bg">
           {monogram}
         </span>

@@ -23,7 +23,7 @@ function Row({
 }) {
   return (
     <div
-      className={`flex items-center gap-4 rounded-xl border p-3.5 ${
+      className={`flex items-center gap-4 rounded border p-3.5 ${
         danger ? "border-rec/25" : "border-border"
       } bg-panel-raised/40`}
     >
@@ -97,14 +97,14 @@ export function ProfileView() {
         subtitle="Your conva identity — one account for desktop and web."
       >
         <Section title="Account">
-          <div className="flex items-center justify-between rounded-xl border border-border bg-panel-raised/40 p-4">
+          <div className="flex items-center justify-between rounded border border-border bg-panel-raised/40 p-4">
             <p className="text-sm text-fg-muted">
               You're not signed in on this surface.
             </p>
             <button
               type="button"
               onClick={() => setView("settings")}
-              className="rounded-lg border border-border-strong bg-panel-raised px-3 py-1.5 text-xs font-semibold text-fg transition hover:brightness-110"
+              className="btn"
             >
               Sign in
             </button>
@@ -132,7 +132,7 @@ export function ProfileView() {
       }
     >
       <Section title="Account">
-        <div className="glass mb-3 flex items-center gap-4 rounded-lg p-4">
+        <div className="glass mb-3 flex items-center gap-4 rounded p-4">
           <span className="brand-gradient flex h-12 w-12 items-center justify-center rounded-full text-lg font-extrabold text-bg">
             {initial(status.email)}
           </span>
@@ -198,12 +198,12 @@ export function ProfileView() {
               type="button"
               onClick={() => void signOut()}
               disabled={busy}
-              className="rounded-lg border border-border-strong bg-transparent px-3 py-1.5 text-xs font-semibold text-fg-muted transition hover:text-fg"
+              className="btn"
             >
               Sign out
             </button>
             <span
-              className="rounded-lg border border-rec/40 bg-rec/5 px-3 py-1.5 text-xs font-semibold text-rec/60"
+              className="rounded border border-rec/40 bg-rec/5 px-3 py-1.5 text-xs font-semibold text-rec/60"
               title="Account deletion arrives with the platform endpoints."
             >
               Delete account — coming soon

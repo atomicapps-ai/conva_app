@@ -61,9 +61,7 @@ export function SessionsPanel({ onClose }: { onClose: () => void }) {
       onBack={onClose}
       badge={
         viewing ? (
-          <span className="rounded-full border border-ai/40 px-2 py-0.5 text-[10px] text-ai">
-            viewing past session
-          </span>
+          <span className="pill pill-sm pill-ally">viewing past session</span>
         ) : undefined
       }
       actions={

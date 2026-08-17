@@ -65,9 +65,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
       onBack={onClose}
       badge={
         openId ? (
-          <span className="max-w-[14rem] truncate rounded-full border border-ai/40 px-2 py-0.5 text-[10px] text-ai">
-            open: {title}
-          </span>
+          <span className="pill pill-sm pill-ally max-w-[14rem] truncate">open: {title}</span>
         ) : undefined
       }
       actions={

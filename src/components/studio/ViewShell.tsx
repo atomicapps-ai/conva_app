@@ -61,13 +61,13 @@ export function ViewShell({
             onClick={onBack}
             title="Back"
             aria-label="Back"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border-strong bg-bg-2 text-fg-muted transition hover:text-fg"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded border border-border-strong bg-bg-2 text-fg-muted transition hover:text-fg"
           >
             <Icon name="chevron" size={16} className="rotate-90" />
           </button>
         )}
         <span
-          className="brand-ring flex h-9 w-9 items-center justify-center rounded-xl text-primary"
+          className="brand-ring flex h-9 w-9 items-center justify-center rounded text-primary"
           aria-hidden
         >
           <Icon name={icon} size={19} />

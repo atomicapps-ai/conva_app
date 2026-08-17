@@ -215,9 +215,7 @@ export function SimConDetail({
                         {p.title}
                       </h3>
                       {p.recommended && (
-                        <span className="shrink-0 rounded-full border border-ai/40 bg-ai/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ai">
-                          ★ Recommended
-                        </span>
+                        <span className="pill pill-sm pill-ally shrink-0">★ Recommended</span>
                       )}
                     </div>
                     <p className="mt-1 text-[12px] leading-relaxed text-fg-muted">
