@@ -14,14 +14,31 @@ export type NavItem = {
 };
 
 /**
- * Order + labels follow the V4.0 "Instrument" reference nav closely (Live
- * session · Contexts · Ally · Rehearsal), with the items the mockup doesn't
- * cover — Home and Conversations — appended after it rather than dropped
- * (owner decision, 2026-08-16). "dashboard" (Home) is filtered OUT of the
- * desktop rail specifically in NavRail.tsx — the mockup has no Home row
- * there, only the WindowChrome mark + a small icon above the account block
- * — but stays here so WebTopNav (no equivalent rail-bottom shortcut) still
- * shows it.
+ * Order + labels follow the V4.0 "Instrument" reference nav's Live/Contexts
+ * rows, with the items the mockup doesn't cover — Home and Conversations —
+ * appended after it rather than dropped (owner decision, 2026-08-16).
+ * "dashboard" (Home) is filtered OUT of the desktop rail specifically in
+ * NavRail.tsx — the mockup has no Home row there, only the WindowChrome
+ * mark + a small icon above the account block — but stays here so
+ * WebTopNav (no equivalent rail-bottom shortcut) still shows it.
+ *
+ * Ally and Rehearsal are NOT their own rail items (owner decision,
+ * 2026-08-17 — corrects a regression, not a new call). The mockup's own
+ * reference nav lists four rows (Live/Contexts/Ally/Rehearsal) as if they
+ * were four independent destinations; the 2026-08-16 pass adopted that
+ * list literally and added placeholder pages for Ally and Rehearsal. But
+ * this was already decided against, five days earlier:
+ * `conversation-context-ui.md` (owner-approved 2026-08-12, `conva_core`)
+ * decision #2 locks "Rehearsal stays reachable from a context's detail" —
+ * it was never a separate destination, it's Sim Con Phase D, built as part
+ * of Contexts from the start (`roadmap.md` lists "Sim Con rehearsal" under
+ * the already-built Conversation Context feature). Ally is the Live
+ * session's side panel, same story per the original designer brief
+ * (`designer-handoff-2026-08/BRIEF-app-ui.md`: "an ALLY panel on the
+ * right" of the live screen, not its own page). Both stay exactly where
+ * they already work — Ally in `TranscriptView`'s side panel, Rehearsal in
+ * `SimConDetail`'s Step 4 — the placeholder pages (`AllyView.tsx`,
+ * `RehearsalView.tsx`) are deleted, not just unlisted.
  *
  * "History" is NOT its own rail item (owner decision, 2026-08-17): it was
  * the automatic per-run session log (`session.rs`) with no UI ever
@@ -49,13 +66,6 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "dashboard", icon: "home", label: "Home" },
   { view: "live", icon: "live", label: "Live session" },
   { view: "simcon", icon: "simicon", label: "Contexts" },
-  // Placeholders (owner decision, 2026-08-16): the reference lists these as
-  // real destinations but neither has a specced screen yet — Ally is today
-  // only the Live view's side panel, Rehearsal only a floating overlay bar
-  // during a Sim Con run. Land here as an honest "not built yet" page until
-  // scoped for real.
-  { view: "ally", icon: "ally", label: "Ally" },
-  { view: "rehearsal", icon: "rehearsal", label: "Rehearsal" },
   { view: "conversations", icon: "conversations", label: "Conversations" },
   { view: "settings", icon: "settings", label: "Settings" },
 ];

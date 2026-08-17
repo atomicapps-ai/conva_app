@@ -53,8 +53,6 @@ export function CommandPalette() {
     const nav: Command[] = [
       go("live", "Go to Live", "live"),
       go("simcon", "Go to Contexts", "simicon"),
-      go("ally", "Go to Ally", "ally"),
-      go("rehearsal", "Go to Rehearsal", "rehearsal"),
       go("conversations", "Go to Conversations", "conversations"),
       go("settings", "Go to Settings", "settings"),
       // Off the rail (owner decision, 2026-08-16 — see navItems.ts) but still

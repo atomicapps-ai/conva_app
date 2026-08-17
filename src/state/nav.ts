@@ -11,8 +11,6 @@ export type View =
   | "live"
   | "conversations"
   | "simcon"
-  | "ally"
-  | "rehearsal"
   | "features"
   | "whatsnew"
   | "releases"
