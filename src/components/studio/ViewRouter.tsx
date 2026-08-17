@@ -31,7 +31,11 @@ export function ViewRouter() {
       {view === "settings" && <SettingsPanel onClose={backToLive} />}
       {view === "profile" && <ProfileView />}
       {view === "conversations" && <ConversationsPanel onClose={backToLive} />}
-      {view === "simcon" && <ContextsView />}
+      {/* "rehearsal" renders the SAME component as "simcon" — Rehearsal has
+          never been separate code from Contexts (it's Sim Con Phase D,
+          reachable from a ready context's detail page); this is a second
+          rail door into identical code, not a second screen. */}
+      {(view === "simcon" || view === "rehearsal") && <ContextsView />}
       {view === "about" && <AboutMoreView />}
     </>
   );

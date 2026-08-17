@@ -22,23 +22,28 @@ export type NavItem = {
  * mark + a small icon above the account block — but stays here so
  * WebTopNav (no equivalent rail-bottom shortcut) still shows it.
  *
- * Ally and Rehearsal are NOT their own rail items (owner decision,
- * 2026-08-17 — corrects a regression, not a new call). The mockup's own
- * reference nav lists four rows (Live/Contexts/Ally/Rehearsal) as if they
- * were four independent destinations; the 2026-08-16 pass adopted that
- * list literally and added placeholder pages for Ally and Rehearsal. But
- * this was already decided against, five days earlier:
- * `conversation-context-ui.md` (owner-approved 2026-08-12, `conva_core`)
- * decision #2 locks "Rehearsal stays reachable from a context's detail" —
- * it was never a separate destination, it's Sim Con Phase D, built as part
- * of Contexts from the start (`roadmap.md` lists "Sim Con rehearsal" under
- * the already-built Conversation Context feature). Ally is the Live
- * session's side panel, same story per the original designer brief
- * (`designer-handoff-2026-08/BRIEF-app-ui.md`: "an ALLY panel on the
- * right" of the live screen, not its own page). Both stay exactly where
- * they already work — Ally in `TranscriptView`'s side panel, Rehearsal in
- * `SimConDetail`'s Step 4 — the placeholder pages (`AllyView.tsx`,
- * `RehearsalView.tsx`) are deleted, not just unlisted.
+ * Ally is NOT its own rail item (owner decision, 2026-08-17). It's the
+ * Live session's side panel per the original designer brief
+ * (`designer-handoff-2026-08/BRIEF-app-ui.md`, `conva_core`): "an ALLY
+ * panel on the right" of the live screen, not its own page — the earlier
+ * 2026-08-16 pass added a placeholder page for it by copying the V4.0
+ * mockup's reference nav (which lists four rows — Live/Contexts/Ally/
+ * Rehearsal — as if they were four independent destinations) without
+ * checking whether the app had four separable things to put behind them.
+ * `AllyView.tsx` (the placeholder) is deleted, not just unlisted.
+ *
+ * Rehearsal IS a rail item (owner decision, 2026-08-17), but it doesn't
+ * get a page of its own — `view: "rehearsal"` renders the SAME
+ * `ContextsView` component as `view: "simcon"` (see `ViewRouter.tsx`).
+ * Rehearsal has never been separate code from Contexts: it's Sim Con
+ * Phase D, built into it from the start (`roadmap.md` lists "Sim Con
+ * rehearsal" under the already-built Conversation Context feature;
+ * `conversation-context-ui.md`, owner-approved 2026-08-12, `conva_core`,
+ * decision #2: "Rehearsal stays reachable from a context's detail"). A
+ * standalone `RehearsalView.tsx` placeholder existed briefly and was
+ * deleted — the fix isn't a second page, it's reusing the one Contexts
+ * already has (open a ready context → Step 4 → generate personas →
+ * rehearse), just reachable by a second rail door into identical code.
  *
  * "History" is NOT its own rail item (owner decision, 2026-08-17): it was
  * the automatic per-run session log (`session.rs`) with no UI ever
@@ -66,6 +71,7 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "dashboard", icon: "home", label: "Home" },
   { view: "live", icon: "live", label: "Live session" },
   { view: "simcon", icon: "simicon", label: "Contexts" },
+  { view: "rehearsal", icon: "rehearsal", label: "Rehearsal" },
   { view: "conversations", icon: "conversations", label: "Conversations" },
   { view: "settings", icon: "settings", label: "Settings" },
 ];
