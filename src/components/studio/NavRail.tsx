@@ -117,10 +117,16 @@ function RailButton({
               // (StudioShell.tsx: "bg-panel — same surface the active
               // rail row takes on, so its join reads as 'becomes the
               // pane'"), not a step brighter — that match is load-bearing.
-              // text-fg (plain bright white, not the accent) matches the
-              // mockup's `.rail-item[aria-current]`; only the spine
-              // carries azure.
-              "border-border-strong bg-panel text-fg",
+              // border-border — EXACTLY the same token as the rail's own
+              // border-r seam, also load-bearing (owner, 2026-08-17):
+              // the tab's outline visually CONTINUES the seam line it
+              // interrupts — down the seam, left around the tab, back to
+              // the seam — so both must be one color to read as one
+              // continuous folder-tab silhouette. border-strong here made
+              // the tab's frame a second, lighter line that dead-ended
+              // into the darker seam. text-fg (plain bright white, not
+              // the accent); only the spine carries azure.
+              "border-border bg-panel text-fg",
               join
                 ? compact
                   ? // compact rail: no horizontal padding, so only the 1px

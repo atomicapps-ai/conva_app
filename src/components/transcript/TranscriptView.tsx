@@ -1484,18 +1484,15 @@ function AllyMetaPanel({
         )}
       </div>
 
-      {/* Dock — show/hide each card. The rail's file-cabinet tab rotated
-          90° (owner, 2026-08-17: "the live session right side should have
-          tabs as well"): the strip's floor drops a step darker (bg-bg)
-          than the panel body (bg-2), and an ON toggle takes the BODY's own
-          background and bleeds UP over the divider — flat top edge,
-          rounded bottom, -mt spanning the 10px padding + 1px border — so
-          it reads as attached to the content it shows, exactly the way the
-          active rail row attaches to the page. OFF toggles sit detached on
-          the darker floor. These are independent toggles (several can be
-          ON at once), so several tabs attached simultaneously is correct:
-          attached = its card is showing. */}
-      <div className="flex shrink-0 gap-1.5 border-t border-border bg-bg p-2.5">
+      {/* Dock — show/hide each card. Deliberately BUTTONS, not tabs
+          (owner, 2026-08-17): these are independent on/off toggles —
+          several can be on at once — and the tab silhouette is reserved
+          for exclusive selection (the nav rail: exactly one page active).
+          A tab treatment was built here once and reverted the same day
+          over exactly that semantics clash. ON = the visible-pressed look
+          (raised fill + azure, the earlier "invisible active state" fix);
+          OFF = quiet hairline. */}
+      <div className="flex shrink-0 gap-1.5 border-t border-border p-2.5">
         {(
           [
             ["summary", "summarize", "live summary"],
@@ -1510,10 +1507,10 @@ function AllyMetaPanel({
             aria-pressed={visible[key]}
             title={visible[key] ? `Hide ${name}` : `Show ${name}`}
             className={[
-              "relative grid flex-1 place-items-center border transition",
+              "grid h-8 flex-1 place-items-center rounded-[var(--radius)] border transition",
               visible[key]
-                ? "-mt-[11px] h-[43px] rounded-b-[var(--radius)] rounded-t-none border-t-0 border-border-strong bg-bg-2 text-fg"
-                : "h-8 rounded-[var(--radius)] border-border text-fg-faint hover:border-border-strong hover:text-fg",
+                ? "border-primary/50 bg-panel-raised text-primary"
+                : "border-border text-fg-faint hover:border-border-strong hover:text-fg",
             ].join(" ")}
           >
             <Icon name={icon} size={15} />
