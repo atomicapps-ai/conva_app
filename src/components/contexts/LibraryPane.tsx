@@ -349,6 +349,9 @@ export function LibraryPane({
           Library
         </h3>
         <div className="flex items-center gap-1">
+          {/* Same "+" + glyph pattern as Contexts' New Context button
+              (owner decision, 2026-08-17) — one consistent "add something
+              new" affordance app-wide, not a bare icon per surface. */}
           <button
             type="button"
             disabled={busy}
@@ -356,10 +359,11 @@ export function LibraryPane({
               setPasteOpen((v) => !v);
               setNotice(null);
             }}
-            title="Paste as a note"
-            aria-label="Paste as a note"
-            className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+            title="Add a pasted note"
+            aria-label="Add a pasted note"
+            className="flex items-center gap-0.5 rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
           >
+            <Icon name="add" size={13} />
             <Icon name="clipboard" size={16} />
           </button>
           {isTauri() && (
@@ -367,10 +371,11 @@ export function LibraryPane({
               type="button"
               disabled={busy}
               onClick={() => void pickFiles()}
-              title="Add documents…"
-              aria-label="Add documents"
-              className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+              title="Add a document…"
+              aria-label="Add a document"
+              className="flex items-center gap-0.5 rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
             >
+              <Icon name="add" size={13} />
               <Icon name="upload" size={16} />
             </button>
           )}

@@ -92,7 +92,7 @@ describe("ContextsPane", () => {
     expect(onGenerate).toHaveBeenCalledWith("s1");
   });
 
-  it("hides the Brief Ally button off-desktop (web has no Sim Con folder to write to)", () => {
+  it("hides the New Context button off-desktop (web has no Sim Con folder to write to)", () => {
     renderPane(
       <ContextsPane
         items={[]}
@@ -108,7 +108,7 @@ describe("ContextsPane", () => {
       />,
     );
     // jsdom has no __TAURI__ global -> isDesktop is false -> button absent.
-    expect(screen.queryByRole("button", { name: "Brief Ally" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add a New Context" })).toBeNull();
   });
 
   it("keeps Open + Generate inline and tucks Edit/Delete behind the ⋮ menu", () => {

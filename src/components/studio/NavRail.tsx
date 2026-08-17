@@ -15,9 +15,11 @@ import { useNavStore } from "@/state/nav";
  * label, dropped to icon-only either in the app's manual Compact mode or
  * automatically once the shell narrows below the responsive-tiers Medium
  * threshold (`narrow` prop, driven by StudioShell's own ResizeObserver —
- * see the shed-order note there). The active row takes the panel background
- * and a 2px azure spine on its leading edge — the accent, never a voice
- * colour; voice identity is never borrowed by chrome.
+ * see the shed-order note there). The active row takes a raised-panel
+ * background, an azure-tinted icon/label, and a 2px azure spine on its
+ * leading edge — the accent, never a voice colour; voice identity is never
+ * borrowed by chrome. (Plain bg-panel read too close to the rail's own
+ * floor to register as "pressed" — bumped a step brighter, 2026-08-17.)
  */
 
 /** The shared nav list resolved for THIS platform (base rows + desktop rows).
@@ -87,7 +89,12 @@ function RailButton({
           : "h-[34px] w-full justify-start px-2.5",
         active
           ? [
-              "border-border-strong bg-panel text-fg",
+              // A full step brighter than the rail's own floor (bg-2) —
+              // bg-panel alone read too close in value to register as
+              // "pressed" (owner feedback 2026-08-17). text-primary tints
+              // the icon (currentColor) + label too, so compact/icon-only
+              // rows still get a clear active cue with no label to lean on.
+              "border-border-strong bg-panel-raised text-primary",
               // The join (V4.0 "file cabinet"): flat on the edge that meets
               // the content pane, rounded on the other three, and bled past
               // the rail's own right padding + border (px-1.5 + border =

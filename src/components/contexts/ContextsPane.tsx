@@ -260,14 +260,22 @@ export function ContextsPane({
           Conversation contexts
         </h3>
         {isDesktop && (
+          // Icon-only + tooltip (owner decision, 2026-08-17) — "Brief Ally"
+          // as a label read as jargon; the + is the app's one "create new"
+          // glyph (ConversationsPanel's "New conversation" uses the same
+          // `add` icon), paired with the context glyph so it's unambiguous
+          // which kind of "new" this is. A deliberate exception to the
+          // mockup's own buttons rule (primary = icon + one word) — the
+          // confusing word was the actual bug being fixed here.
           <button
             type="button"
             onClick={onNew}
-            title="Brief Ally — build a new context to ground it in for a call"
-            className="btn btn-primary shrink-0 whitespace-nowrap px-2 py-1 text-[11px]"
+            title="Add a New Context"
+            aria-label="Add a New Context"
+            className="btn btn-primary shrink-0 gap-1 px-2 py-1"
           >
+            <Icon name="add" size={14} />
             <Icon name="simicon" size={13} />
-            Brief Ally
           </button>
         )}
       </div>
