@@ -1463,7 +1463,9 @@ function AllyMetaPanel({
           title={visible.summary ? "Hide live summary" : "Show live summary"}
           className={[
             "grid h-8 flex-1 place-items-center rounded-[var(--radius)] border transition",
-            visible.summary ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-fg-faint hover:text-fg",
+            visible.summary
+              ? "border-primary/50 bg-panel-raised text-primary"
+              : "border-border text-fg-faint hover:border-border-strong hover:text-fg",
           ].join(" ")}
         >
           <Icon name="summarize" size={15} />
@@ -1475,7 +1477,9 @@ function AllyMetaPanel({
           title={visible.threads ? "Hide open threads" : "Show open threads"}
           className={[
             "grid h-8 flex-1 place-items-center rounded-[var(--radius)] border transition",
-            visible.threads ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-fg-faint hover:text-fg",
+            visible.threads
+              ? "border-primary/50 bg-panel-raised text-primary"
+              : "border-border text-fg-faint hover:border-border-strong hover:text-fg",
           ].join(" ")}
         >
           <Icon name="lightbulb" size={15} />
@@ -1487,7 +1491,9 @@ function AllyMetaPanel({
           title={visible.grounding ? "Hide grounding" : "Show grounding"}
           className={[
             "grid h-8 flex-1 place-items-center rounded-[var(--radius)] border transition",
-            visible.grounding ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-fg-faint hover:text-fg",
+            visible.grounding
+              ? "border-primary/50 bg-panel-raised text-primary"
+              : "border-border text-fg-faint hover:border-border-strong hover:text-fg",
           ].join(" ")}
         >
           <Icon name="file" size={15} />
