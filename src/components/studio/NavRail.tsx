@@ -15,11 +15,16 @@ import { useNavStore } from "@/state/nav";
  * label, dropped to icon-only either in the app's manual Compact mode or
  * automatically once the shell narrows below the responsive-tiers Medium
  * threshold (`narrow` prop, driven by StudioShell's own ResizeObserver —
- * see the shed-order note there). The active row takes a raised-panel
- * background, an azure-tinted icon/label, and a 2px azure spine on its
- * leading edge — the accent, never a voice colour; voice identity is never
- * borrowed by chrome. (Plain bg-panel read too close to the rail's own
- * floor to register as "pressed" — bumped a step brighter, 2026-08-17.)
+ * see the shed-order note there). The active row takes the content pane's
+ * OWN background (`bg-panel` — must match `StudioShell.tsx`'s pane exactly,
+ * not a brighter step; see the join comment below for why), a plain bright
+ * icon/label (no accent tint), and a 2px azure spine on its leading edge —
+ * the accent lives on the spine only, never a voice colour, never the
+ * whole row. (A same-day round-trip on 2026-08-17: bumped the background a
+ * step brighter for legibility, which broke the pane-color match the tab
+ * shape depends on; reverted to the mockup's literal values same day —
+ * legibility comes from the fg-muted → fg jump plus the spine, not from
+ * recoloring the row.)
  */
 
 /** The shared nav list resolved for THIS platform (base rows + desktop rows).
@@ -89,12 +94,23 @@ function RailButton({
           : "h-[34px] w-full justify-start px-2.5",
         active
           ? [
-              // A full step brighter than the rail's own floor (bg-2) —
-              // bg-panel alone read too close in value to register as
-              // "pressed" (owner feedback 2026-08-17). text-primary tints
-              // the icon (currentColor) + label too, so compact/icon-only
-              // rows still get a clear active cue with no label to lean on.
-              "border-border-strong bg-panel-raised text-primary",
+              // bg-panel — EXACTLY the content pane's own background
+              // (StudioShell.tsx: "bg-panel — same surface the active
+              // rail row takes on, so its join reads as 'becomes the
+              // pane'"), not a step brighter. That match is load-bearing:
+              // the tab illusion only works because there's no color
+              // seam where the flat edge below meets the pane. Bumping
+              // this to bg-panel-raised (tried 2026-08-17, reverted
+              // 2026-08-17) read more "pressed" in isolation but broke
+              // the merge — a mismatched color made the flat edge visibly
+              // separate the row from the pane instead of dissolving into
+              // it, which is what turned the tab back into a plain
+              // highlighted card. text-fg (plain bright white, not the
+              // accent) matches the mockup's `.rail-item[aria-current]`
+              // too — only the spine below carries azure; the icon/label
+              // don't. Legibility comes from fg-muted → fg (a real jump)
+              // plus the spine, not from tinting the whole row accent.
+              "border-border-strong bg-panel text-fg",
               // The join (V4.0 "file cabinet") — the mockup's own
               // `.rail-item[aria-current]` CSS applies this at every width,
               // not just the labeled one: flat on the edge that meets the
