@@ -32,10 +32,15 @@ const STATUS_TONE: Record<SimConSummary["status"], string> = {
 
 type Filter = "saved" | "all" | "rehearse";
 
+// Order + default + labels per owner, 2026-08-17: All activity leads (it's
+// the honest default — everything, saved or not) and is what the page opens
+// on; History (was "Saved") and Rehearsals (was "Rehearse") follow. Filter
+// `key`s stay as-is — only the order and copy changed, so nothing else in
+// this file (or anything reading `filter`) needed to change.
 const FILTERS: { key: Filter; label: string }[] = [
-  { key: "saved", label: "Saved" },
   { key: "all", label: "All activity" },
-  { key: "rehearse", label: "Rehearse" },
+  { key: "saved", label: "History" },
+  { key: "rehearse", label: "Rehearsals" },
 ];
 
 type Row =
@@ -73,7 +78,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [contexts, setContexts] = useState<SimConSummary[]>([]);
-  const [filter, setFilter] = useState<Filter>("saved");
+  const [filter, setFilter] = useState<Filter>("all");
   const openId = useConversationStore((s) => s.openId);
   const title = useConversationStore((s) => s.title);
   const notice = useConversationStore((s) => s.notice);

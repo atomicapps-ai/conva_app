@@ -63,17 +63,16 @@ export type NavItem = {
  * context) from anywhere in the app is ⌘K → the palette jumps to Contexts
  * and triggers the flow — see `state/libraryQuickAdd.ts`.
  *
- * The three product/marketing pages (What conva does / What's Coming /
- * What's New) and the Floating HUD toggle used to live here too but were
- * moved out of primary nav entirely (owner decision) onto their own hub page
- * (`AboutMoreView`, `view: "about"`), reachable from Settings → About. They
- * stay real routed views (`features`/`whatsnew`/`releases` in `View`) — just
- * not in this list, so `RAIL_ITEMS`/`WebTopNav` no longer surface them.
+ * What's Coming (`view: "whatsnew"` → `WhatsComingView` — the view name
+ * predates the page rename, left as-is to avoid a wider rename) is back in
+ * primary nav, directly above Settings (owner decision, 2026-08-17). What
+ * conva does / What's New stay off-rail, reachable from Settings → About.
  */
 export const NAV_ITEMS: NavItem[] = [
   { view: "dashboard", icon: "home", label: "Home" },
   { view: "live", icon: "live", label: "Live session" },
   { view: "simcon", icon: "simicon", label: "Contexts" },
   { view: "conversations", icon: "conversations", label: "Conversations" },
+  { view: "whatsnew", icon: "lightbulb", label: "What's Coming" },
   { view: "settings", icon: "settings", label: "Settings" },
 ];

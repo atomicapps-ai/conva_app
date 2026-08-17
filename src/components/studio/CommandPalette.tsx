@@ -54,6 +54,7 @@ export function CommandPalette() {
       go("live", "Go to Live", "live"),
       go("simcon", "Go to Contexts", "simicon"),
       go("conversations", "Go to Conversations", "conversations"),
+      go("whatsnew", "Go to What's Coming", "lightbulb"),
       go("settings", "Go to Settings", "settings"),
       // Off the rail (owner decision, 2026-08-16 — see navItems.ts) but still
       // real views; keep them one keystroke away via the palette.

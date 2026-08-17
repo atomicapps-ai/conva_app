@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 
-import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import { NAV_ITEMS } from "@/components/studio/navItems";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
@@ -209,14 +208,22 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
         compact ? "w-[44px] items-center" : "w-[188px] items-stretch px-1.5",
       ].join(" ")}
     >
-      {/* Brand mark. */}
-      <img
-        src={mark}
-        alt="conva"
-        title="conva"
-        draggable={false}
-        className={compact ? "mb-2 h-[22px] w-[22px] self-center" : "mb-2 ml-1.5 h-[22px] w-[22px]"}
-      />
+      {/* Search — moved to the top of the rail (owner, 2026-08-17), above
+          the page list, so the command palette reads as "the way to find
+          anything" rather than a utility buried at the bottom. This also
+          replaces the rail's own brand mark as the top element — WindowChrome
+          already carries the mark + wordmark at the very top of the window,
+          so a second mark directly beneath it was pure duplication, not a
+          second piece of information. */}
+      <RailButton
+        label="Command palette (⌘K)"
+        displayLabel="Search"
+        compact={compact}
+        onClick={openPalette}
+      >
+        <Icon name="search" size={19} />
+      </RailButton>
+      <div className={compact ? "mb-1 h-px w-6 self-center bg-border" : "mx-2.5 mb-1 h-px bg-border"} aria-hidden />
 
       {RAIL_ITEMS.map((item) => (
         <RailButton
@@ -240,15 +247,6 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
           compact ? "flex-col items-center self-stretch" : "flex-col items-stretch",
         ].join(" ")}
       >
-        <RailButton
-          label="Command palette (⌘K)"
-          displayLabel="Search"
-          compact={compact}
-          onClick={openPalette}
-        >
-          <Icon name="search" size={19} />
-        </RailButton>
-
         {/* Home — V4.0's rail has no full-width Home row; this small icon
             (plus the WindowChrome mark) is the way back instead. */}
         <RailButton

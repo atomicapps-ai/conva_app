@@ -72,14 +72,18 @@ export function WindowChrome() {
         aria-label="Go home"
         className="flex items-center gap-2.5 rounded transition hover:opacity-80"
       >
+        {/* ~20% up from h-4/text-[11px] (owner, 2026-08-17) — this is now
+            the ONLY mark in the window (NavRail's own duplicate mark was
+            removed the same day), so it carries the full weight of "where's
+            the brand" alone and reads better with room to breathe. */}
         <img
           src={mark}
           alt=""
           draggable={false}
-          className="h-4 w-4 opacity-90"
+          className="h-[19px] w-[19px] opacity-90"
           aria-hidden
         />
-        <span className="font-mono text-[11px] font-bold tracking-[0.14em] text-fg-faint">
+        <span className="font-mono text-[13px] font-bold tracking-[0.14em] text-fg-faint">
           CONVA
         </span>
       </button>
