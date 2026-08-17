@@ -65,6 +65,7 @@ function formatLastIn(iso: string): string {
 
 function RailButton({
   active,
+  join = true,
   label,
   displayLabel,
   compact,
@@ -72,6 +73,11 @@ function RailButton({
   children,
 }: {
   active?: boolean;
+  /** Whether the active style grafts the row onto the content pane (the
+   *  file-cabinet tab join). The account button opts out: its `active` is
+   *  "menu open", not "this page is open", and a popover toggle shouldn't
+   *  read as a tab. */
+  join?: boolean;
   /** Full description — always the tooltip/aria-label. */
   label: string;
   /** Short row text shown when !compact. Falls back to `label`. */
@@ -86,48 +92,51 @@ function RailButton({
       onClick={onClick}
       title={label}
       aria-label={label}
-      aria-current={active ? "page" : undefined}
+      aria-current={active && join ? "page" : undefined}
       className={[
+        // ⚠️ WIDTH IS THE WHOLE TRICK — read before touching. The active
+        // row's -mr bleed below only widens the row if flex `stretch` is
+        // what sizes it: per spec, stretch applies ONLY when the cross
+        // size is `auto`, and it subtracts margins from the container's
+        // content width — so a negative right margin genuinely widens the
+        // row, carrying it across the rail's own right border to die flush
+        // against the pane. Giving these rows a definite width (`w-full`,
+        // `w-[30px]`) silently disables stretch: the width resolves
+        // against the content box, the row stops 7px short of the border,
+        // and the negative margin computes but moves nothing. That was
+        // the entire "looks like a button, not a tab" bug (owner,
+        // 2026-08-17) — every paint property (color/margin/radius)
+        // checked out for days while the rendered right edge sat at
+        // x=181 instead of x=188. Inactive compact rows keep a definite
+        // w-[30px] (centered square); everything else stays width-auto.
         "group relative flex shrink-0 items-center gap-2.5 border border-transparent text-[13px] font-semibold transition",
-        compact
-          ? "h-[30px] w-[30px] justify-center rounded-[var(--radius)]"
-          : "h-[34px] w-full justify-start px-2.5",
+        compact ? "h-[30px] justify-center" : "h-[34px] justify-start px-2.5",
         active
           ? [
               // bg-panel — EXACTLY the content pane's own background
               // (StudioShell.tsx: "bg-panel — same surface the active
               // rail row takes on, so its join reads as 'becomes the
-              // pane'"), not a step brighter. That match is load-bearing:
-              // the tab illusion only works because there's no color
-              // seam where the flat edge below meets the pane. Bumping
-              // this to bg-panel-raised (tried 2026-08-17, reverted
-              // 2026-08-17) read more "pressed" in isolation but broke
-              // the merge — a mismatched color made the flat edge visibly
-              // separate the row from the pane instead of dissolving into
-              // it, which is what turned the tab back into a plain
-              // highlighted card. text-fg (plain bright white, not the
-              // accent) matches the mockup's `.rail-item[aria-current]`
-              // too — only the spine below carries azure; the icon/label
-              // don't. Legibility comes from fg-muted → fg (a real jump)
-              // plus the spine, not from tinting the whole row accent.
+              // pane'"), not a step brighter — that match is load-bearing.
+              // text-fg (plain bright white, not the accent) matches the
+              // mockup's `.rail-item[aria-current]`; only the spine
+              // carries azure.
               "border-border-strong bg-panel text-fg",
-              // The join (V4.0 "file cabinet") — the mockup's own
-              // `.rail-item[aria-current]` CSS applies this at every width,
-              // not just the labeled one: flat on the edge that meets the
-              // content pane, rounded on the other three, bled past
-              // whatever gap sits between the row and the rail's own
-              // border so the row visually crosses onto the pane instead
-              // of stopping short. This is what makes it read as a tab,
-              // not a highlighted button — a compact-mode exception here
-              // (skipped once, on the theory that a narrow row has no
-              // pane-adjacent edge worth joining) turned out to be wrong;
-              // the mockup proves the tab shape holds at icon-only width
-              // too (owner feedback 2026-08-17).
-              compact
-                ? "-mr-[8px] rounded-l-[var(--radius)] rounded-r-none border-r-0" // 7px items-center gap + 1px rail border
-                : "-mr-[7px] rounded-l-[var(--radius)] rounded-r-none border-r-0", // 6px px-1.5 + 1px rail border
+              join
+                ? compact
+                  ? // compact rail: no horizontal padding, so only the 1px
+                    // border to cross. self-stretch overrides the nav's
+                    // items-center so stretch sizing (and the bleed) applies.
+                    "-mr-[1px] self-stretch rounded-l-[var(--radius)] rounded-r-none border-r-0"
+                  : // 6px px-1.5 + 1px rail border
+                    "-mr-[7px] rounded-l-[var(--radius)] rounded-r-none border-r-0"
+                : compact
+                  ? "w-[30px] rounded-[var(--radius)]"
+                  : "rounded-[var(--radius)]",
             ].join(" ")
-          : "rounded-[var(--radius)] text-fg-muted hover:bg-white/[0.045] hover:text-fg",
+          : [
+              "rounded-[var(--radius)] text-fg-muted hover:bg-white/[0.045] hover:text-fg",
+              compact ? "w-[30px]" : "",
+            ].join(" "),
       ].join(" ")}
     >
       {/* Leading-edge spine on the active row — the accent, not a voice
@@ -206,7 +215,11 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
       <div
         className={[
           "mt-auto flex gap-0.5 pt-2",
-          compact ? "flex-col items-center" : "flex-col items-stretch",
+          // self-stretch in compact: this wrapper must span the rail's full
+          // width (not shrink to its 30px children) so an active row inside
+          // it (Home) can stretch across it and bleed over the rail border
+          // — same width mechanics as the main rail items above.
+          compact ? "flex-col items-center self-stretch" : "flex-col items-stretch",
         ].join(" ")}
       >
         <RailButton
@@ -271,6 +284,7 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
               label={auth?.signed_in ? `${auth.email ?? "Signed in"} — account menu` : "Account — sign in"}
               displayLabel={auth?.signed_in ? (auth.email ?? "Account") : "Sign in"}
               active={menuOpen}
+              join={false}
               compact={compact}
               onClick={() => {
                 if (auth?.signed_in) setMenuOpen((o) => !o);
