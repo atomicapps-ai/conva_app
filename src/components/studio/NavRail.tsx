@@ -109,7 +109,21 @@ function RailButton({
         // checked out for days while the rendered right edge sat at
         // x=181 instead of x=188. Inactive compact rows keep a definite
         // w-[30px] (centered square); everything else stays width-auto.
-        "group relative flex shrink-0 items-center gap-2.5 border border-transparent text-[13px] font-semibold transition",
+        // No border-color class here — deliberately. `border-transparent`
+        // used to sit in this shared base, "always applied, active
+        // overrides it." It doesn't: Tailwind emits `.border-transparent`
+        // AFTER `.border-border`/`.border-border-strong` in the compiled
+        // stylesheet, and same-specificity rules resolve by stylesheet
+        // order, not by where the class sits in the string — so the
+        // "override" silently lost every single time, on every version
+        // shipped today, and the border rendered fully transparent
+        // regardless of which color class the active branch used. What
+        // read as "a box" was only ever the background-color contrast.
+        // Verified in headless Chromium: an element with `border
+        // border-transparent border-border` computes to `rgba(0,0,0,0)`.
+        // Fix: each state owns its border-color outright, one class,
+        // never two competing for the same element (below).
+        "group relative flex shrink-0 items-center gap-2.5 border text-[13px] font-semibold transition",
         compact ? "h-[30px] justify-center" : "h-[34px] justify-start px-2.5",
         active
           ? [
@@ -122,10 +136,8 @@ function RailButton({
               // the tab's outline visually CONTINUES the seam line it
               // interrupts — down the seam, left around the tab, back to
               // the seam — so both must be one color to read as one
-              // continuous folder-tab silhouette. border-strong here made
-              // the tab's frame a second, lighter line that dead-ended
-              // into the darker seam. text-fg (plain bright white, not
-              // the accent); only the spine carries azure.
+              // continuous folder-tab silhouette. text-fg (plain bright
+              // white, not the accent); only the spine carries azure.
               "border-border bg-panel text-fg",
               join
                 ? compact
@@ -140,7 +152,7 @@ function RailButton({
                   : "rounded-[var(--radius)]",
             ].join(" ")
           : [
-              "rounded-[var(--radius)] text-fg-muted hover:bg-white/[0.045] hover:text-fg",
+              "border-transparent rounded-[var(--radius)] text-fg-muted hover:bg-white/[0.045] hover:text-fg",
               compact ? "w-[30px]" : "",
             ].join(" "),
       ].join(" ")}
@@ -262,10 +274,15 @@ export function NavRail({ narrow = false }: { narrow?: boolean }) {
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               className={[
-                "flex w-full items-center gap-2.5 rounded-[var(--radius)] border border-transparent px-2 py-1.5 text-left transition",
+                // No border-color in this shared base — same trap as
+                // RailButton above: `border-transparent` here would sit
+                // AFTER `border-border-strong` in the compiled stylesheet
+                // and silently win regardless of `menuOpen`. Each branch
+                // owns its own border-color class instead.
+                "flex w-full items-center gap-2.5 rounded-[var(--radius)] border px-2 py-1.5 text-left transition",
                 menuOpen
                   ? "border-border-strong bg-panel"
-                  : "hover:bg-white/[0.045]",
+                  : "border-transparent hover:bg-white/[0.045]",
               ].join(" ")}
             >
               <span
