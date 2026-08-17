@@ -18,12 +18,9 @@ import { useAllyStore, type AllyCard } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
 import { useRehearsalStore } from "@/state/rehearsal";
 import { useTranscriptStore } from "@/state/transcript";
+import { useTranscriptJump } from "@/state/transcriptJump";
 import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
-
-/** Stable identity for a transcript bubble (also the Ally-card link key). */
-function segmentKey(seg: TranscriptSegment): string {
-  return `${seg.side}-${seg.seq}`;
-}
+import { groupTurns, segmentKey } from "@/lib/turns";
 
 function formatMs(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -540,6 +537,7 @@ function Bubble({
   busy,
   fontPx,
   sessionStartMs,
+  searchHighlight,
 }: {
   segments: TranscriptSegment[];
   turnKey: string;
@@ -561,6 +559,10 @@ function Bubble({
   fontPx: number;
   /** Session start (epoch ms) so the time hover can show a wall-clock. */
   sessionStartMs: number | null;
+  /** A landed search query (owner request, 2026-08-17) — folded into the
+   *  RAG `terms` highlight pass below so every occurrence in this bubble
+   *  renders highlighted, same visual treatment as a RAG term. */
+  searchHighlight?: string | null;
 }) {
   const backend = useBackend();
   const inbound = segments[0]?.side === "inbound";
@@ -587,6 +589,15 @@ function Bubble({
       alive = false;
     };
   }, [combinedText, backend]);
+
+  // Fold the landed search query into the RAG term list so it renders
+  // highlighted with the same treatment (HighlightedText doesn't care which
+  // list a term came from) — case-insensitively de-duped against a RAG term
+  // that already covers the same word.
+  const highlightTerms =
+    searchHighlight && !terms.some((t) => t.toLowerCase() === searchHighlight.toLowerCase())
+      ? [...terms, searchHighlight]
+      : terms;
 
   // Selection → icon menu (ask / copy / send-to-ask).
   const [sel, setSel] = useState<{ x: number; y: number; text: string } | null>(
@@ -694,7 +705,7 @@ function Bubble({
             {units.length > 0 && (
               <FlowText
                 units={units}
-                terms={terms}
+                terms={highlightTerms}
                 onAskText={onAskText}
                 onAskTerm={onAskTerm}
               />
@@ -1632,6 +1643,15 @@ export function TranscriptView() {
   const bubbleEls = useRef(new Map<string, HTMLElement>());
   const cardEls = useRef(new Map<string, HTMLElement>());
 
+  // Search result hand-off (owner request, 2026-08-17): consumed once at
+  // mount, same one-shot pattern as ContextsView's quickOpenId. `key` drives
+  // the scroll+flash below; `query`, if present, stays around for the
+  // lifetime of this mount so every occurrence of the searched word — not
+  // just the jumped-to turn — renders highlighted (Bubble → FlowText →
+  // HighlightedText, folded into its `terms` list).
+  const [jumpRequest] = useState(() => useTranscriptJump.getState().consume());
+  const [searchHighlight] = useState<string | null>(jumpRequest?.query ?? null);
+
   // One-shot azure flash on the bubble/card a thread opens to (V4.0 §8).
   // `token` forces the flash element to remount (via its React `key`) so
   // opening the same thread twice in a row still replays the animation.
@@ -1684,16 +1704,7 @@ export function TranscriptView() {
   // Consolidate consecutive same-speaker segments into one turn (bubble). A new
   // bubble starts only when the speaker switches — no pause/time split. The
   // turn is keyed by its first segment, so Ally-card links stay stable.
-  const turns = useMemo(() => {
-    const out: { side: TranscriptSegment["side"]; key: string; segments: TranscriptSegment[] }[] =
-      [];
-    for (const seg of merged) {
-      const last = out[out.length - 1];
-      if (last && last.side === seg.side) last.segments.push(seg);
-      else out.push({ side: seg.side, key: segmentKey(seg), segments: [seg] });
-    }
-    return out;
-  }, [merged]);
+  const turns = useMemo(() => groupTurns(merged), [merged]);
 
   // Keep the user's own ("you") turns collapsed by default (a persisted pref) —
   // you rarely re-read your own words. Each key is seeded once, so manually
@@ -1733,6 +1744,28 @@ export function TranscriptView() {
   };
 
   const convo = useAutoScroll(merged[merged.length - 1]);
+
+  // Perform the queued search-result jump once turns have rendered (their
+  // refs land in bubbleEls via registerEl — double rAF gives the DOM a
+  // paint cycle after the segments this component was just mounted with).
+  useEffect(() => {
+    if (!jumpRequest) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el = bubbleEls.current.get(jumpRequest.key);
+        if (el && convo.ref.current) centerInScroller(convo.ref.current, el);
+        flashToken.current += 1;
+        setFlash({ key: jumpRequest.key, token: flashToken.current });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+    // Intentionally mount-only — jumpRequest is a one-shot consumed value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Below ~640px the meta panel folds into an overlay drawer, opened by the
   // "✦ Ally N" chip in the header (same threshold/pattern the old Ally
@@ -2090,6 +2123,7 @@ export function TranscriptView() {
                     busy={busy}
                     fontPx={transcriptFontPx}
                     sessionStartMs={sessionStartMs}
+                    searchHighlight={searchHighlight}
                   />
                 );
               })

@@ -1,13 +1,23 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useBackend } from "@/lib/backend";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
-import { DEFAULT_CONTEXT_ID, type ConversationSummary, type SessionSummary, type SimConSummary } from "@/lib/ipc";
+import {
+  DEFAULT_CONTEXT_ID,
+  type Conversation,
+  type ConversationSummary,
+  type RagDocument,
+  type SessionSummary,
+  type SimConSummary,
+  type TranscriptSegment,
+} from "@/lib/ipc";
+import { groupTurns } from "@/lib/turns";
 import { useConversationStore } from "@/state/conversation";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useNavStore } from "@/state/nav";
 import { useTranscriptStore } from "@/state/transcript";
+import { useTranscriptJump } from "@/state/transcriptJump";
 
 function formatDate(unixMs: number): string {
   if (!unixMs) return "—";
@@ -30,22 +40,104 @@ const STATUS_TONE: Record<SimConSummary["status"], string> = {
   ended: "pill-idle",
 };
 
-type Filter = "saved" | "all" | "rehearse";
+type Filter = "saved" | "all" | "rehearse" | "search";
 
 // Order + default + labels per owner, 2026-08-17: All activity leads (it's
 // the honest default — everything, saved or not) and is what the page opens
-// on; History (was "Saved") and Rehearsals (was "Rehearse") follow. Filter
-// `key`s stay as-is — only the order and copy changed, so nothing else in
-// this file (or anything reading `filter`) needed to change.
+// on; History (was "Saved") and Rehearsals (was "Rehearse") follow. Search is
+// new the same day (owner request — file/context/keyword search across
+// transcripts). Filter `key`s for the first three stay as-is — only the
+// order and copy changed, so nothing else in this file (or anything reading
+// `filter`) needed to change for those.
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "All activity" },
   { key: "saved", label: "History" },
   { key: "rehearse", label: "Rehearsals" },
+  { key: "search", label: "Search" },
 ];
 
 type Row =
   | { kind: "conversation"; id: string; ts: number; data: ConversationSummary }
   | { kind: "session"; id: string; ts: number; data: SessionSummary };
+
+/** One search hit: a matched turn inside one conversation/session, with a
+ *  short excerpt around the match for the results list. */
+interface SearchHit {
+  rowKind: "conversation" | "session";
+  rowId: string;
+  rowTitle: string;
+  rowTs: number;
+  /** Turn key to scroll to + flash once the transcript is open — see
+   *  `state/transcriptJump.ts` and `lib/turns.ts`. */
+  turnKey: string;
+  before: string;
+  match: string;
+  after: string;
+}
+
+const SNIPPET_WORDS = 6;
+const MAX_SEARCH_CANDIDATES = 150;
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Build a "few words either side" excerpt around the first match of `query`
+ *  in `text` (owner spec: "a few words from the bubble near where it
+ *  matched"), case-insensitive. Returns null if `text` doesn't match. */
+function excerpt(
+  text: string,
+  query: string,
+): { before: string; match: string; after: string } | null {
+  const re = new RegExp(escapeRegExp(query), "i");
+  const m = re.exec(text);
+  if (!m) return null;
+  const words = text.split(/\s+/);
+  // Find which word index the match starts in by walking cumulative length.
+  let idx = 0;
+  let acc = 0;
+  for (let i = 0; i < words.length; i++) {
+    const wordEnd = acc + words[i]!.length;
+    if (m.index < wordEnd + 1) {
+      idx = i;
+      break;
+    }
+    acc = wordEnd + 1; // +1 for the space
+  }
+  const start = Math.max(0, idx - SNIPPET_WORDS);
+  const end = Math.min(words.length, idx + SNIPPET_WORDS + 1);
+  return {
+    before: (start > 0 ? "…" : "") + words.slice(start, idx).join(" "),
+    match: m[0],
+    after:
+      words.slice(idx, end).join(" ").slice(m[0].length).trimStart() +
+      (end < words.length ? "…" : ""),
+  };
+}
+
+const MAX_HITS_PER_ROW = 5;
+
+/** Scan one row's full segments for turns matching `query` (up to
+ *  `MAX_HITS_PER_ROW`, so one chatty conversation can't flood the results
+ *  list). Turn keys come from the shared `groupTurns` — the same grouping
+ *  TranscriptView renders — so every hit is guaranteed scrollable-to. */
+function findMatches(
+  segments: TranscriptSegment[],
+  query: string,
+): { turnKey: string; before: string; match: string; after: string }[] {
+  const hits: { turnKey: string; before: string; match: string; after: string }[] = [];
+  for (const turn of groupTurns(segments)) {
+    if (hits.length >= MAX_HITS_PER_ROW) break;
+    const text = turn.segments
+      .map((s) => s.text)
+      .join(" ")
+      .trim();
+    if (!text) continue;
+    const hit = excerpt(text, query);
+    if (hit) hits.push({ turnKey: turn.key, ...hit });
+  }
+  return hits;
+}
 
 /**
  * Open/save menu for conversations (owner request) — merged with the former
@@ -72,12 +164,30 @@ type Row =
  * activity") — Contexts is the prep material, this tab is the act of
  * using it. The always-present default context is excluded; there's
  * nothing to rehearse against without a real context's personas.
+ *
+ * "Search" (owner request, 2026-08-17) scopes a keyword search by file
+ * and/or context, then lists matched turns as snippet results — click one to
+ * open its conversation/session and land on that exact bubble, scrolled +
+ * flashed + highlighted (`state/transcriptJump.ts`). No backend full-text
+ * index exists yet, so this is a client-side scan: candidates are narrowed
+ * by the file/context scope first, their full segments are fetched (and
+ * cached in-memory for the session) only once a query is typed, then
+ * scanned in JS. Fine at today's per-user conversation counts; if that stops
+ * being true, the fix is a backend index, not a bigger client-side scan.
+ *
+ * The "context" scope is necessarily approximate: a conversation doesn't
+ * record which Context grounded it (only `linked_docs`), so it qualifies via
+ * its linked docs being attached to that Context; a rehearsal session
+ * qualifies by its `simcon_title` matching the Context's title. Both are
+ * best-effort matches, not a stored link — a real fix needs a backend
+ * schema change (out of scope here).
  */
 export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const backend = useBackend();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [contexts, setContexts] = useState<SimConSummary[]>([]);
+  const [docs, setDocs] = useState<RagDocument[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const openId = useConversationStore((s) => s.openId);
   const title = useConversationStore((s) => s.title);
@@ -93,16 +203,31 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const viewingSession = useTranscriptStore((s) => s.viewingPastSessionId);
   const setView = useNavStore((s) => s.setView);
 
+  // Search (owner request, 2026-08-17). Query text + optional file/context
+  // scope; results are computed by the debounced effect below. Full
+  // conversation/session bodies are fetched lazily and cached per row id so
+  // re-running or widening a query doesn't re-fetch what's already local.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [fileScope, setFileScope] = useState("");
+  const [contextScope, setContextScope] = useState("");
+  const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchTruncated, setSearchTruncated] = useState(false);
+  const convoBodyCache = useRef(new Map<string, Conversation>());
+  const sessionBodyCache = useRef(new Map<string, TranscriptSegment[]>());
+
   const refresh = useCallback(async () => {
     try {
-      const [c, s, x] = await Promise.all([
+      const [c, s, x, d] = await Promise.all([
         backend.conversations.list(),
         backend.sessions.list(),
         backend.simcon.list(),
+        backend.rag.list(),
       ]);
       setConversations(c);
       setSessions(s);
       setContexts(x.filter((ctx) => ctx.id !== DEFAULT_CONTEXT_ID));
+      setDocs(d);
     } catch (e) {
       setNotice(String(e));
     }
@@ -111,6 +236,122 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Candidate rows for search — every conversation + session, independent of
+  // the currently-selected list filter (search is its own mode).
+  const allRows: Row[] = useMemo(
+    () =>
+      [
+        ...conversations.map(
+          (c): Row => ({ kind: "conversation", id: c.id, ts: c.updated_at_unix_ms, data: c }),
+        ),
+        ...sessions.map(
+          (s): Row => ({ kind: "session", id: s.id, ts: s.started_at_unix_ms, data: s }),
+        ),
+      ].sort((a, b) => b.ts - a.ts),
+    [conversations, sessions],
+  );
+
+  // Doc ids attached to the selected context scope, for the approximate
+  // conversation→context match (see the class doc comment above).
+  const docsInContextScope = useMemo(() => {
+    if (!contextScope) return null;
+    return new Set(docs.filter((d) => d.context_ids.includes(contextScope)).map((d) => d.id));
+  }, [docs, contextScope]);
+  const contextScopeTitle = contexts.find((c) => c.id === contextScope)?.title ?? null;
+
+  const inScope = useCallback(
+    (row: Row): boolean => {
+      if (fileScope) {
+        if (row.kind !== "conversation") return false;
+        if (!row.data.linked_docs.includes(fileScope)) return false;
+      }
+      if (docsInContextScope) {
+        if (row.kind === "conversation") {
+          if (!row.data.linked_docs.some((id) => docsInContextScope.has(id))) return false;
+        } else if (!row.data.is_rehearsal || row.data.simcon_title !== contextScopeTitle) {
+          return false;
+        }
+      }
+      return true;
+    },
+    [fileScope, docsInContextScope, contextScopeTitle],
+  );
+
+  // Debounced keyword scan — narrows candidates by scope, lazily fetches
+  // (and caches) their full segments, then matches client-side.
+  useEffect(() => {
+    if (filter !== "search") return;
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchHits([]);
+      setSearchTruncated(false);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      void (async () => {
+        setSearching(true);
+        try {
+          const candidates = allRows.filter(inScope);
+          const truncated = candidates.length > MAX_SEARCH_CANDIDATES;
+          const scanned = candidates.slice(0, MAX_SEARCH_CANDIDATES);
+          const bodies = await Promise.all(
+            scanned.map(async (row): Promise<TranscriptSegment[]> => {
+              if (row.kind === "conversation") {
+                const cached = convoBodyCache.current.get(row.id);
+                if (cached) return cached.segments;
+                const full = await backend.conversations.load(row.id);
+                convoBodyCache.current.set(row.id, full);
+                return full.segments;
+              }
+              const cached = sessionBodyCache.current.get(row.id);
+              if (cached) return cached;
+              const full = await backend.sessions.load(row.id);
+              sessionBodyCache.current.set(row.id, full);
+              return full;
+            }),
+          );
+          if (cancelled) return;
+          const hits: SearchHit[] = [];
+          scanned.forEach((row, i) => {
+            const rowTitle =
+              row.kind === "conversation" ? row.data.title : row.data.preview || "(empty)";
+            for (const m of findMatches(bodies[i]!, q)) {
+              hits.push({ rowKind: row.kind, rowId: row.id, rowTitle, rowTs: row.ts, ...m });
+            }
+          });
+          setSearchHits(hits);
+          setSearchTruncated(truncated);
+        } catch (e) {
+          if (!cancelled) setNotice(String(e));
+        } finally {
+          if (!cancelled) setSearching(false);
+        }
+      })();
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [filter, searchQuery, allRows, inScope, backend, setNotice]);
+
+  const openSearchHit = async (hit: SearchHit) => {
+    try {
+      if (hit.rowKind === "conversation") {
+        const cached = convoBodyCache.current.get(hit.rowId);
+        openConversation(cached ?? (await backend.conversations.load(hit.rowId)));
+      } else {
+        const cached = sessionBodyCache.current.get(hit.rowId);
+        loadPastSession(hit.rowId, cached ?? (await backend.sessions.load(hit.rowId)));
+      }
+      useTranscriptJump.getState().request(hit.turnKey, searchQuery.trim());
+      setView("live");
+      onClose();
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
 
   const open = async (id: string) => {
     try {
@@ -171,14 +412,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
           ts: c.updated_at_unix_ms,
           data: c,
         }))
-      : [
-          ...conversations.map(
-            (c): Row => ({ kind: "conversation", id: c.id, ts: c.updated_at_unix_ms, data: c }),
-          ),
-          ...sessions.map(
-            (s): Row => ({ kind: "session", id: s.id, ts: s.started_at_unix_ms, data: s }),
-          ),
-        ].sort((a, b) => b.ts - a.ts);
+      : allRows;
 
   return (
     <ViewShell
@@ -249,7 +483,107 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
         ))}
       </div>
 
-      {filter === "rehearse" ? (
+      {filter === "search" ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className="relative min-w-0 flex-1">
+              <Icon
+                name="search"
+                size={13}
+                className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-fg-faint"
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search the transcript…"
+                aria-label="Search conversations and sessions"
+                className="w-full rounded-md border border-border bg-panel py-1 pl-6 pr-2 text-xs text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-primary/50"
+              />
+            </div>
+            <select
+              value={fileScope}
+              onChange={(e) => setFileScope(e.target.value)}
+              aria-label="Limit search to a file"
+              className="max-w-[9rem] rounded-md border border-border bg-panel px-1.5 py-1 text-[11px] text-fg-muted focus:outline-none focus:ring-1 focus:ring-primary/50"
+            >
+              <option value="">Any file</option>
+              {docs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.file_name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={contextScope}
+              onChange={(e) => setContextScope(e.target.value)}
+              aria-label="Limit search to a context"
+              className="max-w-[9rem] rounded-md border border-border bg-panel px-1.5 py-1 text-[11px] text-fg-muted focus:outline-none focus:ring-1 focus:ring-primary/50"
+            >
+              <option value="">Any context</option>
+              {contexts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {searchQuery.trim().length < 2 ? (
+            <div className="card grid place-items-center px-6 py-16 text-center text-xs text-fg-faint">
+              Type at least 2 characters to search — optionally narrow by file
+              or context above first.
+            </div>
+          ) : searching ? (
+            <div className="px-1 py-8 text-center text-xs text-fg-faint">Searching…</div>
+          ) : searchHits.length === 0 ? (
+            <div className="card grid place-items-center px-6 py-16 text-center text-xs text-fg-faint">
+              No matches for “{searchQuery.trim()}”.
+            </div>
+          ) : (
+            <>
+              {searchTruncated && (
+                <p className="px-1 text-[10px] text-fg-faint">
+                  Showing matches from the {MAX_SEARCH_CANDIDATES} most recent items in scope —
+                  narrow with a file or context filter to search further back.
+                </p>
+              )}
+              <ul className="flex flex-col gap-1.5">
+                {searchHits.map((hit, i) => (
+                  <li key={`${hit.rowKind}-${hit.rowId}-${hit.turnKey}-${i}`}>
+                    <button
+                      type="button"
+                      onClick={() => void openSearchHit(hit)}
+                      className="row w-full flex-col items-start gap-0.5 !py-1.5"
+                    >
+                      <div className="flex w-full min-w-0 items-center gap-2">
+                        <Icon
+                          name={hit.rowKind === "conversation" ? "conversations" : "live"}
+                          size={12}
+                          className="shrink-0 text-fg-faint"
+                        />
+                        <span className="truncate text-[11px] font-semibold text-fg">
+                          {hit.rowTitle}
+                        </span>
+                        <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">
+                          {formatDate(hit.rowTs)}
+                        </span>
+                      </div>
+                      <p className="w-full truncate text-left text-xs text-fg-muted">
+                        {hit.before}{" "}
+                        <mark className="rounded-[2px] bg-primary/25 px-0.5 text-fg">
+                          {hit.match}
+                        </mark>{" "}
+                        {hit.after}
+                      </p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      ) : filter === "rehearse" ? (
         contexts.length === 0 ? (
           <div className="card grid place-items-center px-6 py-16 text-center text-xs text-fg-faint">
             No contexts yet — create one in Contexts, then come back here to
