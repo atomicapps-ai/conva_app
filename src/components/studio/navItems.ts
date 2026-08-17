@@ -15,13 +15,20 @@ export type NavItem = {
 
 /**
  * Order + labels follow the V4.0 "Instrument" reference nav closely (Live
- * session · Contexts · Ally · Rehearsal · History), with the items the
- * mockup doesn't cover — Home and Conversations — appended after it rather
- * than dropped (owner decision, 2026-08-16). "dashboard" (Home) is filtered
- * OUT of the desktop rail specifically in NavRail.tsx — the mockup has no
- * Home row there, only the WindowChrome mark + a small icon above the
- * account block — but stays here so WebTopNav (no equivalent rail-bottom
- * shortcut) still shows it.
+ * session · Contexts · Ally · Rehearsal), with the items the mockup doesn't
+ * cover — Home and Conversations — appended after it rather than dropped
+ * (owner decision, 2026-08-16). "dashboard" (Home) is filtered OUT of the
+ * desktop rail specifically in NavRail.tsx — the mockup has no Home row
+ * there, only the WindowChrome mark + a small icon above the account block
+ * — but stays here so WebTopNav (no equivalent rail-bottom shortcut) still
+ * shows it.
+ *
+ * "History" is NOT its own rail item (owner decision, 2026-08-17): it was
+ * the automatic per-run session log (`session.rs`) with no UI ever
+ * explaining how that differed from Conversations (the named, saved
+ * records) — two rail rows for what read as one job. Sessions still get
+ * logged exactly as before; they're reachable as the "All activity" filter
+ * inside `ConversationsPanel` instead of a sibling destination.
  *
  * Library is NOT its own rail item (owner decision, 2026-08-16, reversing
  * an earlier un-merge of the same date): it lives inside the Contexts
@@ -49,7 +56,6 @@ export const NAV_ITEMS: NavItem[] = [
   // scoped for real.
   { view: "ally", icon: "ally", label: "Ally" },
   { view: "rehearsal", icon: "rehearsal", label: "Rehearsal" },
-  { view: "sessions", icon: "sessions", label: "History" },
   { view: "conversations", icon: "conversations", label: "Conversations" },
   { view: "settings", icon: "settings", label: "Settings" },
 ];

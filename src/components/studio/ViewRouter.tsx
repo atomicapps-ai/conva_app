@@ -8,7 +8,6 @@ import { WhatsComingView } from "@/components/product/WhatsComingView";
 import { WhatsNewView } from "@/components/product/WhatsNewView";
 import { ProfileView } from "@/components/profile/ProfileView";
 import { RehearsalView } from "@/components/simcon/RehearsalView";
-import { SessionsPanel } from "@/components/SessionsPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { TranscriptView } from "@/components/transcript/TranscriptView";
 import { useNavStore } from "@/state/nav";
@@ -33,7 +32,6 @@ export function ViewRouter() {
       {view === "releases" && <WhatsNewView />}
       {view === "settings" && <SettingsPanel onClose={backToLive} />}
       {view === "profile" && <ProfileView />}
-      {view === "sessions" && <SessionsPanel onClose={backToLive} />}
       {view === "conversations" && <ConversationsPanel onClose={backToLive} />}
       {view === "simcon" && <ContextsView />}
       {view === "ally" && <AllyView />}

@@ -151,11 +151,30 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M12 8v4.3l3 1.8" />
     </>
   ),
-  // Conversations — two chat bubbles.
+  // Conversations — the mockup's `live-sessions.svg` glyph verbatim
+  // (`conva_core/brand/UI/AppUI_V4.0/icons`): two chat bubbles over two
+  // people, for the merged Conversations page (owner decision, 2026-08-17
+  // — folds in the former standalone "History"/sessions list, see
+  // ConversationsPanel.tsx). Was a plain two-bubble glyph that didn't say
+  // "this holds your past calls." Bubble outlines keep the source's own
+  // butt cap (not the app's default round) — the shape reads as bloated
+  // with round corners.
   conversations: (
     <>
-      <path d="M4 6.5h10v7H8l-3 2.5v-2.5H4z" />
-      <path d="M17 9.5h3v6h-1v2l-2.2-2H12.5" />
+      <path
+        d="M4.3 3.2h7a1.6 1.6 0 0 1 1.6 1.6v2.7a1.6 1.6 0 0 1-1.6 1.6H7.5l-1.9 1.8V9.1h-1.3A1.6 1.6 0 0 1 2.7 7.5V4.8a1.6 1.6 0 0 1 1.6-1.6Z"
+        strokeLinecap="butt"
+      />
+      <path
+        d="M13.4 5.6h4.9a1.5 1.5 0 0 1 1.5 1.5v2.4a1.5 1.5 0 0 1-1.5 1.5h-.9v1.7l-1.9-1.7h-2.1a1.5 1.5 0 0 1-1.5-1.5"
+        strokeLinecap="butt"
+      />
+      <path d="M5.1 5.4h5M5.1 6.9h5" />
+      <path d="M14.4 7.6h3.1M14.4 9.1h2.1" />
+      <circle cx="7.9" cy="15" r="2.3" />
+      <path d="M4.2 21v-1a3.7 3.7 0 0 1 7.4 0v1" />
+      <circle cx="16.1" cy="15.4" r="2.3" />
+      <path d="M12.4 21v-1a3.7 3.7 0 0 1 7.4 0v1" />
     </>
   ),
   // Settings — sliders.
