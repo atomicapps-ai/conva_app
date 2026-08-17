@@ -783,6 +783,14 @@ function ThreadViewer({
       `Rephrase this a different way, same meaning: "${sayText}"`,
       card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
     );
+  // Distinct from both neighbors: expand on the SAME answer (more context,
+  // not a reword like Rephrase, not a wider dig like Research this line).
+  const moreDetail = () =>
+    onRequest(
+      "question",
+      `Give more detail on this — expand with more context, keep the same core answer: "${sayText}"`,
+      card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
+    );
   const researchMore = () =>
     onRequest(
       "question",
@@ -873,6 +881,13 @@ function ThreadViewer({
             </button>
             <button
               type="button"
+              onClick={moreDetail}
+              className="rounded-full border border-ai/40 px-3.5 py-1.5 text-[12px] font-bold text-ai transition hover:bg-ai/10"
+            >
+              More detail
+            </button>
+            <button
+              type="button"
               onClick={researchMore}
               className="rounded-full border border-border-strong px-3.5 py-1.5 text-[12px] font-medium text-fg-muted transition hover:text-fg"
             >
@@ -930,6 +945,14 @@ function InlineAllyCard({
     onRequest(
       "question",
       `Rephrase this a different way, same meaning: "${sayText}"`,
+      card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
+    );
+  // Distinct from both neighbors: expand on the SAME answer (more context,
+  // not a reword like Rephrase, not a wider dig like Research this line).
+  const moreDetail = () =>
+    onRequest(
+      "question",
+      `Give more detail on this — expand with more context, keep the same core answer: "${sayText}"`,
       card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
     );
   const researchMore = () =>
@@ -1034,6 +1057,13 @@ function InlineAllyCard({
                 className="rounded-full border border-ai/40 px-3 py-1 text-[11.5px] font-bold text-ai transition hover:bg-ai/10"
               >
                 Rephrase
+              </button>
+              <button
+                type="button"
+                onClick={moreDetail}
+                className="rounded-full border border-ai/40 px-3 py-1 text-[11.5px] font-bold text-ai transition hover:bg-ai/10"
+              >
+                More detail
               </button>
               <button
                 type="button"

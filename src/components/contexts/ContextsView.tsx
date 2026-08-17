@@ -7,6 +7,7 @@ import { SimConSetup } from "@/components/simcon/SimConSetup";
 import { ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
 import { DEFAULT_CONTEXT_ID, type SimConSession, type SimConSummary } from "@/lib/ipc";
+import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useLibraryQuickAdd } from "@/state/libraryQuickAdd";
 
 type Mode =
@@ -28,14 +29,24 @@ type Mode =
  * navigate here; consumed once on mount below, so a document/paste/context
  * flow is reachable from anywhere in the app, not just once you're already
  * on this screen.
+ *
+ * Quick-open: Conversations' "Rehearse" tab lists contexts and needs to
+ * land directly on one's detail page (personas/rehearse, Step 3/4) rather
+ * than the list — `useContextsQuickOpen`, same one-shot pattern, consumed
+ * once below alongside `quickAction`.
  */
 export function ContextsView() {
   const backend = useBackend();
   const [items, setItems] = useState<SimConSummary[]>([]);
   const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
   const [quickAction] = useState(() => useLibraryQuickAdd.getState().consume());
+  const [quickOpenId] = useState(() => useContextsQuickOpen.getState().consume());
   const [mode, setMode] = useState<Mode>(
-    quickAction === "new_context" ? { k: "setup", initial: null } : { k: "list" },
+    quickOpenId
+      ? { k: "detail", id: quickOpenId }
+      : quickAction === "new_context"
+        ? { k: "setup", initial: null }
+        : { k: "list" },
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

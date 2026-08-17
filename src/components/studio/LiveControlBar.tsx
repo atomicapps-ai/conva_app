@@ -1,3 +1,4 @@
+import { Core, coreStateFrom } from "@/components/ui/Core";
 import { Icon } from "@/components/ui/Icon";
 import { ResponsiveLabel } from "@/components/ui/ResponsiveLabel";
 import { useAppStore } from "@/state/app";
@@ -10,10 +11,15 @@ import { useTranscriptStore } from "@/state/transcript";
  * `TopBar`. Maps onto the mockup's row as:
  *
  * - `core` → the Start/Stop toggle itself (idle = click to start, listening
- *   = pulses, click to stop). The mockup draws it as a passive "Listening"
- *   indicator with no visible Start anywhere in its (mid-call) demo state;
- *   making it the click target is the one place this session's rebuild
- *   fills in a gap the mockup's single frozen frame doesn't show.
+ *   = pulses, click to stop), now the real `<Core>` sonar instrument
+ *   (rings + radar sweep + orbiting node + breathing center — the same
+ *   component the mockup's own `.core` JS builds) instead of a plain
+ *   pulsing dot. `Core.tsx` already existed, fully built, just never
+ *   wired into anything (owner feedback 2026-08-17). The mockup draws it
+ *   as a passive "Listening" indicator with no visible Start anywhere in
+ *   its (mid-call) demo state; making it the click target is the one
+ *   place this session's rebuild fills in a gap the mockup's single
+ *   frozen frame doesn't show.
  * - `Pause` → present but disabled. `Paused` exists as an IPC enum variant
  *   (`crates/conva-core/src/ipc.rs`) but nothing in `src-tauri` ever
  *   constructs or handles it — there's no backend to wire this to yet.
@@ -64,6 +70,7 @@ export function LiveControlBar() {
     session.state === "error" ||
     lastError === "consent_required" ||
     (lastError !== null && !lastError.includes("model_downloading"));
+  const coreState = coreStateFrom(session.state, recording);
 
   return (
     <div className="flex h-[52px] shrink-0 items-center gap-3 border-t border-border bg-bg-2 px-3.5">
@@ -73,18 +80,9 @@ export function LiveControlBar() {
         onClick={() => void (listening ? stop() : start())}
         title={listening ? "Stop listening" : "Start listening"}
         aria-pressed={listening}
-        className={[
-          "grid h-10 w-10 shrink-0 place-items-center rounded-full border transition disabled:opacity-50",
-          listening
-            ? "border-ok/50 bg-ok/10 text-ok"
-            : "border-border-strong bg-panel-raised text-fg-muted hover:text-fg",
-        ].join(" ")}
+        className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition hover:brightness-110 disabled:opacity-50"
       >
-        {listening ? (
-          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-ok" aria-hidden />
-        ) : (
-          <Icon name="live" size={18} />
-        )}
+        <Core state={coreState} size={34} />
       </button>
 
       {statusText ? (

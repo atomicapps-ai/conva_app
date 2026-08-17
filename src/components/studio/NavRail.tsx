@@ -95,15 +95,21 @@ function RailButton({
               // the icon (currentColor) + label too, so compact/icon-only
               // rows still get a clear active cue with no label to lean on.
               "border-border-strong bg-panel-raised text-primary",
-              // The join (V4.0 "file cabinet"): flat on the edge that meets
-              // the content pane, rounded on the other three, and bled past
-              // the rail's own right padding + border (px-1.5 + border =
-              // 7px) so the row visually crosses onto the pane instead of
-              // stopping at a gap. Compact/icon-only rows skip this — at
-              // that width there's no pane-adjacent edge worth joining.
+              // The join (V4.0 "file cabinet") — the mockup's own
+              // `.rail-item[aria-current]` CSS applies this at every width,
+              // not just the labeled one: flat on the edge that meets the
+              // content pane, rounded on the other three, bled past
+              // whatever gap sits between the row and the rail's own
+              // border so the row visually crosses onto the pane instead
+              // of stopping short. This is what makes it read as a tab,
+              // not a highlighted button — a compact-mode exception here
+              // (skipped once, on the theory that a narrow row has no
+              // pane-adjacent edge worth joining) turned out to be wrong;
+              // the mockup proves the tab shape holds at icon-only width
+              // too (owner feedback 2026-08-17).
               compact
-                ? "rounded-[var(--radius)]"
-                : "-mr-[7px] rounded-l-[var(--radius)] rounded-r-none border-r-0",
+                ? "-mr-[8px] rounded-l-[var(--radius)] rounded-r-none border-r-0" // 7px items-center gap + 1px rail border
+                : "-mr-[7px] rounded-l-[var(--radius)] rounded-r-none border-r-0", // 6px px-1.5 + 1px rail border
             ].join(" ")
           : "rounded-[var(--radius)] text-fg-muted hover:bg-white/[0.045] hover:text-fg",
       ].join(" ")}

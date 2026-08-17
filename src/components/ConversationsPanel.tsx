@@ -3,8 +3,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useBackend } from "@/lib/backend";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
-import type { ConversationSummary, SessionSummary } from "@/lib/ipc";
+import { DEFAULT_CONTEXT_ID, type ConversationSummary, type SessionSummary, type SimConSummary } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
+import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
+import { useNavStore } from "@/state/nav";
 import { useTranscriptStore } from "@/state/transcript";
 
 function formatDate(unixMs: number): string {
@@ -12,11 +14,28 @@ function formatDate(unixMs: number): string {
   return new Date(unixMs).toLocaleString();
 }
 
-type Filter = "saved" | "all";
+const STATUS_LABEL: Record<SimConSummary["status"], string> = {
+  draft: "Draft",
+  ingesting: "Preparing…",
+  ready: "Ready",
+  running: "Running",
+  ended: "Ended",
+};
+
+const STATUS_TONE: Record<SimConSummary["status"], string> = {
+  draft: "pill-idle",
+  ingesting: "pill-accent",
+  ready: "pill-ready",
+  running: "pill-accent",
+  ended: "pill-idle",
+};
+
+type Filter = "saved" | "all" | "rehearse";
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "saved", label: "Saved" },
   { key: "all", label: "All activity" },
+  { key: "rehearse", label: "Rehearse" },
 ];
 
 type Row =
@@ -39,11 +58,21 @@ type Row =
  * ones. Sessions carry an "Unsaved" pill and have no delete action (they're
  * an automatic log, not a user record); conversations keep their existing
  * delete/rename-by-resave behavior.
+ *
+ * "Rehearse" (owner decision, 2026-08-17) lists Contexts instead — picking
+ * one jumps straight to its detail page (personas → start rehearsal) via
+ * `state/contextsQuickOpen.ts`'s one-shot intent. Grouped here rather than
+ * given its own rail item because rehearsing IS a kind of conversation (it
+ * saves as one, tagged Sim Con, and shows up right there in "All
+ * activity") — Contexts is the prep material, this tab is the act of
+ * using it. The always-present default context is excluded; there's
+ * nothing to rehearse against without a real context's personas.
  */
 export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const backend = useBackend();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [contexts, setContexts] = useState<SimConSummary[]>([]);
   const [filter, setFilter] = useState<Filter>("saved");
   const openId = useConversationStore((s) => s.openId);
   const title = useConversationStore((s) => s.title);
@@ -57,15 +86,18 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const archived = useTranscriptStore((s) => s.archived);
   const shownSegments = [...archived, ...liveSegments];
   const viewingSession = useTranscriptStore((s) => s.viewingPastSessionId);
+  const setView = useNavStore((s) => s.setView);
 
   const refresh = useCallback(async () => {
     try {
-      const [c, s] = await Promise.all([
+      const [c, s, x] = await Promise.all([
         backend.conversations.list(),
         backend.sessions.list(),
+        backend.simcon.list(),
       ]);
       setConversations(c);
       setSessions(s);
+      setContexts(x.filter((ctx) => ctx.id !== DEFAULT_CONTEXT_ID));
     } catch (e) {
       setNotice(String(e));
     }
@@ -91,6 +123,12 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
     } catch (e) {
       setNotice(String(e));
     }
+  };
+
+  const rehearse = (id: string) => {
+    useContextsQuickOpen.getState().request(id);
+    setView("simcon");
+    onClose();
   };
 
   const remove = async (id: string) => {
@@ -206,7 +244,36 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
         ))}
       </div>
 
-      {rows.length === 0 ? (
+      {filter === "rehearse" ? (
+        contexts.length === 0 ? (
+          <div className="card grid place-items-center px-6 py-16 text-center text-xs text-fg-faint">
+            No contexts yet — create one in Contexts, then come back here to
+            rehearse against it.
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {contexts.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  onClick={() => rehearse(c.id)}
+                  title={`Rehearse against "${c.title}"`}
+                  className="row w-full"
+                >
+                  <Icon name="rehearsal" size={14} className="shrink-0 text-fg-faint" />
+                  <span className="truncate text-xs text-fg">{c.title}</span>
+                  <span className={`pill pill-sm ${STATUS_TONE[c.status]} shrink-0`}>
+                    {STATUS_LABEL[c.status]}
+                  </span>
+                  <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">
+                    {c.source_doc_count} doc{c.source_doc_count === 1 ? "" : "s"}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : rows.length === 0 ? (
         <div className="card grid place-items-center px-6 py-16 text-center text-xs text-fg-faint">
           {filter === "saved"
             ? "No saved conversations yet — press Stop after listening and choose Save, or use “Save current…”."

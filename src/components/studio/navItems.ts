@@ -32,18 +32,21 @@ export type NavItem = {
  * checking whether the app had four separable things to put behind them.
  * `AllyView.tsx` (the placeholder) is deleted, not just unlisted.
  *
- * Rehearsal IS a rail item (owner decision, 2026-08-17), but it doesn't
- * get a page of its own — `view: "rehearsal"` renders the SAME
- * `ContextsView` component as `view: "simcon"` (see `ViewRouter.tsx`).
+ * Rehearsal is NOT its own rail item either (owner decision, 2026-08-17,
+ * final form after two earlier passes this same day got it wrong — see
+ * git history on this file if the full back-and-forth ever matters).
  * Rehearsal has never been separate code from Contexts: it's Sim Con
  * Phase D, built into it from the start (`roadmap.md` lists "Sim Con
  * rehearsal" under the already-built Conversation Context feature;
  * `conversation-context-ui.md`, owner-approved 2026-08-12, `conva_core`,
- * decision #2: "Rehearsal stays reachable from a context's detail"). A
- * standalone `RehearsalView.tsx` placeholder existed briefly and was
- * deleted — the fix isn't a second page, it's reusing the one Contexts
- * already has (open a ready context → Step 4 → generate personas →
- * rehearse), just reachable by a second rail door into identical code.
+ * decision #2: "Rehearsal stays reachable from a context's detail"). It
+ * now lives as a launchable tab inside Conversations — "Rehearse"
+ * alongside "Saved"/"All activity" (`ConversationsPanel.tsx`) — picking a
+ * context there jumps straight to its detail page (personas → start
+ * rehearsal) via `state/contextsQuickOpen.ts`'s one-shot intent, same
+ * mechanism as ⌘K's quick-add. Grouping it with Conversations rather than
+ * Contexts because rehearsing IS a kind of conversation (it saves as one,
+ * tagged Sim Con) — Contexts is the prep material, not the act itself.
  *
  * "History" is NOT its own rail item (owner decision, 2026-08-17): it was
  * the automatic per-run session log (`session.rs`) with no UI ever
@@ -71,7 +74,6 @@ export const NAV_ITEMS: NavItem[] = [
   { view: "dashboard", icon: "home", label: "Home" },
   { view: "live", icon: "live", label: "Live session" },
   { view: "simcon", icon: "simicon", label: "Contexts" },
-  { view: "rehearsal", icon: "rehearsal", label: "Rehearsal" },
   { view: "conversations", icon: "conversations", label: "Conversations" },
   { view: "settings", icon: "settings", label: "Settings" },
 ];
