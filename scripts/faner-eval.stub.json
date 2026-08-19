@@ -1,0 +1,21 @@
+{
+  "$comment": "Canned model replies for offline scoring (node scripts/faner-eval.mjs --stub scripts/faner-eval.stub.json). Keyed by turn id. This is a hand-authored 'ideal' response set used to verify the harness scoring logic without an API key; a live run replaces it with real model output.",
+  "T1": [
+    { "trigger": "prep_reference", "action": "RECALL", "arguments": ["Terraform"] },
+    { "trigger": "task_frame", "action": "ASSIST", "arguments": ["Terraform", "team state"] },
+    { "trigger": "task_frame", "action": "ASSIST", "arguments": ["Terraform", "CloudFormation", "Pulumi"] }
+  ],
+  "T2": [
+    { "trigger": "task_frame", "action": "ASSIST", "arguments": ["REST API", "Python", "AWS"] },
+    { "trigger": "task_frame", "action": "ASSIST", "arguments": ["10000 req/s", "SQL"] },
+    { "trigger": "question", "action": "ASSIST", "arguments": ["SQL bottleneck"] }
+  ],
+  "T3": [
+    { "trigger": "prep_reference", "action": "RECALL", "arguments": ["Terraform"] },
+    { "trigger": "task_frame", "action": "ASSIST", "arguments": ["Terraform", "provisioning", "scale"] },
+    { "trigger": "question", "action": "ASSIST", "arguments": ["Terraform recovery", "state rollback"] }
+  ],
+  "T4": [
+    { "trigger": "question", "action": "SYNTHESIZE", "arguments": [] }
+  ]
+}
