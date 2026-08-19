@@ -17,6 +17,7 @@ export const EVENTS = {
   allySources: "conva://ally-sources",
   radar: "conva://radar",
   tracker: "conva://tracker",
+  capture: "conva://capture",
   authChanged: "conva://auth-changed",
 } as const;
 
@@ -163,6 +164,22 @@ export interface TrackedCommitment {
 export interface TrackerEvent {
   entities: TrackedEntity[];
   commitments: TrackedCommitment[];
+}
+
+// ── FANER capture routing (F11) — mirrors `conva-core/src/capture.rs` ─────────
+export type CaptureTrigger = "question" | "task_frame" | "prep_reference" | "gap";
+export type CaptureAction = "EXPLAIN" | "RECALL" | "ASSIST" | "SYNTHESIZE";
+
+/** One routed capture: what to help with, how, and about what. */
+export interface Capture {
+  trigger: CaptureTrigger;
+  action: CaptureAction;
+  arguments: string[];
+}
+
+/** The full deduped list of routed captures, re-emitted after each pass. */
+export interface CaptureEvent {
+  captures: Capture[];
 }
 
 export interface SessionSummary {

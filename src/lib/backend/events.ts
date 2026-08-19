@@ -13,6 +13,7 @@ import type {
   AllySourcesEvent,
   AudioLevelEvent,
   AuthChangedEvent,
+  CaptureEvent,
   ModelStatusEvent,
   RadarEvent,
   RehearsalStateEvent,
@@ -30,6 +31,7 @@ export interface EventMap {
   allySources: AllySourcesEvent;
   radar: RadarEvent;
   tracker: TrackerEvent;
+  capture: CaptureEvent;
   authChanged: AuthChangedEvent;
   rehearsalState: RehearsalStateEvent;
 }
@@ -50,6 +52,7 @@ export const EVENT_CHANNEL: Record<keyof EventMap, string> = {
   allySources: "conva://ally-sources",
   radar: "conva://radar",
   tracker: "conva://tracker",
+  capture: "conva://capture",
   authChanged: "conva://auth-changed",
   rehearsalState: "conva://rehearsal-state",
 };

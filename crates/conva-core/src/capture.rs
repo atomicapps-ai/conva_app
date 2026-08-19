@@ -15,6 +15,8 @@
 //! `highlight.rs`, `tracker.rs`) — the routing layer that turns detected
 //! triggers into actionable assists.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::asr::TranscriptSegment;
@@ -127,6 +129,52 @@ pub fn parse_capture_reply(reply: &str) -> Option<CaptureExtraction> {
     serde_json::from_str(&reply[start..=end]).ok()
 }
 
+/// Session-scoped dedup of routed captures, mirroring the tracker's merge: the
+/// shell accumulates every pass's captures here and re-emits the full deduped
+/// list. Dedup is by `(trigger, action, arguments)`, case- and
+/// order-insensitive on the arguments — so the same routed capture surfacing
+/// across two passes is stored once.
+#[derive(Debug, Default)]
+pub struct CaptureState {
+    pub captures: Vec<Capture>,
+    seen: HashSet<String>,
+}
+
+impl CaptureState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn key(capture: &Capture) -> String {
+        let mut args: Vec<String> = capture
+            .arguments
+            .iter()
+            .map(|a| a.trim().to_lowercase())
+            .filter(|a| !a.is_empty())
+            .collect();
+        args.sort();
+        format!(
+            "{:?}|{:?}|{}",
+            capture.trigger,
+            capture.action,
+            args.join(",")
+        )
+    }
+
+    /// Merge a pass's captures into the session state. Returns `true` if any
+    /// new (previously unseen) capture was added.
+    pub fn merge(&mut self, extraction: CaptureExtraction) -> bool {
+        let mut changed = false;
+        for capture in extraction.captures {
+            if self.seen.insert(Self::key(&capture)) {
+                self.captures.push(capture);
+                changed = true;
+            }
+        }
+        changed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,5 +276,54 @@ mod tests {
         assert!(json.contains("\"gap\""));
         assert!(json.contains("\"EXPLAIN\""));
         assert_eq!(serde_json::from_str::<Capture>(&json).unwrap(), c);
+    }
+
+    fn cap(trigger: Trigger, action: Action, args: &[&str]) -> Capture {
+        Capture {
+            trigger,
+            action,
+            arguments: args.iter().map(|a| a.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn state_merges_and_dedupes() {
+        let mut state = CaptureState::new();
+        let ex = CaptureExtraction {
+            captures: vec![
+                cap(Trigger::PrepReference, Action::Recall, &["Terraform"]),
+                cap(Trigger::Question, Action::Synthesize, &[]),
+            ],
+        };
+        assert!(state.merge(ex));
+        assert_eq!(state.captures.len(), 2);
+
+        // Re-emitting the same two captures (args reordered / recased) adds
+        // nothing — dedup is order- and case-insensitive.
+        let again = CaptureExtraction {
+            captures: vec![
+                cap(Trigger::PrepReference, Action::Recall, &["terraform"]),
+                cap(Trigger::Question, Action::Synthesize, &[]),
+                cap(
+                    Trigger::TaskFrame,
+                    Action::Assist,
+                    &["Pulumi", "CloudFormation"],
+                ),
+            ],
+        };
+        assert!(again.captures.len() == 3);
+        assert!(state.merge(again)); // the task_frame is new
+        assert_eq!(state.captures.len(), 3);
+
+        // A capture identical up to argument order does not re-add.
+        let reordered = CaptureExtraction {
+            captures: vec![cap(
+                Trigger::TaskFrame,
+                Action::Assist,
+                &["cloudformation", "pulumi"],
+            )],
+        };
+        assert!(!state.merge(reordered));
+        assert_eq!(state.captures.len(), 3);
     }
 }

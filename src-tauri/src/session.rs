@@ -103,6 +103,9 @@ struct ActiveSession {
     /// Held so the tracker worker lives with the session; dropping it (on
     /// stop) triggers the tracker's final pass and shutdown.
     _tracker_tx: Option<Sender<TranscriptSegment>>,
+    /// Held so the FANER capture worker lives with the session; same drop
+    /// semantics as the tracker (final pass + shutdown on stop).
+    _capture_tx: Option<Sender<TranscriptSegment>>,
 }
 
 impl SessionManager {
@@ -316,6 +319,27 @@ impl SessionManager {
             None
         };
 
+        // FANER capture routing (F11): same gating + fast slot as the tracker,
+        // grounded in the active conversation context's terms.
+        let capture_tx = if config.tracker_enabled {
+            let selection = config.fast_selection().clone();
+            let terms = app
+                .state::<crate::AppState>()
+                .active_context_terms
+                .lock()
+                .expect("ctx lock")
+                .clone();
+            let ctx = conva_core::capture::PreparedContext {
+                role: String::new(),
+                terms,
+            };
+            crate::llm::resolve_key(selection.provider)
+                .ok()
+                .map(|key| crate::capture::spawn_capture(app.clone(), selection, key, ctx))
+        } else {
+            None
+        };
+
         // Neural VAD (Silero) when enabled and the model is present; the
         // segmenter falls back to the energy gate otherwise. Sensitivity maps
         // to a speech-probability cutoff (higher = filter more noise).
@@ -353,6 +377,7 @@ impl SessionManager {
                     rag.clone(),
                     session_file.clone(),
                     tracker_tx.clone(),
+                    capture_tx.clone(),
                     if side == StreamSide::Outbound {
                         reh_tx.clone()
                     } else {
@@ -463,6 +488,7 @@ impl SessionManager {
             engines,
             stop_flag,
             _tracker_tx: tracker_tx,
+            _capture_tx: capture_tx,
         });
         Ok((session_id, stop_ret))
     }
@@ -579,6 +605,7 @@ fn make_transcript_sink(
     rag: Arc<RagStore>,
     session_file: Arc<Mutex<fs::File>>,
     tracker_tx: Option<Sender<TranscriptSegment>>,
+    capture_tx: Option<Sender<TranscriptSegment>>,
     rehearsal_tx: Option<Sender<TranscriptSegment>>,
 ) -> Box<dyn FnMut(TranscriptSegment) + Send> {
     Box::new(move |segment| {
@@ -590,6 +617,9 @@ fn make_transcript_sink(
             }
             if let Some(tracker) = &tracker_tx {
                 let _ = tracker.send(segment.clone());
+            }
+            if let Some(capture) = &capture_tx {
+                let _ = capture.send(segment.clone());
             }
             // Rehearsal: hand finalized user (outbound) turns to the worker.
             if segment.side == StreamSide::Outbound {

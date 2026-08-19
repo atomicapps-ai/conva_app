@@ -8,6 +8,7 @@ mod asr;
 mod asr_deepgram;
 mod audio;
 mod auth;
+mod capture;
 mod conversations;
 mod embed;
 mod feedback;
@@ -1578,6 +1579,7 @@ pub fn run() {
             analyze_terms,
             record_highlight_feedback,
             record_term_pick,
+            capture::faner_replay,
             debug_inject_segment,
             rag_download,
             secrets_status,
