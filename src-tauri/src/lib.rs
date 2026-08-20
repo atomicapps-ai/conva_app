@@ -1102,9 +1102,11 @@ fn simcon_rehearsal_say(
         confidence: None,
         latency_ms: 0,
     };
-    // Show it as the user's turn immediately + log it (bypasses the sink).
+    // Show it as the user's turn immediately + log it (bypasses the sink) +
+    // forward it to FANER (same bypass gap as the persona's reply).
     let _ = app.emit(events::TRANSCRIPT_SEGMENT, segment.clone());
     state.session.log_segment(&segment);
+    state.session.forward_to_capture(&segment);
     if state.session.rehearsal_inject_turn(segment) {
         Ok(())
     } else {

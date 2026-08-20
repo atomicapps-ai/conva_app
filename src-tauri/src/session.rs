@@ -79,6 +79,12 @@ pub struct SessionManager {
     /// bypass the capture sink (persona replies, injected answers) still get
     /// written to the per-session file — the auto-log stays complete.
     session_log: Mutex<Option<Arc<Mutex<fs::File>>>>,
+    /// A clone of the FANER capture worker's sender, so rehearsal turns that
+    /// bypass the normal audio-sourced sink (persona replies, "use this
+    /// answer" injected turns) still reach FANER — same gap `session_log`
+    /// above closes for the transcript file. `None` when capture routing is
+    /// disabled/unavailable for the current session (mirrors `_capture_tx`).
+    capture_forward: Mutex<Option<Sender<TranscriptSegment>>>,
 }
 
 /// Which capture topology a session runs.
@@ -118,6 +124,7 @@ impl SessionManager {
             rehearsal_inject: Mutex::new(None),
             session_started_ms: AtomicU64::new(0),
             session_log: Mutex::new(None),
+            capture_forward: Mutex::new(None),
         }
     }
 
@@ -203,6 +210,24 @@ impl SessionManager {
                     let _ = writeln!(f, "{json}");
                 }
             }
+        }
+    }
+
+    /// Forward a finalized segment to the FANER capture worker. Same gap
+    /// `log_segment` above closes for the transcript file: rehearsal turns
+    /// that bypass the normal audio-sourced sink (the AI persona's reply,
+    /// "use this answer" injected turns) never reach `capture_tx` through
+    /// the usual path, so a rehearsal's captures would otherwise only ever
+    /// see the user's own spoken turns — never what the persona says, which
+    /// is exactly where most EXPLAIN/RECALL captures would fire. No-op if
+    /// capture routing is disabled/unavailable for the session or the
+    /// segment isn't a non-empty final.
+    pub fn forward_to_capture(&self, segment: &TranscriptSegment) {
+        if !segment.is_final || segment.text.trim().is_empty() {
+            return;
+        }
+        if let Some(tx) = self.capture_forward.lock().expect("capture lock").as_ref() {
+            let _ = tx.send(segment.clone());
         }
     }
 
@@ -480,6 +505,10 @@ impl SessionManager {
         )
         .map_err(|e| CoreError::Audio(e.to_string()))?;
 
+        // Clone before the move below — `rehearsal.rs`/`simcon_rehearsal_say`
+        // use this to forward bypass segments (see `forward_to_capture`).
+        *self.capture_forward.lock().expect("capture lock") = capture_tx.clone();
+
         let stop_ret = stop_flag.clone();
         let mut active = self.active.lock().expect("session lock");
         *active = Some(ActiveSession {
@@ -499,6 +528,7 @@ impl SessionManager {
         *self.rehearsal_force.lock().expect("rehearsal lock") = None;
         *self.rehearsal_inject.lock().expect("rehearsal lock") = None;
         *self.session_log.lock().expect("log lock") = None;
+        *self.capture_forward.lock().expect("capture lock") = None;
         let session = self.active.lock().expect("session lock").take();
         if let Some(mut session) = session {
             // Signal first so the ASR workers skip their final decode.
