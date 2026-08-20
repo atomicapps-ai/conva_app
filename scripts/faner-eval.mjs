@@ -31,18 +31,22 @@ const RUBRIC = `You assist a user during a live conversation. You receive the OT
 
 For the utterance:
 1. Find the QUESTIONS first — a question is the clearest signal of what the user must address.
-2. Extract TASK FRAMES — (verb + arguments); split a compound ask into separate items.
+2. Extract TASK FRAMES — (verb + arguments); split a compound ask into separate items. Scan the WHOLE utterance for jargon, not just the words inside a detected question — scene-setting sentences carry real terms too ("In high-throughput, event-driven systems..." has two gap terms before any question starts). Emit ONE capture per distinct term — never bundle several terms into one capture's arguments.
 3. For each item choose an ACTION by its relationship to the prepared context:
    - term NOT in prepared context (a gap) -> EXPLAIN
    - term IN the prepared context, referenced back ("on your résumé", "you mentioned") -> RECALL
    - a task to perform -> ASSIST
    - a keyword-free behavioral/hypothetical question -> SYNTHESIZE
 4. Choose a TRIGGER for each item: "question", "task_frame", "prep_reference", or "gap".
-5. Skip anything with no marginal value — do NOT surface a term the user plainly already owns unless the other party attaches something new to it.
+5. For every EXPLAIN capture, also set tier and kind:
+   - tier: "field" (a competent practitioner in the general field should know this but might blank on it under pressure — quick refresher) or "specialized" (deep/product-specific, needs a fuller explanation). If it's genuinely common knowledge for this role, don't capture it at all.
+   - kind: "concept" (names a thing -> define it) or "problem" (names a known engineering pain point with an established standard fix, e.g. "cold-start", "N+1 queries" -> the preview MUST lead with the concrete fix, not a definition).
+6. Write a \`preview\`: <=2 sentences, the actual short answer — a definition for concepts, the standard mitigation FIRST for problems, a one-line pointer of what to pull from the user's history for RECALL, a one-line teaser (not the full answer) for SYNTHESIZE. Never leave it empty for a capture you emit.
+7. Skip anything with no marginal value — do NOT surface a term the user plainly already owns unless the other party attaches something new to it.
 
 Respond with ONLY a JSON object, no prose, no code fences, matching exactly:
-{"captures":[{"trigger":"question|task_frame|prep_reference|gap","action":"EXPLAIN|RECALL|ASSIST|SYNTHESIZE","arguments":[string,...]}]}
-arguments are the operands of the item (the tool/topic/task), lowercased or as spoken. Empty captures array is allowed.`;
+{"captures":[{"trigger":"question|task_frame|prep_reference|gap","action":"EXPLAIN|RECALL|ASSIST|SYNTHESIZE","arguments":[string,...],"tier":"field|specialized"|null,"kind":"concept|problem"|null,"preview":string}]}
+arguments are the operands of the item (the tool/topic/task), lowercased or as spoken — for jargon/gap captures this is exactly one term, never several bundled together. tier/kind are null for RECALL/ASSIST/SYNTHESIZE. Empty captures array is allowed.`;
 
 const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9/ ]/g, " ").replace(/\s+/g, " ").trim();
 const tokens = (s) => new Set(norm(s).split(" ").filter(Boolean));

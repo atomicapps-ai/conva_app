@@ -54,6 +54,34 @@ pub enum Action {
     Synthesize,
 }
 
+/// How likely a captured term is to actually be unknown — decides whether it
+/// gets a chip at all and how much explanation it earns. A term judged
+/// "fundamental" (neither tier) isn't captured. Owner design: 2026-08-20.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Tier {
+    /// Assumed field-level knowledge — worth a quick refresher, not a lecture
+    /// ("event-driven", "idempotency", "high-throughput").
+    Field,
+    /// Deep/product-specific — needs a fuller explanation ("RDS Proxy",
+    /// "Step Functions").
+    Specialized,
+}
+
+/// What KIND of thing a captured term names — independent of Tier, since a
+/// term's obscurity and its shape are different axes. Decides what the
+/// `preview` should contain: a definition, or a fix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    /// Names a thing — answer with a definition.
+    Concept,
+    /// Names a known engineering pain point with an established standard fix
+    /// ("cold-start", "N+1 queries") — answer leads with the fix, not a
+    /// dictionary entry.
+    Problem,
+}
+
 /// One routed capture: what to help with, how, and about what.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Capture {
@@ -61,6 +89,18 @@ pub struct Capture {
     pub action: Action,
     #[serde(default)]
     pub arguments: Vec<String>,
+    /// Absent for RECALL/ASSIST/SYNTHESIZE (Tier only classifies EXPLAIN
+    /// gaps) or on older/stub replies — `#[serde(default)]` keeps those
+    /// parseable.
+    #[serde(default)]
+    pub tier: Option<Tier>,
+    #[serde(default)]
+    pub kind: Option<Kind>,
+    /// A short (<=2 sentence) preview of the actual answer — a definition,
+    /// the standard fix (when `kind` is `Problem`), a recall pointer, or a
+    /// SYNTHESIZE teaser. Empty string when the model didn't provide one.
+    #[serde(default)]
+    pub preview: String,
 }
 
 /// The model's reply shape: a list of captures.
@@ -80,7 +120,11 @@ For the utterance:\n\
 1. Find the QUESTIONS first — a question is the clearest signal of what the \
 user must address.\n\
 2. Extract TASK FRAMES — (verb + arguments); split a compound ask into \
-separate items.\n\
+separate items. Scan the WHOLE utterance for jargon, not just the words \
+inside a detected question — scene-setting sentences carry real terms too \
+('In high-throughput, event-driven systems...' has two gap terms before any \
+question starts). Emit ONE capture per distinct term — never bundle several \
+terms into one capture's arguments.\n\
 3. For each item choose an ACTION by its relationship to the prepared \
 context: a term NOT in the prepared context (a gap) -> EXPLAIN; a term IN the \
 prepared context, referenced back ('on your résumé', 'you mentioned') -> \
@@ -88,13 +132,29 @@ RECALL; a task to perform -> ASSIST; a keyword-free behavioral/hypothetical \
 question -> SYNTHESIZE.\n\
 4. Choose a TRIGGER for each item: 'question', 'task_frame', 'prep_reference', \
 or 'gap'.\n\
-5. Skip anything with no marginal value — do NOT surface a term the user \
+5. For every EXPLAIN capture, also set tier and kind:\n\
+   - tier: 'field' (a competent practitioner in the general field should \
+know this but might blank on it under pressure — quick refresher) or \
+'specialized' (deep/product-specific, needs a fuller explanation). If it's \
+genuinely common knowledge for this role, don't capture it at all.\n\
+   - kind: 'concept' (names a thing -> define it) or 'problem' (names a \
+known engineering pain point with an established standard fix, e.g. \
+'cold-start', 'N+1 queries' -> the preview MUST lead with the concrete fix, \
+not a definition).\n\
+6. Write a `preview`: <=2 sentences, the actual short answer — a definition \
+for concepts, the standard mitigation FIRST for problems, a one-line pointer \
+of what to pull from the user's history for RECALL, a one-line teaser (not \
+the full answer) for SYNTHESIZE. Never leave it empty for a capture you emit.\n\
+7. Skip anything with no marginal value — do NOT surface a term the user \
 plainly already owns unless the other party attaches something new to it.\n\
 Reply with ONLY a JSON object, no prose, no code fences, matching exactly: \
 {\"captures\": [{\"trigger\": \"question|task_frame|prep_reference|gap\", \
-\"action\": \"EXPLAIN|RECALL|ASSIST|SYNTHESIZE\", \"arguments\": [string]}]}. \
-arguments are the operands of the item (the tool/topic/task). Empty captures \
-array is allowed.";
+\"action\": \"EXPLAIN|RECALL|ASSIST|SYNTHESIZE\", \"arguments\": [string], \
+\"tier\": \"field|specialized\"|null, \"kind\": \"concept|problem\"|null, \
+\"preview\": string}]}. arguments are the operands of the item (the \
+tool/topic/task) — for jargon/gap captures this is exactly one term, never \
+several bundled together. tier/kind are null for RECALL/ASSIST/SYNTHESIZE \
+(they only classify EXPLAIN). Empty captures array is allowed.";
 
 /// Build one capture-pass request over newly finalized segments, grounded in
 /// the prepared context. THEM lines are the other party, YOU lines the user.
@@ -271,11 +331,40 @@ mod tests {
             trigger: Trigger::Gap,
             action: Action::Explain,
             arguments: vec!["Pulumi".into()],
+            tier: Some(Tier::Specialized),
+            kind: Some(Kind::Concept),
+            preview: "An open-source IaC tool similar to Terraform.".into(),
         };
         let json = serde_json::to_string(&c).unwrap();
         assert!(json.contains("\"gap\""));
         assert!(json.contains("\"EXPLAIN\""));
+        assert!(json.contains("\"specialized\""));
+        assert!(json.contains("\"concept\""));
         assert_eq!(serde_json::from_str::<Capture>(&json).unwrap(), c);
+    }
+
+    #[test]
+    fn tier_kind_preview_default_when_absent() {
+        // Older/stub replies without the new fields still parse — RECALL/
+        // ASSIST/SYNTHESIZE never carry tier/kind, and a bare-bones reply
+        // shouldn't fail just because `preview` was omitted.
+        let reply = r#"{"captures":[{"trigger":"prep_reference","action":"RECALL","arguments":["Terraform"]}]}"#;
+        let ex = parse_capture_reply(reply).unwrap();
+        let c = &ex.captures[0];
+        assert_eq!(c.tier, None);
+        assert_eq!(c.kind, None);
+        assert_eq!(c.preview, "");
+    }
+
+    #[test]
+    fn problem_kind_parses() {
+        // The cold-start case: a field-tier problem, preview leads with the fix.
+        let reply = r#"{"captures":[{"trigger":"gap","action":"EXPLAIN","arguments":["cold-start"],"tier":"field","kind":"problem","preview":"Use provisioned concurrency or SnapStart to keep instances warm."}]}"#;
+        let ex = parse_capture_reply(reply).unwrap();
+        let c = &ex.captures[0];
+        assert_eq!(c.tier, Some(Tier::Field));
+        assert_eq!(c.kind, Some(Kind::Problem));
+        assert!(c.preview.contains("provisioned concurrency"));
     }
 
     fn cap(trigger: Trigger, action: Action, args: &[&str]) -> Capture {
@@ -283,6 +372,9 @@ mod tests {
             trigger,
             action,
             arguments: args.iter().map(|a| a.to_string()).collect(),
+            tier: None,
+            kind: None,
+            preview: String::new(),
         }
     }
 
