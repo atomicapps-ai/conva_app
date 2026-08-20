@@ -20,11 +20,7 @@ export function WhatsComingView() {
       icon="lightbulb"
       title="What's Coming"
       subtitle="A private preview of the roadmap, shared with beta members."
-      badge={
-        <span className="inline-flex items-center rounded-full border border-border-strong bg-panel-raised/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-faint">
-          Private preview
-        </span>
-      }
+      badge={<span className="pill pill-sm pill-idle">Private preview</span>}
     >
       {PHASES.map((phase) => {
         const items = UPCOMING.filter((i) => i.phase === phase);

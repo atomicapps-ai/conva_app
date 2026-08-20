@@ -22,7 +22,7 @@ const CENTER_COLOR: Record<CoreState, string> = {
 const RING_COLOR: Record<CoreState, string> = {
   idle: "rgba(150,190,255,0.14)",
   preparing: "rgba(150,190,255,0.16)",
-  listening: "rgba(34,230,214,0.42)",
+  listening: "rgba(79,184,255,0.42)",
   recording: "rgba(255,84,104,0.42)",
 };
 
@@ -52,10 +52,12 @@ export function Core({
     >
       <svg viewBox="0 0 40 40" width={size} height={size} aria-hidden="true">
         <defs>
+          {/* V4.0: the old three-voice iris gradient is retired — the core is
+              driven by the single azure accent (+ accent-ink for depth), same
+              as every other chrome surface. */}
           <linearGradient id="coreIris" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#22e4f5" />
-            <stop offset="0.52" stopColor="#7b5cff" />
-            <stop offset="1" stopColor="#ff4fd8" />
+            <stop offset="0" stopColor="#4fb8ff" />
+            <stop offset="1" stopColor="#04121f" />
           </linearGradient>
           <radialGradient id="coreRec" cx="0.4" cy="0.35" r="0.7">
             <stop offset="0" stopColor="#ff8a97" />
@@ -63,8 +65,8 @@ export function Core({
           </radialGradient>
           <radialGradient id="coreSweep" cx="0" cy="0" r="1"
             gradientTransform="translate(20 20) rotate(90) scale(18)">
-            <stop stopColor="#22e4f5" stopOpacity="0.5" />
-            <stop offset="1" stopColor="#22e4f5" stopOpacity="0" />
+            <stop stopColor="#4fb8ff" stopOpacity="0.5" />
+            <stop offset="1" stopColor="#4fb8ff" stopOpacity="0" />
           </radialGradient>
         </defs>
 
@@ -87,7 +89,7 @@ export function Core({
               <path d="M20 20 L20 2 A18 18 0 0 1 34 12 Z" fill="url(#coreSweep)" />
             </g>
             <g className="core-orbit">
-              <circle cx="20" cy="2" r="1.6" fill="#8b6bff" />
+              <circle cx="20" cy="2" r="1.6" fill="#4fb8ff" />
             </g>
           </>
         )}
@@ -98,7 +100,7 @@ export function Core({
             <path
               d="M20 8 A12 12 0 0 1 32 20"
               fill="none"
-              stroke="#22e4f5"
+              stroke="#4fb8ff"
               strokeWidth="2.5"
               strokeLinecap="round"
             />

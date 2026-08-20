@@ -2,7 +2,7 @@
 
 A real-time AI conversation assistant: intercepts both sides of the host computer's audio (microphone + system output), transcribes them live into a dual-column chat UI, and lets a RAG-grounded AI agent process the conversation inline at any moment.
 
-**Design blueprint:** [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md) — tech stack, module boundaries, latency budgets, milestones, and the resolved decision checklist. Read it before touching code.
+**Design blueprint:** [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md) is a pointer stub — the real doc (tech stack, module boundaries, latency budgets, milestones, and the resolved decision checklist) lives in `conva_core/docs/technical/phase-1-design-and-spec.md` (core is the single source of truth for design docs). Read it before touching code.
 
 ## Stack
 
@@ -118,9 +118,16 @@ Local release build (needs the full dev toolchain + Vulkan SDK):
 
 macOS notes: whisper uses the Metal backend (`--features gpu-metal`); API
 keys live in the macOS Keychain; the mic permission prompt comes from
-`src-tauri/Info.plist`. System-audio ("them") capture on macOS needs a
-loopback device such as BlackHole for now — pick it as the system-audio
-device in Settings.
+`src-tauri/Info.plist`. **System-audio ("them") capture is Windows-only**
+(WASAPI loopback — cpal has no macOS equivalent). On macOS the session
+degrades to mic-only: your side transcribes, theirs doesn't. There is no
+supported workaround — do not point users at a virtual-audio-device hack
+(e.g. BlackHole) to fake this; it needs a hand-built macOS Multi-Output
+Device or the user stops hearing their own call, it's an unvetted
+third-party driver sitting in the exact signal path we tell people nothing
+leaves unaudited, and it's not something we can support when an OS update
+breaks it. A native path (Core Audio process taps) is future work — see
+`conva_core/docs/product/rebrand-spec-2026-08.md` §5.
 
 ## Checks
 

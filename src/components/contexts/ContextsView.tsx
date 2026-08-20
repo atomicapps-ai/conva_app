@@ -7,6 +7,8 @@ import { SimConSetup } from "@/components/simcon/SimConSetup";
 import { ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
 import { DEFAULT_CONTEXT_ID, type SimConSession, type SimConSummary } from "@/lib/ipc";
+import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
+import { useLibraryQuickAdd } from "@/state/libraryQuickAdd";
 
 type Mode =
   | { k: "list" }
@@ -14,20 +16,47 @@ type Mode =
   | { k: "detail"; id: string };
 
 /**
- * The unified Conversation Contexts & Library page (design:
- * conva_core/docs/technical/conversation-context-ui.md). Two panes on one
- * screen — contexts on the left, the library on the right — so grounding a
- * context is drag-and-drop, not a modal. Replaces the standalone Sim Con and
- * Library views; both nav routes land here.
+ * The Conversation Contexts page — Contexts and Library on one screen
+ * (owner decision, 2026-08-16, reversing an earlier same-day un-merge):
+ * "do not have library separate... make it part of conversation [Contexts]."
+ * `LibraryPane` sits alongside `ContextsPane`; attaching a document to a
+ * context is still the click-to-pick popover (`AttachMenu`), not
+ * drag-and-drop — that call stands regardless of the two panes being back
+ * on one screen (see `LibraryPane.tsx`'s doc comment for the full why).
+ *
+ * Quick-add: ⌘K's "Add a document…" / "Paste a note…" / "New context…"
+ * commands (`CommandPalette.tsx`) set an intent in `useLibraryQuickAdd` and
+ * navigate here; consumed once on mount below, so a document/paste/context
+ * flow is reachable from anywhere in the app, not just once you're already
+ * on this screen.
+ *
+ * Quick-open: Conversations' "Rehearse" tab lists contexts and needs to
+ * land directly on one's detail page (personas/rehearse, Step 3/4) rather
+ * than the list — `useContextsQuickOpen`, same one-shot pattern, consumed
+ * once below alongside `quickAction`.
  */
 export function ContextsView() {
   const backend = useBackend();
   const [items, setItems] = useState<SimConSummary[]>([]);
-  const [mode, setMode] = useState<Mode>({ k: "list" });
+  const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
+  const [quickAction] = useState(() => useLibraryQuickAdd.getState().consume());
+  const [quickOpenId] = useState(() => useContextsQuickOpen.getState().consume());
+  const [mode, setMode] = useState<Mode>(
+    quickOpenId
+      ? { k: "detail", id: quickOpenId }
+      : quickAction === "new_context"
+        ? { k: "setup", initial: null }
+        : { k: "list" },
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
-  const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const contextTitles = useMemo(
+    () => Object.fromEntries(items.map((s) => [s.id, s.title])),
+    [items],
+  );
 
   const refresh = useCallback(() => {
     backend.simcon
@@ -49,12 +78,6 @@ export function ContextsView() {
   useEffect(() => {
     refresh();
   }, [refresh]);
-
-  const contextTitles = useMemo(
-    () => Object.fromEntries(items.map((s) => [s.id, s.title])),
-    [items],
-  );
-  const selected = items.find((s) => s.id === selectedId) ?? null;
 
   const edit = async (id: string) => {
     try {
@@ -79,30 +102,6 @@ export function ContextsView() {
     refresh();
   };
 
-  // Drag- or click-attach a library document to a context: folds the doc id
-  // into the context's own source_doc_ids (what the engine actually grounds
-  // on) and tags the document (library filter/badge). Kept in sync — see
-  // conversation-context-ui.md §2.
-  const attach = useCallback(
-    async (contextId: string, docId: string) => {
-      try {
-        const session = await backend.simcon.load(contextId);
-        if (!session.source_doc_ids.includes(docId)) {
-          await backend.simcon.save({
-            ...session,
-            source_doc_ids: [...session.source_doc_ids, docId],
-          });
-        }
-        await backend.rag.attachContext(docId, contextId);
-        refresh();
-        setLibraryRefreshToken((t) => t + 1);
-      } catch (e) {
-        setError(String(e));
-      }
-    },
-    [backend, refresh],
-  );
-
   const generate = useCallback(
     async (id: string) => {
       setGeneratingId(id);
@@ -115,11 +114,28 @@ export function ContextsView() {
       } finally {
         setGeneratingId(null);
         refresh();
-        setLibraryRefreshToken((t) => t + 1);
       }
     },
     [backend, refresh],
   );
+
+  // Shared by attach and detach — either changes both a context's doc count
+  // (needs `refresh()`) and Library's own per-row context tags (needs
+  // `libraryRefreshToken` to bump, so LibraryPane re-fetches).
+  const bumpDocs = () => {
+    setLibraryRefreshToken((t) => t + 1);
+    refresh();
+  };
+
+  const attach = async (docId: string, contextId: string) => {
+    try {
+      await backend.rag.attachContext(docId, contextId);
+      setNotice(`Attached to "${contextTitles[contextId] ?? "context"}".`);
+      bumpDocs();
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
 
   if (mode.k === "setup") {
     return (
@@ -150,17 +166,15 @@ export function ContextsView() {
       actions={
         error ? null : (
           <p className="text-[11px] text-fg-faint">
-            {items.length} context{items.length === 1 ? "" : "s"}
+            {notice ?? `${items.length} context${items.length === 1 ? "" : "s"}`}
           </p>
         )
       }
     >
-      {error && (
-        <p className="text-sm text-fg-muted">{error}</p>
-      )}
+      {error && <p className="text-sm text-fg-muted">{error}</p>}
 
       {!error && (
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[1.3fr_1fr]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
           <ContextsPane
             items={items}
             selectedId={selectedId}
@@ -169,18 +183,17 @@ export function ContextsView() {
             onNew={() => setMode({ k: "setup", initial: null })}
             onEdit={(id) => void edit(id)}
             onDelete={(id) => void remove(id)}
-            onAttach={(contextId, docId) => void attach(contextId, docId)}
             onGenerate={(id) => void generate(id)}
+            onAttach={(contextId, docId) => void attach(docId, contextId)}
+            onDocsChanged={bumpDocs}
             generatingId={generatingId}
+            refreshToken={libraryRefreshToken}
           />
           <LibraryPane
-            selectedContextId={selectedId}
-            selectedContextTitle={selected?.title ?? null}
             contextTitles={contextTitles}
-            onAttachToSelected={(docId) => {
-              if (selectedId) void attach(selectedId, docId);
-            }}
+            onAttach={(docId, contextId) => void attach(docId, contextId)}
             refreshToken={libraryRefreshToken}
+            quickAction={quickAction === "upload" || quickAction === "paste" ? quickAction : null}
           />
         </div>
       )}

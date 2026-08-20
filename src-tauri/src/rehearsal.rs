@@ -249,11 +249,17 @@ fn respond(
         confidence: None,
         latency_ms: 0,
     };
-    // Write the persona turn to the session log (it bypasses the capture sink)
-    // so the per-session transcript is complete.
+    // Write the persona turn to the session log (it bypasses the capture
+    // sink) so the per-session transcript is complete, and forward it to
+    // FANER too — otherwise a rehearsal's captures would only ever see the
+    // user's own spoken turns, never the persona's (the side that actually
+    // raises résumé terms/jargon most captures are meant to catch).
     app.state::<crate::AppState>()
         .session
         .log_segment(&final_seg);
+    app.state::<crate::AppState>()
+        .session
+        .forward_to_capture(&final_seg);
     transcript.push(final_seg);
 
     // Speak it (best-effort; text still shows if TTS is unavailable).

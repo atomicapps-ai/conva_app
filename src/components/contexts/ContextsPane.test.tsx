@@ -1,7 +1,10 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ContextsPane } from "@/components/contexts/ContextsPane";
+import { BackendProvider } from "@/lib/backend";
+import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 import type { SimConSummary } from "@/lib/ipc";
 
 afterEach(cleanup);
@@ -25,9 +28,25 @@ function summary(overrides: Partial<SimConSummary> = {}): SimConSummary {
 
 const noop = () => undefined;
 
+// ContextsPane fetches the document list itself (to render each context's
+// expanded child-doc tree) — a bare-bones fake is enough for these tests,
+// none of which expand a row.
+function fakeBackend(): ConvaBackend {
+  return {
+    rag: {
+      list: vi.fn().mockResolvedValue([]),
+      detachContext: vi.fn().mockResolvedValue(undefined),
+    },
+  } as unknown as ConvaBackend;
+}
+
+function renderPane(ui: ReactElement) {
+  return render(<BackendProvider backend={fakeBackend()}>{ui}</BackendProvider>);
+}
+
 describe("ContextsPane", () => {
   it("disables Generate until the context has a grounding source, and shows why", () => {
-    render(
+    renderPane(
       <ContextsPane
         items={[summary()]}
         selectedId={null}
@@ -36,8 +55,8 @@ describe("ContextsPane", () => {
         onNew={noop}
         onEdit={noop}
         onDelete={noop}
-        onAttach={noop}
         onGenerate={noop}
+        onAttach={noop}
         generatingId={null}
       />,
     );
@@ -51,7 +70,7 @@ describe("ContextsPane", () => {
 
   it("enables Generate once key terms are declared, and calls onGenerate", () => {
     const onGenerate = vi.fn();
-    render(
+    renderPane(
       <ContextsPane
         items={[summary({ has_key_terms: true })]}
         selectedId={null}
@@ -60,8 +79,8 @@ describe("ContextsPane", () => {
         onNew={noop}
         onEdit={noop}
         onDelete={noop}
-        onAttach={noop}
         onGenerate={onGenerate}
+        onAttach={noop}
         generatingId={null}
       />,
     );
@@ -73,8 +92,8 @@ describe("ContextsPane", () => {
     expect(onGenerate).toHaveBeenCalledWith("s1");
   });
 
-  it("hides the Prime Ally button off-desktop (web has no Sim Con folder to write to)", () => {
-    render(
+  it("hides the New Context button off-desktop (web has no Sim Con folder to write to)", () => {
+    renderPane(
       <ContextsPane
         items={[]}
         selectedId={null}
@@ -83,19 +102,19 @@ describe("ContextsPane", () => {
         onNew={noop}
         onEdit={noop}
         onDelete={noop}
-        onAttach={noop}
         onGenerate={noop}
+        onAttach={noop}
         generatingId={null}
       />,
     );
     // jsdom has no __TAURI__ global -> isDesktop is false -> button absent.
-    expect(screen.queryByRole("button", { name: "Prime Ally" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add a New Context" })).toBeNull();
   });
 
   it("keeps Open + Generate inline and tucks Edit/Delete behind the ⋮ menu", () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
-    render(
+    renderPane(
       <ContextsPane
         items={[summary({ has_key_terms: true })]}
         selectedId={null}
@@ -104,8 +123,8 @@ describe("ContextsPane", () => {
         onNew={noop}
         onEdit={onEdit}
         onDelete={onDelete}
-        onAttach={noop}
         onGenerate={noop}
+        onAttach={noop}
         generatingId={null}
       />,
     );
@@ -123,7 +142,7 @@ describe("ContextsPane", () => {
   });
 
   it("Ready contexts don't show the checklist", () => {
-    render(
+    renderPane(
       <ContextsPane
         items={[summary({ status: "ready", has_key_terms: true })]}
         selectedId={null}
@@ -132,8 +151,8 @@ describe("ContextsPane", () => {
         onNew={noop}
         onEdit={noop}
         onDelete={noop}
-        onAttach={noop}
         onGenerate={noop}
+        onAttach={noop}
         generatingId={null}
       />,
     );

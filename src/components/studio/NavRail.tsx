@@ -1,30 +1,87 @@
 import { useEffect, useState } from "react";
 
-import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import { NAV_ITEMS } from "@/components/studio/navItems";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { isTauri, type AuthStatus } from "@/lib/ipc";
 import { PLATFORM } from "@/lib/platform";
+import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
 
 /**
- * The Studio's left instrument rail (52px). View selectors with the conva mark
- * up top and the ⌘K palette trigger at the foot. The active view gets a 3px
- * violet indicator on its leading edge and a violet-tinted chip (brand v2).
+ * The Studio's left instrument rail — a **file cabinet**, not a strip of
+ * equal icon buttons (V4.0, `conva_core/brand/UI/AppUI_V4.0`). Rows carry a
+ * label, dropped to icon-only either in the app's manual Compact mode or
+ * automatically once the shell narrows below the responsive-tiers Medium
+ * threshold (`narrow` prop, driven by StudioShell's own ResizeObserver —
+ * see the shed-order note there). The active row takes the content pane's
+ * OWN background (`bg-panel` — must match `StudioShell.tsx`'s pane exactly,
+ * not a brighter step; see the join comment below for why), a plain bright
+ * icon/label (no accent tint), and a 2px azure spine on its leading edge —
+ * the accent lives on the spine only, never a voice colour, never the
+ * whole row. (A same-day round-trip on 2026-08-17: bumped the background a
+ * step brighter for legibility, which broke the pane-color match the tab
+ * shape depends on; reverted to the mockup's literal values same day —
+ * legibility comes from the fg-muted → fg jump plus the spine, not from
+ * recoloring the row.)
  */
 
-/** The shared nav list resolved for THIS platform (base rows + desktop rows). */
-const RAIL_ITEMS = NAV_ITEMS.filter((i) => !i.only || i.only === PLATFORM);
+/** The shared nav list resolved for THIS platform (base rows + desktop rows).
+ *  "dashboard" is deliberately excluded here — V4.0's rail has no Home row;
+ *  the way back to it is the WindowChrome mark + the small icon above the
+ *  account block below. WebTopNav still shows Home normally (it has no
+ *  equivalent bottom-of-rail utility cluster to hang a shortcut off of). */
+const RAIL_ITEMS = NAV_ITEMS.filter(
+  (i) => (!i.only || i.only === PLATFORM) && i.view !== "dashboard",
+);
+
+/** First letter of the email, for the monogram avatar (same as Dashboard/Profile). */
+function initial(email: string | null): string {
+  return (email?.trim()?.[0] ?? "?").toUpperCase();
+}
+
+/** "today 09:14" / "yesterday 09:14" / "Aug 12" — terse, matches the
+ *  reference's "Last in · today 09:14". Full detail lives in the popover
+ *  (and Profile's Row) via toLocaleString(); this is a rail-row-width label. */
+function formatLastIn(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const now = new Date();
+  const time = d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+  if (sameDay(d, now)) return `today ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameDay(d, yesterday)) return `yesterday ${time}`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 function RailButton({
   active,
+  join = true,
   label,
+  displayLabel,
+  compact,
   onClick,
   children,
 }: {
   active?: boolean;
+  /** Whether the active style grafts the row onto the content pane (the
+   *  file-cabinet tab join). The account button opts out: its `active` is
+   *  "menu open", not "this page is open", and a popover toggle shouldn't
+   *  read as a tab. */
+  join?: boolean;
+  /** Full description — always the tooltip/aria-label. */
   label: string;
+  /** Short row text shown when !compact. Falls back to `label`. */
+  displayLabel?: string;
+  compact: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -34,32 +91,98 @@ function RailButton({
       onClick={onClick}
       title={label}
       aria-label={label}
-      aria-current={active ? "page" : undefined}
+      aria-current={active && join ? "page" : undefined}
       className={[
-        "group relative flex h-[30px] w-[30px] items-center justify-center rounded-sm border transition",
+        // ⚠️ WIDTH IS THE WHOLE TRICK — read before touching. The active
+        // row's -mr bleed below only widens the row if flex `stretch` is
+        // what sizes it: per spec, stretch applies ONLY when the cross
+        // size is `auto`, and it subtracts margins from the container's
+        // content width — so a negative right margin genuinely widens the
+        // row, carrying it across the rail's own right border to die flush
+        // against the pane. Giving these rows a definite width (`w-full`,
+        // `w-[30px]`) silently disables stretch: the width resolves
+        // against the content box, the row stops 7px short of the border,
+        // and the negative margin computes but moves nothing. That was
+        // the entire "looks like a button, not a tab" bug (owner,
+        // 2026-08-17) — every paint property (color/margin/radius)
+        // checked out for days while the rendered right edge sat at
+        // x=181 instead of x=188. Inactive compact rows keep a definite
+        // w-[30px] (centered square); everything else stays width-auto.
+        // No border-color class here — deliberately. `border-transparent`
+        // used to sit in this shared base, "always applied, active
+        // overrides it." It doesn't: Tailwind emits `.border-transparent`
+        // AFTER `.border-border`/`.border-border-strong` in the compiled
+        // stylesheet, and same-specificity rules resolve by stylesheet
+        // order, not by where the class sits in the string — so the
+        // "override" silently lost every single time, on every version
+        // shipped today, and the border rendered fully transparent
+        // regardless of which color class the active branch used. What
+        // read as "a box" was only ever the background-color contrast.
+        // Verified in headless Chromium: an element with `border
+        // border-transparent border-border` computes to `rgba(0,0,0,0)`.
+        // Fix: each state owns its border-color outright, one class,
+        // never two competing for the same element (below).
+        "group relative flex shrink-0 items-center gap-2.5 border text-[13px] font-semibold transition",
+        compact ? "h-[30px] justify-center" : "h-[34px] justify-start px-2.5",
         active
-          ? "border-outbound/34 bg-outbound/[0.14] text-[var(--voice-you-text)]"
-          : "border-transparent text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
+          ? [
+              // bg-panel — EXACTLY the content pane's own background
+              // (StudioShell.tsx: "bg-panel — same surface the active
+              // rail row takes on, so its join reads as 'becomes the
+              // pane'"), not a step brighter — that match is load-bearing.
+              // border-border — EXACTLY the same token as the rail's own
+              // border-r seam, also load-bearing (owner, 2026-08-17):
+              // the tab's outline visually CONTINUES the seam line it
+              // interrupts — down the seam, left around the tab, back to
+              // the seam — so both must be one color to read as one
+              // continuous folder-tab silhouette. text-fg (plain bright
+              // white, not the accent); only the spine carries azure.
+              "border-border bg-panel text-fg",
+              join
+                ? compact
+                  ? // compact rail: no horizontal padding, so only the 1px
+                    // border to cross. self-stretch overrides the nav's
+                    // items-center so stretch sizing (and the bleed) applies.
+                    "-mr-[1px] self-stretch rounded-l-[var(--radius)] rounded-r-none border-r-0"
+                  : // 6px px-1.5 + 1px rail border
+                    "-mr-[7px] rounded-l-[var(--radius)] rounded-r-none border-r-0"
+                : compact
+                  ? "w-[30px] rounded-[var(--radius)]"
+                  : "rounded-[var(--radius)]",
+            ].join(" ")
+          : [
+              "border-transparent rounded-[var(--radius)] text-fg-muted hover:bg-white/[0.045] hover:text-fg",
+              compact ? "w-[30px]" : "",
+            ].join(" "),
       ].join(" ")}
     >
-      {/* 3px violet indicator on the leading edge of the active view. */}
+      {/* Leading-edge spine on the active row — the accent, not a voice
+          colour (was a 3px violet bar keyed to "you"; V4.0 §5). */}
       <span
         className={[
-          "absolute -left-2 h-4 w-[3px] rounded-full bg-outbound transition-opacity",
+          "absolute -left-[5px] top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-primary transition-opacity",
           active ? "opacity-100" : "opacity-0",
         ].join(" ")}
         aria-hidden
       />
-      {children}
+      <span className="flex shrink-0 items-center justify-center">
+        {children}
+      </span>
+      {!compact && <span className="truncate">{displayLabel ?? label}</span>}
     </button>
   );
 }
 
-export function NavRail() {
+export function NavRail({ narrow = false }: { narrow?: boolean }) {
   const backend = useBackend();
   const view = useNavStore((s) => s.view);
   const setView = useNavStore((s) => s.setView);
   const openPalette = useNavStore((s) => s.openPalette);
+  // Manual Compact (physically shrinks the OS window) is independent of
+  // `narrow` (a pure visual response to available shell width) — either one
+  // is enough to drop the rail to icon-only.
+  const manualCompact = useAppStore((s) => s.compact);
+  const compact = manualCompact || narrow;
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -77,68 +200,153 @@ export function NavRail() {
   return (
     <nav
       aria-label="Primary"
-      className="glass z-10 flex w-[44px] shrink-0 flex-col items-center gap-1 rounded-r-lg border-l-0 py-2"
+      className={[
+        // One continuous frame with the content pane (V4.0 "file cabinet") —
+        // no rounding, no top/bottom border of its own; the single right
+        // border IS the join, same as the mockup's `.sidebar`.
+        "z-10 flex shrink-0 flex-col gap-0.5 border-r border-border bg-bg-2 py-2",
+        compact ? "w-[44px] items-center" : "w-[188px] items-stretch px-1.5",
+      ].join(" ")}
     >
-      {/* Brand mark. */}
-      <img
-        src={mark}
-        alt="conva"
-        title="conva"
-        draggable={false}
-        className="mb-2 h-[22px] w-[22px]"
-      />
+      {/* Search — moved to the top of the rail (owner, 2026-08-17), above
+          the page list, so the command palette reads as "the way to find
+          anything" rather than a utility buried at the bottom. This also
+          replaces the rail's own brand mark as the top element — WindowChrome
+          already carries the mark + wordmark at the very top of the window,
+          so a second mark directly beneath it was pure duplication, not a
+          second piece of information. */}
+      <RailButton
+        label="Command palette (⌘K)"
+        displayLabel="Search"
+        compact={compact}
+        onClick={openPalette}
+      >
+        <Icon name="search" size={19} />
+      </RailButton>
+      <div className={compact ? "mb-1 h-px w-6 self-center bg-border" : "mx-2.5 mb-1 h-px bg-border"} aria-hidden />
 
       {RAIL_ITEMS.map((item) => (
         <RailButton
           key={item.view}
           active={view === item.view}
           label={item.label}
+          compact={compact}
           onClick={() => setView(item.view)}
         >
           <Icon name={item.icon} size={20} />
         </RailButton>
       ))}
 
-      <div className="mt-auto flex flex-col items-center gap-1.5 pt-2">
-        <RailButton label="Command palette (⌘K)" onClick={openPalette}>
-          <Icon name="search" size={19} />
-        </RailButton>
-
-        {/* Floating HUD panel — always-on-top, non-activating overlay. */}
+      <div
+        className={[
+          "mt-auto flex gap-0.5 pt-2",
+          // self-stretch in compact: this wrapper must span the rail's full
+          // width (not shrink to its 30px children) so an active row inside
+          // it (Home) can stretch across it and bleed over the rail border
+          // — same width mechanics as the main rail items above.
+          compact ? "flex-col items-center self-stretch" : "flex-col items-stretch",
+        ].join(" ")}
+      >
+        {/* Home — V4.0's rail has no full-width Home row; this small icon
+            (plus the WindowChrome mark) is the way back instead. */}
         <RailButton
-          label="Floating HUD"
-          onClick={() => {
-            if (isTauri()) void backend.hud.toggle().catch(() => {});
-          }}
+          label="Home"
+          active={view === "dashboard"}
+          compact={compact}
+          onClick={() => setView("dashboard")}
         >
-          <Icon name="expand" size={18} />
+          <Icon name="home" size={19} />
         </RailButton>
 
-        {/* Account. Signed in: hover shows the email; click opens a small menu
-            (Profile / Settings). Signed out: click jumps to Settings to sign in. */}
-        <div className="relative">
-          <RailButton
-            label={
-              auth?.signed_in
-                ? `${auth.email ?? "Signed in"} — account menu`
-                : "Account — sign in"
-            }
-            active={menuOpen}
-            onClick={() => {
-              if (auth?.signed_in) setMenuOpen((o) => !o);
-              else setView("settings");
-            }}
-          >
-            <span className="relative flex items-center justify-center">
-              <Icon name="account" size={20} />
-              {auth?.signed_in && (
-                <span
-                  className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-ok"
-                  aria-hidden
-                />
-              )}
-            </span>
-          </RailButton>
+        {/* Account block — under Settings (V4.0 §5). Signed in + !compact:
+            avatar + email row; hovering/focusing reveals an identity
+            popover (name/email — see the note on the popover below for what
+            V4.0 additionally asks for that isn't wired up yet). Click still
+            opens the existing Profile/Settings menu, unchanged. Compact or
+            signed-out: falls back to the plain icon button, as before. */}
+        <div className="group relative">
+          {!compact && auth?.signed_in ? (
+            <button
+              type="button"
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              className={[
+                // No border-color in this shared base — same trap as
+                // RailButton above: `border-transparent` here would sit
+                // AFTER `border-border-strong` in the compiled stylesheet
+                // and silently win regardless of `menuOpen`. Each branch
+                // owns its own border-color class instead.
+                "flex w-full items-center gap-2.5 rounded-[var(--radius)] border px-2 py-1.5 text-left transition",
+                menuOpen
+                  ? "border-border-strong bg-panel"
+                  : "border-transparent hover:bg-white/[0.045]",
+              ].join(" ")}
+            >
+              <span
+                className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-full bg-primary font-mono text-[10.5px] font-bold text-primary-ink"
+                aria-hidden
+              >
+                {initial(auth.email)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12.5px] font-semibold text-fg">
+                  {auth.email}
+                </span>
+                {auth.last_sign_in_at && (
+                  <span className="block truncate font-mono text-[9.5px] text-fg-faint">
+                    Last in · {formatLastIn(auth.last_sign_in_at)}
+                  </span>
+                )}
+              </span>
+            </button>
+          ) : (
+            <RailButton
+              label={auth?.signed_in ? `${auth.email ?? "Signed in"} — account menu` : "Account — sign in"}
+              displayLabel={auth?.signed_in ? (auth.email ?? "Account") : "Sign in"}
+              active={menuOpen}
+              join={false}
+              compact={compact}
+              onClick={() => {
+                if (auth?.signed_in) setMenuOpen((o) => !o);
+                else setView("settings");
+              }}
+            >
+              <span className="relative flex items-center justify-center">
+                <Icon name="account" size={20} />
+                {auth?.signed_in && (
+                  <span
+                    className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-ok"
+                    aria-hidden
+                  />
+                )}
+              </span>
+            </RailButton>
+          )}
+
+          {/* Hover/focus identity popover — informational only, separate
+              from the click menu below. Sign-in time is now real (Supabase's
+              own last_sign_in_at, extended into AuthStatus on the Rust side
+              + both IPC mirrors — see auth.rs). Still no display name: it's
+              provider-dependent (present for OAuth via user_metadata,
+              usually absent for email/password accounts), so showing it
+              only sometimes would read as broken rather than showing it
+              never — email is the one identity string every account has. */}
+          {!compact && auth?.signed_in && !menuOpen && (
+            <div
+              role="tooltip"
+              className="glass-raised pointer-events-none absolute bottom-0 left-[calc(100%+8px)] z-50 w-[200px] rounded-lg border border-border-strong p-3 opacity-0 shadow-[var(--shadow-lg)] transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+            >
+              <p className="truncate text-[12.5px] font-bold text-fg">
+                {auth.email}
+              </p>
+              <p className="mt-0.5 font-mono text-[10.5px] text-ok">
+                {auth.last_sign_in_at
+                  ? `Signed in · ${new Date(auth.last_sign_in_at).toLocaleString()}`
+                  : "Signed in"}
+              </p>
+            </div>
+          )}
 
           {menuOpen && auth?.signed_in && (
             <>

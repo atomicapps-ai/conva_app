@@ -153,13 +153,10 @@ export function SimConSetup({
   return (
     <ViewShell
       icon="simicon"
+      breadcrumb="Contexts"
       title={initial ? "Edit Sim Con" : "New Sim Con"}
       subtitle={`Step ${step} of 3 — ${STEP_LABEL[step - 1]}`}
-      actions={
-        <button type="button" className="btn" onClick={onCancel}>
-          Cancel
-        </button>
-      }
+      onBack={onCancel}
     >
       {step === 1 && (
         <Section title="What are you rehearsing?">

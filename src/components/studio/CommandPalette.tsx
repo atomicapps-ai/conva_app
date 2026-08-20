@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
+import { useLibraryQuickAdd } from "@/state/libraryQuickAdd";
 import { useNavStore, type View } from "@/state/nav";
 import { useTranscriptStore } from "@/state/transcript";
 
@@ -35,6 +36,7 @@ export function CommandPalette() {
   const startRecording = useAppStore((s) => s.startRecording);
   const stopRecording = useAppStore((s) => s.stopRecording);
   const toggleCompact = useAppStore((s) => s.toggleCompact);
+  const requestQuickAdd = useLibraryQuickAdd((s) => s.request);
 
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -50,10 +52,13 @@ export function CommandPalette() {
     });
     const nav: Command[] = [
       go("live", "Go to Live", "live"),
-      go("conversations", "Go to Conversations", "conversations"),
-      go("sessions", "Go to Sessions", "sessions"),
       go("simcon", "Go to Contexts", "simicon"),
+      go("conversations", "Go to Conversations", "conversations"),
+      go("whatsnew", "Go to What's Coming", "lightbulb"),
       go("settings", "Go to Settings", "settings"),
+      // Off the rail (owner decision, 2026-08-16 — see navItems.ts) but still
+      // real views; keep them one keystroke away via the palette.
+      go("about", "Go to About & extras", "sparkle"),
     ];
     if (!isTauri()) return nav;
 
@@ -96,7 +101,42 @@ export function CommandPalette() {
         run: () => void toggleCompact(),
       },
     ];
-    return [...nav, ...session];
+    // Quick-add (owner request: "easy... at any time") — jump to Contexts
+    // (Library lives inside it now, not a separate screen) and trigger the
+    // right flow immediately, from anywhere in the app.
+    const library: Command[] = [
+      {
+        id: "library:add",
+        label: "Add a document…",
+        hint: "Library",
+        icon: "upload",
+        run: () => {
+          requestQuickAdd("upload");
+          setView("simcon");
+        },
+      },
+      {
+        id: "library:paste",
+        label: "Paste a note…",
+        hint: "Library",
+        icon: "clipboard",
+        run: () => {
+          requestQuickAdd("paste");
+          setView("simcon");
+        },
+      },
+      {
+        id: "library:new-context",
+        label: "New context…",
+        hint: "Library",
+        icon: "simicon",
+        run: () => {
+          requestQuickAdd("new_context");
+          setView("simcon");
+        },
+      },
+    ];
+    return [...nav, ...session, ...library];
   }, [
     listening,
     recording,
@@ -107,6 +147,7 @@ export function CommandPalette() {
     startRecording,
     stopRecording,
     toggleCompact,
+    requestQuickAdd,
   ]);
 
   const filtered = useMemo(() => {
@@ -211,7 +252,7 @@ export function CommandPalette() {
                 <Icon
                   name={cmd.icon}
                   size={17}
-                  className={i === active ? "text-inbound" : "text-fg-faint"}
+                  className={i === active ? "text-primary" : "text-fg-faint"}
                 />
                 <span className="flex-1">{cmd.label}</span>
                 {cmd.hint && (

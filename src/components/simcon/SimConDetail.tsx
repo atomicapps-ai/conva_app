@@ -152,27 +152,24 @@ export function SimConDetail({
   return (
     <ViewShell
       icon="simicon"
+      breadcrumb="Contexts"
       title={session?.title || "Sim Con"}
       subtitle={session?.purpose || "Rehearse a high-stakes call."}
+      onBack={onBack}
       actions={
-        <div className="flex items-center gap-1">
-          {/* The default context is system-managed — no Edit (matches the
-              same guard on its ContextsPane row). */}
-          {session && session.id !== DEFAULT_CONTEXT_ID && (
-            <button
-              type="button"
-              onClick={onEdit}
-              title="Edit setup"
-              aria-label="Edit setup"
-              className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-            >
-              <Icon name="edit" size={15} />
-            </button>
-          )}
-          <button type="button" className="btn" onClick={onBack}>
-            Back
+        // The default context is system-managed — no Edit (matches the
+        // same guard on its ContextsPane row).
+        session && session.id !== DEFAULT_CONTEXT_ID ? (
+          <button
+            type="button"
+            onClick={onEdit}
+            title="Edit setup"
+            aria-label="Edit setup"
+            className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+          >
+            <Icon name="edit" size={15} />
           </button>
-        </div>
+        ) : null
       }
     >
       {error && (
@@ -209,7 +206,7 @@ export function SimConDetail({
                     key={p.id}
                     className={`rounded border p-3 transition ${
                       isChosen
-                        ? "border-outbound/50 bg-outbound/[0.08]"
+                        ? "border-primary/50 bg-primary/[0.08]"
                         : "border-border"
                     }`}
                   >
@@ -218,9 +215,7 @@ export function SimConDetail({
                         {p.title}
                       </h3>
                       {p.recommended && (
-                        <span className="shrink-0 rounded-full border border-ai/40 bg-ai/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ai">
-                          ★ Recommended
-                        </span>
+                        <span className="pill pill-sm pill-ally shrink-0">★ Recommended</span>
                       )}
                     </div>
                     <p className="mt-1 text-[12px] leading-relaxed text-fg-muted">

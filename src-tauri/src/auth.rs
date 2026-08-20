@@ -125,6 +125,13 @@ pub struct AuthStatus {
     pub email: Option<String>,
     pub user_id: Option<String>,
     pub expires_at_unix: Option<i64>,
+    /// Supabase's own `last_sign_in_at` on the user object — an ISO 8601
+    /// string, passed through as-is (no date crate in this binary; the UI
+    /// formats it with `Date`). Reflects the most recent actual
+    /// authentication, not token refreshes — GoTrue carries the same value
+    /// through a `grant_type=refresh_token` exchange, so this doesn't reset
+    /// every time the app silently refreshes in the background.
+    pub last_sign_in_at: Option<String>,
     /// False when no anon key is compiled/env-configured — the UI can then
     /// explain sign-in is unavailable instead of failing opaquely.
     pub configured: bool,
@@ -145,6 +152,7 @@ struct SessionMeta {
     user_id: Option<String>,
     email: Option<String>,
     expires_at_unix: Option<i64>,
+    last_sign_in_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,6 +168,11 @@ struct TokenResponse {
 struct UserObj {
     id: String,
     email: Option<String>,
+    /// ISO 8601, set by GoTrue on every token-issuing grant (sign-in AND
+    /// refresh) to the most recent actual sign-in — not bumped by the
+    /// refresh itself. Absent only if Supabase ever changes that contract;
+    /// treated as "unknown," never guessed at.
+    last_sign_in_at: Option<String>,
 }
 
 // ------------------------------------------------------------------- keyring
@@ -334,6 +347,7 @@ fn persist(t: &TokenResponse, auth_dir: &Path) -> Result<(), String> {
         user_id: t.user.as_ref().map(|u| u.id.clone()),
         email: t.user.as_ref().and_then(|u| u.email.clone()),
         expires_at_unix: expires_at,
+        last_sign_in_at: t.user.as_ref().and_then(|u| u.last_sign_in_at.clone()),
     };
     let json = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
     std::fs::write(meta_path(auth_dir), json).map_err(|e| e.to_string())
@@ -512,6 +526,7 @@ pub fn status(auth_dir: &Path) -> AuthStatus {
         email: meta.as_ref().and_then(|m| m.email.clone()),
         user_id: meta.as_ref().and_then(|m| m.user_id.clone()),
         expires_at_unix: meta.as_ref().and_then(|m| m.expires_at_unix),
+        last_sign_in_at: meta.as_ref().and_then(|m| m.last_sign_in_at.clone()),
         configured,
     }
 }

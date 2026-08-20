@@ -1,3 +1,4 @@
+import { AboutMoreView } from "@/components/about/AboutMoreView";
 import { ConversationsPanel } from "@/components/ConversationsPanel";
 import { ContextsView } from "@/components/contexts/ContextsView";
 import { DashboardView } from "@/components/dashboard/DashboardView";
@@ -5,7 +6,6 @@ import { FeaturesView } from "@/components/product/FeaturesView";
 import { WhatsComingView } from "@/components/product/WhatsComingView";
 import { WhatsNewView } from "@/components/product/WhatsNewView";
 import { ProfileView } from "@/components/profile/ProfileView";
-import { SessionsPanel } from "@/components/SessionsPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { TranscriptView } from "@/components/transcript/TranscriptView";
 import { useNavStore } from "@/state/nav";
@@ -30,10 +30,9 @@ export function ViewRouter() {
       {view === "releases" && <WhatsNewView />}
       {view === "settings" && <SettingsPanel onClose={backToLive} />}
       {view === "profile" && <ProfileView />}
-      {view === "sessions" && <SessionsPanel onClose={backToLive} />}
       {view === "conversations" && <ConversationsPanel onClose={backToLive} />}
-      {/* Contexts & Library are one unified page — both routes render it. */}
-      {(view === "simcon" || view === "library") && <ContextsView />}
+      {view === "simcon" && <ContextsView />}
+      {view === "about" && <AboutMoreView />}
     </>
   );
 }

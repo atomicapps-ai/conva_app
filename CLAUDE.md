@@ -87,6 +87,45 @@ swap a layer without asking the owner.**
    **degrades to BM25-only** when the embedder isn't ready — hybrid is an
    upgrade, never a hard dependency. Ingestion supports pdf/docx/md/txt/html
    plus pasted text (stored as `.txt`).
+8. **In-app HTML5 drag-and-drop (Library row → Contexts row) needs
+   `dragDropEnabled: false`, and that has a real, known cost.** Tauri's
+   window-level native drag-drop (on by default) intercepts drag events at
+   the OS/webview boundary and silently breaks in-page `draggable`/
+   `dataTransfer` DnD (nothing errors, drops just never fire) — the fix is
+   `dragDropEnabled: false` in `tauri.conf.json`'s window config, currently
+   set. That setting **also disables `getCurrentWebview().onDragDropEvent`**,
+   which is what Library's own **OS file-drop-onto-window ingest** (drag
+   files from Explorer/Finder onto the app) depends on — a separate, real
+   feature that this trade-off puts at risk every time it's touched. This
+   went back and forth once already this session (dropped for a
+   click-to-pick popover, `AttachMenu` in `LibraryPane.tsx`, over exactly
+   this cost; reinstated per owner decision, 2026-08-16, wanting drag back
+   now that Library sits next to Contexts again). `AttachMenu` is still
+   there as the always-available fallback. If OS file-drop ingest ever
+   needs fixing, it's this setting first, not the ingest code.
+9. **Navigation is two levels, never a third.** (Owner Q, 2026-08-17 — written
+   down here so it doesn't have to be re-derived from code again.)
+   - **Top-level pages** (Home, Live, Contexts, Features, What's New,
+     Profile/Settings — everything in `NAV_ITEMS`, `navItems.ts`) are reached
+     via the **left nav rail only**. They never get a breadcrumb or a back
+     button — the rail itself is the "where am I / how do I leave" control.
+     This holds even when a top-level page is reached indirectly (e.g. a
+     Home quick-link tile) — it's still a rail destination, so the way back
+     is the rail, not a bolted-on "back to wherever I came from." The
+     corollary: the rail's active state has to actually be visible at a
+     glance (`NavRail.tsx`'s `RailButton`, `text-primary` + `bg-panel-raised`
+     + the azure spine) — if it isn't, this whole model stops being
+     discoverable and starts looking like a missing back button instead.
+   - **Sub-views drilled into from a top-level page** (a context's setup
+     wizard or detail/record page, Settings → About & extras, the
+     Conversations list, the Sessions list — anything NOT in `NAV_ITEMS`)
+     get `ViewShell`'s `breadcrumb` (parent label) **and** `onBack` (the
+     top-left chevron button) — both top-left, next to the icon chip, never
+     in `actions` (top-right; that zone is for page-specific controls only).
+     `ViewShell.tsx`'s doc comment carries the enforcement detail.
+   - Don't invent a third pattern (e.g. a persistent global breadcrumb trail)
+     without updating this rule — one navigation model, consistently applied,
+     beats two competing ones.
 
 ## Build & run
 

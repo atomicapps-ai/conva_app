@@ -28,9 +28,9 @@ function DesktopOnlyCard({
   desc: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-panel-raised/25 p-3.5 text-left">
+    <div className="flex items-center gap-3 rounded border border-border bg-panel-raised/25 p-3.5 text-left">
       <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-outbound ring-1 ring-inset ring-outbound/30"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-primary ring-1 ring-inset ring-primary/30"
         aria-hidden
       >
         <Icon name={icon} size={18} />
@@ -41,9 +41,7 @@ function DesktopOnlyCard({
         </span>
         <span className="block truncate text-[11px] text-fg-faint">{desc}</span>
       </span>
-      <span className="shrink-0 rounded-full border border-outbound/35 px-2 py-0.5 font-mono text-[9px] tracking-[0.1em] text-outbound">
-        DESKTOP
-      </span>
+      <span className="pill pill-sm pill-accent shrink-0">Desktop</span>
     </div>
   );
 }
@@ -63,10 +61,10 @@ function QuickLink({
     <button
       type="button"
       onClick={onClick}
-      className="group flex items-center gap-3 rounded-xl border border-border bg-panel-raised/40 p-3.5 text-left transition hover:border-border-strong hover:bg-panel-raised/70"
+      className="group flex items-center gap-3 rounded border border-border bg-panel-raised/40 p-3.5 text-left transition hover:border-border-strong hover:bg-panel-raised/70"
     >
       <span
-        className="brand-ring flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-inbound"
+        className="brand-ring flex h-9 w-9 shrink-0 items-center justify-center rounded text-primary"
         aria-hidden
       >
         <Icon name={icon} size={18} />
@@ -116,7 +114,7 @@ export function DashboardView() {
 
   return (
     <ViewShell
-      icon="system"
+      icon="home"
       title="Home"
       subtitle="Your conva account and quick access to the product."
     >
@@ -126,7 +124,7 @@ export function DashboardView() {
       <Section>
         <div className="flex items-center gap-4">
           <span
-            className="brand-ring flex h-14 w-14 shrink-0 items-center justify-center rounded-lg text-lg font-extrabold text-inbound"
+            className="brand-ring flex h-14 w-14 shrink-0 items-center justify-center rounded text-lg font-extrabold text-primary"
             aria-hidden
           >
             {signedIn ? initial(auth?.email ?? null) : <Icon name="account" size={24} />}
@@ -136,9 +134,7 @@ export function DashboardView() {
               <h3 className="truncate text-base font-extrabold tracking-tight text-fg">
                 {signedIn ? (auth?.email ?? "Signed in") : "Welcome to conva"}
               </h3>
-              <span className="inline-flex items-center rounded-full border border-outbound/34 bg-outbound/[0.14] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--voice-you-text)]">
-                Beta · invite
-              </span>
+              <span className="pill pill-sm pill-accent">Beta · invite</span>
             </div>
             <p className="mt-0.5 text-[11px] text-fg-faint">
               {signedIn
@@ -168,15 +164,9 @@ export function DashboardView() {
           />
           <QuickLink
             icon="simicon"
-            title="Conversation Contexts"
-            desc="Prime Ally for the call ahead"
+            title="Contexts & Library"
+            desc="Brief Ally for the call ahead, add documents it answers from"
             onClick={go("simcon")}
-          />
-          <QuickLink
-            icon="library"
-            title="Your library"
-            desc="Add documents Ally answers from"
-            onClick={go("library")}
           />
           <QuickLink
             icon="book"
@@ -212,7 +202,7 @@ export function DashboardView() {
               desc="Invisible overlay, on-device ASR, local-first"
             />
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-border-strong p-3.5">
+          <div className="mt-3 flex flex-wrap items-center gap-3 rounded border border-dashed border-border-strong p-3.5">
             <p className="min-w-0 flex-1 text-xs text-fg-muted">
               <span className="font-bold text-fg">Get the desktop app</span> —
               the full conva: both-sides audio, on-device transcription, Incog.

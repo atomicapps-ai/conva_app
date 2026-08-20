@@ -32,7 +32,7 @@ export function WebTopNav() {
             className={[
               "grid h-9 w-9 place-items-center rounded-lg border transition",
               active
-                ? "border-outbound/34 bg-outbound/[0.14] text-[var(--voice-you-text)]"
+                ? "border-primary/34 bg-primary/[0.14] text-primary"
                 : "border-transparent text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
             ].join(" ")}
           >

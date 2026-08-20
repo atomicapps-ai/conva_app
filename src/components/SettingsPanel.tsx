@@ -20,9 +20,12 @@ import { useNavStore } from "@/state/nav";
 
 /**
  * About — the exact build the user is running (version + commit + build time),
- * plus a jump to What's New. Belongs in Settings so a bug report can quote it;
- * mirrors the status-bar stamp (SDLC §3.3). Rendered in both the configured and
- * web-fallback Settings branches.
+ * plus the jump to the "About & extras" hub (Floating HUD toggle + What conva
+ * does / What's Coming / What's New — moved off the primary nav rail, owner
+ * decision 2026-08-16; see `navItems.ts` and `AboutMoreView.tsx`). Belongs in
+ * Settings so a bug report can quote the build; mirrors the status-bar stamp
+ * (SDLC §3.3). Rendered in both the configured and web-fallback Settings
+ * branches.
  */
 function AboutSection() {
   return (
@@ -40,10 +43,10 @@ function AboutSection() {
       </dl>
       <button
         type="button"
-        onClick={() => useNavStore.getState().setView("releases")}
+        onClick={() => useNavStore.getState().setView("about")}
         className="btn mt-3"
       >
-        What's new →
+        About & extras →
       </button>
     </Section>
   );
@@ -977,11 +980,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         icon="settings"
         title="Settings"
         subtitle="App settings arrive with the hosted backend."
-        actions={
-          <button type="button" onClick={onClose} className="btn">
-            Done
-          </button>
-        }
+        onBack={onClose}
       >
         <Section title="Settings">
           <Notice>
@@ -1009,11 +1008,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       icon="settings"
       title="Settings"
       subtitle="Devices, transcription, Ally providers, and portable config."
-      actions={
-        <button type="button" onClick={onClose} className="btn">
-          Done
-        </button>
-      }
+      onBack={onClose}
     >
       <Section
         title="Account"

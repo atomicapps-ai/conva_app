@@ -20,11 +20,11 @@ export function FeaturesView() {
           {FEATURES.map((f) => (
             <div
               key={f.id}
-              className="flex flex-col gap-2 rounded-xl border border-border bg-panel-raised/40 p-3.5"
+              className="flex flex-col gap-2 rounded border border-border bg-panel-raised/40 p-3.5"
             >
               <div className="flex items-center gap-2.5">
                 <span
-                  className="brand-ring flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-inbound"
+                  className="brand-ring flex h-8 w-8 shrink-0 items-center justify-center rounded text-primary"
                   aria-hidden
                 >
                   <Icon name={f.icon} size={17} />

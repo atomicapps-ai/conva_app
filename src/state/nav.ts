@@ -9,13 +9,12 @@ import { create } from "zustand";
 export type View =
   | "dashboard"
   | "live"
-  | "library"
-  | "sessions"
   | "conversations"
   | "simcon"
   | "features"
   | "whatsnew"
   | "releases"
+  | "about"
   | "settings"
   | "profile";
 
