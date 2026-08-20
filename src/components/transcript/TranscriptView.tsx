@@ -12,8 +12,9 @@ import { LiveTopBar } from "@/components/studio/LiveTopBar";
 import { TrackerRail } from "@/components/TrackerRail";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
-import type { AllyKind, AudioLevelEvent, TranscriptSegment } from "@/lib/ipc";
+import type { AllyKind, AudioLevelEvent, Capture, TranscriptSegment } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
+import { collectFanerHits, fanerAccent, fanerLabel, fanerPrompt, type FanerHit } from "@/lib/faner";
 import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
@@ -22,6 +23,11 @@ import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
 import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
 import { groupTurns, segmentKey } from "@/lib/turns";
+
+// Stable reference so a Zustand selector reading `capture?.captures` never
+// hands React a "new" empty array on every render before the first
+// CaptureEvent lands (same fix `FanerReplayPanel.tsx` uses).
+const EMPTY_CAPTURES: Capture[] = [];
 
 function formatMs(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -346,6 +352,135 @@ function HighlightedText({
   );
 }
 
+/** One FANER-marked term: persistently bold+underlined, color-coded by the
+ *  capture's routed `action` (F11 handoff, 2026-08-20). Hovering reveals a
+ *  popover with the capture's `preview` and the same three action icons
+ *  `SelectionMenu` uses (Ask Ally / Copy / Send to Ask Ally) — consistent
+ *  with the rest of the app's "act on this text" vocabulary rather than a
+ *  one-off FANER-specific control set. Pure CSS group-hover (like the dev
+ *  panel's tooltip): the popover is a normal, clickable descendant of the
+ *  hover group, not a `pointer-events-none` tooltip, so its icons work. */
+function FanerMark({
+  hit,
+  onAsk,
+  onSendToAsk,
+}: {
+  hit: FanerHit;
+  onAsk: (capture: Capture, phrase: string) => void;
+  onSendToAsk: (text: string) => void;
+}) {
+  const { phrase, capture } = hit;
+  return (
+    <span className={`group relative inline-block ${fanerAccent(capture)}`}>
+      <span className="cursor-help underline decoration-2 underline-offset-2 font-semibold">
+        {phrase}
+      </span>
+      <span className="invisible absolute left-0 top-full z-50 mt-1 w-64 max-w-[85vw] -translate-x-1/2 rounded-lg border border-border bg-panel-raised p-2 text-[12px] normal-case leading-snug text-fg opacity-0 shadow-[var(--shadow-lg)] transition-opacity duration-100 group-hover:visible group-hover:opacity-100">
+        <span className="mb-1 block font-mono text-[9px] uppercase tracking-wide text-fg-faint">
+          {fanerLabel(capture)}
+        </span>
+        <p className="mb-1.5 text-fg-muted">{capture.preview || "(no preview yet)"}</p>
+        <span className="flex items-center gap-0.5 border-t border-border pt-1">
+          <button
+            type="button"
+            title="Ask Ally about this"
+            aria-label={`Ask Ally about "${phrase}"`}
+            onClick={() => onAsk(capture, phrase)}
+            className="rounded p-1 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
+          >
+            <Icon name="lightbulb" size={14} />
+          </button>
+          <button
+            type="button"
+            title="Copy"
+            aria-label={`Copy "${phrase}"`}
+            onClick={() => void navigator.clipboard.writeText(phrase)}
+            className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+          >
+            <Icon name="copy" size={14} />
+          </button>
+          <button
+            type="button"
+            title="Send to Ask Ally"
+            aria-label={`Send "${phrase}" to Ask Ally`}
+            onClick={() => onSendToAsk(phrase)}
+            className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+          >
+            <Icon name="chevron" size={14} className="rotate-90" />
+          </button>
+        </span>
+      </span>
+    </span>
+  );
+}
+
+/** Splits `text` between FANER-marked spans (`FanerMark`) and everything
+ *  else, which still goes through `HighlightedText` — so a FANER span and a
+ *  RAG term/search-highlight can coexist in the same unit without one
+ *  mechanism overriding the other. Hit computation is memoized on `text` +
+ *  `captures`'s reference (F11 handoff requirement — the transcript
+ *  re-renders on every streamed token, but `captures` only changes when a
+ *  new CaptureEvent lands and `text` only changes for the turn currently
+ *  streaming). */
+function FanerAwareText({
+  text,
+  captures,
+  terms,
+  onAskTerm,
+  onAskFaner,
+  onSendToAsk,
+}: {
+  text: string;
+  captures: Capture[];
+  terms: string[];
+  onAskTerm: (action: TermAction, term: string) => void;
+  onAskFaner: (capture: Capture, phrase: string) => void;
+  onSendToAsk: (text: string) => void;
+}) {
+  const hits = useMemo(() => collectFanerHits(text, captures), [text, captures]);
+  if (hits.length === 0) return <HighlightedText text={text} terms={terms} onAsk={onAskTerm} />;
+
+  const lower = text.toLowerCase();
+  const nodes: ReactNode[] = [];
+  let plainStart = 0;
+  let key = 0;
+  const flushPlain = (end: number) => {
+    if (end > plainStart) {
+      nodes.push(
+        <HighlightedText
+          key={`p${key++}`}
+          text={text.slice(plainStart, end)}
+          terms={terms}
+          onAsk={onAskTerm}
+        />,
+      );
+    }
+  };
+  let i = 0;
+  outer: while (i < text.length) {
+    for (const h of hits) {
+      const p = h.phrase.toLowerCase();
+      if (p && lower.startsWith(p, i)) {
+        flushPlain(i);
+        nodes.push(
+          <FanerMark
+            key={`f${key++}`}
+            hit={h}
+            onAsk={onAskFaner}
+            onSendToAsk={onSendToAsk}
+          />,
+        );
+        i += h.phrase.length;
+        plainStart = i;
+        continue outer;
+      }
+    }
+    i += 1;
+  }
+  flushPlain(text.length);
+  return <>{nodes}</>;
+}
+
 /** Icon menu shown when the user selects text inside a bubble: ask Ally about
  *  the selection, copy it, or drop it into the Ask-Ally box. */
 function SelectionMenu({
@@ -474,13 +609,21 @@ function CollapsedPreview({
 function FlowText({
   units,
   terms,
+  captures,
   onAskText,
   onAskTerm,
+  onAskFaner,
+  onSendToAsk,
 }: {
   units: string[];
   terms: string[];
+  /** FANER captures to mark inline (F11) — filtered/matched per-unit by
+   *  `FanerAwareText`, not here. */
+  captures: Capture[];
   onAskText: (t: string) => void;
   onAskTerm: (action: TermAction, term: string) => void;
+  onAskFaner: (capture: Capture, phrase: string) => void;
+  onSendToAsk: (text: string) => void;
 }) {
   return (
     <span className="leading-snug">
@@ -494,7 +637,14 @@ function FlowText({
               |
             </span>
           )}
-          <HighlightedText text={unit} terms={terms} onAsk={onAskTerm} />
+          <FanerAwareText
+            text={unit}
+            captures={captures}
+            terms={terms}
+            onAskTerm={onAskTerm}
+            onAskFaner={onAskFaner}
+            onSendToAsk={onSendToAsk}
+          />
           <button
             type="button"
             onClick={(e) => {
@@ -539,6 +689,8 @@ function Bubble({
   fontPx,
   sessionStartMs,
   searchHighlight,
+  captures,
+  onAskFaner,
 }: {
   segments: TranscriptSegment[];
   turnKey: string;
@@ -564,6 +716,14 @@ function Bubble({
    *  RAG `terms` highlight pass below so every occurrence in this bubble
    *  renders highlighted, same visual treatment as a RAG term. */
   searchHighlight?: string | null;
+  /** FANER's routed captures for the whole session (F11, 2026-08-20) —
+   *  matched against this bubble's own text by `FanerAwareText`. Applies to
+   *  both columns (you + them): a `task_frame`/`prep_reference` capture can
+   *  originate from either speaker, and matching is purely text-based
+   *  (same principle as the search highlight above), so side-restricting
+   *  would silently drop real captures without a corresponding upside. */
+  captures: Capture[];
+  onAskFaner: (capture: Capture, phrase: string) => void;
 }) {
   const backend = useBackend();
   const inbound = segments[0]?.side === "inbound";
@@ -614,6 +774,22 @@ function Bubble({
     const r = s.getRangeAt(0).getBoundingClientRect();
     setSel({ x: r.left + r.width / 2, y: r.bottom, text });
   };
+  // Right-click on a live text selection opens the SAME SelectionMenu, at
+  // the click point rather than wherever the mouseup happened — the F11
+  // handoff's rationale: "the pointer sits at a small, easily-lost target
+  // right after a selection," so right-click is a more stable trigger for
+  // "ask about text FANER didn't auto-flag." Additive: with no selection,
+  // this falls through to the existing whole-turn `onContextMenu` (Copy /
+  // Research / delete-linked-card etc.) unchanged.
+  const onBubbleContextMenu = (e: React.MouseEvent) => {
+    const text = window.getSelection()?.toString().trim() ?? "";
+    if (text) {
+      e.preventDefault();
+      setSel({ x: e.clientX, y: e.clientY, text });
+      return;
+    }
+    onContextMenu(e);
+  };
 
   const accent = inbound ? "bg-inbound" : "bg-outbound";
   const tint = inbound ? "bg-inbound/[0.05]" : "bg-outbound/[0.05]";
@@ -628,7 +804,7 @@ function Bubble({
   return (
     <div
       ref={(el) => registerEl(turnKey, el)}
-      onContextMenu={onContextMenu}
+      onContextMenu={onBubbleContextMenu}
       className="group w-full"
     >
       <div
@@ -707,8 +883,11 @@ function Bubble({
               <FlowText
                 units={units}
                 terms={highlightTerms}
+                captures={captures}
                 onAskText={onAskText}
                 onAskTerm={onAskTerm}
+                onAskFaner={onAskFaner}
+                onSendToAsk={onSendToAsk}
               />
             )}
             {partialTail && (
@@ -1622,6 +1801,9 @@ export function TranscriptView() {
   const busy = useAllyStore((s) => s.busy);
   const request = useAllyStore((s) => s.request);
   const clearAlly = useAllyStore((s) => s.clear);
+  // FANER's routed captures for this session (F11) — matched against each
+  // bubble's text by `FanerAwareText`/`FlowText`.
+  const captures = useAllyStore((s) => s.capture?.captures ?? EMPTY_CAPTURES);
   // While a rehearsal is running, the floating RehearsalBar sits over the
   // bottom of both panes — pad them so their last content stays reachable.
   const rehearsing = useRehearsalStore((s) => s.active);
@@ -1899,6 +2081,14 @@ export function TranscriptView() {
       void request("question", researchPrompt(text), { key: "", quote: text }),
     [request],
   );
+  // Ask Ally about a FANER-marked span (F11) — phrased by the capture's
+  // routed action (`fanerPrompt`) rather than the generic `researchPrompt`
+  // wrapper, since FANER's prompt is already a complete question.
+  const askFaner = useCallback(
+    (capture: Capture, phrase: string) =>
+      void request("question", fanerPrompt(capture, phrase), { key: "", quote: phrase }),
+    [request],
+  );
   // Drop a selection into the Ask-Ally box so the user can build a question.
   const sendToAsk = useCallback((text: string) => setAsk(text), []);
 
@@ -2137,6 +2327,8 @@ export function TranscriptView() {
                     fontPx={transcriptFontPx}
                     sessionStartMs={sessionStartMs}
                     searchHighlight={searchHighlight}
+                    captures={captures}
+                    onAskFaner={askFaner}
                   />
                 );
               })
