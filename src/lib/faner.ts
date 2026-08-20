@@ -14,6 +14,44 @@ export interface FanerHit {
   capture: Capture;
 }
 
+/** True when `ch` is a "word" character (ASCII letter or digit). ASCII-only
+ *  is deliberate — FANER's captures are short jargon/acronym arguments in
+ *  English-language transcripts, so full Unicode `\w` boundary detection
+ *  isn't needed here. */
+function isWordChar(ch: string | undefined): boolean {
+  return !!ch && /[a-z0-9]/i.test(ch);
+}
+
+/**
+ * Whether the substring of `lower` at `[start, start + length)` sits on a
+ * real word boundary — the character immediately before and after (if any)
+ * isn't itself a word character. Without this, a short jargon term like
+ * "REST" would match mid-word inside "interested" or "restaurant", which is
+ * both visually broken (an underline starting mid-word) and semantically
+ * wrong (nothing there is about REST). Exported so `TranscriptView.tsx`'s
+ * render-time scan can apply the same rule when it re-finds each hit's
+ * concrete position, not just the boolean "does this phrase appear
+ * somewhere" check below.
+ */
+export function isFanerBoundaryMatch(lower: string, start: number, length: number): boolean {
+  const before = start > 0 ? lower[start - 1] : "";
+  const after = start + length < lower.length ? lower[start + length] : "";
+  return !isWordChar(before) && !isWordChar(after);
+}
+
+/** Case-insensitive search for `phraseLower` in `lower` that skips past any
+ *  mid-word false positive and only returns a word-boundary-safe occurrence
+ *  (or -1 if none exists). */
+function findBoundedIndex(lower: string, phraseLower: string): number {
+  let from = 0;
+  for (;;) {
+    const idx = lower.indexOf(phraseLower, from);
+    if (idx === -1) return -1;
+    if (isFanerBoundaryMatch(lower, idx, phraseLower.length)) return idx;
+    from = idx + 1;
+  }
+}
+
 /**
  * Every (capture, literal-argument-found-in-text) pair for one piece of
  * text, longest phrase first so a longer match wins over a shorter one
@@ -21,7 +59,9 @@ export interface FanerHit {
  * `arguments` are the model's paraphrase of the whole question, not a
  * literal span, so highlighting them would point at the wrong words (the
  * remaining triggers — `task_frame`, `prep_reference`, `gap` — are exactly
- * the ones the owner approved for span-marking).
+ * the ones the owner approved for span-marking). A phrase only counts if it
+ * appears at a real word boundary somewhere in the text — see
+ * `isFanerBoundaryMatch`.
  */
 export function collectFanerHits(text: string, captures: Capture[]): FanerHit[] {
   if (captures.length === 0) return [];
@@ -31,7 +71,7 @@ export function collectFanerHits(text: string, captures: Capture[]): FanerHit[] 
     if (c.trigger === "question") continue;
     for (const arg of c.arguments) {
       const phrase = arg.trim();
-      if (phrase.length >= 3 && lower.includes(phrase.toLowerCase())) {
+      if (phrase.length >= 3 && findBoundedIndex(lower, phrase.toLowerCase()) !== -1) {
         hits.push({ phrase, capture: c });
       }
     }

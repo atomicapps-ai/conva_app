@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { Capture } from "@/lib/ipc";
-import { collectFanerHits, fanerAccent, fanerLabel, fanerPrompt } from "@/lib/faner";
+import {
+  collectFanerHits,
+  fanerAccent,
+  fanerLabel,
+  fanerPrompt,
+  isFanerBoundaryMatch,
+} from "@/lib/faner";
 
 function capture(overrides: Partial<Capture> = {}): Capture {
   return {
@@ -65,6 +71,50 @@ describe("collectFanerHits", () => {
 
   it("short-circuits on an empty capture list without scanning", () => {
     expect(collectFanerHits("any text", [])).toEqual([]);
+  });
+
+  it("does not match a phrase that only appears mid-word", () => {
+    // "REST" is a substring of "interested" but not a whole word there —
+    // matching it would bold+underline half of an unrelated word.
+    const hits = collectFanerHits("I'm interested in how you scaled the backend.", [
+      capture({ arguments: ["REST"] }),
+    ]);
+    expect(hits).toHaveLength(0);
+  });
+
+  it("still matches a phrase found as a whole word elsewhere in the same capture", () => {
+    // Same phrase, but this time it also occurs as a real word ("REST API") —
+    // one bad mid-word occurrence shouldn't hide a good one.
+    const hits = collectFanerHits("The REST API felt slower than I'm interested in.", [
+      capture({ arguments: ["REST"] }),
+    ]);
+    expect(hits).toHaveLength(1);
+  });
+
+  it("matches a phrase immediately next to punctuation, not just whitespace", () => {
+    const hits = collectFanerHits("We used REST, then gRPC later.", [
+      capture({ arguments: ["REST"] }),
+    ]);
+    expect(hits).toHaveLength(1);
+  });
+
+  it("matches a phrase at the very start or end of the text", () => {
+    expect(collectFanerHits("REST was the obvious choice", [capture({ arguments: ["REST"] })])).toHaveLength(1);
+    expect(collectFanerHits("the obvious choice was REST", [capture({ arguments: ["REST"] })])).toHaveLength(1);
+  });
+});
+
+describe("isFanerBoundaryMatch", () => {
+  it("rejects a match with a word character immediately before or after", () => {
+    const lower = "interested";
+    // "rest" at index 2..6 inside "inteREsted" — word chars on both sides.
+    expect(isFanerBoundaryMatch(lower, 2, 4)).toBe(false);
+  });
+
+  it("accepts a match bounded by whitespace, punctuation, or string edges", () => {
+    expect(isFanerBoundaryMatch("rest api", 0, 4)).toBe(true); // start of string
+    expect(isFanerBoundaryMatch("the rest.", 4, 4)).toBe(true); // space before, "." after
+    expect(isFanerBoundaryMatch("(rest)", 1, 4)).toBe(true); // parens both sides
   });
 });
 
