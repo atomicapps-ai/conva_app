@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import mark from "@/assets/brand/conva-mark-cutout-white.svg";
+import { FanerReplayPanel } from "@/components/dev/FanerReplayPanel";
 import { StudioShell } from "@/components/studio/StudioShell";
 import { WebShell } from "@/components/web/WebShell";
 import * as webAuth from "@/lib/backend/webAuth";
@@ -43,5 +44,11 @@ export default function App() {
 
   // Two shells over the SAME views: web gets a top-nav layout, desktop the
   // cockpit rail. See WebShell / StudioShell.
-  return isWeb ? <WebShell /> : <StudioShell />;
+  return (
+    <>
+      {isWeb ? <WebShell /> : <StudioShell />}
+      {/* Dev-only FANER capture validator (F11); stripped from prod builds. */}
+      {import.meta.env.DEV && !isWeb && <FanerReplayPanel />}
+    </>
+  );
 }
