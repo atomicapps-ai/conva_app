@@ -114,9 +114,13 @@ fn map_ureq(e: ureq::Error) -> CoreError {
 }
 
 /// Iterate `data: {...}` SSE payloads, stopping on stream end.
+/// `handle` returns `Err` to abort the stream and propagate a real error
+/// (e.g. a provider sends a mid-stream error event) instead of the loop
+/// silently finishing on EOF with whatever partial content arrived first --
+/// that used to look identical to a genuinely short, complete reply.
 fn for_each_sse_data(
     reader: impl std::io::Read,
-    mut handle: impl FnMut(&Value),
+    mut handle: impl FnMut(&Value) -> Result<(), CoreError>,
 ) -> Result<(), CoreError> {
     let buffered = BufReader::new(reader);
     for line in buffered.lines() {
@@ -128,7 +132,7 @@ fn for_each_sse_data(
             break;
         }
         if let Ok(value) = serde_json::from_str::<Value>(data) {
-            handle(&value);
+            handle(&value)?;
         }
     }
     Ok(())
@@ -180,8 +184,17 @@ fn anthropic_stream(
                     usage.output_tokens = n;
                 }
             }
+            // A mid-stream failure (e.g. overloaded_error) used to fall into
+            // the catch-all below and vanish -- the caller saw `Ok` with
+            // whatever partial text had streamed, indistinguishable from a
+            // genuinely short, complete reply. Surface it as a real error.
+            Some("error") => {
+                let msg = value["error"]["message"].as_str().unwrap_or("unknown");
+                return Err(CoreError::Llm(format!("stream error: {msg}")));
+            }
             _ => {}
         }
+        Ok(())
     })?;
     Ok(usage)
 }
@@ -294,8 +307,16 @@ pub fn anthropic_stream_with_tools(
                         round_usage.output_tokens = n;
                     }
                 }
+                // See the matching arm in `anthropic_stream` -- a mid-stream
+                // failure used to vanish into this catch-all and look like a
+                // clean (if short) finish. Surface it.
+                Some("error") => {
+                    let msg = value["error"]["message"].as_str().unwrap_or("unknown");
+                    return Err(CoreError::Llm(format!("stream error: {msg}")));
+                }
                 _ => {}
             }
+            Ok(())
         })?;
 
         total.input_tokens = total.input_tokens.saturating_add(round_usage.input_tokens);
@@ -375,6 +396,14 @@ fn openai_compatible_stream(
 
     let mut usage = TokenUsage::default();
     for_each_sse_data(response.into_reader(), |value| {
+        // OpenAI-shaped mid-stream failures arrive as a bare
+        // `{"error": {"message": ..., "type": ...}}` chunk instead of a
+        // `choices` delta -- same silent-truncation risk as the Anthropic
+        // `"error"` event type, so check for it before anything else.
+        if value.get("error").is_some() {
+            let msg = value["error"]["message"].as_str().unwrap_or("unknown");
+            return Err(CoreError::Llm(format!("stream error: {msg}")));
+        }
         if let Some(text) = value["choices"][0]["delta"]["content"].as_str() {
             on_token(text);
         }
@@ -386,6 +415,7 @@ fn openai_compatible_stream(
         if let Some(n) = u["completion_tokens"].as_u64() {
             usage.output_tokens = n;
         }
+        Ok(())
     })?;
     Ok(usage)
 }
@@ -415,6 +445,13 @@ fn gemini_stream(
     // Gemini reports cumulative `usageMetadata` on each chunk — keep the latest.
     let mut usage = TokenUsage::default();
     for_each_sse_data(response.into_reader(), |value| {
+        // Gemini reports a mid-stream failure as a top-level `error` object
+        // rather than a `candidates` entry -- same silent-truncation risk as
+        // the other providers' error shapes.
+        if value.get("error").is_some() {
+            let msg = value["error"]["message"].as_str().unwrap_or("unknown");
+            return Err(CoreError::Llm(format!("stream error: {msg}")));
+        }
         if let Some(parts) = value["candidates"][0]["content"]["parts"].as_array() {
             for part in parts {
                 if let Some(text) = part["text"].as_str() {
@@ -429,6 +466,7 @@ fn gemini_stream(
         if let Some(n) = meta["candidatesTokenCount"].as_u64() {
             usage.output_tokens = n;
         }
+        Ok(())
     })?;
     Ok(usage)
 }
