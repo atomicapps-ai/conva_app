@@ -28,6 +28,8 @@ pub mod events {
     pub const RADAR: &str = "conva://radar";
     /// Payload: [`super::TrackerEvent`]
     pub const TRACKER: &str = "conva://tracker";
+    /// Payload: [`super::CaptureEvent`]
+    pub const CAPTURE: &str = "conva://capture";
     /// Payload: [`super::RehearsalStateEvent`]
     pub const REHEARSAL_STATE: &str = "conva://rehearsal-state";
     /// Payload: `AuthChangedEvent` — defined shell-side in
@@ -102,6 +104,14 @@ pub struct RadarEvent {
 pub struct TrackerEvent {
     pub entities: Vec<crate::tracker::TrackedEntity>,
     pub commitments: Vec<crate::tracker::TrackedCommitment>,
+}
+
+/// FANER routed captures for the live session (F11) — the full deduped list of
+/// `(trigger, action, arguments)` decisions, re-emitted after each capture
+/// pass. See `capture.rs` and `docs/technical/faner-capture-algorithm.md`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureEvent {
+    pub captures: Vec<crate::capture::Capture>,
 }
 
 /// Live Sim Con rehearsal phase (Phase E) — drives the "who's talking" UI
