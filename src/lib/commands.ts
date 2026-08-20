@@ -10,6 +10,7 @@ import type {
   AllyKind,
   AudioDevice,
   AuthStatus,
+  Capture,
   Conversation,
   ConversationSummary,
   KnowledgeProfile,
@@ -118,6 +119,25 @@ export function ally(
   segments: TranscriptSegment[],
 ): Promise<void> {
   return invoke("ally", { requestId, kind, question, segments });
+}
+
+/** One scripted transcript line for {@link fanerReplay}. */
+export interface FanerReplayLine {
+  speaker: "them" | "you";
+  text: string;
+}
+
+/**
+ * Route a scripted transcript (the golden conversations) through the FANER
+ * capture rubric and return the routed captures — the in-app validation path,
+ * no speaking required. Uses the fast-slot model, exactly as the live worker.
+ */
+export function fanerReplay(
+  role: string,
+  terms: string[],
+  lines: FanerReplayLine[],
+): Promise<Capture[]> {
+  return invoke("faner_replay", { role, terms, lines });
 }
 
 export function ragIngest(paths: string[]): Promise<IngestReport[]> {

@@ -6,6 +6,7 @@ import type {
   AllyKind,
   AllySource,
   AllySourcesEvent,
+  CaptureEvent,
   RadarEvent,
   TrackerEvent,
 } from "@/lib/ipc";
@@ -37,6 +38,8 @@ interface AllyState {
   radar: RadarEvent | null;
   /** Cumulative session tracker state (§6.3). */
   tracker: TrackerEvent | null;
+  /** Cumulative FANER routed captures for the session (F11). */
+  capture: CaptureEvent | null;
 
   request: (
     kind: AllyKind,
@@ -47,6 +50,7 @@ interface AllyState {
   applySources: (event: AllySourcesEvent) => void;
   applyRadar: (event: RadarEvent) => void;
   applyTracker: (event: TrackerEvent) => void;
+  applyCapture: (event: CaptureEvent) => void;
   dismissRadar: () => void;
   clear: () => void;
 }
@@ -58,6 +62,7 @@ export const useAllyStore = create<AllyState>((set, get) => ({
   busy: false,
   radar: null,
   tracker: null,
+  capture: null,
 
   request: async (kind, question, source) => {
     if (get().busy) return;
@@ -126,12 +131,13 @@ export const useAllyStore = create<AllyState>((set, get) => ({
   applyRadar: (event) => set({ radar: event }),
 
   applyTracker: (event) => set({ tracker: event }),
+  applyCapture: (event) => set({ capture: event }),
 
   dismissRadar: () => set({ radar: null }),
 
   clear: () => {
     // Reset the A# counter so each conversation numbers from A1.
     counter = 0;
-    set({ cards: [], radar: null, tracker: null });
+    set({ cards: [], radar: null, tracker: null, capture: null });
   },
 }));

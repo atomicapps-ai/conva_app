@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import mark from "@/assets/brand/conva-mark-cutout-white.svg";
+import { FanerReplayPanel } from "@/components/dev/FanerReplayPanel";
 import { StudioShell } from "@/components/studio/StudioShell";
 import { WebShell } from "@/components/web/WebShell";
 import * as webAuth from "@/lib/backend/webAuth";
@@ -43,5 +44,19 @@ export default function App() {
 
   // Two shells over the SAME views: web gets a top-nav layout, desktop the
   // cockpit rail. See WebShell / StudioShell.
-  return isWeb ? <WebShell /> : <StudioShell />;
+  //
+  // Single wrapper, not a Fragment: globals.css's `#root > * { position:
+  // relative; z-index: 1 }` targets #root's direct children by ID-selector
+  // specificity, which silently beats a plain `.fixed` utility class. A
+  // Fragment here would make FanerReplayPanel a second direct child and that
+  // rule would flatten its `position: fixed` back to `relative`, shoving it
+  // to the bottom of normal document flow (invisible under the status bar).
+  // Nesting it one level deeper keeps #root's single-child invariant intact.
+  return (
+    <div className="h-full">
+      {isWeb ? <WebShell /> : <StudioShell />}
+      {/* Dev-only FANER capture validator (F11); stripped from prod builds. */}
+      {import.meta.env.DEV && !isWeb && <FanerReplayPanel />}
+    </div>
+  );
 }

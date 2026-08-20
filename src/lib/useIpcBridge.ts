@@ -22,6 +22,7 @@ export function useIpcBridge(): void {
   const applyAllySources = useAllyStore((s) => s.applySources);
   const applyRadar = useAllyStore((s) => s.applyRadar);
   const applyTracker = useAllyStore((s) => s.applyTracker);
+  const applyCapture = useAllyStore((s) => s.applyCapture);
   const applyRehearsalPhase = useRehearsalStore((s) => s.applyPhase);
 
   useEffect(() => {
@@ -38,6 +39,7 @@ export function useIpcBridge(): void {
         backend.subscribe("allySources", applyAllySources),
         backend.subscribe("radar", applyRadar),
         backend.subscribe("tracker", applyTracker),
+        backend.subscribe("capture", applyCapture),
         backend.subscribe("rehearsalState", applyRehearsalPhase),
       ]);
       if (cancelled) {
@@ -61,6 +63,7 @@ export function useIpcBridge(): void {
     applyAllySources,
     applyRadar,
     applyTracker,
+    applyCapture,
     applyRehearsalPhase,
   ]);
 }
