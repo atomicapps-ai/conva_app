@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 
 import { fanerReplay, type FanerReplayLine } from "@/lib/commands";
@@ -26,6 +26,8 @@ const EMPTY_CAPTURES: Capture[] = [];
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 720;
 const DEFAULT_WIDTH = 420;
+const MIN_HEIGHT = 280;
+const DEFAULT_HEIGHT = 560;
 
 const DEFAULT_TERMS = "AWS, SQL, Java, Python, Terraform";
 const DEFAULT_TRANSCRIPT = `THEM: You've got Terraform on your resume — walk me through how you handle state when a whole team is applying changes. And how would you compare Terraform to something like CloudFormation or Pulumi?`;
@@ -143,6 +145,7 @@ function renderHighlighted(text: string, hits: Hit[]): ReactNode {
 export function FanerReplayPanel() {
   const [open, setOpen] = useState(false);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [role, setRole] = useState("Software Engineer");
   const [terms, setTerms] = useState(DEFAULT_TERMS);
   const [transcript, setTranscript] = useState(DEFAULT_TRANSCRIPT);
@@ -150,18 +153,25 @@ export function FanerReplayPanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const liveCaptures = useAllyStore((s) => s.capture?.captures ?? EMPTY_CAPTURES);
-  const dragState = useRef<{ startX: number; startWidth: number } | null>(null);
 
-  const onResizePointerDown = (e: React.PointerEvent) => {
+  // Shared drag-to-resize: `axis` picks which pointer coordinate to track and
+  // which edge grows the box. The panel is anchored bottom-left, so width
+  // grows from its RIGHT edge (dragging right = wider) and height grows from
+  // its TOP edge (dragging up = taller, since the bottom stays put).
+  const startResize = (axis: "width" | "height") => (e: React.PointerEvent) => {
     e.preventDefault();
-    dragState.current = { startX: e.clientX, startWidth: width };
+    const start = axis === "width" ? e.clientX : e.clientY;
+    const startSize = axis === "width" ? width : height;
     const onMove = (ev: PointerEvent) => {
-      if (!dragState.current) return;
-      const delta = ev.clientX - dragState.current.startX;
-      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, dragState.current.startWidth + delta)));
+      const current = axis === "width" ? ev.clientX : ev.clientY;
+      const delta = axis === "width" ? current - start : start - current;
+      const max = axis === "width" ? MAX_WIDTH : window.innerHeight - 24;
+      const min = axis === "width" ? MIN_WIDTH : MIN_HEIGHT;
+      const next = Math.min(max, Math.max(min, startSize + delta));
+      if (axis === "width") setWidth(next);
+      else setHeight(next);
     };
     const onUp = () => {
-      dragState.current = null;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
@@ -207,20 +217,29 @@ export function FanerReplayPanel() {
 
   return (
     <div
-      style={{ width }}
-      className="fixed bottom-3 left-3 z-50 flex max-h-[85vh] flex-col overflow-hidden rounded-lg border border-border bg-panel shadow-2xl"
+      style={{ width, height }}
+      className="fixed bottom-3 left-3 z-50 flex flex-col overflow-hidden rounded-lg border border-border bg-panel shadow-2xl"
     >
-      {/* Drag-to-resize handle on the right edge. */}
+      {/* Drag-to-resize handles: right edge = width, top edge = height (the
+          panel is bottom-anchored, so height grows upward from the top). */}
       <div
-        onPointerDown={onResizePointerDown}
+        onPointerDown={startResize("width")}
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize FANER panel"
-        title="Drag to resize"
+        aria-label="Resize FANER panel width"
+        title="Drag to resize width"
         className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-ew-resize hover:bg-fg-faint/30 active:bg-fg-faint/50"
       />
+      <div
+        onPointerDown={startResize("height")}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize FANER panel height"
+        title="Drag to resize height"
+        className="absolute left-0 right-0 top-0 z-10 h-1.5 cursor-ns-resize hover:bg-fg-faint/30 active:bg-fg-faint/50"
+      />
 
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
         <span className="font-mono text-[11px] font-semibold uppercase tracking-widest text-fg-muted">
           FANER replay
         </span>
@@ -233,7 +252,11 @@ export function FanerReplayPanel() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-2 overflow-y-auto px-3 py-2 text-[12px]">
+      {/* `min-h-0` is load-bearing: without it a flex child can't shrink
+          below its content size, so this region silently overflows the
+          panel (clipped by the outer overflow-hidden, no scrollbar) instead
+          of scrolling internally. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 py-2 text-[12px]">
         <label className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-wider text-fg-faint">Role</span>
           <input
@@ -254,13 +277,13 @@ export function FanerReplayPanel() {
         </label>
         <label className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-wider text-fg-faint">
-            Transcript (one line each; prefix THEM: / YOU:)
+            Transcript (one line each; prefix THEM: / YOU:) — drag the corner to resize
           </span>
           <textarea
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
-            rows={5}
-            className="rounded border border-border bg-bg px-2 py-1 font-mono text-[11px] text-fg"
+            rows={7}
+            className="resize-y rounded border border-border bg-bg px-2 py-1 font-mono text-[11px] text-fg"
           />
         </label>
         <button

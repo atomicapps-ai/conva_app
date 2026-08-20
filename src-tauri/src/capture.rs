@@ -201,9 +201,21 @@ pub async fn faner_replay(
             &mut |token| reply.push_str(token),
         )
         .map_err(|e| e.to_string())?;
-        Ok(parse_capture_reply(&reply)
-            .map(|e| e.captures)
-            .unwrap_or_default())
+        // Unlike the live worker (best-effort: a parse failure is silently
+        // skipped so a bad pass never blocks the session), this is the
+        // dev/test path — silently returning an empty Vec here would look
+        // identical to "the model legitimately found nothing" and hide real
+        // problems (e.g. a truncated reply from too low a max_tokens). Surface
+        // it.
+        match parse_capture_reply(&reply) {
+            Some(extraction) => Ok(extraction.captures),
+            None => {
+                let snippet: String = reply.chars().take(500).collect();
+                Err(format!(
+                    "model reply didn't parse as JSON — likely truncated (raised max_tokens should fix this) or malformed. Raw reply: {snippet}"
+                ))
+            }
+        }
     })
     .await
     .map_err(|e| e.to_string())?

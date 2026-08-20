@@ -173,7 +173,12 @@ pub fn build_capture_request(segments: &[TranscriptSegment], ctx: &PreparedConte
     LlmRequest {
         system: CAPTURE_SYSTEM_PROMPT.to_string(),
         user,
-        max_tokens: 700,
+        // A dense turn can produce 8-10+ EXPLAIN captures, each now carrying
+        // tier + kind + a <=2-sentence preview (not just a routing label) —
+        // 700 was tuned for the pre-preview schema and truncates mid-JSON on
+        // jargon-heavy paragraphs, which parse_capture_reply then silently
+        // reports as zero captures. 1800 gives real headroom.
+        max_tokens: 1800,
     }
 }
 
