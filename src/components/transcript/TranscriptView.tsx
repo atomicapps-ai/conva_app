@@ -502,6 +502,8 @@ function SelectionMenu({
   onAsk,
   onSendToAsk,
   onClose,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   x: number;
   y: number;
@@ -509,6 +511,12 @@ function SelectionMenu({
   onAsk: (t: string) => void;
   onSendToAsk: (t: string) => void;
   onClose: () => void;
+  /** Set while the pointer is over the menu itself — the hover-triggered
+   *  (post-selection) instance uses this so moving from the selected text
+   *  into the menu doesn't close it (F11, 2026-08-20). Unused by the
+   *  right-click instance, which isn't hover-gated. */
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
 }) {
   useEffect(() => {
     const close = () => onClose();
@@ -527,6 +535,8 @@ function SelectionMenu({
     <div
       style={{ position: "fixed", left, top: y + 6, zIndex: 60 }}
       onMouseDown={(e) => e.stopPropagation()}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       role="menu"
       className="glass-raised flex items-center gap-0.5 rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
     >
@@ -772,10 +782,26 @@ function Bubble({
       ? [...terms, searchHighlight]
       : terms;
 
-  // Selection → icon menu (ask / copy / send-to-ask).
-  const [sel, setSel] = useState<{ x: number; y: number; text: string } | null>(
-    null,
-  );
+  // Selection → icon menu (ask / copy / send-to-ask). Two ways in, both
+  // opening the SAME `SelectionMenu` (F11, 2026-08-20 — owner decision):
+  //  - Passive: release the mouse after dragging a selection. The pointer
+  //    is already exactly where the drag ended, so the menu shows
+  //    immediately with no extra action — then behaves like a real hover
+  //    card, closing the moment the pointer leaves both the selected text
+  //    and the menu itself (`rect` below is what makes an instance
+  //    hover-gated; see the effect after this).
+  //  - Explicit: right-click a selection, e.g. after the pointer has
+  //    already moved off it. Opens at the click point and stays open until
+  //    dismissed (Escape / resize / scroll / an icon click) — not
+  //    hover-gated, since right-click is already a deliberate action, not
+  //    something that should vanish if you don't hold still.
+  const [sel, setSel] = useState<
+    { x: number; y: number; text: string; rect: DOMRect | null } | null
+  >(null);
+  // True while the pointer is over the menu itself, for the hover-gated
+  // instance — read by the effect below so crossing the small visual gap
+  // between the selected text and the menu doesn't close it.
+  const menuHoveredRef = useRef(false);
   const onMouseUp = () => {
     const s = window.getSelection();
     const text = s?.toString().trim() ?? "";
@@ -784,24 +810,37 @@ function Bubble({
       return;
     }
     const r = s.getRangeAt(0).getBoundingClientRect();
-    setSel({ x: r.left + r.width / 2, y: r.bottom, text });
+    setSel({ x: r.left + r.width / 2, y: r.bottom, text, rect: r });
   };
-  // Right-click on a live text selection opens the SAME SelectionMenu, at
-  // the click point rather than wherever the mouseup happened — the F11
-  // handoff's rationale: "the pointer sits at a small, easily-lost target
-  // right after a selection," so right-click is a more stable trigger for
-  // "ask about text FANER didn't auto-flag." Additive: with no selection,
-  // this falls through to the existing whole-turn `onContextMenu` (Copy /
-  // Research / delete-linked-card etc.) unchanged.
   const onBubbleContextMenu = (e: React.MouseEvent) => {
     const text = window.getSelection()?.toString().trim() ?? "";
     if (text) {
       e.preventDefault();
-      setSel({ x: e.clientX, y: e.clientY, text });
+      setSel({ x: e.clientX, y: e.clientY, text, rect: null });
       return;
     }
     onContextMenu(e);
   };
+  // Hover-gating for the passive (mouseup) instance: close it the moment
+  // the pointer is over neither the selected text's bounding box (padded a
+  // little so the small visual gap up to the menu doesn't false-trigger a
+  // close) nor the menu itself. Skipped entirely when `rect` is null — the
+  // right-click instance stays open regardless of pointer position.
+  useEffect(() => {
+    if (!sel?.rect) return;
+    const rect = sel.rect;
+    const PAD = 8;
+    const onMove = (e: MouseEvent) => {
+      const overText =
+        e.clientX >= rect.left - PAD &&
+        e.clientX <= rect.right + PAD &&
+        e.clientY >= rect.top - PAD &&
+        e.clientY <= rect.bottom + PAD;
+      if (!overText && !menuHoveredRef.current) setSel(null);
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, [sel]);
 
   const accent = inbound ? "bg-inbound" : "bg-outbound";
   const tint = inbound ? "bg-inbound/[0.05]" : "bg-outbound/[0.05]";
@@ -931,6 +970,12 @@ function Bubble({
             onAsk={onAskText}
             onSendToAsk={onSendToAsk}
             onClose={() => setSel(null)}
+            onMouseEnter={() => {
+              menuHoveredRef.current = true;
+            }}
+            onMouseLeave={() => {
+              menuHoveredRef.current = false;
+            }}
           />
         )}
       </div>
