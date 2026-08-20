@@ -14,7 +14,14 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import type { AllyKind, AudioLevelEvent, Capture, TranscriptSegment } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
-import { collectFanerHits, fanerAccent, fanerLabel, fanerPrompt, type FanerHit } from "@/lib/faner";
+import {
+  collectFanerHits,
+  fanerAccent,
+  fanerLabel,
+  fanerPrompt,
+  isFanerBoundaryMatch,
+  type FanerHit,
+} from "@/lib/faner";
 import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
@@ -460,7 +467,12 @@ function FanerAwareText({
   outer: while (i < text.length) {
     for (const h of hits) {
       const p = h.phrase.toLowerCase();
-      if (p && lower.startsWith(p, i)) {
+      // `collectFanerHits` only proves the phrase appears *somewhere* at a
+      // real word boundary; re-check the boundary here too, since this scan
+      // finds every raw substring occurrence and a phrase can have both
+      // valid (whole-word) and invalid (mid-word) occurrences in the same
+      // text — only the valid ones should render as a mark.
+      if (p && lower.startsWith(p, i) && isFanerBoundaryMatch(lower, i, p.length)) {
         flushPlain(i);
         nodes.push(
           <FanerMark
