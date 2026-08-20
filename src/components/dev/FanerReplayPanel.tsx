@@ -16,6 +16,10 @@ import { useAllyStore } from "@/state/ally";
  * This is the seed of the eventual `CaptureRail`.
  */
 
+// Stable reference so the Zustand selector below never hands React a "new"
+// empty array on every render (that causes an infinite re-render loop).
+const EMPTY_CAPTURES: Capture[] = [];
+
 const DEFAULT_TERMS = "AWS, SQL, Java, Python, Terraform";
 const DEFAULT_TRANSCRIPT = `THEM: You've got Terraform on your resume — walk me through how you handle state when a whole team is applying changes. And how would you compare Terraform to something like CloudFormation or Pulumi?`;
 
@@ -53,7 +57,7 @@ export function FanerReplayPanel() {
   const [result, setResult] = useState<Capture[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const liveCaptures = useAllyStore((s) => s.capture?.captures ?? []);
+  const liveCaptures = useAllyStore((s) => s.capture?.captures ?? EMPTY_CAPTURES);
 
   const route = async () => {
     setBusy(true);
