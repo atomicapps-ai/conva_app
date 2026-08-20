@@ -9,6 +9,7 @@ import {
 
 import { LiveControlBar } from "@/components/studio/LiveControlBar";
 import { LiveTopBar } from "@/components/studio/LiveTopBar";
+import { TrackerRail } from "@/components/TrackerRail";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import type { AllyKind, AudioLevelEvent, TranscriptSegment } from "@/lib/ipc";
@@ -1799,6 +1800,18 @@ export function TranscriptView() {
     }
     return m;
   }, [cards]);
+
+  // TrackerRail (FANER Engine — merged from main, #49): the old spine/
+  // split-drag layout it was written against is gone here (V4.0 rebuild
+  // retired it — transcript | Ally meta panel is the whole column set now),
+  // so the width gate is re-derived from `drawer`'s own breakpoint (640px)
+  // instead of the old MIN_COL/SPINE_W pair.
+  const TRACKER_W = 256; // px — TrackerRail's own w-64
+  // Only show the tracker rail once transcript + Ally can hold their floors
+  // (the existing drawer breakpoint) AND still leave room for a third
+  // 256px column — otherwise it'd squeeze the other two below comfortable
+  // width.
+  const showTracker = !drawer && width >= 640 + TRACKER_W;
   // Freeform "Ask Ally" cards (no turn to attach to) — appended at the end
   // of the stream, oldest-first, in the order they were asked.
   const sourcelessCards = useMemo(
@@ -2202,6 +2215,13 @@ export function TranscriptView() {
             barPad={barPad}
           />
         </div>
+
+        {/* Commitments & entities (FANER Engine — §6.3) — a persistent side
+            rail once the tracker has produced something; collapsible to a
+            thin edge tab. Hidden until the window is wide enough that it
+            doesn't squeeze the transcript/Ally columns below comfortable
+            width (see `showTracker` above). */}
+        {showTracker && <TrackerRail />}
 
         <ThreadViewer
           card={cards.find((c) => c.id === viewerCardId) ?? null}

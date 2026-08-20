@@ -4,6 +4,10 @@
 //!
 //! This is a heuristic, deliberately: it gates a zero-cost UI hint, so a
 //! false positive shows a harmless card and a false negative loses nothing.
+//!
+//! One of three tiers of the **FANER Engine** (proprietary live extraction
+//! layer, alongside `tracker.rs` and `highlight.rs`) — see
+//! `conva_core/docs/technical/faner-engine.md`.
 
 const INTERROGATIVES: &[&str] = &[
     "what", "how", "why", "when", "where", "who", "which", "whose", "can", "could", "would",

@@ -8,6 +8,10 @@
 //! Pure and deterministic — this is the RAG-grounded layer. An optional LLM
 //! enrichment pass (conceptual terms not literally in the docs) can be merged
 //! on top in the shell; it is not part of this module.
+//!
+//! One of three tiers of the **FANER Engine** (proprietary live extraction
+//! layer, alongside `tracker.rs` and `radar.rs`) — see
+//! `conva_core/docs/technical/faner-engine.md`.
 
 use std::collections::{HashMap, HashSet};
 
