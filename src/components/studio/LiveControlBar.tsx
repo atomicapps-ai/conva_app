@@ -10,16 +10,13 @@ import { useTranscriptStore } from "@/state/transcript";
  * Start/Stop + Record cluster that used to live in the now-removed global
  * `TopBar`. Maps onto the mockup's row as:
  *
- * - `core` → the Start/Stop toggle itself (idle = click to start, listening
- *   = pulses, click to stop), now the real `<Core>` sonar instrument
- *   (rings + radar sweep + orbiting node + breathing center — the same
- *   component the mockup's own `.core` JS builds) instead of a plain
- *   pulsing dot. `Core.tsx` already existed, fully built, just never
- *   wired into anything (owner feedback 2026-08-17). The mockup draws it
- *   as a passive "Listening" indicator with no visible Start anywhere in
- *   its (mid-call) demo state; making it the click target is the one
- *   place this session's rebuild fills in a gap the mockup's single
- *   frozen frame doesn't show.
+ * - `core` → a passive LIVE INDICATOR, not a control (owner, 2026-08-21:
+ *   "the animation is not the button to start listening"): the `<Core>`
+ *   sonar is lit while listening/preparing and dimmed when idle. The
+ *   session toggle is the labeled button — idle: "Start listening"
+ *   (primary), listening: "End" (red, with elapsed) → today's stop, which
+ *   offers to save the transcript. (V4.0 briefly made the sonar the click
+ *   target; reversed per the same owner feedback.)
  * - `Pause` → present but disabled. `Paused` exists as an IPC enum variant
  *   (`crates/conva-core/src/ipc.rs`) but nothing in `src-tauri` ever
  *   constructs or handles it — there's no backend to wire this to yet.
@@ -86,16 +83,17 @@ export function LiveControlBar({
   return (
     <div className="flex h-[52px] shrink-0 items-stretch border-t border-border bg-bg-2">
       <div className="flex min-w-0 flex-1 items-center gap-3 px-3.5">
-      <button
-        type="button"
-        disabled={busy || preparing}
-        onClick={() => void (listening ? stop() : start())}
-        title={listening ? "Stop listening" : "Start listening"}
-        aria-pressed={listening}
-        className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition hover:brightness-110 disabled:opacity-50"
+      {/* Live indicator — NOT a control: lit while listening, dimmed idle. */}
+      <div
+        role="status"
+        aria-label={listening ? "Listening" : preparing ? "Preparing" : "Not listening"}
+        title={listening ? "Listening" : preparing ? "Preparing" : "Not listening"}
+        className={`grid h-10 w-10 shrink-0 place-items-center rounded-full transition-opacity ${
+          listening || preparing ? "" : "opacity-35 saturate-50"
+        }`}
       >
         <Core state={coreState} size={34} />
-      </button>
+      </div>
 
       {statusText ? (
         <span
@@ -161,15 +159,29 @@ export function LiveControlBar({
         <ResponsiveLabel full={recording ? "Recording" : "Record"} short="Rec" />
       </button>
 
+      {/* THE session toggle (owner, 2026-08-21): Start listening ↔ End. */}
       <button
         type="button"
-        disabled={!listening}
-        onClick={() => void stop()}
-        title="End & summarise — stops listening and offers to save the transcript"
-        className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] border border-rec/50 bg-rec/10 px-3 text-[13px] font-bold text-rec transition hover:brightness-110 disabled:opacity-40"
+        disabled={busy || preparing}
+        onClick={() => void (listening ? stop() : start())}
+        aria-pressed={listening}
+        title={
+          listening
+            ? "End — stops listening and offers to save the transcript"
+            : "Start listening"
+        }
+        className={[
+          "flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] px-3 text-[13px] font-bold transition hover:brightness-110 disabled:opacity-40",
+          listening
+            ? "border border-rec/50 bg-rec/10 text-rec"
+            : "bg-primary text-primary-ink",
+        ].join(" ")}
       >
-        <Icon name="record" size={15} />
-        <ResponsiveLabel full="End & summarise" short="End" />
+        <Icon name={listening ? "record" : "live"} size={15} />
+        <ResponsiveLabel
+          full={listening ? "End" : "Start listening"}
+          short={listening ? "End" : "Start"}
+        />
         {listening && (
           <span className="font-mono text-[11px] font-bold text-rec/80">{elapsed}</span>
         )}
