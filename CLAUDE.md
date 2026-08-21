@@ -127,17 +127,24 @@ swap a layer without asking the owner.**
      without updating this rule — one navigation model, consistently applied,
      beats two competing ones.
 10. **Live cockpit: conversation column is conversation text ONLY; everything
-    Ally lives in the right Ally panel, whose dock stays visible.** (Owner,
-    2026-08-21.) Ally answers never render in the transcript stream (V4.0's
-    inline-cards layout was explicitly reversed) — they're the answers feed
-    inside the single right `AllyPanel` (`TranscriptView.tsx`), alongside
-    Live summary / Open threads / Grounding, with the show/hide dock at its
-    foot. The dock buttons ("the tabs on the right") must stay visible at
-    every inline width (≥640px) — hiding them behind a chip once read as a
-    missing feature — and they stay independent on/off TOGGLES, not
-    exclusive tabs (owner, 2026-08-17; a tab treatment was built and
-    reverted same-day over that semantics clash). Below 640px the whole
-    panel is the "✦ Ally" overlay drawer.
+    Ally lives in the right Ally panel, driven by the Details/Terms tabs at
+    the control bar's bottom-right.** (Owner, 2026-08-21 — confirmed on the
+    "Live Cockpit Tabs" mockup canvas.) Ally answers never render in the
+    transcript stream (V4.0's inline-cards layout was explicitly reversed).
+    The right `AllyPanel` (`TranscriptView.tsx`) has two EXCLUSIVE tabs —
+    the left-nav-rail tab pattern, one active — selected from the bottom
+    `LiveControlBar`'s absolute bottom-right corner (aligned under the
+    340px panel; Record + "End & summarise" sit in the bar's LEFT group to
+    make room): **Details** = answers feed + Live summary + Open threads +
+    Grounding; **Terms** = live FANER captures ("detected in conversation",
+    with preview definitions) + the grounded context's key terms/glossary
+    ("from your documents"), each with an Ask-Ally action that answers into
+    Details. The tabs must stay visible at every width; below 640px a tab
+    tap opens the panel as an overlay drawer. This supersedes the
+    2026-08-17 "buttons-not-tabs" dock decision — that dock is gone; the
+    tab silhouette now IS the sanctioned pattern here, same as the nav
+    rail. "Tab" in owner feedback means this exclusive pattern, never
+    on/off toggles.
 
 ## Build & run
 
