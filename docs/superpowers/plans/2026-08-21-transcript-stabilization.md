@@ -488,7 +488,7 @@ git commit -m "feat(transcript): useTranscriptStability — the rendering-plan h
 Create `src/components/transcript/ScrambleText.test.tsx`:
 
 ```tsx
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ScrambleText } from "@/components/transcript/ScrambleText";
@@ -525,7 +525,13 @@ describe("ScrambleText", () => {
 
   it("settles on the real word after the scramble ticks finish", () => {
     render(<ScrambleText words={words({ text: "Terraform", changed: true })} />);
-    vi.runAllTimers();
+    // The interval's final tick fires synchronously via fake timers, but the
+    // resulting state update still needs to be flushed/committed before the
+    // assertion below reads the DOM — wrap the timer advance in act() so
+    // React commits that last setDisplay before we check for "Terraform".
+    act(() => {
+      vi.runAllTimers();
+    });
     expect(screen.getByText("Terraform")).toBeInTheDocument();
   });
 
