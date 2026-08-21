@@ -1497,7 +1497,7 @@ function AllyMetaPanel({
     kind: AllyKind,
     question?: string,
     source?: { key: string; quote: string },
-  ) => Promise<void>;
+  ) => Promise<string>;
   allyFontPx: number;
   bumpAllyFont: (d: number) => void;
   reasoningDefaultOpen: boolean;
