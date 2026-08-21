@@ -28,6 +28,7 @@ import {
   isFanerBoundaryMatch,
   type FanerHit,
 } from "@/lib/faner";
+import { collectStarHits } from "@/lib/star";
 import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
@@ -367,6 +368,10 @@ function FanerAwareText({
   onAskTerm,
   onAskFaner,
   onSendToAsk,
+  turnKey,
+  allCards,
+  starred,
+  onToggleStar,
 }: {
   text: string;
   captures: Capture[];
@@ -374,9 +379,21 @@ function FanerAwareText({
   onAskTerm: (action: TermAction, term: string) => void;
   onAskFaner: (capture: Capture, phrase: string) => void;
   onSendToAsk: (text: string) => void;
+  /** This unit's turn key — starred quotes only mark within the turn they
+   *  were asked from (F12; see `collectStarHits`). */
+  turnKey: string;
+  allCards: AllyCard[];
+  starred: Set<string>;
+  onToggleStar: (cardId: string) => void;
 }) {
   const hits = useMemo(() => collectFanerHits(text, captures), [text, captures]);
-  if (hits.length === 0) return <HighlightedText text={text} terms={terms} onAsk={onAskTerm} />;
+  const starHits = useMemo(
+    () => collectStarHits(text, turnKey, allCards, starred),
+    [text, turnKey, allCards, starred],
+  );
+  if (hits.length === 0 && starHits.length === 0) {
+    return <HighlightedText text={text} terms={terms} onAsk={onAskTerm} />;
+  }
 
   const lower = text.toLowerCase();
   const nodes: ReactNode[] = [];
@@ -396,6 +413,25 @@ function FanerAwareText({
   };
   let i = 0;
   outer: while (i < text.length) {
+    // Starred quotes take priority over a FANER mark at the same position —
+    // starring is the stronger, user-initiated signal (design doc §5).
+    for (const h of starHits) {
+      const p = h.phrase.toLowerCase();
+      if (p && lower.startsWith(p, i) && isFanerBoundaryMatch(lower, i, p.length)) {
+        flushPlain(i);
+        nodes.push(
+          <StarMark
+            key={`s${key++}`}
+            phrase={h.phrase}
+            cardId={h.card.id}
+            onToggleStar={onToggleStar}
+          />,
+        );
+        i += h.phrase.length;
+        plainStart = i;
+        continue outer;
+      }
+    }
     for (const h of hits) {
       const p = h.phrase.toLowerCase();
       // `collectFanerHits` only proves the phrase appears *somewhere* at a
