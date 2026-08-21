@@ -318,6 +318,40 @@ function FanerMark({
   );
 }
 
+/** A starred quote's persistent "this is on your board" marker (F12 — Live
+ *  panel redesign). Uses the Ally accent, not one of FANER's per-action
+ *  colors — starring is a user-initiated mark and needs to read as
+ *  distinct from FANER's automatic routing (design doc §5). Unlike
+ *  `FanerMark` there's no hover popover: the phrase already has a card
+ *  (open it from the Starred board or a thread list for more); the only
+ *  control is the filled star suffix, which unstars on click. */
+function StarMark({
+  phrase,
+  cardId,
+  onToggleStar,
+}: {
+  phrase: string;
+  cardId: string;
+  onToggleStar: (cardId: string) => void;
+}) {
+  return (
+    <span className="text-ai">
+      <span className="underline decoration-2 underline-offset-2 font-semibold">
+        {phrase}
+      </span>
+      <button
+        type="button"
+        onClick={() => onToggleStar(cardId)}
+        title="Starred — click to remove from your board"
+        aria-label={`Remove "${phrase}" from your board`}
+        className="ml-0.5 inline-flex -translate-y-px align-middle transition-opacity hover:opacity-70"
+      >
+        <Icon name="star" size={11} filled />
+      </button>
+    </span>
+  );
+}
+
 /** Splits `text` between FANER-marked spans (`FanerMark`) and everything
  *  else, which still goes through `HighlightedText` — so a FANER span and a
  *  RAG term/search-highlight can coexist in the same unit without one
