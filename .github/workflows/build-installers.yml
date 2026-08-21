@@ -30,6 +30,8 @@ on:
       # installers still build; only the auto-update packages are skipped.
       TAURI_SIGNING_PRIVATE_KEY:
         required: false
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
 
 permissions:
   contents: write
@@ -96,7 +98,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           # On a release the tag drives the GitHub Release; otherwise these are
           # empty and tauri-action just builds (bundles uploaded below).
