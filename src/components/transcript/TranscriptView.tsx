@@ -26,6 +26,7 @@ import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
 import { useRehearsalStore } from "@/state/rehearsal";
+import { useConversationStore } from "@/state/conversation";
 import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
 import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
@@ -2212,6 +2213,27 @@ export function TranscriptView() {
   }, []);
   const drawer = width > 0 && width < 640;
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Conversation-header responsiveness (owner, 2026-08-21: the text-size /
+  // expand controls bled over the right panel at narrow widths) — measure the
+  // conversation column itself and fold the utility cluster into a 3-dot
+  // menu when it's tight. "+ New" stays visible at every width.
+  const convoColRef = useRef<HTMLElement | null>(null);
+  const [convoColW, setConvoColW] = useState(0);
+  useEffect(() => {
+    const el = convoColRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((es) => {
+      const r = es[0];
+      if (r) setConvoColW(r.contentRect.width);
+    });
+    ro.observe(el);
+    setConvoColW(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, []);
+  const headerTight = convoColW > 0 && convoColW < 520;
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const requestNew = useConversationStore((s) => s.requestNew);
   // Which Ally-panel tab is active — selected from the control bar's
   // bottom-right tabs; asks from the Terms tab flip back to Details so the
   // answer is visible where it lands.
@@ -2461,6 +2483,7 @@ export function TranscriptView() {
         {/* Conversation — conversation text ONLY; Ally answers render in
             their own column to the right (owner rule, 2026-08-21). */}
         <section
+          ref={convoColRef}
           data-col="transcript"
           className="relative flex min-w-[240px] flex-1 flex-col border-r border-border"
         >
@@ -2479,62 +2502,173 @@ export function TranscriptView() {
               {isTauri() && <Bars level={levels.outbound} color="var(--color-outbound)" />}
             </span>
             <div className="ml-auto flex items-center gap-1 text-fg-faint">
-              {/* Transcript text size. */}
+              {/* "+ New" — start a fresh conversation (owner, 2026-08-21).
+                  Unsaved content routes through the save dialog first
+                  (Save / Discard / Cancel); disabled mid-session. */}
               <button
                 type="button"
-                onClick={() => bumpTranscriptFont(-1)}
-                disabled={transcriptFontPx <= ALLY_FONT_MIN}
-                title="Smaller transcript text"
-                aria-label="Smaller transcript text"
-                className="rounded px-1 text-[11px] font-semibold hover:text-fg disabled:opacity-30"
-              >
-                A−
-              </button>
-              <button
-                type="button"
-                onClick={() => bumpTranscriptFont(1)}
-                disabled={transcriptFontPx >= ALLY_FONT_MAX}
-                title="Larger transcript text"
-                aria-label="Larger transcript text"
-                className="rounded px-1 text-[13px] font-semibold hover:text-fg disabled:opacity-30"
-              >
-                A+
-              </button>
-              <span className="mx-0.5 h-4 w-px bg-border" />
-              {/* Keep my own turns collapsed (persisted). */}
-              <button
-                type="button"
-                onClick={toggleCollapseYou}
-                aria-pressed={collapseYou}
+                onClick={requestNew}
+                disabled={sessionEvent.state === "listening"}
                 title={
-                  collapseYou
-                    ? "Your turns are collapsed — click to show them"
-                    : "Collapse your own turns"
+                  sessionEvent.state === "listening"
+                    ? "End the session first to start a new conversation"
+                    : "New conversation — clears the pane (the run stays in Sessions)"
                 }
-                aria-label="Collapse your own turns"
-                className={`rounded p-1 transition-colors ${collapseYou ? "text-outbound" : "hover:text-fg"}`}
+                className="mr-1 flex shrink-0 items-center gap-1 rounded-[5px] border border-border-strong px-2 py-0.5 text-[11px] font-bold text-fg-muted transition hover:text-fg disabled:opacity-40"
               >
-                <Icon name="mic" size={15} />
+                <Icon name="add" size={13} />
+                New
               </button>
-              <span className="mx-0.5 h-4 w-px bg-border" />
-              <button
-                type="button"
-                onClick={expandAll}
-                title="Expand all"
-                aria-label="Expand all messages"
-                className="rounded p-1 hover:text-fg"
-              >
-                <Icon name="unfoldMore" size={16} />
-              </button>
-              <button
-                type="button"
-                onClick={collapseAll}
-                title="Collapse all"
-                aria-label="Collapse all messages"
-                className="rounded p-1 hover:text-fg"
-              >
-                <Icon name="unfoldLess" size={16} />
-              </button>
+              {headerTight ? (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setHeaderMenuOpen((o) => !o)}
+                    title="Conversation options"
+                    aria-label="Conversation options"
+                    aria-expanded={headerMenuOpen}
+                    className={`rounded p-1 hover:text-fg ${headerMenuOpen ? "text-fg" : ""}`}
+                  >
+                    <Icon name="more" size={15} />
+                  </button>
+                  {headerMenuOpen && (
+                    <>
+                      <button
+                        type="button"
+                        aria-hidden
+                        tabIndex={-1}
+                        onClick={() => setHeaderMenuOpen(false)}
+                        className="fixed inset-0 z-40 cursor-default"
+                      />
+                      <div
+                        role="menu"
+                        className="glass-raised absolute right-0 top-7 z-50 w-52 rounded-lg border border-border p-2 shadow-[var(--shadow-lg)]"
+                      >
+                        <div className="flex items-center justify-between px-1.5 py-1 text-[12px]">
+                          <span className="text-fg-muted">Text size</span>
+                          <span className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => bumpTranscriptFont(-1)}
+                              disabled={transcriptFontPx <= ALLY_FONT_MIN}
+                              aria-label="Smaller transcript text"
+                              className="grid h-6 w-6 place-items-center rounded border border-border text-fg-muted hover:text-fg disabled:opacity-30"
+                            >
+                              A−
+                            </button>
+                            <span className="w-8 text-center font-mono text-[11px] text-fg-faint">
+                              {transcriptFontPx}px
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => bumpTranscriptFont(1)}
+                              disabled={transcriptFontPx >= ALLY_FONT_MAX}
+                              aria-label="Larger transcript text"
+                              className="grid h-6 w-6 place-items-center rounded border border-border text-fg-muted hover:text-fg disabled:opacity-30"
+                            >
+                              A+
+                            </button>
+                          </span>
+                        </div>
+                        <div className="my-1 h-px bg-border" />
+                        <button
+                          type="button"
+                          role="menuitemcheckbox"
+                          aria-checked={collapseYou}
+                          onClick={toggleCollapseYou}
+                          className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-[12px] text-fg hover:bg-white/[0.06]"
+                        >
+                          <Icon name="mic" size={13} />
+                          {collapseYou ? "Show your turns" : "Collapse your turns"}
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            expandAll();
+                            setHeaderMenuOpen(false);
+                          }}
+                          className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-[12px] text-fg hover:bg-white/[0.06]"
+                        >
+                          <Icon name="unfoldMore" size={13} />
+                          Expand all
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            collapseAll();
+                            setHeaderMenuOpen(false);
+                          }}
+                          className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-[12px] text-fg hover:bg-white/[0.06]"
+                        >
+                          <Icon name="unfoldLess" size={13} />
+                          Collapse all
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* Transcript text size. */}
+                  <button
+                    type="button"
+                    onClick={() => bumpTranscriptFont(-1)}
+                    disabled={transcriptFontPx <= ALLY_FONT_MIN}
+                    title="Smaller transcript text"
+                    aria-label="Smaller transcript text"
+                    className="rounded px-1 text-[11px] font-semibold hover:text-fg disabled:opacity-30"
+                  >
+                    A−
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => bumpTranscriptFont(1)}
+                    disabled={transcriptFontPx >= ALLY_FONT_MAX}
+                    title="Larger transcript text"
+                    aria-label="Larger transcript text"
+                    className="rounded px-1 text-[13px] font-semibold hover:text-fg disabled:opacity-30"
+                  >
+                    A+
+                  </button>
+                  <span className="mx-0.5 h-4 w-px bg-border" />
+                  {/* Keep my own turns collapsed (persisted). */}
+                  <button
+                    type="button"
+                    onClick={toggleCollapseYou}
+                    aria-pressed={collapseYou}
+                    title={
+                      collapseYou
+                        ? "Your turns are collapsed — click to show them"
+                        : "Collapse your own turns"
+                    }
+                    aria-label="Collapse your own turns"
+                    className={`rounded p-1 transition-colors ${collapseYou ? "text-outbound" : "hover:text-fg"}`}
+                  >
+                    <Icon name="mic" size={15} />
+                  </button>
+                  <span className="mx-0.5 h-4 w-px bg-border" />
+                  <button
+                    type="button"
+                    onClick={expandAll}
+                    title="Expand all"
+                    aria-label="Expand all messages"
+                    className="rounded p-1 hover:text-fg"
+                  >
+                    <Icon name="unfoldMore" size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={collapseAll}
+                    title="Collapse all"
+                    aria-label="Collapse all messages"
+                    className="rounded p-1 hover:text-fg"
+                  >
+                    <Icon name="unfoldLess" size={16} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
           <div

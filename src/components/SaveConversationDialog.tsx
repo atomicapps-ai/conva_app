@@ -23,9 +23,10 @@ export function SaveConversationDialog() {
   const open = useConversationStore((s) => s.savePromptOpen);
   const setOpen = useConversationStore((s) => s.setSavePromptOpen);
   const openId = useConversationStore((s) => s.openId);
+  const pendingNew = useConversationStore((s) => s.pendingNew);
   const existingTitle = useConversationStore((s) => s.title);
   const save = useConversationStore((s) => s.save);
-  const setNotice = useConversationStore((s) => s.setNotice);
+  const discard = useConversationStore((s) => s.discard);
 
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -57,12 +58,18 @@ export function SaveConversationDialog() {
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-bg/70 backdrop-blur-sm">
       <div className="w-[26rem] max-w-[90vw] rounded-lg border border-border bg-panel p-4 shadow-xl">
         <h2 className="text-sm font-semibold text-fg">
-          {openId ? "Save conversation (append)?" : "Save this conversation?"}
+          {pendingNew
+            ? "Start a new conversation?"
+            : openId
+              ? "Save conversation (append)?"
+              : "Save this conversation?"}
         </h2>
         <p className="mt-1 text-xs text-fg-muted">
-          {openId
-            ? "This conversation is open — saving adds everything recorded since the last save to the same record."
-            : "Saved conversations can be reopened, continued, and linked to library documents."}
+          {pendingNew
+            ? "Save the current transcript first, or discard it. Either way the live pane resets — the raw run stays in Sessions."
+            : openId
+              ? "This conversation is open — saving adds everything recorded since the last save to the same record."
+              : "Saved conversations can be reopened, continued, and linked to library documents."}
         </p>
         <label className="mt-3 block text-[11px] text-fg-faint">
           Title
@@ -80,16 +87,25 @@ export function SaveConversationDialog() {
           </p>
         )}
         <div className="mt-4 flex items-center justify-end gap-2">
+          {pendingNew && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setOpen(false)}
+              className="mr-auto rounded-md px-3 py-1 text-xs text-fg-faint hover:text-fg disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          )}
+          {/* Discard = the pane fully resets (owner, 2026-08-21); the raw
+              run itself stays on-device in Sessions either way. */}
           <button
             type="button"
             disabled={busy}
-            onClick={() => {
-              setOpen(false);
-              setNotice(null);
-            }}
-            className="rounded-md border border-border px-3 py-1 text-xs text-fg-muted hover:text-fg disabled:opacity-50"
+            onClick={discard}
+            className="rounded-md border border-rec/40 px-3 py-1 text-xs text-rec/90 hover:bg-rec/10 disabled:opacity-50"
           >
-            Don&apos;t save
+            Discard
           </button>
           <button
             type="button"
