@@ -24,6 +24,7 @@ import {
 import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
+import { MAX_TERM_LEN, useLiveTermsStore } from "@/state/liveTerms";
 import { useRehearsalStore } from "@/state/rehearsal";
 import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
@@ -762,28 +763,42 @@ function Bubble({
     .map((s) => s.text.trim())
     .join(" ");
 
-  // RAG-grounded highlight terms for the whole turn (best-effort).
+  // RAG-grounded highlight terms for the whole turn (best-effort). Detected
+  // terms are also reported to the live-terms store so the Terms tab lists
+  // every word underlined on the left (owner, 2026-08-21).
   const [terms, setTerms] = useState<string[]>([]);
   useEffect(() => {
     if (!combinedText || !isTauri()) return;
     let alive = true;
     void backend.rag
       .analyzeTerms(combinedText)
-      .then((t) => alive && setTerms(t))
+      .then((t) => {
+        if (!alive) return;
+        setTerms(t);
+        useLiveTermsStore.getState().reportSpoken(t);
+      })
       .catch(() => {});
     return () => {
       alive = false;
     };
   }, [combinedText, backend]);
 
-  // Fold the landed search query into the RAG term list so it renders
-  // highlighted with the same treatment (HighlightedText doesn't care which
-  // list a term came from) — case-insensitively de-duped against a RAG term
-  // that already covers the same word.
-  const highlightTerms =
-    searchHighlight && !terms.some((t) => t.toLowerCase() === searchHighlight.toLowerCase())
-      ? [...terms, searchHighlight]
-      : terms;
+  // Fold the landed search query AND the user's own sent-to-Ally phrases
+  // (selection → lightbulb; owner, 2026-08-21) into the RAG term list so
+  // they render with the same underline + click-menu treatment —
+  // case-insensitively de-duped against terms already covering the word.
+  const userTerms = useLiveTermsStore((s) => s.added);
+  const highlightTerms = useMemo(() => {
+    const seen = new Set(terms.map((t) => t.toLowerCase()));
+    const out = [...terms];
+    for (const extra of searchHighlight ? [...userTerms, searchHighlight] : userTerms) {
+      if (!seen.has(extra.toLowerCase())) {
+        seen.add(extra.toLowerCase());
+        out.push(extra);
+      }
+    }
+    return out;
+  }, [terms, userTerms, searchHighlight]);
 
   // Selection → icon menu (ask / copy / send-to-ask). Two ways in, both
   // opening the SAME `SelectionMenu` (F11, 2026-08-20 — owner decision):
@@ -1589,11 +1604,15 @@ function AllyPanel({
   }, [activeId, backend]);
 
   // Terms tab: words-only chips, info on click (owner, 2026-08-21 —
-  // "Live Cockpit Tabs" canvas V3). Selection is panel-local UI state.
+  // "Live Cockpit Tabs" canvas V3). "Detected" = FANER captures + every
+  // word underlined in the transcript (RAG highlights + user selections,
+  // via the live-terms store). Selection is panel-local UI state.
   const caps = useCapabilities();
+  const spokenTerms = useLiveTermsStore((s) => s.spoken);
+  const addedTerms = useLiveTermsStore((s) => s.added);
   const chips = useMemo(
-    () => buildTermChips(captures, docTerms),
-    [captures, docTerms],
+    () => buildTermChips(captures, [...addedTerms, ...spokenTerms], docTerms),
+    [captures, addedTerms, spokenTerms, docTerms],
   );
   const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
   const selectedDetected =
@@ -1616,7 +1635,7 @@ function AllyPanel({
       ].join(" ")}
     >
       <span
-        className={`h-[5px] w-[5px] shrink-0 rounded-full ${chip.source === "capture" ? "bg-primary" : "bg-ai"}`}
+        className={`h-[5px] w-[5px] shrink-0 rounded-full ${chip.source === "doc" ? "bg-ai" : "bg-primary"}`}
         aria-hidden
       />
       <span className="min-w-0 truncate">{chip.label}</span>
@@ -2326,13 +2345,28 @@ export function TranscriptView() {
       convo.ref.current.scrollTop = convo.ref.current.scrollHeight;
   }, [convo]);
 
+  // Every ask lands its answer in the Details tab — flip the panel there
+  // first (owner bug, 2026-08-21: selection → lightbulb looked dead because
+  // the answer streamed into the hidden tab while Terms was active).
+  const requestVisible = useCallback(
+    (
+      kind: AllyKind,
+      question?: string,
+      source?: { key: string; quote: string },
+    ) => {
+      setPanelTab("details");
+      return request(kind, question, source);
+    },
+    [request],
+  );
+
   const research = useCallback(
     (seg: TranscriptSegment) =>
-      void request("question", researchPrompt(seg.text), {
+      void requestVisible("question", researchPrompt(seg.text), {
         key: segmentKey(seg),
         quote: seg.text,
       }),
-    [request],
+    [requestVisible],
   );
 
   const askTerm = useCallback(
@@ -2343,24 +2377,33 @@ export function TranscriptView() {
           : action === "howto"
             ? `How do I "${term}"? Give concise, actionable steps.`
             : `Elaborate on "${term}" using the most relevant context from my documents.`;
-      void request("question", prompt, { key: "", quote: term });
+      void requestVisible("question", prompt, { key: "", quote: term });
     },
-    [request],
+    [requestVisible],
   );
 
   // Ask Ally about an arbitrary slice (a sentence unit or a text selection).
+  // A selection sent this way also becomes a live term (owner, 2026-08-21):
+  // it joins the Terms tab's chips and gets underlined in the transcript.
   const askText = useCallback(
-    (text: string) =>
-      void request("question", researchPrompt(text), { key: "", quote: text }),
-    [request],
+    (text: string) => {
+      if (text.trim().length <= MAX_TERM_LEN) {
+        useLiveTermsStore.getState().addUserTerm(text);
+      }
+      void requestVisible("question", researchPrompt(text), { key: "", quote: text });
+    },
+    [requestVisible],
   );
   // Ask Ally about a FANER-marked span (F11) — phrased by the capture's
   // routed action (`fanerPrompt`) rather than the generic `researchPrompt`
   // wrapper, since FANER's prompt is already a complete question.
   const askFaner = useCallback(
     (capture: Capture, phrase: string) =>
-      void request("question", fanerPrompt(capture, phrase), { key: "", quote: phrase }),
-    [request],
+      void requestVisible("question", fanerPrompt(capture, phrase), {
+        key: "",
+        quote: phrase,
+      }),
+    [requestVisible],
   );
   // Drop a selection into the Ask-Ally box so the user can build a question.
   const sendToAsk = useCallback((text: string) => setAsk(text), []);
@@ -2369,7 +2412,7 @@ export function TranscriptView() {
     const q = ask.trim();
     if (!q) return;
     setAsk("");
-    void request("question", q);
+    void requestVisible("question", q);
   };
 
   const allKeys = [...turns.map((t) => t.key), ...cards.map((c) => c.id)];

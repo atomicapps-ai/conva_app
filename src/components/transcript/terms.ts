@@ -5,8 +5,9 @@ export interface TermChip {
   /** Stable key within the rendered list. */
   id: string;
   label: string;
-  /** "capture" = detected live (FANER); "doc" = grounded-context term. */
-  source: "capture" | "doc";
+  /** "capture" = FANER-routed; "live" = underlined in the transcript (RAG
+   *  highlight or a user-selected phrase); "doc" = grounded-context term. */
+  source: "capture" | "live" | "doc";
   capture?: Capture;
 }
 
@@ -19,13 +20,16 @@ export function chipKindTag(chip: TermChip): string {
 }
 
 /**
- * The Terms tab's chip lists: live captures first ("detected in
- * conversation"), then the grounded context's terms ("from your documents").
- * A doc term whose label matches a capture case-insensitively is dropped —
- * the capture wins, it carries the preview.
+ * The Terms tab's chip lists. "Detected in conversation" = FANER captures
+ * first (they carry previews), then the words actually underlined in the
+ * transcript (`liveTerms`: RAG highlights + user-selected phrases, in the
+ * order given). "From your documents" = the grounded context's terms. Later
+ * lists drop labels an earlier list already covers (case-insensitive) — the
+ * richer source wins.
  */
 export function buildTermChips(
   captures: readonly Capture[],
+  liveTerms: readonly string[],
   docTerms: readonly string[],
 ): { detected: TermChip[]; docs: TermChip[] } {
   const detected: TermChip[] = [];
@@ -36,6 +40,12 @@ export function buildTermChips(
     detected.push({ id: `c-${i}-${label}`, label, source: "capture", capture: c });
     seen.add(label.toLowerCase());
   });
+  for (const t of liveTerms) {
+    const label = t.trim();
+    if (!label || seen.has(label.toLowerCase())) continue;
+    seen.add(label.toLowerCase());
+    detected.push({ id: `l-${label}`, label, source: "live" });
+  }
   const docs = docTerms
     .filter((t) => !seen.has(t.toLowerCase()))
     .map((t): TermChip => ({ id: `d-${t}`, label: t, source: "doc" }));

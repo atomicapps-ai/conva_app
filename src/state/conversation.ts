@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { getBackend } from "@/lib/backend";
 import type { Conversation } from "@/lib/ipc";
 import { useAllyStore } from "@/state/ally";
+import { useLiveTermsStore } from "@/state/liveTerms";
 import { useTranscriptStore, withLiveArchived } from "@/state/transcript";
 
 /**
@@ -99,6 +100,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const transcript = useTranscriptStore.getState();
     transcript.clear();
     transcript.setRetainHistory(false);
+    useLiveTermsStore.getState().clear();
     set({ openId: null, title: null, linkedDocs: [], notice: null });
   },
 
