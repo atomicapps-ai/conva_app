@@ -1586,6 +1586,10 @@ function AllyPanel({
   const backend = useBackend();
   const activeId = useGroundingStore((s) => s.activeId);
   const activeTitle = useGroundingStore((s) => s.activeTitle);
+  // Re-activating the SAME context bumps only the nonce — the reload below
+  // must key on it too, or a re-ground (which may have just backfilled the
+  // context's glossary backend-side) leaves this panel showing stale terms.
+  const activationNonce = useGroundingStore((s) => s.activationNonce);
   const [groundingDocs, setGroundingDocs] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -1614,7 +1618,7 @@ function AllyPanel({
     return () => {
       alive = false;
     };
-  }, [activeId, backend]);
+  }, [activeId, activationNonce, backend]);
 
   // Terms tab: words-only chips, info on click (owner, 2026-08-21 —
   // "Live Cockpit Tabs" canvas V3). "Detected" = FANER captures + every

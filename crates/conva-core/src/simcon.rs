@@ -294,7 +294,14 @@ impl SimConCategory {
                     label: "Prospect / account docs",
                     multiple: true,
                 }],
-                digest_sections: &["Company background", "Objections", "Talking points"],
+                // Glossary included so sales contexts harvest highlight terms
+                // like every other category (extract_glossary reads it).
+                digest_sections: &[
+                    "Company background",
+                    "Glossary",
+                    "Objections",
+                    "Talking points",
+                ],
                 default_research_enabled: true,
             },
             SimConCategory::Other => ConversationTemplate {
@@ -671,6 +678,14 @@ mod tests {
             assert!(!t.label.is_empty());
             assert!(!t.file_slots.is_empty(), "{cat:?} has file slots");
             assert!(!t.digest_sections.is_empty(), "{cat:?} has digest sections");
+            // Every category's digest must carry a Glossary section —
+            // extract_glossary harvests it into context-highlight terms, and
+            // a category without one silently produces contexts that never
+            // highlight (the empty "From your documents" bug, 2026-08-21).
+            assert!(
+                t.digest_sections.contains(&"Glossary"),
+                "{cat:?} digest has a Glossary section"
+            );
             assert_eq!(cat.label(), t.label);
         }
     }
