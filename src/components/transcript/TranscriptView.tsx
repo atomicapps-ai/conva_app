@@ -17,7 +17,6 @@ import { isTauri } from "@/lib/ipc";
 import {
   collectFanerHits,
   fanerAccent,
-  fanerLabel,
   fanerPrompt,
   isFanerBoundaryMatch,
   type FanerHit,
@@ -26,7 +25,6 @@ import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
 import { useRehearsalStore } from "@/state/rehearsal";
-import { useConversationStore } from "@/state/conversation";
 import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
 import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
@@ -370,12 +368,12 @@ function HighlightedText({
 
 /** One FANER-marked term: persistently bold+underlined, color-coded by the
  *  capture's routed `action` (F11 handoff, 2026-08-20). Hovering reveals a
- *  popover with the capture's `preview` and the same three action icons
- *  `SelectionMenu` uses (Ask Ally / Copy / Send to Ask Ally) — consistent
- *  with the rest of the app's "act on this text" vocabulary rather than a
- *  one-off FANER-specific control set. Pure CSS group-hover (like the dev
- *  panel's tooltip): the popover is a normal, clickable descendant of the
- *  hover group, not a `pointer-events-none` tooltip, so its icons work. */
+ *  slim ICON-ONLY strip — the same three actions `SelectionMenu` uses (Ask
+ *  Ally / Copy / Send to Ask Ally). NO content card (owner, 2026-08-21:
+ *  "just the words spoken, underlined, with menu icons" — the capture's
+ *  preview text lives in the Terms tab and the partner window, never as a
+ *  transcript hover popup). Pure CSS group-hover: the strip is a normal,
+ *  clickable descendant of the hover group, so its icons work. */
 function FanerMark({
   hit,
   onAsk,
@@ -391,12 +389,8 @@ function FanerMark({
       <span className="cursor-help underline decoration-2 underline-offset-2 font-semibold">
         {phrase}
       </span>
-      <span className="invisible absolute left-0 top-full z-50 mt-1 w-64 max-w-[85vw] -translate-x-1/2 rounded-lg border border-border bg-panel-raised p-2 text-[12px] normal-case leading-snug text-fg opacity-0 shadow-[var(--shadow-lg)] transition-opacity duration-100 group-hover:visible group-hover:opacity-100">
-        <span className="mb-1 block font-mono text-[9px] uppercase tracking-wide text-fg-faint">
-          {fanerLabel(capture)}
-        </span>
-        <p className="mb-1.5 text-fg-muted">{capture.preview || "(no preview yet)"}</p>
-        <span className="flex items-center gap-0.5 border-t border-border pt-1">
+      <span className="invisible absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2 rounded-lg border border-border bg-panel-raised p-0.5 opacity-0 shadow-[var(--shadow-lg)] transition-opacity duration-100 group-hover:visible group-hover:opacity-100">
+        <span className="flex items-center gap-0.5">
           <button
             type="button"
             title="Ask Ally about this"
@@ -2233,7 +2227,6 @@ export function TranscriptView() {
   }, []);
   const headerTight = convoColW > 0 && convoColW < 520;
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  const requestNew = useConversationStore((s) => s.requestNew);
   // Which Ally-panel tab is active — selected from the control bar's
   // bottom-right tabs; asks from the Terms tab flip back to Details so the
   // answer is visible where it lands.
@@ -2502,23 +2495,8 @@ export function TranscriptView() {
               {isTauri() && <Bars level={levels.outbound} color="var(--color-outbound)" />}
             </span>
             <div className="ml-auto flex items-center gap-1 text-fg-faint">
-              {/* "+ New" — start a fresh conversation (owner, 2026-08-21).
-                  Unsaved content routes through the save dialog first
-                  (Save / Discard / Cancel); disabled mid-session. */}
-              <button
-                type="button"
-                onClick={requestNew}
-                disabled={sessionEvent.state === "listening"}
-                title={
-                  sessionEvent.state === "listening"
-                    ? "End the session first to start a new conversation"
-                    : "New conversation — clears the pane (the run stays in Sessions)"
-                }
-                className="mr-1 flex shrink-0 items-center gap-1 rounded-[5px] border border-border-strong px-2 py-0.5 text-[11px] font-bold text-fg-muted transition hover:text-fg disabled:opacity-40"
-              >
-                <Icon name="add" size={13} />
-                New
-              </button>
+              {/* "+ New" moved UP to the LiveTopBar crown (owner, 2026-08-21
+                  — it bled over the panel border here at narrow widths). */}
               {headerTight ? (
                 <div className="relative">
                   <button
