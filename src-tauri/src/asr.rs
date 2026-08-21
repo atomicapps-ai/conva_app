@@ -388,7 +388,8 @@ fn decode(
             text.push_str(&segment);
         }
     }
-    let text = text.trim().to_string();
+    // Strip decode artifacts ("|" marks, doubled spaces, " .") at the source.
+    let text = conva_core::asr::sanitize_transcript_text(&text);
     // Whisper hallucinates fillers on near-silence; drop the classics.
     const HALLUCINATIONS: &[&str] = &["[BLANK_AUDIO]", "(silence)", "[silence]", "."];
     if HALLUCINATIONS.contains(&text.as_str()) {

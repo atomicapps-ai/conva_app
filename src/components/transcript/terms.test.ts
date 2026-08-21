@@ -39,19 +39,21 @@ describe("buildTermChips (Terms tab chips)", () => {
   it("captures first, doc terms after, capture wins a label collision", () => {
     const { detected, docs } = buildTermChips(
       [capture(["STAR", "method"], "concept"), capture([], "concept")],
-      ["star method", "SLA"],
+      ["latency", "Star Method"],
+      ["star method", "SLA", "Latency"],
     );
-    expect(detected.map((c) => c.label)).toEqual(["STAR method"]);
+    expect(detected.map((c) => c.label)).toEqual(["STAR method", "latency"]);
+    expect(detected.map((c) => c.source)).toEqual(["capture", "live"]);
     expect(docs.map((c) => c.label)).toEqual(["SLA"]);
   });
 });
 
 describe("chipKindTag (per-phrase action tag)", () => {
   it("maps FANER classification to the shown tag", () => {
-    const [concept] = buildTermChips([capture(["x"], "concept")], []).detected;
-    const [problem] = buildTermChips([capture(["y"], "problem")], []).detected;
-    const [recall] = buildTermChips([capture(["z"], null, "RECALL")], []).detected;
-    const [doc] = buildTermChips([], ["d"]).docs;
+    const [concept] = buildTermChips([capture(["x"], "concept")], [], []).detected;
+    const [problem] = buildTermChips([capture(["y"], "problem")], [], []).detected;
+    const [recall] = buildTermChips([capture(["z"], null, "RECALL")], [], []).detected;
+    const [doc] = buildTermChips([], [], ["d"]).docs;
     expect(chipKindTag(concept!)).toBe("concept");
     expect(chipKindTag(problem!)).toBe("fix");
     expect(chipKindTag(recall!)).toBe("recall");
