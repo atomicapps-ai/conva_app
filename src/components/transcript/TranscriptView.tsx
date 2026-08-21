@@ -330,7 +330,7 @@ function HighlightedText({
           const r = e.currentTarget.getBoundingClientRect();
           setMenu({ term: word, x: r.left, y: r.top });
         }}
-        className="rounded-[3px] bg-ai/15 px-0.5 font-semibold text-ai underline decoration-ai/50 decoration-dotted underline-offset-2 hover:bg-ai/25 hover:decoration-ai"
+        className="font-semibold text-ai underline decoration-2 underline-offset-2 hover:decoration-ai"
       >
         {word}
       </button>,
