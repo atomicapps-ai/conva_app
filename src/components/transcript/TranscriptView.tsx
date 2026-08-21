@@ -603,6 +603,10 @@ function FlowText({
   onAskTerm,
   onAskFaner,
   onSendToAsk,
+  turnKey,
+  allCards,
+  starred,
+  onToggleStar,
 }: {
   units: string[];
   terms: string[];
@@ -613,6 +617,11 @@ function FlowText({
   onAskTerm: (action: TermAction, term: string) => void;
   onAskFaner: (capture: Capture, phrase: string) => void;
   onSendToAsk: (text: string) => void;
+  /** F12 — threaded straight through to `FanerAwareText`'s star-matching. */
+  turnKey: string;
+  allCards: AllyCard[];
+  starred: Set<string>;
+  onToggleStar: (cardId: string) => void;
 }) {
   return (
     <span className="leading-snug">
@@ -633,6 +642,10 @@ function FlowText({
             onAskTerm={onAskTerm}
             onAskFaner={onAskFaner}
             onSendToAsk={onSendToAsk}
+            turnKey={turnKey}
+            allCards={allCards}
+            starred={starred}
+            onToggleStar={onToggleStar}
           />
           <button
             type="button"
@@ -680,6 +693,9 @@ function Bubble({
   searchHighlight,
   captures,
   onAskFaner,
+  allCards,
+  starred,
+  onToggleStar,
 }: {
   segments: TranscriptSegment[];
   turnKey: string;
@@ -713,6 +729,11 @@ function Bubble({
    *  would silently drop real captures without a corresponding upside. */
   captures: Capture[];
   onAskFaner: (capture: Capture, phrase: string) => void;
+  /** F12 — every Ally card (so `FanerAwareText` can find this turn's
+   *  starred ones) + the starred-id set + the unstar toggle. */
+  allCards: AllyCard[];
+  starred: Set<string>;
+  onToggleStar: (cardId: string) => void;
 }) {
   const backend = useBackend();
   const inbound = segments[0]?.side === "inbound";
@@ -906,6 +927,10 @@ function Bubble({
                 onAskTerm={onAskTerm}
                 onAskFaner={onAskFaner}
                 onSendToAsk={onSendToAsk}
+                turnKey={turnKey}
+                allCards={allCards}
+                starred={starred}
+                onToggleStar={onToggleStar}
               />
             )}
             {partialTail && (
@@ -1825,6 +1850,17 @@ export function TranscriptView() {
   const busy = useAllyStore((s) => s.busy);
   const request = useAllyStore((s) => s.request);
   const clearAlly = useAllyStore((s) => s.clear);
+  // Starred quotes + the right panel's collapse/mode state (F12) — read
+  // here so both the Bubble/FlowText star-marking chain and the
+  // RightPanelShell mount (Task 11) share the same store values.
+  const starred = useAllyStore((s) => s.starred);
+  const star = useAllyStore((s) => s.star);
+  const unstar = useAllyStore((s) => s.unstar);
+  const toggleStar = useAllyStore((s) => s.toggleStar);
+  const panelMode = useAllyStore((s) => s.panelMode);
+  const setPanelMode = useAllyStore((s) => s.setPanelMode);
+  const panelCollapsed = useAllyStore((s) => s.panelCollapsed);
+  const setPanelCollapsed = useAllyStore((s) => s.setPanelCollapsed);
   // FANER's routed captures for this session (F11) — matched against each
   // bubble's text by `FanerAwareText`/`FlowText`.
   const captures = useAllyStore((s) => s.capture?.captures ?? EMPTY_CAPTURES);
@@ -2099,19 +2135,31 @@ export function TranscriptView() {
     [request],
   );
 
-  // Ask Ally about an arbitrary slice (a sentence unit or a text selection).
+  // Ask Ally about an arbitrary slice (a sentence unit or a text selection)
+  // — and star the resulting card (F12): every quote-tied ask stars by
+  // definition (design doc §6.1), so there's no separate "star after
+  // asking" step. `key`, when given, is the originating turn's key — it's
+  // what lets `collectStarHits` find this quote again on re-render.
   const askText = useCallback(
-    (text: string) =>
-      void request("question", researchPrompt(text), { key: "", quote: text }),
-    [request],
+    (text: string, key?: string) => {
+      void request("question", researchPrompt(text), { key: key ?? "", quote: text }).then(
+        (id) => id && star(id),
+      );
+    },
+    [request, star],
   );
   // Ask Ally about a FANER-marked span (F11) — phrased by the capture's
   // routed action (`fanerPrompt`) rather than the generic `researchPrompt`
-  // wrapper, since FANER's prompt is already a complete question.
+  // wrapper, since FANER's prompt is already a complete question. Stars the
+  // resulting card for the same reason `askText` above does (F12).
   const askFaner = useCallback(
-    (capture: Capture, phrase: string) =>
-      void request("question", fanerPrompt(capture, phrase), { key: "", quote: phrase }),
-    [request],
+    (capture: Capture, phrase: string, key?: string) => {
+      void request("question", fanerPrompt(capture, phrase), {
+        key: key ?? "",
+        quote: phrase,
+      }).then((id) => id && star(id));
+    },
+    [request, star],
   );
   // Drop a selection into the Ask-Ally box so the user can build a question.
   const sendToAsk = useCallback((text: string) => setAsk(text), []);
@@ -2341,7 +2389,7 @@ export function TranscriptView() {
                     collapsed={collapsed.has(key)}
                     onToggleCollapse={() => toggleCollapse(key)}
                     onResearch={() => research(repSeg)}
-                    onAskText={askText}
+                    onAskText={(text) => askText(text, key)}
                     onSendToAsk={sendToAsk}
                     onAskTerm={askTerm}
                     onContextMenu={(e) => bubbleMenu(e, repSeg)}
@@ -2352,7 +2400,10 @@ export function TranscriptView() {
                     sessionStartMs={sessionStartMs}
                     searchHighlight={searchHighlight}
                     captures={captures}
-                    onAskFaner={askFaner}
+                    onAskFaner={(capture, phrase) => askFaner(capture, phrase, key)}
+                    allCards={cards}
+                    starred={starred}
+                    onToggleStar={toggleStar}
                   />
                 );
               })
