@@ -54,7 +54,8 @@ export type IconName =
   | "home"
   | "ally"
   | "rehearsal"
-  | "pause";
+  | "pause"
+  | "star";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -388,6 +389,13 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M18.5 3.5v4h-4M5.5 20.5v-4h4" />
     </>
   ),
+  // Star — a starred/marked quote (F12: Live panel redesign). Standard
+  // 5-point outline so it reads correctly both outlined (the "star this"
+  // button) and filled via the `filled` prop (a persisted "this is
+  // starred" marker).
+  star: (
+    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01L12 2z" />
+  ),
 };
 
 export function Icon({
@@ -395,18 +403,22 @@ export function Icon({
   size = 20,
   className = "",
   strokeWidth = 1.6,
+  filled = false,
 }: {
   name: IconName;
   size?: number;
   className?: string;
   strokeWidth?: number;
+  /** Render with a solid fill instead of the default outline (e.g. a
+   *  starred marker vs. an unstarred "star this" button). */
+  filled?: boolean;
 }) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
+      fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
       strokeWidth={strokeWidth}
       strokeLinecap="round"
