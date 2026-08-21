@@ -82,7 +82,14 @@ export function LiveControlBar({
 
   return (
     <div className="flex h-[52px] shrink-0 items-stretch border-t border-border bg-bg-2">
-      <div className="flex min-w-0 flex-1 items-center gap-3 px-3.5">
+      {/* overflow-hidden is load-bearing: every child here is shrink-0 +
+          nowrap, so at narrow widths the cluster's content would otherwise
+          paint straight across the border into the tab zone / right panel
+          (the "Start button bleeds into the right pane" bug). Clipping at
+          the cluster edge guarantees the bar's zones stay separate at any
+          window width; the md:-gated placeholders below keep the real
+          controls (Record, Start/End) inside the visible range. */}
+      <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden px-3.5">
       {/* Live indicator — NOT a control: lit while listening, dimmed idle. */}
       <div
         role="status"
@@ -110,7 +117,7 @@ export function LiveControlBar({
             disabled
             title="Pause — not wired up yet"
             aria-label="Pause (not yet available)"
-            className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] border border-border-strong px-3 text-[13px] font-bold text-fg-faint opacity-50"
+            className="hidden h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] border border-border-strong px-3 text-[13px] font-bold text-fg-faint opacity-50 md:flex"
           >
             <Icon name="pause" size={16} />
             <ResponsiveLabel full="Pause" short="" />
@@ -120,7 +127,7 @@ export function LiveControlBar({
             disabled
             title="Mute microphone — not wired up yet"
             aria-label="Mute microphone (not yet available)"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-border-strong text-inbound opacity-50"
+            className="hidden h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-border-strong text-inbound opacity-50 md:grid"
           >
             <Icon name="mic" size={16} />
           </button>
@@ -129,7 +136,7 @@ export function LiveControlBar({
             disabled
             title="Silence Ally — not wired up yet"
             aria-label="Silence Ally (not yet available)"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-border-strong text-ai opacity-50"
+            className="hidden h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-border-strong text-ai opacity-50 md:grid"
           >
             <Icon name="ally" size={16} />
           </button>
