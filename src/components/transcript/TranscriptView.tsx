@@ -10,6 +10,14 @@ import {
 import { LiveControlBar } from "@/components/studio/LiveControlBar";
 import { LiveTopBar } from "@/components/studio/LiveTopBar";
 import { TrackerRail } from "@/components/TrackerRail";
+import {
+  AnswerBody,
+  cardLabel,
+  ReasoningBlock,
+  splitReasoning,
+} from "@/components/transcript/allyRender";
+import { RightPanelShell } from "@/components/transcript/RightPanelShell";
+import { StarredBoard } from "@/components/transcript/StarredBoard";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import type { AllyKind, AudioLevelEvent, Capture, TranscriptSegment } from "@/lib/ipc";
@@ -22,6 +30,7 @@ import {
   isFanerBoundaryMatch,
   type FanerHit,
 } from "@/lib/faner";
+import { collectStarHits } from "@/lib/star";
 import { useAppStore } from "@/state/app";
 import { useAllyStore, type AllyCard } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
@@ -77,115 +86,6 @@ function Bars({ level, color }: { level: AudioLevelEvent | null; color: string }
 
 function researchPrompt(text: string): string {
   return `On a live call — give me what I need to respond in seconds to: "${text}". Lead with the key facts/answer as short bold-highlighted bullets; put any deeper background below a --- line.`;
-}
-
-/** Inline **bold** → <strong>; everything else passes through. Keeps Ally's
- *  call-ready answers scannable without a full markdown dependency. */
-function inlineMd(text: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  const re = /\*\*(.+?)\*\*/g;
-  let last = 0;
-  let k = 0;
-  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(
-      <strong key={`b${k++}`} className="font-semibold text-fg">
-        {m[1]}
-      </strong>,
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}
-
-/** Minimal markdown for Ally answers: bullet lists, ### headings, **bold**,
- *  paragraphs — enough for fast, scannable, call-ready output. */
-function AnswerBody({ text }: { text: string }) {
-  const blocks: ReactNode[] = [];
-  let bullets: string[] = [];
-  let key = 0;
-  const flushBullets = () => {
-    if (bullets.length === 0) return;
-    const items = bullets;
-    bullets = [];
-    blocks.push(
-      <ul key={`u${key++}`} className="ml-4 list-disc space-y-1">
-        {items.map((b, i) => (
-          <li key={i}>{inlineMd(b)}</li>
-        ))}
-      </ul>,
-    );
-  };
-  for (const raw of text.split("\n")) {
-    const line = raw.trimEnd();
-    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
-    const heading = line.match(/^#{1,4}\s+(.*)$/);
-    if (bullet) {
-      bullets.push(bullet[1] ?? "");
-      continue;
-    }
-    flushBullets();
-    if (heading) {
-      blocks.push(
-        <p key={`h${key++}`} className="font-bold text-fg">
-          {inlineMd(heading[1] ?? "")}
-        </p>,
-      );
-    } else if (line.trim() !== "") {
-      blocks.push(<p key={`p${key++}`}>{inlineMd(line)}</p>);
-    }
-  }
-  flushBullets();
-  return <div className="flex flex-col gap-1.5">{blocks}</div>;
-}
-
-/** Split an Ally answer into the at-a-glance part and the optional context that
- *  follows a `---` line (the prompt asks Ally to separate them this way). */
-function splitReasoning(text: string): { answer: string; context: string } {
-  const m = text.match(/\n[ \t]*-{3,}[ \t]*(?:\n|$)/);
-  if (!m || m.index === undefined) return { answer: text, context: "" };
-  return {
-    answer: text.slice(0, m.index).trim(),
-    context: text.slice(m.index + m[0].length).trim(),
-  };
-}
-
-/** Collapsible "reasoning" region — default collapsed; keeps deeper context out
- *  of the way during a call but one tap away. */
-function ReasoningBlock({ text }: { text: string }) {
-  const defaultOpen = useUiPrefs((s) => s.reasoningDefaultOpen);
-  const [open, setOpen] = useState(defaultOpen);
-  if (!text.trim()) return null;
-  return (
-    <div className="rounded-md border border-border/70 bg-bg/30">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-fg-faint transition-colors hover:text-fg-muted"
-      >
-        <Icon name="reasoning" size={13} />
-        Reasoning
-        <Icon
-          name="chevron"
-          size={12}
-          className={`ml-auto transition-transform ${open ? "" : "-rotate-90"}`}
-        />
-      </button>
-      {open && (
-        <div className="border-t border-border/70 px-2.5 py-2 text-[12px] text-fg-muted">
-          <AnswerBody text={text} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function cardLabel(card: AllyCard): string {
-  if (card.kind === "suggest_reply") return "Suggested reply";
-  if (card.kind === "summarize") return "Summary";
-  return card.sourceQuote ? "Research" : "Answer";
 }
 
 /** Term actions — icons only; the tooltip names the action (owner request).
@@ -360,14 +260,15 @@ function HighlightedText({
 }
 
 /** One FANER-marked term: persistently bold+underlined, color-coded by the
- *  capture's routed `action` (F11 handoff, 2026-08-20). Hovering reveals a
- *  popover with the capture's `preview` and the same three action icons
- *  `SelectionMenu` uses (Ask Ally / Copy / Send to Ask Ally) — consistent
- *  with the rest of the app's "act on this text" vocabulary rather than a
- *  one-off FANER-specific control set. Pure CSS group-hover (like the dev
- *  panel's tooltip): the popover is a normal, clickable descendant of the
- *  hover group, not a `pointer-events-none` tooltip, so its icons work. */
-function FanerMark({
+ *  capture's routed `action`. The preview + action row only ever show when
+ *  the user clicks the small trailing icon — never on hover — and render in
+ *  a `position: fixed` popover anchored to that icon's own bounding rect
+ *  (same mechanism `TermMenu` already uses), so it's positioned correctly
+ *  regardless of where the phrase sits inside the scrolling transcript,
+ *  rather than a CSS-hover popover clipped/misplaced by the scroll
+ *  container. Dismissed the same way every other floating menu in this file
+ *  is: outside click, Escape, scroll, or resize. */
+export function FanerMark({
   hit,
   onAsk,
   onSendToAsk,
@@ -377,46 +278,142 @@ function FanerMark({
   onSendToAsk: (text: string) => void;
 }) {
   const { phrase, capture } = hit;
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    const close = () => setPos(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [pos]);
+
+  const toggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (pos) {
+      setPos(null);
+      return;
+    }
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) setPos({ x: r.left, y: r.bottom });
+  };
+
   return (
-    <span className={`group relative inline-block ${fanerAccent(capture)}`}>
-      <span className="cursor-help underline decoration-2 underline-offset-2 font-semibold">
+    <span className={`relative inline-block ${fanerAccent(capture)}`}>
+      <span className="underline decoration-2 underline-offset-2 font-semibold">
         {phrase}
       </span>
-      <span className="invisible absolute left-0 top-full z-50 mt-1 w-64 max-w-[85vw] -translate-x-1/2 rounded-lg border border-border bg-panel-raised p-2 text-[12px] normal-case leading-snug text-fg opacity-0 shadow-[var(--shadow-lg)] transition-opacity duration-100 group-hover:visible group-hover:opacity-100">
-        <span className="mb-1 block font-mono text-[9px] uppercase tracking-wide text-fg-faint">
-          {fanerLabel(capture)}
-        </span>
-        <p className="mb-1.5 text-fg-muted">{capture.preview || "(no preview yet)"}</p>
-        <span className="flex items-center gap-0.5 border-t border-border pt-1">
-          <button
-            type="button"
-            title="Ask Ally about this"
-            aria-label={`Ask Ally about "${phrase}"`}
-            onClick={() => onAsk(capture, phrase)}
-            className="rounded p-1 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
-          >
-            <Icon name="lightbulb" size={14} />
-          </button>
-          <button
-            type="button"
-            title="Copy"
-            aria-label={`Copy "${phrase}"`}
-            onClick={() => void navigator.clipboard.writeText(phrase)}
-            className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
-          >
-            <Icon name="copy" size={14} />
-          </button>
-          <button
-            type="button"
-            title="Send to Ask Ally"
-            aria-label={`Send "${phrase}" to Ask Ally`}
-            onClick={() => onSendToAsk(phrase)}
-            className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
-          >
-            <Icon name="chevron" size={14} className="rotate-90" />
-          </button>
-        </span>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={toggle}
+        aria-expanded={pos !== null}
+        title={`Why this is marked — ${fanerLabel(capture)}`}
+        aria-label={`Show why "${phrase}" is marked`}
+        className="ml-0.5 inline-flex align-middle opacity-70 transition-opacity hover:opacity-100"
+      >
+        <Icon name="reasoning" size={12} />
+      </button>
+      {pos && (
+        <div
+          style={{
+            position: "fixed",
+            left: Math.max(8, Math.min(pos.x, window.innerWidth - 280)),
+            top: pos.y + 4,
+            zIndex: 60,
+          }}
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label={`${fanerLabel(capture)} — "${phrase}"`}
+          className="w-64 max-w-[85vw] rounded-lg border border-border bg-panel-raised p-2 text-[12px] normal-case leading-snug text-fg shadow-[var(--shadow-lg)]"
+        >
+          <span className="mb-1 block font-mono text-[9px] uppercase tracking-wide text-fg-faint">
+            {fanerLabel(capture)}
+          </span>
+          <p className="mb-1.5 text-fg-muted">{capture.preview || "(no preview yet)"}</p>
+          <span className="flex items-center gap-0.5 border-t border-border pt-1">
+            <button
+              type="button"
+              title="Ask Ally about this — stars it for your board"
+              aria-label={`Ask Ally about "${phrase}" and star it`}
+              onClick={() => {
+                onAsk(capture, phrase);
+                setPos(null);
+              }}
+              className="rounded p-1 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
+            >
+              <Icon name="star" size={14} />
+            </button>
+            <button
+              type="button"
+              title="Copy"
+              aria-label={`Copy "${phrase}"`}
+              onClick={() => {
+                void navigator.clipboard.writeText(phrase);
+                setPos(null);
+              }}
+              className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+            >
+              <Icon name="copy" size={14} />
+            </button>
+            <button
+              type="button"
+              title="Send to Ask Ally"
+              aria-label={`Send "${phrase}" to Ask Ally`}
+              onClick={() => {
+                onSendToAsk(phrase);
+                setPos(null);
+              }}
+              className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+            >
+              <Icon name="chevron" size={14} className="rotate-90" />
+            </button>
+          </span>
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** A starred quote's persistent "this is on your board" marker (F12 — Live
+ *  panel redesign). Uses the Ally accent, not one of FANER's per-action
+ *  colors — starring is a user-initiated mark and needs to read as
+ *  distinct from FANER's automatic routing (design doc §5). Unlike
+ *  `FanerMark` there's no hover popover: the phrase already has a card
+ *  (open it from the Starred board or a thread list for more); the only
+ *  control is the filled star suffix, which unstars on click. */
+function StarMark({
+  phrase,
+  cardId,
+  onToggleStar,
+}: {
+  phrase: string;
+  cardId: string;
+  onToggleStar: (cardId: string) => void;
+}) {
+  return (
+    <span className="text-ai">
+      <span className="underline decoration-2 underline-offset-2 font-semibold">
+        {phrase}
       </span>
+      <button
+        type="button"
+        onClick={() => onToggleStar(cardId)}
+        title="Starred — click to remove from your board"
+        aria-label={`Remove "${phrase}" from your board`}
+        className="ml-0.5 inline-flex -translate-y-px align-middle transition-opacity hover:opacity-70"
+      >
+        <Icon name="star" size={11} filled />
+      </button>
     </span>
   );
 }
@@ -436,6 +433,10 @@ function FanerAwareText({
   onAskTerm,
   onAskFaner,
   onSendToAsk,
+  turnKey,
+  allCards,
+  starred,
+  onToggleStar,
 }: {
   text: string;
   captures: Capture[];
@@ -443,9 +444,21 @@ function FanerAwareText({
   onAskTerm: (action: TermAction, term: string) => void;
   onAskFaner: (capture: Capture, phrase: string) => void;
   onSendToAsk: (text: string) => void;
+  /** This unit's turn key — starred quotes only mark within the turn they
+   *  were asked from (F12; see `collectStarHits`). */
+  turnKey: string;
+  allCards: AllyCard[];
+  starred: Set<string>;
+  onToggleStar: (cardId: string) => void;
 }) {
   const hits = useMemo(() => collectFanerHits(text, captures), [text, captures]);
-  if (hits.length === 0) return <HighlightedText text={text} terms={terms} onAsk={onAskTerm} />;
+  const starHits = useMemo(
+    () => collectStarHits(text, turnKey, allCards, starred),
+    [text, turnKey, allCards, starred],
+  );
+  if (hits.length === 0 && starHits.length === 0) {
+    return <HighlightedText text={text} terms={terms} onAsk={onAskTerm} />;
+  }
 
   const lower = text.toLowerCase();
   const nodes: ReactNode[] = [];
@@ -465,6 +478,25 @@ function FanerAwareText({
   };
   let i = 0;
   outer: while (i < text.length) {
+    // Starred quotes take priority over a FANER mark at the same position —
+    // starring is the stronger, user-initiated signal (design doc §5).
+    for (const h of starHits) {
+      const p = h.phrase.toLowerCase();
+      if (p && lower.startsWith(p, i) && isFanerBoundaryMatch(lower, i, p.length)) {
+        flushPlain(i);
+        nodes.push(
+          <StarMark
+            key={`s${key++}`}
+            phrase={h.phrase}
+            cardId={h.card.id}
+            onToggleStar={onToggleStar}
+          />,
+        );
+        i += h.phrase.length;
+        plainStart = i;
+        continue outer;
+      }
+    }
     for (const h of hits) {
       const p = h.phrase.toLowerCase();
       // `collectFanerHits` only proves the phrase appears *somewhere* at a
@@ -542,15 +574,15 @@ function SelectionMenu({
     >
       <button
         type="button"
-        title="Ask Ally about this"
-        aria-label="Ask Ally about the selection"
+        title="Ask Ally about this — stars it for your board"
+        aria-label="Ask Ally about the selection and star it"
         onClick={() => {
           onAsk(text);
           onClose();
         }}
         className="rounded p-1.5 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
       >
-        <Icon name="lightbulb" size={15} />
+        <Icon name="star" size={15} />
       </button>
       <button
         type="button"
@@ -636,6 +668,10 @@ function FlowText({
   onAskTerm,
   onAskFaner,
   onSendToAsk,
+  turnKey,
+  allCards,
+  starred,
+  onToggleStar,
 }: {
   units: string[];
   terms: string[];
@@ -646,6 +682,11 @@ function FlowText({
   onAskTerm: (action: TermAction, term: string) => void;
   onAskFaner: (capture: Capture, phrase: string) => void;
   onSendToAsk: (text: string) => void;
+  /** F12 — threaded straight through to `FanerAwareText`'s star-matching. */
+  turnKey: string;
+  allCards: AllyCard[];
+  starred: Set<string>;
+  onToggleStar: (cardId: string) => void;
 }) {
   return (
     <span className="leading-snug">
@@ -666,6 +707,10 @@ function FlowText({
             onAskTerm={onAskTerm}
             onAskFaner={onAskFaner}
             onSendToAsk={onSendToAsk}
+            turnKey={turnKey}
+            allCards={allCards}
+            starred={starred}
+            onToggleStar={onToggleStar}
           />
           <button
             type="button"
@@ -673,11 +718,11 @@ function FlowText({
               e.stopPropagation();
               onAskText(unit);
             }}
-            title="Ask Ally about this"
-            aria-label="Ask Ally about this sentence"
+            title="Ask Ally about this sentence — stars it for your board"
+            aria-label="Ask Ally about this sentence and star it"
             className="ml-0.5 inline-flex align-middle text-ai/70 opacity-0 transition-opacity hover:text-ai group-hover/u:opacity-100"
           >
-            <Icon name="lightbulb" size={12} />
+            <Icon name="star" size={12} />
           </button>
         </span>
       ))}
@@ -713,6 +758,9 @@ function Bubble({
   searchHighlight,
   captures,
   onAskFaner,
+  allCards,
+  starred,
+  onToggleStar,
 }: {
   segments: TranscriptSegment[];
   turnKey: string;
@@ -746,6 +794,11 @@ function Bubble({
    *  would silently drop real captures without a corresponding upside. */
   captures: Capture[];
   onAskFaner: (capture: Capture, phrase: string) => void;
+  /** F12 — every Ally card (so `FanerAwareText` can find this turn's
+   *  starred ones) + the starred-id set + the unstar toggle. */
+  allCards: AllyCard[];
+  starred: Set<string>;
+  onToggleStar: (cardId: string) => void;
 }) {
   const backend = useBackend();
   const inbound = segments[0]?.side === "inbound";
@@ -939,6 +992,10 @@ function Bubble({
                 onAskTerm={onAskTerm}
                 onAskFaner={onAskFaner}
                 onSendToAsk={onSendToAsk}
+                turnKey={turnKey}
+                allCards={allCards}
+                starred={starred}
+                onToggleStar={onToggleStar}
               />
             )}
             {partialTail && (
@@ -1497,7 +1554,7 @@ function AllyMetaPanel({
     kind: AllyKind,
     question?: string,
     source?: { key: string; quote: string },
-  ) => Promise<void>;
+  ) => Promise<string>;
   allyFontPx: number;
   bumpAllyFont: (d: number) => void;
   reasoningDefaultOpen: boolean;
@@ -1858,6 +1915,17 @@ export function TranscriptView() {
   const busy = useAllyStore((s) => s.busy);
   const request = useAllyStore((s) => s.request);
   const clearAlly = useAllyStore((s) => s.clear);
+  // Starred quotes + the right panel's collapse/mode state (F12) — read
+  // here so both the Bubble/FlowText star-marking chain and the
+  // RightPanelShell mount (Task 11) share the same store values.
+  const starred = useAllyStore((s) => s.starred);
+  const star = useAllyStore((s) => s.star);
+  const unstar = useAllyStore((s) => s.unstar);
+  const toggleStar = useAllyStore((s) => s.toggleStar);
+  const panelMode = useAllyStore((s) => s.panelMode);
+  const setPanelMode = useAllyStore((s) => s.setPanelMode);
+  const panelCollapsed = useAllyStore((s) => s.panelCollapsed);
+  const setPanelCollapsed = useAllyStore((s) => s.setPanelCollapsed);
   // FANER's routed captures for this session (F11) — matched against each
   // bubble's text by `FanerAwareText`/`FlowText`.
   const captures = useAllyStore((s) => s.capture?.captures ?? EMPTY_CAPTURES);
@@ -1965,6 +2033,20 @@ export function TranscriptView() {
       return next;
     });
   }, [turns, collapseYou]);
+
+  // Entering a live call resets the right panel to its speed-to-info
+  // default: fully collapsed, Starred as the default mode (design doc §7).
+  // Only the transition INTO "listening" resets it — ending the call, or
+  // any other state change, leaves whatever the user chose alone.
+  const wasListening = useRef(false);
+  useEffect(() => {
+    const listening = sessionEvent.state === "listening";
+    if (listening && !wasListening.current) {
+      setPanelCollapsed(true);
+      setPanelMode("starred");
+    }
+    wasListening.current = listening;
+  }, [sessionEvent.state, setPanelCollapsed, setPanelMode]);
 
   // The header toggle applies immediately to every "you" turn on screen.
   const toggleCollapseYou = () => {
@@ -2132,19 +2214,31 @@ export function TranscriptView() {
     [request],
   );
 
-  // Ask Ally about an arbitrary slice (a sentence unit or a text selection).
+  // Ask Ally about an arbitrary slice (a sentence unit or a text selection)
+  // — and star the resulting card (F12): every quote-tied ask stars by
+  // definition (design doc §6.1), so there's no separate "star after
+  // asking" step. `key`, when given, is the originating turn's key — it's
+  // what lets `collectStarHits` find this quote again on re-render.
   const askText = useCallback(
-    (text: string) =>
-      void request("question", researchPrompt(text), { key: "", quote: text }),
-    [request],
+    (text: string, key?: string) => {
+      void request("question", researchPrompt(text), { key: key ?? "", quote: text }).then(
+        (id) => id && star(id),
+      );
+    },
+    [request, star],
   );
   // Ask Ally about a FANER-marked span (F11) — phrased by the capture's
   // routed action (`fanerPrompt`) rather than the generic `researchPrompt`
-  // wrapper, since FANER's prompt is already a complete question.
+  // wrapper, since FANER's prompt is already a complete question. Stars the
+  // resulting card for the same reason `askText` above does (F12).
   const askFaner = useCallback(
-    (capture: Capture, phrase: string) =>
-      void request("question", fanerPrompt(capture, phrase), { key: "", quote: phrase }),
-    [request],
+    (capture: Capture, phrase: string, key?: string) => {
+      void request("question", fanerPrompt(capture, phrase), {
+        key: key ?? "",
+        quote: phrase,
+      }).then((id) => id && star(id));
+    },
+    [request, star],
   );
   // Drop a selection into the Ask-Ally box so the user can build a question.
   const sendToAsk = useCallback((text: string) => setAsk(text), []);
@@ -2374,7 +2468,7 @@ export function TranscriptView() {
                     collapsed={collapsed.has(key)}
                     onToggleCollapse={() => toggleCollapse(key)}
                     onResearch={() => research(repSeg)}
-                    onAskText={askText}
+                    onAskText={(text) => askText(text, key)}
                     onSendToAsk={sendToAsk}
                     onAskTerm={askTerm}
                     onContextMenu={(e) => bubbleMenu(e, repSeg)}
@@ -2385,7 +2479,10 @@ export function TranscriptView() {
                     sessionStartMs={sessionStartMs}
                     searchHighlight={searchHighlight}
                     captures={captures}
-                    onAskFaner={askFaner}
+                    onAskFaner={(capture, phrase) => askFaner(capture, phrase, key)}
+                    allCards={cards}
+                    starred={starred}
+                    onToggleStar={toggleStar}
                   />
                 );
               })
@@ -2440,7 +2537,7 @@ export function TranscriptView() {
         <div
           className={
             drawer
-              ? `absolute right-0 top-0 z-30 h-full w-[min(320px,88%)] shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
+              ? `absolute right-0 top-0 z-30 h-full w-[min(348px,90%)] shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
               // Not a flex item of `main` in the drawer case (it's absolutely
               // positioned), but inline it IS one — without an explicit
               // height it shrink-wraps to content instead of filling the
@@ -2449,20 +2546,41 @@ export function TranscriptView() {
               : "flex h-full"
           }
         >
-          <AllyMetaPanel
-            cards={cards}
-            pinned={pinned}
-            togglePin={togglePin}
-            onOpenViewer={openThread}
-            busy={busy}
-            request={request}
-            allyFontPx={allyFontPx}
-            bumpAllyFont={bumpAllyFont}
-            reasoningDefaultOpen={reasoningDefaultOpen}
-            setReasoningDefaultOpen={setReasoningDefaultOpen}
-            clearAlly={clearAlly}
-            barPad={barPad}
-          />
+          <RightPanelShell
+            // In the narrow overlay-drawer case, the "✦ Ally N" chip +
+            // drawerOpen already IS the collapse mechanism (design doc §8)
+            // — force the shell open so there's no double-collapse.
+            collapsed={drawer ? false : panelCollapsed}
+            onToggleCollapsed={() => setPanelCollapsed(!panelCollapsed)}
+            mode={panelMode}
+            onSetMode={setPanelMode}
+            starredCount={starred.size}
+          >
+            {panelMode === "starred" ? (
+              <StarredBoard
+                cards={cards}
+                starredIds={starred}
+                onUnstar={unstar}
+                onOpenViewer={openThread}
+                barPad={barPad}
+              />
+            ) : (
+              <AllyMetaPanel
+                cards={cards}
+                pinned={pinned}
+                togglePin={togglePin}
+                onOpenViewer={openThread}
+                busy={busy}
+                request={request}
+                allyFontPx={allyFontPx}
+                bumpAllyFont={bumpAllyFont}
+                reasoningDefaultOpen={reasoningDefaultOpen}
+                setReasoningDefaultOpen={setReasoningDefaultOpen}
+                clearAlly={clearAlly}
+                barPad={barPad}
+              />
+            )}
+          </RightPanelShell>
         </div>
 
         {/* Commitments & entities (FANER Engine — §6.3) — a persistent side

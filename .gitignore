@@ -31,3 +31,6 @@ Thumbs.db
 
 # Tauri generated artifacts
 src-tauri/gen/
+
+# Brainstorming/design-companion scratch (not part of the shipped app)
+.superpowers/
