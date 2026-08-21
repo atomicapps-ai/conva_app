@@ -16,6 +16,8 @@ import {
   ReasoningBlock,
   splitReasoning,
 } from "@/components/transcript/allyRender";
+import { RightPanelShell } from "@/components/transcript/RightPanelShell";
+import { StarredBoard } from "@/components/transcript/StarredBoard";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import type { AllyKind, AudioLevelEvent, Capture, TranscriptSegment } from "@/lib/ipc";
@@ -1969,6 +1971,20 @@ export function TranscriptView() {
     });
   }, [turns, collapseYou]);
 
+  // Entering a live call resets the right panel to its speed-to-info
+  // default: fully collapsed, Starred as the default mode (design doc §7).
+  // Only the transition INTO "listening" resets it — ending the call, or
+  // any other state change, leaves whatever the user chose alone.
+  const wasListening = useRef(false);
+  useEffect(() => {
+    const listening = sessionEvent.state === "listening";
+    if (listening && !wasListening.current) {
+      setPanelCollapsed(true);
+      setPanelMode("starred");
+    }
+    wasListening.current = listening;
+  }, [sessionEvent.state, setPanelCollapsed, setPanelMode]);
+
   // The header toggle applies immediately to every "you" turn on screen.
   const toggleCollapseYou = () => {
     const next = !collapseYou;
@@ -2458,7 +2474,7 @@ export function TranscriptView() {
         <div
           className={
             drawer
-              ? `absolute right-0 top-0 z-30 h-full w-[min(320px,88%)] shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
+              ? `absolute right-0 top-0 z-30 h-full w-[min(348px,90%)] shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
               // Not a flex item of `main` in the drawer case (it's absolutely
               // positioned), but inline it IS one — without an explicit
               // height it shrink-wraps to content instead of filling the
@@ -2467,20 +2483,41 @@ export function TranscriptView() {
               : "flex h-full"
           }
         >
-          <AllyMetaPanel
-            cards={cards}
-            pinned={pinned}
-            togglePin={togglePin}
-            onOpenViewer={openThread}
-            busy={busy}
-            request={request}
-            allyFontPx={allyFontPx}
-            bumpAllyFont={bumpAllyFont}
-            reasoningDefaultOpen={reasoningDefaultOpen}
-            setReasoningDefaultOpen={setReasoningDefaultOpen}
-            clearAlly={clearAlly}
-            barPad={barPad}
-          />
+          <RightPanelShell
+            // In the narrow overlay-drawer case, the "✦ Ally N" chip +
+            // drawerOpen already IS the collapse mechanism (design doc §8)
+            // — force the shell open so there's no double-collapse.
+            collapsed={drawer ? false : panelCollapsed}
+            onToggleCollapsed={() => setPanelCollapsed(!panelCollapsed)}
+            mode={panelMode}
+            onSetMode={setPanelMode}
+            starredCount={starred.size}
+          >
+            {panelMode === "starred" ? (
+              <StarredBoard
+                cards={cards}
+                starredIds={starred}
+                onUnstar={unstar}
+                onOpenViewer={openThread}
+                barPad={barPad}
+              />
+            ) : (
+              <AllyMetaPanel
+                cards={cards}
+                pinned={pinned}
+                togglePin={togglePin}
+                onOpenViewer={openThread}
+                busy={busy}
+                request={request}
+                allyFontPx={allyFontPx}
+                bumpAllyFont={bumpAllyFont}
+                reasoningDefaultOpen={reasoningDefaultOpen}
+                setReasoningDefaultOpen={setReasoningDefaultOpen}
+                clearAlly={clearAlly}
+                barPad={barPad}
+              />
+            )}
+          </RightPanelShell>
         </div>
 
         {/* Commitments & entities (FANER Engine — §6.3) — a persistent side
