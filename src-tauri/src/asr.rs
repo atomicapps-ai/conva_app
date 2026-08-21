@@ -174,7 +174,7 @@ fn decode_loop(
         Ok(s) => s,
         Err(_) => return,
     };
-    let mut segmenter = build_segmenter(&vad);
+    let mut segmenter = build_segmenter(&vad, side);
     let mut events: Vec<SegmentEvent> = Vec::new();
     // Stream-position bookkeeping for start_ms/end_ms (16 kHz samples).
     let mut consumed_samples: u64 = 0;
@@ -299,8 +299,8 @@ fn decode_window(samples: &[f32], is_final: bool) -> &[f32] {
 /// Build the utterance segmenter with the neural gate when a Silero model is
 /// configured and loads; otherwise the built-in energy gate. Best-effort —
 /// a load failure quietly falls back so a session always starts.
-fn build_segmenter(vad: &VadSetup) -> UtteranceSegmenter {
-    let config = low_latency_config();
+fn build_segmenter(vad: &VadSetup, side: StreamSide) -> UtteranceSegmenter {
+    let config = low_latency_config(side);
     if let Some(path) = &vad.silero_model {
         match crate::vad_silero::SileroGate::load(path, vad.threshold) {
             Ok(gate) => {
@@ -318,12 +318,35 @@ fn build_segmenter(vad: &VadSetup) -> UtteranceSegmenter {
 
 /// Latency-tuned segmentation: partials ~2×/s, a line locks in ~400 ms after
 /// you stop, and long run-ons finalize by 10 s (vs. the accuracy-first
-/// defaults). Speeds up both conversation sides equally.
-fn low_latency_config() -> SegmenterConfig {
+/// defaults). Shared by both conversation sides, except `min_speech_ms` (see
+/// below).
+///
+/// `Outbound` (mic) requires more sustained speech than `Inbound` (WASAPI
+/// loopback) before it opens an utterance at all. The two sides are fully
+/// independent pipelines with no cross-channel awareness — when the "them"
+/// audio is played through the same machine's speakers (e.g. TTS during
+/// testing, or just a loud call partner) with no headset, the mic can pick
+/// up acoustic bleed-through. That bleed is usually brief and muffled
+/// compared to on-mic speech, so raising the mic's minimum-speech floor
+/// filters out more of it before it ever reaches whisper — where a marginal,
+/// muffled clip is exactly the kind of input whisper is prone to
+/// hallucinating a plausible-sounding filler phrase from. This doesn't
+/// eliminate bleed-through (a long or loud enough echo still clears it), and
+/// it makes genuinely short mic replies ("yeah", "okay") take a little
+/// longer to register — a headset remains the real fix for testing with
+/// speaker-based "them" audio. `Inbound` keeps the default: loopback capture
+/// doesn't have this exposure, so there's no reason to make it less
+/// responsive.
+fn low_latency_config(side: StreamSide) -> SegmenterConfig {
     SegmenterConfig {
         partial_interval_ms: 500,
         silence_close_ms: 400,
         max_utterance_ms: 10_000,
+        min_speech_ms: if side == StreamSide::Outbound {
+            400
+        } else {
+            200
+        },
         ..SegmenterConfig::default()
     }
 }
@@ -415,10 +438,27 @@ mod tests {
 
     #[test]
     fn low_latency_config_is_snappier_than_default() {
-        let fast = low_latency_config();
+        let fast = low_latency_config(StreamSide::Inbound);
         let base = SegmenterConfig::default();
         assert!(fast.partial_interval_ms < base.partial_interval_ms);
         assert!(fast.silence_close_ms < base.silence_close_ms);
         assert!(fast.max_utterance_ms <= base.max_utterance_ms);
+    }
+
+    #[test]
+    fn outbound_requires_more_sustained_speech_than_inbound() {
+        // The mic (Outbound) is the channel exposed to same-machine acoustic
+        // bleed-through when "them" plays over speakers with no headset —
+        // it should need more sustained speech than loopback (Inbound)
+        // before it opens an utterance at all, so brief/muffled bleed is
+        // less likely to reach whisper and get mistranscribed (or
+        // hallucinated into a plausible-sounding filler).
+        let mic = low_latency_config(StreamSide::Outbound);
+        let loopback = low_latency_config(StreamSide::Inbound);
+        assert!(mic.min_speech_ms > loopback.min_speech_ms);
+        assert_eq!(
+            loopback.min_speech_ms,
+            SegmenterConfig::default().min_speech_ms
+        );
     }
 }
