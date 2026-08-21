@@ -30,7 +30,14 @@ import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
 import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
 import { groupTurns, segmentKey } from "@/lib/turns";
-import { buildDocTerms, captureTermLabel } from "@/components/transcript/terms";
+import {
+  buildDocTerms,
+  buildTermChips,
+  captureTermLabel,
+  chipKindTag,
+  type TermChip,
+} from "@/components/transcript/terms";
+import { useCapabilities } from "@/lib/backend/context";
 
 // Stable reference so a Zustand selector reading `capture?.captures` never
 // hands React a "new" empty array on every render before the first
@@ -1455,7 +1462,7 @@ function ThreadRow({
       : "bg-ai animate-pulse";
   const tag = card.error ? "ERROR" : card.done ? "DONE" : "OPEN";
   return (
-    <div className="group flex items-center gap-2 py-1.5 text-[12.5px]">
+    <div className="group flex items-center gap-2 py-1.5 text-[0.9em]">
       <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} aria-hidden />
       <button
         type="button"
@@ -1525,7 +1532,7 @@ function AllyPanel({
   tab,
   captures,
   onAskCapture,
-  onAskDocTerm,
+  onAskTerm,
 }: {
   cards: AllyCard[];
   pinned: Set<string>;
@@ -1551,7 +1558,7 @@ function AllyPanel({
   tab: AllyPanelTab;
   captures: Capture[];
   onAskCapture: (capture: Capture) => void;
-  onAskDocTerm: (term: string) => void;
+  onAskTerm: (action: "definition" | "elaborate", term: string) => void;
 }) {
   const backend = useBackend();
   const activeId = useGroundingStore((s) => s.activeId);
@@ -1585,6 +1592,101 @@ function AllyPanel({
       alive = false;
     };
   }, [activeId, backend]);
+
+  // Terms tab: words-only chips, info on click (owner, 2026-08-21 —
+  // "Live Cockpit Tabs" canvas V3). Selection is panel-local UI state.
+  const caps = useCapabilities();
+  const chips = useMemo(
+    () => buildTermChips(captures, docTerms),
+    [captures, docTerms],
+  );
+  const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
+  const selectedDetected =
+    chips.detected.find((c) => c.id === selectedChipId) ?? null;
+  const selectedDoc = chips.docs.find((c) => c.id === selectedChipId) ?? null;
+
+  const termChipButton = (chip: TermChip) => (
+    <button
+      key={chip.id}
+      type="button"
+      aria-pressed={selectedChipId === chip.id}
+      onClick={() =>
+        setSelectedChipId((cur) => (cur === chip.id ? null : chip.id))
+      }
+      className={[
+        "flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-[3px] text-[0.86em] font-semibold transition",
+        selectedChipId === chip.id
+          ? "border-ai bg-ai/[0.12] text-fg"
+          : "border-border bg-panel text-fg-muted hover:text-fg",
+      ].join(" ")}
+    >
+      <span
+        className={`h-[5px] w-[5px] shrink-0 rounded-full ${chip.source === "capture" ? "bg-primary" : "bg-ai"}`}
+        aria-hidden
+      />
+      <span className="min-w-0 truncate">{chip.label}</span>
+    </button>
+  );
+
+  /** The clicked chip's info card: preview + the per-phrase actions. */
+  const termInfoCard = (chip: TermChip) => (
+    <div className="rounded-[var(--radius)] border border-ai/40 bg-ai/[0.06] p-2.5">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-[0.86em] font-bold text-fg">
+          {chip.label}
+        </span>
+        <span className="shrink-0 font-mono text-[9px] uppercase text-fg-faint">
+          {chipKindTag(chip)}
+        </span>
+        <span className="flex shrink-0 gap-1">
+          <button
+            type="button"
+            title="Fetch info — Ally researches this"
+            aria-label={`Fetch info on "${chip.label}"`}
+            onClick={() =>
+              chip.capture
+                ? onAskCapture(chip.capture)
+                : onAskTerm("elaborate", chip.label)
+            }
+            className="grid h-[22px] w-[22px] place-items-center rounded-[5px] border border-ai/45 bg-ai/10 text-ai transition hover:brightness-110"
+          >
+            <Icon name="search" size={12} />
+          </button>
+          <button
+            type="button"
+            title="Define"
+            aria-label={`Define "${chip.label}"`}
+            onClick={() => onAskTerm("definition", chip.label)}
+            className="grid h-[22px] w-[22px] place-items-center rounded-[5px] border border-ai/45 bg-ai/10 text-ai transition hover:brightness-110"
+          >
+            <Icon name="book" size={12} />
+          </button>
+          {caps?.system.partnerWindow && (
+            <button
+              type="button"
+              title="Open in partner window"
+              aria-label={`Open "${chip.label}" in the partner window`}
+              onClick={() =>
+                void backend.partner.open(
+                  chip.label,
+                  chipKindTag(chip),
+                  chip.capture?.preview ?? null,
+                )
+              }
+              className="grid h-[22px] w-[22px] place-items-center rounded-[5px] border border-primary/50 bg-primary/[0.12] text-primary transition hover:brightness-110"
+            >
+              <Icon name="expand" size={12} />
+            </button>
+          )}
+        </span>
+      </div>
+      {chip.capture?.preview && (
+        <p className="mt-1.5 text-[0.82em] leading-relaxed text-fg-muted">
+          {chip.capture.preview}
+        </p>
+      )}
+    </div>
+  );
 
   // Most recent manual summary, if any — not a continuously-updating live
   // summary (that would need a background summarizer this app doesn't have
@@ -1686,9 +1788,14 @@ function AllyPanel({
         )}
       </div>
 
+      {/* The A−/A+ pref scales ALL panel content (owner, 2026-08-21): the
+          base font-size lands here and the section/chip text below is sized
+          in em so smaller font genuinely shows more. Mono eyebrows stay
+          fixed-px — they're labels, not content. */}
       <div
         ref={scrollRef}
         onScroll={onBodyScroll}
+        style={{ fontSize: `${allyFontPx}px` }}
         className="flex flex-1 flex-col gap-3.5 overflow-y-auto p-3.5"
       >
         {tab === "details" && (
@@ -1700,12 +1807,12 @@ function AllyPanel({
               latestSummary.error ? (
                 <p className="text-[12px] text-rec">{latestSummary.error}</p>
               ) : (
-                <p className="text-[12.5px] leading-relaxed text-fg-muted">
+                <p className="text-[0.9em] leading-relaxed text-fg-muted">
                   {latestSummary.text || "…"}
                 </p>
               )
             ) : (
-              <p className="text-[12.5px] leading-relaxed text-fg-faint">
+              <p className="text-[0.9em] leading-relaxed text-fg-faint">
                 No summary yet — ask Ally to summarize.
               </p>
             )}
@@ -1726,7 +1833,7 @@ function AllyPanel({
               Open threads
             </h4>
             {cards.length === 0 ? (
-              <p className="text-[12px] text-fg-faint">
+              <p className="text-[0.86em] text-fg-faint">
                 Ally's answers land here as you go — tap the lightbulb on any
                 message, or use Ask Ally below.
               </p>
@@ -1770,13 +1877,13 @@ function AllyPanel({
               Grounding
             </h4>
             {groundingDocs.length === 0 ? (
-              <p className="text-[12px] text-fg-faint">
+              <p className="text-[0.86em] text-fg-faint">
                 {activeTitle ?? "No context grounded yet."}
               </p>
             ) : (
               <div className="flex flex-col gap-1.5">
                 {groundingDocs.map((name) => (
-                  <div key={name} className="flex items-center gap-2 text-[12px] text-fg-muted">
+                  <div key={name} className="flex items-center gap-2 text-[0.86em] text-fg-muted">
                     <Icon name="file" size={13} className="shrink-0 text-fg-faint" />
                     <span className="min-w-0 flex-1 truncate">{name}</span>
                   </div>
@@ -1808,74 +1915,33 @@ function AllyPanel({
             <h4 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
               Detected in conversation
             </h4>
-            {captures.length === 0 ? (
-              <p className="px-1 text-[12px] text-fg-faint">
+            {chips.detected.length === 0 ? (
+              <p className="px-1 text-[0.86em] text-fg-faint">
                 Terms Ally catches live — questions, tasks, concepts — appear
                 here as the conversation runs.
               </p>
             ) : (
-              captures.map((c, i) => {
-                const label = captureTermLabel(c);
-                return (
-                  <div
-                    key={`${label}-${i}`}
-                    className="rounded-[var(--radius)] border border-border bg-panel p-3"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-ai" />
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-fg">
-                        {label}
-                      </span>
-                      <span className="font-mono text-[10px] uppercase text-fg-faint">
-                        {c.action.toLowerCase()}
-                      </span>
-                    </div>
-                    {c.preview && (
-                      <p className="mt-1.5 text-[12px] leading-relaxed text-fg-muted">
-                        {c.preview}
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => onAskCapture(c)}
-                      className="mt-2 text-[11px] font-semibold text-ai transition hover:underline"
-                    >
-                      ✦ Ask Ally
-                    </button>
-                  </div>
-                );
-              })
+              <div className="flex flex-wrap gap-1.5">
+                {chips.detected.map(termChipButton)}
+              </div>
             )}
+            {selectedDetected && termInfoCard(selectedDetected)}
 
             <h4 className="mt-1 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
               From your documents
             </h4>
-            {docTerms.length === 0 ? (
-              <p className="px-1 text-[12px] text-fg-faint">
+            {chips.docs.length === 0 ? (
+              <p className="px-1 text-[0.86em] text-fg-faint">
                 {activeTitle
                   ? "No key terms in this context yet — add them in the context's setup."
                   : "Ground a context to bring in its key terms and glossary."}
               </p>
             ) : (
-              docTerms.map((term) => (
-                <div
-                  key={term}
-                  className="flex items-center gap-2 rounded-[var(--radius)] border border-border bg-panel px-3 py-2"
-                >
-                  <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-ai" />
-                  <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-fg">
-                    {term}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onAskDocTerm(term)}
-                    className="shrink-0 text-[11px] font-semibold text-ai transition hover:underline"
-                  >
-                    ✦ Define
-                  </button>
-                </div>
-              ))
+              <div className="flex flex-wrap gap-1.5">
+                {chips.docs.map(termChipButton)}
+              </div>
             )}
+            {selectedDoc && termInfoCard(selectedDoc)}
           </>
         )}
       </div>
@@ -2588,9 +2654,9 @@ export function TranscriptView() {
               setPanelTab("details");
               askFaner(c, captureTermLabel(c));
             }}
-            onAskDocTerm={(term) => {
+            onAskTerm={(action, term) => {
               setPanelTab("details");
-              askTerm("definition", term);
+              askTerm(action, term);
             }}
             renderAnswers={() =>
               orderedCards.length === 0 ? (

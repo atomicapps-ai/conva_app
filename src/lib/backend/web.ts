@@ -223,4 +223,11 @@ export class WebBackend implements ConvaBackend {
     toggle: (): Promise<boolean> => unsupported("hud.toggle"),
     isOpen: () => Promise.resolve(false),
   };
+
+  partner = {
+    open: (): Promise<void> => unsupported("partner.open"),
+    close: (): Promise<void> => unsupported("partner.close"),
+    redock: (): Promise<void> => unsupported("partner.redock"),
+    payload: () => Promise.resolve(null),
+  };
 }

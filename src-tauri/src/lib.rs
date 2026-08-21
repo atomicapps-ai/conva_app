@@ -16,6 +16,7 @@ mod hud;
 mod llm;
 mod metering;
 mod models;
+mod partner;
 mod rag;
 mod recorder;
 mod rehearsal;
@@ -1186,6 +1187,47 @@ fn hud_is_open(app: AppHandle) -> bool {
     hud::is_open(&app)
 }
 
+// --- Partner window (src/partner.rs) -----------------------------------------
+// Synchronous for the same reason as the HUD commands: window creation and
+// positioning must happen on the main thread.
+
+/// Open (or re-target) the partner window on a term. Docked to the main
+/// window's right edge on first open.
+#[tauri::command]
+fn open_partner(
+    app: AppHandle,
+    term: String,
+    kind: Option<String>,
+    preview: Option<String>,
+) -> Result<(), String> {
+    partner::open(
+        &app,
+        conva_core::ipc::PartnerPayload {
+            term,
+            kind,
+            preview,
+        },
+    )
+}
+
+/// Close and destroy the partner window.
+#[tauri::command]
+fn close_partner(app: AppHandle) -> Result<(), String> {
+    partner::close(&app)
+}
+
+/// Snap the partner window back flush to the main window's right edge.
+#[tauri::command]
+fn redock_partner(app: AppHandle) -> Result<(), String> {
+    partner::redock(&app)
+}
+
+/// The payload the partner view should render (read on partner-window boot).
+#[tauri::command]
+fn get_partner_payload() -> Option<conva_core::ipc::PartnerPayload> {
+    partner::payload()
+}
+
 /// Build the retrieval query for an Ally answer: the explicit question, or the
 /// text of the last few finalized turns (what's being discussed right now).
 fn retrieval_query(question: Option<&str>, segments: &[TranscriptSegment]) -> String {
@@ -1627,6 +1669,10 @@ pub fn run() {
             close_hud,
             toggle_hud,
             hud_is_open,
+            open_partner,
+            close_partner,
+            redock_partner,
+            get_partner_payload,
         ])
         .run(tauri::generate_context!())
         .expect("error while running conva");

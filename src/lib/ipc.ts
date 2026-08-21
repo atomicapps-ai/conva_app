@@ -19,6 +19,7 @@ export const EVENTS = {
   tracker: "conva://tracker",
   capture: "conva://capture",
   authChanged: "conva://auth-changed",
+  partnerTerm: "conva://partner-term",
 } as const;
 
 export interface TranscriptSegment {
@@ -196,6 +197,17 @@ export interface Capture {
 /** The full deduped list of routed captures, re-emitted after each pass. */
 export interface CaptureEvent {
   captures: Capture[];
+}
+
+/** What the partner window shows (mirror of `ipc.rs::PartnerPayload`) — the
+ *  term it was opened for, plus the FANER classification + preview when it
+ *  came from a capture. Read via `get_partner_payload` on window boot;
+ *  re-sent over `conva://partner-term` when a new term targets an open
+ *  window. */
+export interface PartnerPayload {
+  term: string;
+  kind: string | null;
+  preview: string | null;
 }
 
 export interface SessionSummary {

@@ -29,6 +29,7 @@ import type {
   SimConSummary,
   IngestReport,
   ModelInfo,
+  PartnerPayload,
   ProviderId,
   ProviderInfo,
   ProviderKeyStatus,
@@ -244,5 +245,15 @@ export interface ConvaBackend {
     /** Resolves to the new state (true = open). */
     toggle(): Promise<boolean>;
     isOpen(): Promise<boolean>;
+  };
+
+  /** Partner window (`src-tauri/src/partner.rs`) — a large reading surface
+   *  for one term/answer, docked to the app's right edge by default.
+   *  Desktop-only (Layer 4); gate on `capabilities().system.partnerWindow`. */
+  partner: {
+    open(term: string, kind: string | null, preview: string | null): Promise<void>;
+    close(): Promise<void>;
+    redock(): Promise<void>;
+    payload(): Promise<PartnerPayload | null>;
   };
 }
