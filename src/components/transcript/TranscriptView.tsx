@@ -654,11 +654,6 @@ function FlowText({
           key={i}
           className="group/u rounded-[3px] px-0.5 transition-colors hover:bg-ai/10"
         >
-          {i > 0 && (
-            <span className="mx-1 font-bold text-ai/70 select-none" aria-hidden>
-              |
-            </span>
-          )}
           <FanerAwareText
             text={unit}
             captures={captures}
