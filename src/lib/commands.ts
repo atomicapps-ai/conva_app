@@ -18,6 +18,7 @@ import type {
   SimConSummary,
   IngestReport,
   ModelInfo,
+  PartnerPayload,
   ProviderId,
   ProviderInfo,
   ProviderKeyStatus,
@@ -458,4 +459,30 @@ export function toggleHud(): Promise<boolean> {
 /** Whether the floating HUD panel is currently open. */
 export function hudIsOpen(): Promise<boolean> {
   return invoke<boolean>("hud_is_open");
+}
+
+// --- Partner window (src-tauri/src/partner.rs) -------------------------------
+
+/** Open (or re-target) the partner window on a term. */
+export function openPartner(
+  term: string,
+  kind: string | null,
+  preview: string | null,
+): Promise<void> {
+  return invoke("open_partner", { term, kind, preview });
+}
+
+/** Close and destroy the partner window. */
+export function closePartner(): Promise<void> {
+  return invoke("close_partner");
+}
+
+/** Snap the partner window back flush to the main window's right edge. */
+export function redockPartner(): Promise<void> {
+  return invoke("redock_partner");
+}
+
+/** The payload the partner view should render (read on partner-window boot). */
+export function getPartnerPayload(): Promise<PartnerPayload | null> {
+  return invoke<PartnerPayload | null>("get_partner_payload");
 }

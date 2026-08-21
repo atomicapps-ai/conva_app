@@ -4,6 +4,7 @@ import ReactDOM from "react-dom/client";
 import App from "@/App";
 import { BackendProvider } from "@/lib/backend";
 import { HudPanel } from "@/components/hud/HudPanel";
+import { PartnerWindow } from "@/components/partner/PartnerWindow";
 import { PLATFORM } from "@/lib/platform";
 import "@/styles/globals.css";
 
@@ -18,11 +19,19 @@ document.documentElement.dataset.platform = PLATFORM;
 const isHud = new URLSearchParams(window.location.search).has("hud");
 if (isHud) document.documentElement.dataset.window = "hud";
 
+// The `partner` window (src-tauri/src/partner.rs) loads the same bundle with
+// `?partner=1` — a large reading surface for one term, docked to the app's
+// right edge by default.
+const isPartner = new URLSearchParams(window.location.search).has("partner");
+if (isPartner) document.documentElement.dataset.window = "partner";
+
 // BackendProvider resolves the platform once (Tauri on desktop, Web in a browser)
 // and hands the same interface to the whole tree — this bundle is what both the
 // desktop WebView and the web build (`npm run build:web`) render.
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <BackendProvider>{isHud ? <HudPanel /> : <App />}</BackendProvider>
+    <BackendProvider>
+      {isHud ? <HudPanel /> : isPartner ? <PartnerWindow /> : <App />}
+    </BackendProvider>
   </React.StrictMode>,
 );

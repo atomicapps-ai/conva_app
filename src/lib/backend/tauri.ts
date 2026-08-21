@@ -149,4 +149,11 @@ export class TauriBackend implements ConvaBackend {
     toggle: cmd.toggleHud,
     isOpen: cmd.hudIsOpen,
   };
+
+  partner = {
+    open: cmd.openPartner,
+    close: cmd.closePartner,
+    redock: cmd.redockPartner,
+    payload: cmd.getPartnerPayload,
+  };
 }

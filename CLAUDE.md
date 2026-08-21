@@ -136,11 +136,19 @@ swap a layer without asking the owner.**
     `LiveControlBar`'s absolute bottom-right corner (aligned under the
     340px panel; Record + "End & summarise" sit in the bar's LEFT group to
     make room): **Details** = answers feed + Live summary + Open threads +
-    Grounding; **Terms** = live FANER captures ("detected in conversation",
-    with preview definitions) + the grounded context's key terms/glossary
-    ("from your documents"), each with an Ask-Ally action that answers into
-    Details. The tabs must stay visible at every width; below 640px a tab
-    tap opens the panel as an overlay drawer. This supersedes the
+    Grounding; **Terms** = words-only chips packed tight (azure dot =
+    detected live via FANER, gold dot = grounded context key terms/glossary)
+    — a CLICK opens the chip's info card (FANER preview + per-phrase action
+    icons: fetch info · define · open in partner window; the FANER
+    classification tags each phrase, so actions are never one-size-fits-all).
+    Asks answer into Details. The A−/A+ pref (3-dot menu) scales ALL panel
+    content, not just answer cards. The **partner window**
+    (`src-tauri/src/partner.rs` + `PartnerWindow.tsx`, `?partner=1`) is a
+    real, ordinary OS window for one term's deep-dive — draggable custom
+    title bar, resizable, defaults docked flush to the app's right edge, ⇥
+    re-docks; gated on `capabilities().system.partnerWindow`. The tabs must
+    stay visible at every width; below 640px a tab tap opens the panel as an
+    overlay drawer. This supersedes the
     2026-08-17 "buttons-not-tabs" dock decision — that dock is gone; the
     tab silhouette now IS the sanctioned pattern here, same as the nav
     rail. "Tab" in owner feedback means this exclusive pattern, never
