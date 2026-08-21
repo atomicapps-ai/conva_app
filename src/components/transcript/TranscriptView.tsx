@@ -260,13 +260,14 @@ function HighlightedText({
 }
 
 /** One FANER-marked term: persistently bold+underlined, color-coded by the
- *  capture's routed `action` (F11 handoff, 2026-08-20). Hovering reveals a
- *  popover with the capture's `preview` and the same three action icons
- *  `SelectionMenu` uses (Ask Ally / Copy / Send to Ask Ally) — consistent
- *  with the rest of the app's "act on this text" vocabulary rather than a
- *  one-off FANER-specific control set. Pure CSS group-hover (like the dev
- *  panel's tooltip): the popover is a normal, clickable descendant of the
- *  hover group, not a `pointer-events-none` tooltip, so its icons work. */
+ *  capture's routed `action`. The preview + action row only ever show when
+ *  the user clicks the small trailing icon — never on hover — and render in
+ *  a `position: fixed` popover anchored to that icon's own bounding rect
+ *  (same mechanism `TermMenu` already uses), so it's positioned correctly
+ *  regardless of where the phrase sits inside the scrolling transcript,
+ *  rather than a CSS-hover popover clipped/misplaced by the scroll
+ *  container. Dismissed the same way every other floating menu in this file
+ *  is: outside click, Escape, scroll, or resize. */
 function FanerMark({
   hit,
   onAsk,
@@ -277,46 +278,108 @@ function FanerMark({
   onSendToAsk: (text: string) => void;
 }) {
   const { phrase, capture } = hit;
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!pos) return;
+    const close = () => setPos(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [pos]);
+
+  const toggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (pos) {
+      setPos(null);
+      return;
+    }
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) setPos({ x: r.left, y: r.bottom });
+  };
+
   return (
-    <span className={`group relative inline-block ${fanerAccent(capture)}`}>
-      <span className="cursor-help underline decoration-2 underline-offset-2 font-semibold">
+    <span className={`relative inline-block ${fanerAccent(capture)}`}>
+      <span className="underline decoration-2 underline-offset-2 font-semibold">
         {phrase}
       </span>
-      <span className="invisible absolute left-0 top-full z-50 mt-1 w-64 max-w-[85vw] -translate-x-1/2 rounded-lg border border-border bg-panel-raised p-2 text-[12px] normal-case leading-snug text-fg opacity-0 shadow-[var(--shadow-lg)] transition-opacity duration-100 group-hover:visible group-hover:opacity-100">
-        <span className="mb-1 block font-mono text-[9px] uppercase tracking-wide text-fg-faint">
-          {fanerLabel(capture)}
-        </span>
-        <p className="mb-1.5 text-fg-muted">{capture.preview || "(no preview yet)"}</p>
-        <span className="flex items-center gap-0.5 border-t border-border pt-1">
-          <button
-            type="button"
-            title="Ask Ally about this — stars it for your board"
-            aria-label={`Ask Ally about "${phrase}" and star it`}
-            onClick={() => onAsk(capture, phrase)}
-            className="rounded p-1 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
-          >
-            <Icon name="star" size={14} />
-          </button>
-          <button
-            type="button"
-            title="Copy"
-            aria-label={`Copy "${phrase}"`}
-            onClick={() => void navigator.clipboard.writeText(phrase)}
-            className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
-          >
-            <Icon name="copy" size={14} />
-          </button>
-          <button
-            type="button"
-            title="Send to Ask Ally"
-            aria-label={`Send "${phrase}" to Ask Ally`}
-            onClick={() => onSendToAsk(phrase)}
-            className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
-          >
-            <Icon name="chevron" size={14} className="rotate-90" />
-          </button>
-        </span>
-      </span>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={toggle}
+        aria-expanded={pos !== null}
+        title={`Why this is marked — ${fanerLabel(capture)}`}
+        aria-label={`Show why "${phrase}" is marked`}
+        className="ml-0.5 inline-flex align-middle opacity-70 transition-opacity hover:opacity-100"
+      >
+        <Icon name="reasoning" size={12} />
+      </button>
+      {pos && (
+        <div
+          style={{
+            position: "fixed",
+            left: Math.max(8, Math.min(pos.x, window.innerWidth - 280)),
+            top: pos.y + 4,
+            zIndex: 60,
+          }}
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-label={`${fanerLabel(capture)} — "${phrase}"`}
+          className="w-64 max-w-[85vw] rounded-lg border border-border bg-panel-raised p-2 text-[12px] normal-case leading-snug text-fg shadow-[var(--shadow-lg)]"
+        >
+          <span className="mb-1 block font-mono text-[9px] uppercase tracking-wide text-fg-faint">
+            {fanerLabel(capture)}
+          </span>
+          <p className="mb-1.5 text-fg-muted">{capture.preview || "(no preview yet)"}</p>
+          <span className="flex items-center gap-0.5 border-t border-border pt-1">
+            <button
+              type="button"
+              title="Ask Ally about this — stars it for your board"
+              aria-label={`Ask Ally about "${phrase}" and star it`}
+              onClick={() => {
+                onAsk(capture, phrase);
+                setPos(null);
+              }}
+              className="rounded p-1 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
+            >
+              <Icon name="star" size={14} />
+            </button>
+            <button
+              type="button"
+              title="Copy"
+              aria-label={`Copy "${phrase}"`}
+              onClick={() => {
+                void navigator.clipboard.writeText(phrase);
+                setPos(null);
+              }}
+              className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+            >
+              <Icon name="copy" size={14} />
+            </button>
+            <button
+              type="button"
+              title="Send to Ask Ally"
+              aria-label={`Send "${phrase}" to Ask Ally`}
+              onClick={() => {
+                onSendToAsk(phrase);
+                setPos(null);
+              }}
+              className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+            >
+              <Icon name="chevron" size={14} className="rotate-90" />
+            </button>
+          </span>
+        </div>
+      )}
     </span>
   );
 }
