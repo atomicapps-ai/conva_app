@@ -1149,14 +1149,14 @@ function ThreadViewer({
 }
 
 /**
- * An Ally answer rendered INLINE in the transcript stream (V4.0's
- * `.allycard` — notched top-left corner, gold left spine, "SAY THIS"/label
- * eyebrow). Replaces the old separate-column `AllyCardView`: cards with a
- * `sourceKey` now render right after the turn they were derived from;
- * cards with none (freeform "Ask Ally" questions) render at the end of the
- * stream, in the order they were asked.
+ * An Ally answer card (V4.0's `.allycard` — notched top-left corner, gold
+ * left spine, "SAY THIS"/label eyebrow), rendered in the Ally answers
+ * COLUMN, never in the conversation stream (owner rule, 2026-08-21: the
+ * conversation column is conversation text only). Cards with a `sourceKey`
+ * sit at their source turn's position in the column; freeform "Ask Ally"
+ * cards follow at the end, in the order they were asked (orderAllyCards).
  */
-function InlineAllyCard({
+function AllyAnswerCard({
   card,
   registerEl,
   flashToken,
@@ -1328,6 +1328,23 @@ function InlineAllyCard({
   );
 }
 
+/**
+ * Order for the Ally answers column: cards derived from a turn follow that
+ * turn's position in the conversation; freeform (sourceless) cards append at
+ * the end in the order given. Pure so it's unit-testable (test-spec T-CTX
+ * neighbourhood; see orderAllyCards.test.ts).
+ */
+export function orderAllyCards(
+  turnKeys: readonly string[],
+  cardsBySource: ReadonlyMap<string, AllyCard[]>,
+  sourcelessCards: readonly AllyCard[],
+): AllyCard[] {
+  const out: AllyCard[] = [];
+  for (const key of turnKeys) out.push(...(cardsBySource.get(key) ?? []));
+  out.push(...sourcelessCards);
+  return out;
+}
+
 function useAutoScroll(dep: unknown) {
   const ref = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
@@ -1468,8 +1485,9 @@ function ThreadRow({
 
 /**
  * The right meta panel (V4.0's `.ally-panel`) — Live summary / Open threads /
- * Grounding, replacing the old answer-card column now that answers render
- * inline in the transcript. See the note at the top of `TranscriptView` for
+ * Grounding. Answer cards live in the dedicated Ally answers column (owner
+ * rule, 2026-08-21); this panel is the compact index + session meta over
+ * them. See the note at the top of `TranscriptView` for
  * the two honest gaps this surfaces (no continuously-updating summary, no
  * open/waiting/resolved thread lifecycle — both flagged inline below rather
  * than faked).
@@ -1826,13 +1844,14 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
 }
 
 /**
- * The live cockpit (V4.0 full rebuild): transcript left — Ally answers
- * render INLINE as notched gold-spine cards, chronologically among the
- * turns they were derived from — and a meta panel right (Live summary /
- * Open threads / Grounding), replacing the old transcript | spine |
- * answer-column three-way split. The spine (a 72px relationship column with
- * hand-drawn connector lines) is gone entirely: nothing to connect across
- * once an answer sits right next to the turn it came from. See
+ * The live cockpit: conversation left (conversation text ONLY — owner rule
+ * 2026-08-21), the Ally answers column next (notched gold-spine cards,
+ * ordered by their source turn's position, freeform asks at the end), and
+ * the meta panel right (Live summary / Open threads / Grounding). This
+ * re-separates answers from the transcript stream (reversing V4.0's
+ * inline-cards experiment) but does NOT resurrect the old 72px spine with
+ * hand-drawn connector lines — provenance is carried by each turn's thread
+ * pill and the flash-on-open jump instead. See
  * `AllyMetaPanel`'s doc comment for the two honest gaps this surfaced (no
  * live-updating summary, no open/waiting/resolved thread lifecycle) and
  * `LiveControlBar`/`LiveTopBar` for the earlier chrome-rebuild stage.
@@ -1865,7 +1884,7 @@ export function TranscriptView() {
   // bottom of both panes — pad them so their last content stays reachable.
   const rehearsing = useRehearsalStore((s) => s.active);
   const barPad = rehearsing ? " pb-16" : "";
-  // Ally prefs (font size, reasoning default) — read by AllyMetaPanel/InlineAllyCard.
+  // Ally prefs (font size, reasoning default) — read by AllyMetaPanel/AllyAnswerCard.
   const allyFontPx = useUiPrefs((s) => s.allyFontPx);
   const bumpAllyFont = useUiPrefs((s) => s.bumpAllyFont);
   const reasoningDefaultOpen = useUiPrefs((s) => s.reasoningDefaultOpen);
@@ -2007,9 +2026,13 @@ export function TranscriptView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Below ~640px the meta panel folds into an overlay drawer, opened by the
-  // "✦ Ally N" chip in the header (same threshold/pattern the old Ally
-  // answer-column used).
+  // Column gates (owner rule, 2026-08-21: the conversation column is
+  // conversation text ONLY — Ally responses live in their own right-hand
+  // answers column, never in the transcript stream). ≥640px the answers
+  // column is inline; ≥1024px the meta panel joins it inline; below 1024px
+  // the meta panel folds into an overlay drawer (chip in the header), and
+  // below 640px the answers column drops too — answers are then reached
+  // through the drawer's thread list + viewer (honest degraded state).
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const el = containerRef.current;
@@ -2022,7 +2045,8 @@ export function TranscriptView() {
     setWidth(el.getBoundingClientRect().width);
     return () => ro.disconnect();
   }, []);
-  const drawer = width > 0 && width < 640;
+  const drawer = width > 0 && width < 1024;
+  const allyCol = width >= 640;
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // sourceKey → ALL cards derived from it, oldest-first (cards itself is
@@ -2046,11 +2070,10 @@ export function TranscriptView() {
   // so the width gate is re-derived from `drawer`'s own breakpoint (640px)
   // instead of the old MIN_COL/SPINE_W pair.
   const TRACKER_W = 256; // px — TrackerRail's own w-64
-  // Only show the tracker rail once transcript + Ally can hold their floors
-  // (the existing drawer breakpoint) AND still leave room for a third
-  // 256px column — otherwise it'd squeeze the other two below comfortable
-  // width.
-  const showTracker = !drawer && width >= 640 + TRACKER_W;
+  // Only show the tracker rail once conversation + Ally answers + meta panel
+  // are all inline (≥1024px) AND there's still room for a fourth 256px
+  // column — otherwise it'd squeeze the others below comfortable width.
+  const showTracker = !drawer && width >= 1024 + TRACKER_W;
   // Freeform "Ask Ally" cards (no turn to attach to) — appended at the end
   // of the stream, oldest-first, in the order they were asked.
   const sourcelessCards = useMemo(
@@ -2058,18 +2081,19 @@ export function TranscriptView() {
     [cards],
   );
 
-  type StreamItem =
-    | { type: "turn"; turn: (typeof turns)[number] }
-    | { type: "card"; card: AllyCard };
-  const streamItems = useMemo<StreamItem[]>(() => {
-    const out: StreamItem[] = [];
-    for (const turn of turns) {
-      out.push({ type: "turn", turn });
-      for (const c of cardsBySource.get(turn.key) ?? []) out.push({ type: "card", card: c });
-    }
-    for (const c of sourcelessCards) out.push({ type: "card", card: c });
-    return out;
-  }, [turns, cardsBySource, sourcelessCards]);
+  // Answers-column order: derived cards follow their source turn's position
+  // in the conversation; freeform "Ask Ally" cards append at the end in
+  // ask order. (Pure — see orderAllyCards + its unit test.)
+  const orderedCards = useMemo<AllyCard[]>(
+    () =>
+      orderAllyCards(
+        turns.map((t) => t.key),
+        cardsBySource,
+        sourcelessCards,
+      ),
+    [turns, cardsBySource, sourcelessCards],
+  );
+  const allyScroll = useAutoScroll(orderedCards[orderedCards.length - 1]?.id);
 
   const registerBubble = useCallback((key: string, el: HTMLElement | null) => {
     if (el) bubbleEls.current.set(key, el);
@@ -2080,9 +2104,9 @@ export function TranscriptView() {
     else cardEls.current.delete(id);
   }, []);
 
-  /** Open the viewer on `card`, flash + scroll to wherever it lives in the
-   *  stream. Replaces the old dual-scroller `inspect()` — with cards inline,
-   *  there's only one scroller to sync, and no spine positions to compute. */
+  /** Open the viewer on `card`, flash + scroll to its card in the Ally
+   *  answers column (when the column is inline; below 640px there's no card
+   *  element and the viewer alone carries the answer). */
   const openThread = useCallback(
     (card: AllyCard) => {
       setViewerCardId(card.id);
@@ -2095,13 +2119,14 @@ export function TranscriptView() {
         return n;
       });
       if (drawer) setDrawerOpen(true);
-      convo.setPinned(false);
+      allyScroll.setPinned(false);
       requestAnimationFrame(() => {
         const el = cardEls.current.get(card.id);
-        if (el && convo.ref.current) centerInScroller(convo.ref.current, el);
+        if (el && allyScroll.ref.current)
+          centerInScroller(allyScroll.ref.current, el);
       });
     },
-    [convo, drawer],
+    [allyScroll, drawer],
   );
 
   const jumpToLive = useCallback(() => {
@@ -2223,11 +2248,42 @@ export function TranscriptView() {
     );
   }
 
+  // Always-available Ask Ally field — lives at the bottom of the Ally
+  // answers column when it's inline, and falls back to the conversation
+  // section's bottom edge only when the column is hidden (<640px), so
+  // asking stays possible at every width.
+  const askAllyField = (
+    <div className="shrink-0 border-t border-border px-3 py-2.5">
+      <label className="flex h-9 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
+        <Icon name="lightbulb" size={16} className="shrink-0 text-ai/70" />
+        <input
+          value={ask}
+          onChange={(e) => setAsk(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submitAsk()}
+          placeholder="Ask Ally anything…"
+          aria-label="Ask Ally"
+          className="min-w-0 flex-1 bg-transparent text-sm text-fg placeholder:text-fg-faint focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={submitAsk}
+          disabled={busy || !ask.trim()}
+          title="Ask Ally"
+          aria-label="Send question to Ally"
+          className="shrink-0 rounded-[4px] p-1.5 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
+        >
+          <Icon name="chevron" size={16} className="rotate-90" />
+        </button>
+      </label>
+    </div>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <LiveTopBar />
       <main ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1">
-        {/* Transcript — Ally answers render inline among the turns. */}
+        {/* Conversation — conversation text ONLY; Ally answers render in
+            their own column to the right (owner rule, 2026-08-21). */}
         <section
           data-col="transcript"
           className="relative flex min-w-[240px] flex-1 flex-col border-r border-border"
@@ -2253,7 +2309,12 @@ export function TranscriptView() {
                   onClick={() => setDrawerOpen((o) => !o)}
                   className="mr-1 flex items-center gap-1.5 rounded-lg border border-ai/40 px-2.5 py-1 text-[11px] font-semibold text-ai"
                 >
-                  ✦ Ally{cards.length > 0 ? ` ${cards.length}` : ""}
+                  {/* With the answers column inline the drawer only carries
+                      the meta panel — label it as such; without the column
+                      (<640px) it's the whole Ally surface. */}
+                  {allyCol
+                    ? "Panel"
+                    : `✦ Ally${cards.length > 0 ? ` ${cards.length}` : ""}`}
                 </button>
               )}
               {/* Transcript text size. */}
@@ -2322,33 +2383,13 @@ export function TranscriptView() {
             aria-live="polite"
             aria-label="Conversation transcript"
           >
-            {merged.length === 0 && cards.length === 0 ? (
+            {merged.length === 0 ? (
               <p className="mt-8 text-center text-xs text-fg-faint">
-                The conversation appears here — them on the left, you on the
-                right. Tap the ✦ lightbulb on any message to ask Ally.
+                The conversation appears here. Tap the ✦ lightbulb on any
+                message to ask Ally — answers open in the Ally column.
               </p>
             ) : (
-              streamItems.map((item) => {
-                if (item.type === "card") {
-                  const c = item.card;
-                  return (
-                    <InlineAllyCard
-                      key={c.id}
-                      card={c}
-                      registerEl={registerCard}
-                      flashToken={flash?.key === c.id ? flash.token : null}
-                      collapsed={collapsed.has(c.id)}
-                      onToggleCollapse={() => toggleCollapse(c.id)}
-                      onOpenViewer={() => openThread(c)}
-                      onContextMenu={(e) => cardMenu(e, c)}
-                      onRequest={(kind, question, source) =>
-                        void request(kind, question, source)
-                      }
-                      fontPx={allyFontPx}
-                    />
-                  );
-                }
-                const turn = item.turn;
+              turns.map((turn) => {
                 const key = turn.key;
                 const linked = cardsBySource.get(key) ?? [];
                 const newest = linked[linked.length - 1];
@@ -2402,31 +2443,62 @@ export function TranscriptView() {
             </button>
           )}
 
-          {/* Always-available Ask Ally field. */}
-          <div className="shrink-0 border-t border-border px-3 py-2.5">
-            <label className="flex h-9 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
-              <Icon name="lightbulb" size={16} className="shrink-0 text-ai/70" />
-              <input
-                value={ask}
-                onChange={(e) => setAsk(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && submitAsk()}
-                placeholder="Ask Ally anything…"
-                aria-label="Ask Ally"
-                className="min-w-0 flex-1 bg-transparent text-sm text-fg placeholder:text-fg-faint focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={submitAsk}
-                disabled={busy || !ask.trim()}
-                title="Ask Ally"
-                aria-label="Send question to Ally"
-                className="shrink-0 rounded-[4px] p-1.5 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
-              >
-                <Icon name="chevron" size={16} className="rotate-90" />
-              </button>
-            </label>
-          </div>
+          {!allyCol && askAllyField}
         </section>
+
+        {/* Ally answers column — every Ally response renders HERE, to the
+            right of the conversation; the conversation column stays
+            conversation text only (owner rule, 2026-08-21). */}
+        {allyCol && (
+          <section
+            data-col="ally"
+            className="flex h-full w-[340px] shrink-0 flex-col border-r border-border"
+          >
+            <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-ai">
+                ✦ Ally
+              </span>
+              {orderedCards.length > 0 && (
+                <span className="text-[11px] font-semibold text-fg-faint">
+                  {orderedCards.length}
+                </span>
+              )}
+            </div>
+            <div
+              ref={allyScroll.ref}
+              onScroll={allyScroll.onScroll}
+              className={`flex flex-1 flex-col items-end gap-2.5 overflow-y-auto px-2 py-3${barPad}`}
+              role="log"
+              aria-live="polite"
+              aria-label="Ally answers"
+            >
+              {orderedCards.length === 0 ? (
+                <p className="mt-8 w-full px-3 text-center text-xs text-fg-faint">
+                  Ally answers appear here, next to the conversation. Tap the
+                  ✦ lightbulb on any message, or ask below.
+                </p>
+              ) : (
+                orderedCards.map((c) => (
+                  <AllyAnswerCard
+                    key={c.id}
+                    card={c}
+                    registerEl={registerCard}
+                    flashToken={flash?.key === c.id ? flash.token : null}
+                    collapsed={collapsed.has(c.id)}
+                    onToggleCollapse={() => toggleCollapse(c.id)}
+                    onOpenViewer={() => openThread(c)}
+                    onContextMenu={(e) => cardMenu(e, c)}
+                    onRequest={(kind, question, source) =>
+                      void request(kind, question, source)
+                    }
+                    fontPx={allyFontPx}
+                  />
+                ))
+              )}
+            </div>
+            {askAllyField}
+          </section>
+        )}
 
         {/* Meta panel — inline (wide) or an overlay drawer (narrow). */}
         {drawer && drawerOpen && (
