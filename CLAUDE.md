@@ -126,6 +126,18 @@ swap a layer without asking the owner.**
    - Don't invent a third pattern (e.g. a persistent global breadcrumb trail)
      without updating this rule — one navigation model, consistently applied,
      beats two competing ones.
+10. **Live cockpit: conversation column is conversation text ONLY; everything
+    Ally lives in the right Ally panel, whose dock stays visible.** (Owner,
+    2026-08-21.) Ally answers never render in the transcript stream (V4.0's
+    inline-cards layout was explicitly reversed) — they're the answers feed
+    inside the single right `AllyPanel` (`TranscriptView.tsx`), alongside
+    Live summary / Open threads / Grounding, with the show/hide dock at its
+    foot. The dock buttons ("the tabs on the right") must stay visible at
+    every inline width (≥640px) — hiding them behind a chip once read as a
+    missing feature — and they stay independent on/off TOGGLES, not
+    exclusive tabs (owner, 2026-08-17; a tab treatment was built and
+    reverted same-day over that semantics clash). Below 640px the whole
+    panel is the "✦ Ally" overlay drawer.
 
 ## Build & run
 

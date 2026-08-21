@@ -1484,15 +1484,17 @@ function ThreadRow({
 }
 
 /**
- * The right meta panel (V4.0's `.ally-panel`) — Live summary / Open threads /
- * Grounding. Answer cards live in the dedicated Ally answers column (owner
- * rule, 2026-08-21); this panel is the compact index + session meta over
- * them. See the note at the top of `TranscriptView` for
+ * The right Ally panel (grown from V4.0's `.ally-panel`) — the ONE home for
+ * everything Ally: Live summary / Open threads / Grounding sections plus the
+ * answers feed (owner rules, 2026-08-21: answers never render in the
+ * conversation column, and the dock toggles below stay visible at every
+ * inline width). The answers feed renders last so the auto-scrolled bottom
+ * is always the newest answer. See the note at the top of `TranscriptView` for
  * the two honest gaps this surfaces (no continuously-updating summary, no
  * open/waiting/resolved thread lifecycle — both flagged inline below rather
  * than faked).
  */
-function AllyMetaPanel({
+function AllyPanel({
   cards,
   pinned,
   togglePin,
@@ -1505,6 +1507,11 @@ function AllyMetaPanel({
   setReasoningDefaultOpen,
   clearAlly,
   barPad,
+  answersCount,
+  renderAnswers,
+  scrollRef,
+  onBodyScroll,
+  askField,
 }: {
   cards: AllyCard[];
   pinned: Set<string>;
@@ -1522,6 +1529,11 @@ function AllyMetaPanel({
   setReasoningDefaultOpen: (v: boolean) => void;
   clearAlly: () => void;
   barPad: string;
+  answersCount: number;
+  renderAnswers: () => React.ReactNode;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  onBodyScroll: () => void;
+  askField: React.ReactNode;
 }) {
   const backend = useBackend();
   const activeId = useGroundingStore((s) => s.activeId);
@@ -1549,7 +1561,12 @@ function AllyMetaPanel({
     };
   }, [activeId, backend]);
 
-  const [visible, setVisible] = useState({ summary: true, threads: true, grounding: true });
+  const [visible, setVisible] = useState({
+    answers: true,
+    summary: true,
+    threads: true,
+    grounding: true,
+  });
   const toggleVisible = (k: keyof typeof visible) =>
     setVisible((v) => ({ ...v, [k]: !v[k] }));
 
@@ -1561,7 +1578,7 @@ function AllyMetaPanel({
   const restCards = cards.filter((c) => !pinned.has(c.id));
 
   return (
-    <aside className={`flex h-full w-[300px] shrink-0 flex-col border-l border-border bg-bg-2${barPad}`}>
+    <aside className={`flex h-full w-[340px] max-w-full shrink-0 flex-col border-l border-border bg-bg-2${barPad}`}>
       <div className="relative flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
         <Icon name="ally" size={15} className="text-ai" />
         <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
@@ -1653,7 +1670,11 @@ function AllyMetaPanel({
         )}
       </div>
 
-      <div className="flex flex-1 flex-col gap-3.5 overflow-y-auto p-3.5">
+      <div
+        ref={scrollRef}
+        onScroll={onBodyScroll}
+        className="flex flex-1 flex-col gap-3.5 overflow-y-auto p-3.5"
+      >
         {visible.summary && (
           <div className="rounded-[var(--radius)] border border-border bg-panel p-3.5">
             <h4 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
@@ -1691,7 +1712,7 @@ function AllyMetaPanel({
             {cards.length === 0 ? (
               <p className="text-[12px] text-fg-faint">
                 Ally's answers land here as you go — tap the lightbulb on any
-                message, or use Ask Ally beneath the conversation.
+                message, or use Ask Ally below.
               </p>
             ) : (
               <div className="flex flex-col divide-y divide-border">
@@ -1748,7 +1769,26 @@ function AllyMetaPanel({
             )}
           </div>
         )}
+
+        {/* Answers feed — LAST in the scroller so the auto-scrolled bottom
+            is always the newest answer (owner rule, 2026-08-21: answers
+            live here, never in the conversation column). */}
+        {visible.answers && (
+          <div
+            role="log"
+            aria-live="polite"
+            aria-label="Ally answers"
+            className="flex flex-col gap-2.5"
+          >
+            <h4 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
+              Answers{answersCount > 0 ? ` · ${answersCount}` : ""}
+            </h4>
+            {renderAnswers()}
+          </div>
+        )}
       </div>
+
+      {askField}
 
       {/* Dock — show/hide each card. Deliberately BUTTONS, not tabs
           (owner, 2026-08-17): these are independent on/off toggles —
@@ -1757,10 +1797,14 @@ function AllyMetaPanel({
           A tab treatment was built here once and reverted the same day
           over exactly that semantics clash. ON = the visible-pressed look
           (raised fill + azure, the earlier "invisible active state" fix);
-          OFF = quiet hairline. */}
+          OFF = quiet hairline. The dock must stay visible at every inline
+          width (owner, 2026-08-21 — it vanished behind a chip once and
+          read as a missing feature); Answers joined it when the answer
+          cards moved out of the conversation column. */}
       <div className="flex shrink-0 gap-1.5 border-t border-border p-2.5">
         {(
           [
+            ["answers", "ally", "Ally answers"],
             ["summary", "summarize", "live summary"],
             ["threads", "lightbulb", "open threads"],
             ["grounding", "file", "grounding"],
@@ -1845,14 +1889,17 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
 
 /**
  * The live cockpit: conversation left (conversation text ONLY — owner rule
- * 2026-08-21), the Ally answers column next (notched gold-spine cards,
- * ordered by their source turn's position, freeform asks at the end), and
- * the meta panel right (Live summary / Open threads / Grounding). This
- * re-separates answers from the transcript stream (reversing V4.0's
- * inline-cards experiment) but does NOT resurrect the old 72px spine with
- * hand-drawn connector lines — provenance is carried by each turn's thread
- * pill and the flash-on-open jump instead. See
- * `AllyMetaPanel`'s doc comment for the two honest gaps this surfaced (no
+ * 2026-08-21) and ONE Ally panel right carrying everything Ally — the
+ * answers feed (notched gold-spine cards, ordered by source-turn position,
+ * freeform asks at the end), Live summary, Open threads, and Grounding —
+ * with the dock of show/hide toggles at its foot (owner, 2026-08-21: those
+ * dock buttons must stay visible at every inline width; they hid behind a
+ * chip once and read as a missing feature). This re-separates answers from
+ * the transcript stream (reversing V4.0's inline-cards experiment) but does
+ * NOT resurrect the old 72px spine with hand-drawn connector lines —
+ * provenance is carried by each turn's thread pill and the flash-on-open
+ * jump instead. See
+ * `AllyPanel`'s doc comment for the two honest gaps this surfaced (no
  * live-updating summary, no open/waiting/resolved thread lifecycle) and
  * `LiveControlBar`/`LiveTopBar` for the earlier chrome-rebuild stage.
  *
@@ -1884,7 +1931,7 @@ export function TranscriptView() {
   // bottom of both panes — pad them so their last content stays reachable.
   const rehearsing = useRehearsalStore((s) => s.active);
   const barPad = rehearsing ? " pb-16" : "";
-  // Ally prefs (font size, reasoning default) — read by AllyMetaPanel/AllyAnswerCard.
+  // Ally prefs (font size, reasoning default) — read by AllyPanel/AllyAnswerCard.
   const allyFontPx = useUiPrefs((s) => s.allyFontPx);
   const bumpAllyFont = useUiPrefs((s) => s.bumpAllyFont);
   const reasoningDefaultOpen = useUiPrefs((s) => s.reasoningDefaultOpen);
@@ -2026,13 +2073,12 @@ export function TranscriptView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Column gates (owner rule, 2026-08-21: the conversation column is
-  // conversation text ONLY — Ally responses live in their own right-hand
-  // answers column, never in the transcript stream). ≥640px the answers
-  // column is inline; ≥1024px the meta panel joins it inline; below 1024px
-  // the meta panel folds into an overlay drawer (chip in the header), and
-  // below 640px the answers column drops too — answers are then reached
-  // through the drawer's thread list + viewer (honest degraded state).
+  // Column gate (owner rules 2026-08-21: the conversation column is
+  // conversation text ONLY, and the right-side dock toggles must stay
+  // visible — they vanished once behind a chip and that read as a missing
+  // feature). ONE right Ally panel carries answers + summary + threads +
+  // grounding with the dock at its foot; it is inline from 640px and folds
+  // into an overlay drawer (chip in the header) only below that.
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const el = containerRef.current;
@@ -2045,8 +2091,7 @@ export function TranscriptView() {
     setWidth(el.getBoundingClientRect().width);
     return () => ro.disconnect();
   }, []);
-  const drawer = width > 0 && width < 1024;
-  const allyCol = width >= 640;
+  const drawer = width > 0 && width < 640;
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // sourceKey → ALL cards derived from it, oldest-first (cards itself is
@@ -2070,10 +2115,10 @@ export function TranscriptView() {
   // so the width gate is re-derived from `drawer`'s own breakpoint (640px)
   // instead of the old MIN_COL/SPINE_W pair.
   const TRACKER_W = 256; // px — TrackerRail's own w-64
-  // Only show the tracker rail once conversation + Ally answers + meta panel
-  // are all inline (≥1024px) AND there's still room for a fourth 256px
-  // column — otherwise it'd squeeze the others below comfortable width.
-  const showTracker = !drawer && width >= 1024 + TRACKER_W;
+  // Only show the tracker rail once conversation (≥300px) + the Ally panel
+  // (340px) can hold their floors AND there's still room for a third 256px
+  // column — otherwise it'd squeeze the other two below comfortable width.
+  const showTracker = !drawer && width >= 640 + TRACKER_W;
   // Freeform "Ask Ally" cards (no turn to attach to) — appended at the end
   // of the stream, oldest-first, in the order they were asked.
   const sourcelessCards = useMemo(
@@ -2309,12 +2354,7 @@ export function TranscriptView() {
                   onClick={() => setDrawerOpen((o) => !o)}
                   className="mr-1 flex items-center gap-1.5 rounded-lg border border-ai/40 px-2.5 py-1 text-[11px] font-semibold text-ai"
                 >
-                  {/* With the answers column inline the drawer only carries
-                      the meta panel — label it as such; without the column
-                      (<640px) it's the whole Ally surface. */}
-                  {allyCol
-                    ? "Panel"
-                    : `✦ Ally${cards.length > 0 ? ` ${cards.length}` : ""}`}
+                  ✦ Ally{cards.length > 0 ? ` ${cards.length}` : ""}
                 </button>
               )}
               {/* Transcript text size. */}
@@ -2443,37 +2483,52 @@ export function TranscriptView() {
             </button>
           )}
 
-          {!allyCol && askAllyField}
+          {/* Narrow fallback only — with the Ally panel inline, the field
+              lives at the panel's foot instead. */}
+          {drawer && askAllyField}
         </section>
 
-        {/* Ally answers column — every Ally response renders HERE, to the
-            right of the conversation; the conversation column stays
-            conversation text only (owner rule, 2026-08-21). */}
-        {allyCol && (
-          <section
-            data-col="ally"
-            className="flex h-full w-[340px] shrink-0 flex-col border-r border-border"
-          >
-            <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-ai">
-                ✦ Ally
-              </span>
-              {orderedCards.length > 0 && (
-                <span className="text-[11px] font-semibold text-fg-faint">
-                  {orderedCards.length}
-                </span>
-              )}
-            </div>
-            <div
-              ref={allyScroll.ref}
-              onScroll={allyScroll.onScroll}
-              className={`flex flex-1 flex-col items-end gap-2.5 overflow-y-auto px-2 py-3${barPad}`}
-              role="log"
-              aria-live="polite"
-              aria-label="Ally answers"
-            >
-              {orderedCards.length === 0 ? (
-                <p className="mt-8 w-full px-3 text-center text-xs text-fg-faint">
+        {/* The Ally panel — inline (≥640px) or an overlay drawer (narrow). */}
+        {drawer && drawerOpen && (
+          <button
+            type="button"
+            aria-label="Close Ally"
+            onClick={() => setDrawerOpen(false)}
+            className="absolute inset-0 z-20 cursor-default bg-bg/40"
+          />
+        )}
+        <div
+          className={
+            drawer
+              ? `absolute right-0 top-0 z-30 h-full w-[min(360px,92%)] shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
+              // Not a flex item of `main` in the drawer case (it's absolutely
+              // positioned), but inline it IS one — without an explicit
+              // height it shrink-wraps to content instead of filling the
+              // column, which is why the dock ("tabs") wasn't pinned to the
+              // bottom when there wasn't much to show above it.
+              : "flex h-full"
+          }
+        >
+          <AllyPanel
+            cards={cards}
+            pinned={pinned}
+            togglePin={togglePin}
+            onOpenViewer={openThread}
+            busy={busy}
+            request={request}
+            allyFontPx={allyFontPx}
+            bumpAllyFont={bumpAllyFont}
+            reasoningDefaultOpen={reasoningDefaultOpen}
+            setReasoningDefaultOpen={setReasoningDefaultOpen}
+            clearAlly={clearAlly}
+            barPad={barPad}
+            answersCount={orderedCards.length}
+            scrollRef={allyScroll.ref}
+            onBodyScroll={allyScroll.onScroll}
+            askField={drawer ? null : askAllyField}
+            renderAnswers={() =>
+              orderedCards.length === 0 ? (
+                <p className="px-2 py-4 text-center text-xs text-fg-faint">
                   Ally answers appear here, next to the conversation. Tap the
                   ✦ lightbulb on any message, or ask below.
                 </p>
@@ -2494,46 +2549,8 @@ export function TranscriptView() {
                     fontPx={allyFontPx}
                   />
                 ))
-              )}
-            </div>
-            {askAllyField}
-          </section>
-        )}
-
-        {/* Meta panel — inline (wide) or an overlay drawer (narrow). */}
-        {drawer && drawerOpen && (
-          <button
-            type="button"
-            aria-label="Close Ally"
-            onClick={() => setDrawerOpen(false)}
-            className="absolute inset-0 z-20 cursor-default bg-bg/40"
-          />
-        )}
-        <div
-          className={
-            drawer
-              ? `absolute right-0 top-0 z-30 h-full w-[min(320px,88%)] shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
-              // Not a flex item of `main` in the drawer case (it's absolutely
-              // positioned), but inline it IS one — without an explicit
-              // height it shrink-wraps to content instead of filling the
-              // column, which is why the dock ("tabs") wasn't pinned to the
-              // bottom when there wasn't much to show above it.
-              : "flex h-full"
-          }
-        >
-          <AllyMetaPanel
-            cards={cards}
-            pinned={pinned}
-            togglePin={togglePin}
-            onOpenViewer={openThread}
-            busy={busy}
-            request={request}
-            allyFontPx={allyFontPx}
-            bumpAllyFont={bumpAllyFont}
-            reasoningDefaultOpen={reasoningDefaultOpen}
-            setReasoningDefaultOpen={setReasoningDefaultOpen}
-            clearAlly={clearAlly}
-            barPad={barPad}
+              )
+            }
           />
         </div>
 
