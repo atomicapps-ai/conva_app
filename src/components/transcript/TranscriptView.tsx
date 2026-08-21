@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { LiveControlBar } from "@/components/studio/LiveControlBar";
+import { LiveControlBar, type AllyPanelTab } from "@/components/studio/LiveControlBar";
 import { LiveTopBar } from "@/components/studio/LiveTopBar";
 import { TrackerRail } from "@/components/TrackerRail";
 import { Icon, type IconName } from "@/components/ui/Icon";
@@ -30,6 +30,7 @@ import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
 import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
 import { groupTurns, segmentKey } from "@/lib/turns";
+import { buildDocTerms, captureTermLabel } from "@/components/transcript/terms";
 
 // Stable reference so a Zustand selector reading `capture?.captures` never
 // hands React a "new" empty array on every render before the first
@@ -1485,11 +1486,20 @@ function ThreadRow({
 
 /**
  * The right Ally panel (grown from V4.0's `.ally-panel`) — the ONE home for
- * everything Ally: Live summary / Open threads / Grounding sections plus the
- * answers feed (owner rules, 2026-08-21: answers never render in the
- * conversation column, and the dock toggles below stay visible at every
- * inline width). The answers feed renders last so the auto-scrolled bottom
- * is always the newest answer. See the note at the top of `TranscriptView` for
+ * everything Ally, split across two EXCLUSIVE tabs selected from the bottom
+ * control bar's bottom-right corner (owner mockup, 2026-08-21 — approved on
+ * the "Live Cockpit Tabs" canvas):
+ *
+ * - **Details** — everything supporting the call: Live summary, Open
+ *   threads, Grounding docs, and the answers feed (rendered last so the
+ *   auto-scrolled bottom is always the newest answer).
+ * - **Terms** — key terms detected live: FANER captures ("detected in
+ *   conversation", each with its preview definition) + the grounded
+ *   context's key terms/glossary ("from your documents"), each with an
+ *   Ask-Ally action that answers into Details.
+ *
+ * Answers never render in the conversation column. See the note at the top
+ * of `TranscriptView` for
  * the two honest gaps this surfaces (no continuously-updating summary, no
  * open/waiting/resolved thread lifecycle — both flagged inline below rather
  * than faked).
@@ -1512,6 +1522,10 @@ function AllyPanel({
   scrollRef,
   onBodyScroll,
   askField,
+  tab,
+  captures,
+  onAskCapture,
+  onAskDocTerm,
 }: {
   cards: AllyCard[];
   pinned: Set<string>;
@@ -1534,6 +1548,10 @@ function AllyPanel({
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onBodyScroll: () => void;
   askField: React.ReactNode;
+  tab: AllyPanelTab;
+  captures: Capture[];
+  onAskCapture: (capture: Capture) => void;
+  onAskDocTerm: (term: string) => void;
 }) {
   const backend = useBackend();
   const activeId = useGroundingStore((s) => s.activeId);
@@ -1541,9 +1559,11 @@ function AllyPanel({
   const [groundingDocs, setGroundingDocs] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  const [docTerms, setDocTerms] = useState<string[]>([]);
   useEffect(() => {
     if (!activeId || !isTauri()) {
       setGroundingDocs([]);
+      setDocTerms([]);
       return;
     }
     let alive = true;
@@ -1554,21 +1574,17 @@ function AllyPanel({
           .map((id) => docs.find((d) => d.id === id)?.file_name)
           .filter((n): n is string => Boolean(n));
         setGroundingDocs(names);
+        setDocTerms(buildDocTerms(session.key_terms, session.glossary));
       })
-      .catch(() => alive && setGroundingDocs([]));
+      .catch(() => {
+        if (!alive) return;
+        setGroundingDocs([]);
+        setDocTerms([]);
+      });
     return () => {
       alive = false;
     };
   }, [activeId, backend]);
-
-  const [visible, setVisible] = useState({
-    answers: true,
-    summary: true,
-    threads: true,
-    grounding: true,
-  });
-  const toggleVisible = (k: keyof typeof visible) =>
-    setVisible((v) => ({ ...v, [k]: !v[k] }));
 
   // Most recent manual summary, if any — not a continuously-updating live
   // summary (that would need a background summarizer this app doesn't have
@@ -1675,7 +1691,7 @@ function AllyPanel({
         onScroll={onBodyScroll}
         className="flex flex-1 flex-col gap-3.5 overflow-y-auto p-3.5"
       >
-        {visible.summary && (
+        {tab === "details" && (
           <div className="rounded-[var(--radius)] border border-border bg-panel p-3.5">
             <h4 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
               Live summary
@@ -1704,7 +1720,7 @@ function AllyPanel({
           </div>
         )}
 
-        {visible.threads && (
+        {tab === "details" && (
           <div className="rounded-[var(--radius)] border border-border bg-panel p-3.5">
             <h4 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
               Open threads
@@ -1748,7 +1764,7 @@ function AllyPanel({
           </div>
         )}
 
-        {visible.grounding && (
+        {tab === "details" && (
           <div className="rounded-[var(--radius)] border border-border bg-panel p-3.5">
             <h4 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
               Grounding
@@ -1773,7 +1789,7 @@ function AllyPanel({
         {/* Answers feed — LAST in the scroller so the auto-scrolled bottom
             is always the newest answer (owner rule, 2026-08-21: answers
             live here, never in the conversation column). */}
-        {visible.answers && (
+        {tab === "details" && (
           <div
             role="log"
             aria-live="polite"
@@ -1786,47 +1802,85 @@ function AllyPanel({
             {renderAnswers()}
           </div>
         )}
+
+        {tab === "terms" && (
+          <>
+            <h4 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
+              Detected in conversation
+            </h4>
+            {captures.length === 0 ? (
+              <p className="px-1 text-[12px] text-fg-faint">
+                Terms Ally catches live — questions, tasks, concepts — appear
+                here as the conversation runs.
+              </p>
+            ) : (
+              captures.map((c, i) => {
+                const label = captureTermLabel(c);
+                return (
+                  <div
+                    key={`${label}-${i}`}
+                    className="rounded-[var(--radius)] border border-border bg-panel p-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-ai" />
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-fg">
+                        {label}
+                      </span>
+                      <span className="font-mono text-[10px] uppercase text-fg-faint">
+                        {c.action.toLowerCase()}
+                      </span>
+                    </div>
+                    {c.preview && (
+                      <p className="mt-1.5 text-[12px] leading-relaxed text-fg-muted">
+                        {c.preview}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onAskCapture(c)}
+                      className="mt-2 text-[11px] font-semibold text-ai transition hover:underline"
+                    >
+                      ✦ Ask Ally
+                    </button>
+                  </div>
+                );
+              })
+            )}
+
+            <h4 className="mt-1 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
+              From your documents
+            </h4>
+            {docTerms.length === 0 ? (
+              <p className="px-1 text-[12px] text-fg-faint">
+                {activeTitle
+                  ? "No key terms in this context yet — add them in the context's setup."
+                  : "Ground a context to bring in its key terms and glossary."}
+              </p>
+            ) : (
+              docTerms.map((term) => (
+                <div
+                  key={term}
+                  className="flex items-center gap-2 rounded-[var(--radius)] border border-border bg-panel px-3 py-2"
+                >
+                  <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-ai" />
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-fg">
+                    {term}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onAskDocTerm(term)}
+                    className="shrink-0 text-[11px] font-semibold text-ai transition hover:underline"
+                  >
+                    ✦ Define
+                  </button>
+                </div>
+              ))
+            )}
+          </>
+        )}
       </div>
 
       {askField}
-
-      {/* Dock — show/hide each card. Deliberately BUTTONS, not tabs
-          (owner, 2026-08-17): these are independent on/off toggles —
-          several can be on at once — and the tab silhouette is reserved
-          for exclusive selection (the nav rail: exactly one page active).
-          A tab treatment was built here once and reverted the same day
-          over exactly that semantics clash. ON = the visible-pressed look
-          (raised fill + azure, the earlier "invisible active state" fix);
-          OFF = quiet hairline. The dock must stay visible at every inline
-          width (owner, 2026-08-21 — it vanished behind a chip once and
-          read as a missing feature); Answers joined it when the answer
-          cards moved out of the conversation column. */}
-      <div className="flex shrink-0 gap-1.5 border-t border-border p-2.5">
-        {(
-          [
-            ["answers", "ally", "Ally answers"],
-            ["summary", "summarize", "live summary"],
-            ["threads", "lightbulb", "open threads"],
-            ["grounding", "file", "grounding"],
-          ] as const
-        ).map(([key, icon, name]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => toggleVisible(key)}
-            aria-pressed={visible[key]}
-            title={visible[key] ? `Hide ${name}` : `Show ${name}`}
-            className={[
-              "grid h-8 flex-1 place-items-center rounded-[var(--radius)] border transition",
-              visible[key]
-                ? "border-primary/50 bg-panel-raised text-primary"
-                : "border-border text-fg-faint hover:border-border-strong hover:text-fg",
-            ].join(" ")}
-          >
-            <Icon name={icon} size={15} />
-          </button>
-        ))}
-      </div>
     </aside>
   );
 }
@@ -1889,16 +1943,16 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
 
 /**
  * The live cockpit: conversation left (conversation text ONLY — owner rule
- * 2026-08-21) and ONE Ally panel right carrying everything Ally — the
- * answers feed (notched gold-spine cards, ordered by source-turn position,
- * freeform asks at the end), Live summary, Open threads, and Grounding —
- * with the dock of show/hide toggles at its foot (owner, 2026-08-21: those
- * dock buttons must stay visible at every inline width; they hid behind a
- * chip once and read as a missing feature). This re-separates answers from
- * the transcript stream (reversing V4.0's inline-cards experiment) but does
- * NOT resurrect the old 72px spine with hand-drawn connector lines —
- * provenance is carried by each turn's thread pill and the flash-on-open
- * jump instead. See
+ * 2026-08-21) and ONE Ally panel right carrying everything Ally, driven by
+ * the two EXCLUSIVE tabs at the control bar's bottom-right (owner mockup,
+ * 2026-08-21 — "Live Cockpit Tabs" canvas): **Details** (answers feed —
+ * notched gold-spine cards, ordered by source-turn position, freeform asks
+ * at the end — plus Live summary, Open threads, Grounding) and **Terms**
+ * (live FANER captures + the grounded context's key terms/glossary). This
+ * re-separates answers from the transcript stream (reversing V4.0's
+ * inline-cards experiment) but does NOT resurrect the old 72px spine with
+ * hand-drawn connector lines — provenance is carried by each turn's thread
+ * pill and the flash-on-open jump instead. See
  * `AllyPanel`'s doc comment for the two honest gaps this surfaced (no
  * live-updating summary, no open/waiting/resolved thread lifecycle) and
  * `LiveControlBar`/`LiveTopBar` for the earlier chrome-rebuild stage.
@@ -2074,11 +2128,10 @@ export function TranscriptView() {
   }, []);
 
   // Column gate (owner rules 2026-08-21: the conversation column is
-  // conversation text ONLY, and the right-side dock toggles must stay
-  // visible — they vanished once behind a chip and that read as a missing
-  // feature). ONE right Ally panel carries answers + summary + threads +
-  // grounding with the dock at its foot; it is inline from 640px and folds
-  // into an overlay drawer (chip in the header) only below that.
+  // conversation text ONLY). ONE right Ally panel carries everything Ally,
+  // split across the Details/Terms tabs in the control bar's bottom-right
+  // corner (always visible); the panel is inline from 640px and folds into
+  // an overlay drawer below that — a tab tap then opens the drawer.
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const el = containerRef.current;
@@ -2093,6 +2146,17 @@ export function TranscriptView() {
   }, []);
   const drawer = width > 0 && width < 640;
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Which Ally-panel tab is active — selected from the control bar's
+  // bottom-right tabs; asks from the Terms tab flip back to Details so the
+  // answer is visible where it lands.
+  const [panelTab, setPanelTab] = useState<AllyPanelTab>("details");
+  const selectPanelTab = useCallback(
+    (tab: AllyPanelTab) => {
+      setPanelTab(tab);
+      if (drawer) setDrawerOpen(true);
+    },
+    [drawer],
+  );
 
   // sourceKey → ALL cards derived from it, oldest-first (cards itself is
   // newest-first — reverse while grouping). Drives both the turn's thread
@@ -2155,6 +2219,7 @@ export function TranscriptView() {
   const openThread = useCallback(
     (card: AllyCard) => {
       setViewerCardId(card.id);
+      setPanelTab("details");
       flashToken.current += 1;
       setFlash({ key: card.id, token: flashToken.current });
       setCollapsed((prev) => {
@@ -2348,15 +2413,6 @@ export function TranscriptView() {
               {isTauri() && <Bars level={levels.outbound} color="var(--color-outbound)" />}
             </span>
             <div className="ml-auto flex items-center gap-1 text-fg-faint">
-              {drawer && (
-                <button
-                  type="button"
-                  onClick={() => setDrawerOpen((o) => !o)}
-                  className="mr-1 flex items-center gap-1.5 rounded-lg border border-ai/40 px-2.5 py-1 text-[11px] font-semibold text-ai"
-                >
-                  ✦ Ally{cards.length > 0 ? ` ${cards.length}` : ""}
-                </button>
-              )}
               {/* Transcript text size. */}
               <button
                 type="button"
@@ -2526,6 +2582,16 @@ export function TranscriptView() {
             scrollRef={allyScroll.ref}
             onBodyScroll={allyScroll.onScroll}
             askField={drawer ? null : askAllyField}
+            tab={panelTab}
+            captures={captures}
+            onAskCapture={(c) => {
+              setPanelTab("details");
+              askFaner(c, captureTermLabel(c));
+            }}
+            onAskDocTerm={(term) => {
+              setPanelTab("details");
+              askTerm("definition", term);
+            }}
             renderAnswers={() =>
               orderedCards.length === 0 ? (
                 <p className="px-2 py-4 text-center text-xs text-fg-faint">
@@ -2571,7 +2637,7 @@ export function TranscriptView() {
 
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       </main>
-      <LiveControlBar />
+      <LiveControlBar tabs={{ tab: panelTab, onSelect: selectPanelTab }} />
     </div>
   );
 }
