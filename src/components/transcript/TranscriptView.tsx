@@ -268,7 +268,7 @@ function HighlightedText({
  *  rather than a CSS-hover popover clipped/misplaced by the scroll
  *  container. Dismissed the same way every other floating menu in this file
  *  is: outside click, Escape, scroll, or resize. */
-function FanerMark({
+export function FanerMark({
   hit,
   onAsk,
   onSendToAsk,
