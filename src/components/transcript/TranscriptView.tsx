@@ -287,12 +287,12 @@ function FanerMark({
         <span className="flex items-center gap-0.5 border-t border-border pt-1">
           <button
             type="button"
-            title="Ask Ally about this"
-            aria-label={`Ask Ally about "${phrase}"`}
+            title="Ask Ally about this — stars it for your board"
+            aria-label={`Ask Ally about "${phrase}" and star it`}
             onClick={() => onAsk(capture, phrase)}
             className="rounded p-1 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
           >
-            <Icon name="lightbulb" size={14} />
+            <Icon name="star" size={14} />
           </button>
           <button
             type="button"
@@ -439,15 +439,15 @@ function SelectionMenu({
     >
       <button
         type="button"
-        title="Ask Ally about this"
-        aria-label="Ask Ally about the selection"
+        title="Ask Ally about this — stars it for your board"
+        aria-label="Ask Ally about the selection and star it"
         onClick={() => {
           onAsk(text);
           onClose();
         }}
         className="rounded p-1.5 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
       >
-        <Icon name="lightbulb" size={15} />
+        <Icon name="star" size={15} />
       </button>
       <button
         type="button"
@@ -570,11 +570,11 @@ function FlowText({
               e.stopPropagation();
               onAskText(unit);
             }}
-            title="Ask Ally about this"
-            aria-label="Ask Ally about this sentence"
+            title="Ask Ally about this sentence — stars it for your board"
+            aria-label="Ask Ally about this sentence and star it"
             className="ml-0.5 inline-flex align-middle text-ai/70 opacity-0 transition-opacity hover:text-ai group-hover/u:opacity-100"
           >
-            <Icon name="lightbulb" size={12} />
+            <Icon name="star" size={12} />
           </button>
         </span>
       ))}
