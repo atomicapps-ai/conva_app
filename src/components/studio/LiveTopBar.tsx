@@ -1,4 +1,6 @@
 import { GroundPicker } from "@/components/contexts/GroundPicker";
+import { Icon } from "@/components/ui/Icon";
+import { useConversationStore } from "@/state/conversation";
 import { useGroundingStore } from "@/state/grounding";
 import { useTranscriptStore } from "@/state/transcript";
 
@@ -30,6 +32,7 @@ export function LiveTopBar() {
   const session = useTranscriptStore((s) => s.session);
   const listening = session.state === "listening";
   const activeTitle = useGroundingStore((s) => s.activeTitle);
+  const requestNew = useConversationStore((s) => s.requestNew);
 
   return (
     <header className="flex shrink-0 items-start gap-4 border-b border-border px-4 py-3">
@@ -43,6 +46,24 @@ export function LiveTopBar() {
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        {/* "+ New" lives up here in the crown (owner, 2026-08-21 — it bled
+            over the panel border when crammed into the conversation
+            sub-header at narrow widths). Unsaved content routes through the
+            save dialog (Save / Discard / Cancel); disabled mid-session. */}
+        <button
+          type="button"
+          onClick={requestNew}
+          disabled={listening}
+          title={
+            listening
+              ? "End the session first to start a new conversation"
+              : "New conversation — clears the pane (the run stays in Sessions)"
+          }
+          className="flex h-8 shrink-0 items-center gap-1.5 rounded-[6px] border border-border-strong px-3 text-[12px] font-bold text-fg-muted transition hover:text-fg disabled:opacity-40"
+        >
+          <Icon name="add" size={14} />
+          New
+        </button>
         <GroundPicker disabled={listening} />
       </div>
     </header>
