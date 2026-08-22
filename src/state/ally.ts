@@ -29,7 +29,47 @@ export interface AllyCard {
   sourceKey: string | null;
   /** Short quote of the researched bubble, shown on the card. */
   sourceQuote: string | null;
+  /** Plain-English summary of the answer (the card's collapsible "Summary"
+   *  section, owner 2026-08-22). `null` = never requested; `""` = streaming. */
+  summary: string | null;
 }
+
+/** Unique source file names, first-appearance order — the CLEAN citation
+ *  line an answer card shows (owner, 2026-08-22: the raw per-chunk "file ·
+ *  ¶57–68 · file · ¶17–36 …" wall is not for users). */
+export function uniqueSourceFiles(sources: readonly AllySource[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of sources) {
+    if (!seen.has(s.file_name)) {
+      seen.add(s.file_name);
+      out.push(s.file_name);
+    }
+  }
+  return out;
+}
+
+/** Sources grouped per file ("file — ¶1–16, ¶17–36") for the detail views
+ *  (thread viewer) where the passage locations genuinely matter. */
+export function groupSourcesByFile(
+  sources: readonly AllySource[],
+): { file: string; locations: string[] }[] {
+  const order: string[] = [];
+  const by = new Map<string, string[]>();
+  for (const s of sources) {
+    if (!by.has(s.file_name)) {
+      by.set(s.file_name, []);
+      order.push(s.file_name);
+    }
+    const locs = by.get(s.file_name)!;
+    if (!locs.includes(s.location)) locs.push(s.location);
+  }
+  return order.map((file) => ({ file, locations: by.get(file)! }));
+}
+
+/** Chunk-stream id prefix that routes into a card's `summary` instead of its
+ *  answer text (the Summarize action). */
+const SUMMARY_PREFIX = "sum:";
 
 interface AllyState {
   cards: AllyCard[];
@@ -46,6 +86,9 @@ interface AllyState {
     question?: string,
     source?: { key: string; quote: string },
   ) => Promise<void>;
+  /** Summarize an existing card's answer into its collapsible Summary
+   *  section (a second LLM pass streamed via a `sum:`-prefixed request). */
+  summarize: (cardId: string) => Promise<void>;
   applyChunk: (chunk: AllyChunkEvent) => void;
   applySources: (event: AllySourcesEvent) => void;
   applyRadar: (event: RadarEvent) => void;
@@ -84,6 +127,7 @@ export const useAllyStore = create<AllyState>((set, get) => ({
           startedAtMs: Date.now(),
           sourceKey: source?.key ?? null,
           sourceQuote: source?.quote ?? null,
+          summary: null,
         },
         ...s.cards.slice(0, 5),
       ],
@@ -106,7 +150,52 @@ export const useAllyStore = create<AllyState>((set, get) => ({
     }
   },
 
-  applyChunk: (chunk) =>
+  summarize: async (cardId) => {
+    if (get().busy) return;
+    const card = get().cards.find((c) => c.id === cardId);
+    if (!card || !card.text.trim()) return;
+    // "" (not null) = summarizing — the card shows the section immediately.
+    set((s) => ({
+      busy: true,
+      cards: s.cards.map((c) => (c.id === cardId ? { ...c, summary: "" } : c)),
+    }));
+    try {
+      await getBackend().ally.run(
+        `${SUMMARY_PREFIX}${cardId}`,
+        "question",
+        `Summarize the following answer as 2–3 short, plain-English bullet points a reader can scan mid-conversation. No preamble, no headings.\n\n${card.text}`,
+        [],
+      );
+    } catch (e) {
+      set((s) => ({
+        busy: false,
+        cards: s.cards.map((c) =>
+          c.id === cardId ? { ...c, summary: `Summary failed: ${String(e)}` } : c,
+        ),
+      }));
+    }
+  },
+
+  applyChunk: (chunk) => {
+    // A `sum:`-prefixed stream feeds the target card's Summary section.
+    if (chunk.request_id.startsWith(SUMMARY_PREFIX)) {
+      const target = chunk.request_id.slice(SUMMARY_PREFIX.length);
+      set((s) => ({
+        busy: chunk.done ? false : s.busy,
+        cards: s.cards.map((c) =>
+          c.id === target
+            ? {
+                ...c,
+                summary:
+                  chunk.error != null
+                    ? `Summary failed: ${chunk.error}`
+                    : (c.summary ?? "") + chunk.token,
+              }
+            : c,
+        ),
+      }));
+      return;
+    }
     set((s) => ({
       busy: chunk.done ? false : s.busy,
       cards: s.cards.map((c) =>
@@ -119,7 +208,8 @@ export const useAllyStore = create<AllyState>((set, get) => ({
             }
           : c,
       ),
-    })),
+    }));
+  },
 
   applySources: (event) =>
     set((s) => ({

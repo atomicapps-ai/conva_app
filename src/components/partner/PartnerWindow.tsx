@@ -4,7 +4,7 @@ import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import type { PartnerPayload } from "@/lib/ipc";
 import { useIpcBridge } from "@/lib/useIpcBridge";
-import { useAllyStore } from "@/state/ally";
+import { groupSourcesByFile, useAllyStore } from "@/state/ally";
 
 /**
  * The partner window's whole view (`?partner=1` — see `src/main.tsx` and
@@ -75,8 +75,11 @@ export function PartnerWindow() {
   };
 
   const answer = cards[0] ?? null;
+  // Clean citations (owner, 2026-08-22): one line per FILE, ¶ ranges grouped.
   const sources = answer
-    ? [...new Set(answer.sources.map((s) => `${s.file_name} · ${s.location}`))]
+    ? groupSourcesByFile(answer.sources).map(
+        (g) => `${g.file} — ${g.locations.join(", ")}`,
+      )
     : [];
 
   const submitAsk = () => {
