@@ -146,9 +146,18 @@ swap a layer without asking the owner.**
     (`src-tauri/src/partner.rs` + `PartnerWindow.tsx`, `?partner=1`) is a
     real, ordinary OS window for one term's deep-dive — draggable custom
     title bar, resizable, defaults docked flush to the app's right edge, ⇥
-    re-docks; gated on `capabilities().system.partnerWindow`. The tabs must
-    stay visible at every width; below 640px a tab tap opens the panel as an
-    overlay drawer. This supersedes the
+    re-docks; gated on `capabilities().system.partnerWindow`. **It IS the
+    viewer** (owner, 2026-08-22 — an earlier round left "Open in viewer" on
+    answer cards pointing at an internal drawer left over from before the
+    partner-window spec; every "open in viewer" affordance — the card's
+    expand icon, its right-click menu, the meta panel's thread rows — must
+    route to `openThread` in `TranscriptView.tsx`, which opens the partner
+    window on desktop (`PartnerPayload.answer`/`source_lines` carry the
+    already-answered card so it's shown directly, no re-research) and falls
+    back to the internal drawer ONLY when `partnerWindow` is unsupported
+    (web). Don't reintroduce a second internal "viewer" surface on desktop.
+    The tabs must stay visible at every width; below 640px a tab tap opens
+    the panel as an overlay drawer. This supersedes the
     2026-08-17 "buttons-not-tabs" dock decision — that dock is gone; the
     tab silhouette now IS the sanctioned pattern here, same as the nav
     rail. "Tab" in owner feedback means this exclusive pattern, never

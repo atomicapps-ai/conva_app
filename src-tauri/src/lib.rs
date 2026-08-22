@@ -1255,13 +1255,18 @@ fn hud_is_open(app: AppHandle) -> bool {
 // positioning must happen on the main thread.
 
 /// Open (or re-target) the partner window on a term. Docked to the main
-/// window's right edge on first open.
+/// window's right edge on first open. `answer`/`source_lines` set = an
+/// already-answered card ("Open in viewer" — owner, 2026-08-22: the viewer
+/// IS this window, shown directly, no re-research); unset = a fresh term
+/// from the Terms tab, which the window researches itself.
 #[tauri::command]
 fn open_partner(
     app: AppHandle,
     term: String,
     kind: Option<String>,
     preview: Option<String>,
+    answer: Option<String>,
+    source_lines: Vec<String>,
 ) -> Result<(), String> {
     partner::open(
         &app,
@@ -1269,6 +1274,8 @@ fn open_partner(
             term,
             kind,
             preview,
+            answer,
+            source_lines,
         },
     )
 }

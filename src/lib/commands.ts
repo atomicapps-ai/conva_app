@@ -468,8 +468,16 @@ export function openPartner(
   term: string,
   kind: string | null,
   preview: string | null,
+  answer: string | null = null,
+  sourceLines: string[] = [],
 ): Promise<void> {
-  return invoke("open_partner", { term, kind, preview });
+  return invoke("open_partner", {
+    term,
+    kind,
+    preview,
+    answer,
+    sourceLines,
+  });
 }
 
 /** Close and destroy the partner window. */
