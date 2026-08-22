@@ -851,6 +851,31 @@ fn activate_context(
         }
     }
 
+    // Second-stage backfill (owner, 2026-08-22): no key terms typed, no
+    // digest ever generated — but real documents ARE attached. Mine salient
+    // terms straight from those documents so "From your documents" is never
+    // empty for a grounded context with content. A later digest generation
+    // overwrites `glossary` with the real extracted set.
+    if session.glossary.is_empty() && session.key_terms.is_empty() {
+        let mut mined: Vec<String> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for doc_id in &session.source_doc_ids {
+            let Some(text) = state.rag.document_text(doc_id) else {
+                continue;
+            };
+            for term in conva_core::highlight::salient_doc_terms(&text, 8) {
+                if seen.insert(term.to_lowercase()) {
+                    mined.push(term);
+                }
+            }
+        }
+        if !mined.is_empty() {
+            mined.truncate(24);
+            session.glossary = mined;
+            let _ = simcon::save(&app, session.clone());
+        }
+    }
+
     // The profile's doc_ids (docs + any generated dossier) is the same
     // grounding scope rehearsal's persona prompt already uses. A context with
     // no profile yet (never prepared) activates with highlight terms only —
