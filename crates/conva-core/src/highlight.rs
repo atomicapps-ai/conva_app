@@ -500,3 +500,50 @@ mod tests {
         );
     }
 }
+
+/// Top salient terms OF a document itself — the Terms tab's "From your
+/// documents" fallback (owner, 2026-08-22): a grounded context whose owner
+/// never typed key terms and never generated a digest still has real
+/// documents attached, and those should surface words. Reuses the exact
+/// message-side scorer: the document's opening slice plays the "message",
+/// grounded against the full text, so entities, acronyms, and rare domain
+/// words win the slots.
+pub fn salient_doc_terms(doc_text: &str, limit: usize) -> Vec<String> {
+    // Char-boundary-safe opening slice (~4k chars) — enough to catch the
+    // document's own vocabulary without scoring a whole book.
+    let end = doc_text
+        .char_indices()
+        .nth(4_000)
+        .map(|(i, _)| i)
+        .unwrap_or(doc_text.len());
+    let ctx = HighlightContext::from_doc_text(doc_text);
+    let mut terms = relevant_terms(&doc_text[..end], &ctx);
+    terms.truncate(limit);
+    terms
+}
+
+#[cfg(test)]
+mod doc_terms_tests {
+    use super::salient_doc_terms;
+
+    #[test]
+    fn mines_entities_and_domain_words_from_a_document() {
+        let doc = "Amazon Leadership Principles interview prep. Focus areas: \
+                   DynamoDB partitioning, expand-and-contract schema migration, \
+                   idempotent retries, and P99 latency budgets. The STAR method \
+                   structures every answer. DynamoDB throttling is a classic probe.";
+        let terms = salient_doc_terms(doc, 8);
+        assert!(!terms.is_empty(), "no terms mined: {terms:?}");
+        assert!(terms.len() <= 8);
+        let lower: Vec<String> = terms.iter().map(|t| t.to_lowercase()).collect();
+        assert!(
+            lower.iter().any(|t| t.contains("dynamodb")),
+            "expected a domain entity in {terms:?}"
+        );
+    }
+
+    #[test]
+    fn empty_document_yields_nothing() {
+        assert!(salient_doc_terms("", 8).is_empty());
+    }
+}
