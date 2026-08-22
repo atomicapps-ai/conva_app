@@ -21,10 +21,13 @@
 //! resources — we never merely hide it). Re-opening while it exists just shows
 //! and re-pins the existing window rather than spawning a duplicate.
 //!
-//! Threading: every entry point here runs on the main thread. Tauri dispatches
-//! synchronous `#[tauri::command]` handlers on the main loop, and window
-//! creation / native handle mutation *must* happen there — so the commands in
-//! `lib.rs` that call into this module are deliberately non-`async`.
+//! Threading: [`open`] builds the webview here but must be called from an
+//! `async` command (`open_hud`/`toggle_hud` in `lib.rs`), NOT the main
+//! thread. `WebviewWindowBuilder::build()` deadlocks on Windows when called
+//! synchronously — see the detailed comment on `partner::open` and #82 for
+//! the full story (this was the cause of the HUD sharing the blank-window
+//! bug; fixed the same way, verified live). `close`/`is_open` don't build a
+//! window and stay sync.
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
@@ -60,6 +63,8 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         .resizable(true)
         // Do not take focus when it appears — the whole point of the panel.
         .focused(false)
+        // Debug builds only — see the matching comment in `partner.rs`.
+        .devtools(cfg!(debug_assertions))
         .build()
         .map_err(|e| e.to_string())?;
 

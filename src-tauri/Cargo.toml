@@ -21,7 +21,7 @@ tauri-build = { version = "2", features = [] }
 conva-core = { path = "../crates/conva-core" }
 # macos-private-api: required by `macOSPrivateApi: true` in tauri.conf.json,
 # which the transparent floating HUD window (src/hud.rs) needs on macOS.
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["macos-private-api", "devtools"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # Capture: cpal speaks WASAPI on Windows, including loopback (an input

@@ -1223,12 +1223,18 @@ async fn rag_sync_library(state: State<'_, AppState>) -> Result<String, String> 
 }
 
 // --- Floating HUD panel (src/hud.rs) ----------------------------------------
-// Synchronous handlers on purpose: Tauri runs them on the main thread, where
-// window creation and native-handle mutation must happen.
+// `open`/`toggle` are `async fn` — NOT a style choice. `WebviewWindowBuilder
+// ::build()` deadlocks on Windows when called from a synchronous command
+// (it self-blocks posting the controller-creation work back to "the main
+// thread," which is the thread it's already running on); Tauri dispatches
+// async commands on a worker thread instead, where that same call is the
+// documented, supported pattern. See #82 and the matching comment in
+// `partner.rs::open`. `close`/`is_open` never build a window, so they stay
+// sync.
 
 /// Open the floating HUD panel (or re-pin it if already open).
 #[tauri::command]
-fn open_hud(app: AppHandle) -> Result<(), String> {
+async fn open_hud(app: AppHandle) -> Result<(), String> {
     hud::open(&app)
 }
 
@@ -1240,7 +1246,7 @@ fn close_hud(app: AppHandle) -> Result<(), String> {
 
 /// Toggle the floating HUD panel. Returns the new state (`true` = now open).
 #[tauri::command]
-fn toggle_hud(app: AppHandle) -> Result<bool, String> {
+async fn toggle_hud(app: AppHandle) -> Result<bool, String> {
     hud::toggle(&app)
 }
 
@@ -1251,8 +1257,9 @@ fn hud_is_open(app: AppHandle) -> bool {
 }
 
 // --- Partner window (src/partner.rs) -----------------------------------------
-// Synchronous for the same reason as the HUD commands: window creation and
-// positioning must happen on the main thread.
+// `open_partner` is `async fn` for the same reason as the HUD commands
+// above — see that comment and #82. `close`/`redock`/`get_payload` never
+// build a window, so they stay sync.
 
 /// Open (or re-target) the partner window on a term. Docked to the main
 /// window's right edge on first open. `answer`/`source_lines` set = an
@@ -1260,7 +1267,7 @@ fn hud_is_open(app: AppHandle) -> bool {
 /// IS this window, shown directly, no re-research); unset = a fresh term
 /// from the Terms tab, which the window researches itself.
 #[tauri::command]
-fn open_partner(
+async fn open_partner(
     app: AppHandle,
     term: String,
     kind: Option<String>,

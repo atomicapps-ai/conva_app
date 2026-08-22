@@ -12,8 +12,17 @@
 //! an already-open window is updated via `events::PARTNER_TERM` instead of
 //! being rebuilt (no flicker, keeps the user's size/position).
 //!
-//! Threading: like `hud.rs`, every entry point runs on the main thread — the
-//! `#[tauri::command]` wrappers in `lib.rs` are deliberately non-`async`.
+//! Threading: `open` builds the webview here but is called from the `async`
+//! `open_partner` command in `lib.rs` — NOT the main thread. On Windows,
+//! `WebviewWindowBuilder::build()` deadlocks when invoked synchronously
+//! (from the main thread, inside the IPC callback that dispatches a sync
+//! command); dispatching it from an async command's worker thread instead
+//! is the documented fix (see #82, and the comment on `open` below — this
+//! was the actual cause of the blank-partner-window bug, now resolved).
+//! Native window/handle mutation still ends up on the main thread
+//! internally — `build()` (and `show`/`close`/etc.) marshal there
+//! themselves — the point is only that *this* code must not already be
+//! running on it.
 
 use std::sync::Mutex;
 
@@ -44,6 +53,27 @@ pub fn open(app: &AppHandle, payload: PartnerPayload) -> Result<(), String> {
         return Ok(());
     }
 
+    // ROOT CAUSE FOUND & FIXED (2026-08-21 — see #82): `WebviewWindowBuilder
+    // ::build()` deadlocks on Windows when called from a *synchronous* Tauri
+    // command — a documented WRY/WebView2 limitation (confirmed against
+    // tauri-apps/tauri#13963 and the official `WebviewWindowBuilder::new`
+    // docs: "On Windows, this function deadlocks when used in a synchronous
+    // command and event handlers... use async commands"). A sync command
+    // runs directly on the main thread inside the WebView2 IPC callback;
+    // `build()` internally posts the actual window/controller creation back
+    // to "the main thread" and blocks waiting for it — which is the thread
+    // it's already running on, so it can never unblock itself. The window
+    // shell still got created (native HWND creation isn't gated the same
+    // way), which is why title/size/position always looked correct — only
+    // the WebView2 controller's async setup, stuck behind the deadlock,
+    // never completed. Queuing the build via `run_on_main_thread` did NOT
+    // fix it (tried first, before the real cause was known) because it's the
+    // same self-deadlock relocated to a different tick, still running on the
+    // main thread. The actual fix lives in the caller: `open_partner`
+    // (lib.rs) is now `async fn`, which Tauri dispatches on a worker
+    // thread — `build()` calling back into the (idle) main thread from there
+    // is exactly the supported pattern. Verified live on Windows: both the
+    // partner window and the HUD (same bug, same fix) now render correctly.
     let builder = WebviewWindowBuilder::new(
         app,
         PARTNER_LABEL,
@@ -55,7 +85,10 @@ pub fn open(app: &AppHandle, payload: PartnerPayload) -> Result<(), String> {
     // Frameless: the view draws its own title bar (drag region + re-dock/
     // close), same convention as the main window's custom chrome.
     .decorations(false)
-    .resizable(true);
+    .resizable(true)
+    // Debug builds only — never shipped in release (see the `devtools`
+    // Cargo feature gate too).
+    .devtools(cfg!(debug_assertions));
 
     let builder = match dock_rect(app) {
         Some((x, y, h)) => builder.position(x, y).inner_size(PARTNER_WIDTH, h),
