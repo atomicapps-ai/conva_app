@@ -38,6 +38,11 @@ import {
   type TermChip,
 } from "@/components/transcript/terms";
 import { useCapabilities } from "@/lib/backend/context";
+import {
+  useTranscriptStability,
+  type StabilityUnit,
+} from "@/components/transcript/useTranscriptStability";
+import { ScrambleText } from "@/components/transcript/ScrambleText";
 
 // Stable reference so a Zustand selector reading `capture?.captures` never
 // hands React a "new" empty array on every render before the first
@@ -338,7 +343,7 @@ function HighlightedText({
           const r = e.currentTarget.getBoundingClientRect();
           setMenu({ term: word, x: r.left, y: r.top });
         }}
-        className="rounded-[3px] bg-ai/15 px-0.5 font-semibold text-ai underline decoration-ai/50 decoration-dotted underline-offset-2 hover:bg-ai/25 hover:decoration-ai"
+        className="font-semibold text-ai underline decoration-2 underline-offset-2 hover:decoration-ai"
       >
         {word}
       </button>,
@@ -641,7 +646,10 @@ function FlowText({
   onAskFaner,
   onSendToAsk,
 }: {
-  units: string[];
+  /** Stability-aware units (F13) — one per finalized segment in this turn,
+   *  from `useTranscriptStability`. `diff` is non-null only for the rare
+   *  case where the true final text corrected what was last shown. */
+  units: StabilityUnit[];
   terms: string[];
   /** FANER captures to mark inline (F11) — filtered/matched per-unit by
    *  `FanerAwareText`, not here. */
@@ -653,29 +661,28 @@ function FlowText({
 }) {
   return (
     <span className="leading-snug">
-      {units.map((unit, i) => (
+      {units.map((unit) => (
         <span
-          key={i}
+          key={unit.key}
           className="group/u rounded-[3px] px-0.5 transition-colors hover:bg-ai/10"
         >
-          {i > 0 && (
-            <span className="mx-1 font-bold text-ai/70 select-none" aria-hidden>
-              |
-            </span>
+          {unit.diff ? (
+            <ScrambleText words={unit.diff} />
+          ) : (
+            <FanerAwareText
+              text={unit.text}
+              captures={captures}
+              terms={terms}
+              onAskTerm={onAskTerm}
+              onAskFaner={onAskFaner}
+              onSendToAsk={onSendToAsk}
+            />
           )}
-          <FanerAwareText
-            text={unit}
-            captures={captures}
-            terms={terms}
-            onAskTerm={onAskTerm}
-            onAskFaner={onAskFaner}
-            onSendToAsk={onSendToAsk}
-          />
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onAskText(unit);
+              onAskText(unit.text);
             }}
             title="Ask Ally about this"
             aria-label="Ask Ally about this sentence"
@@ -756,12 +763,8 @@ function Bubble({
   const finals = segments.filter((s) => s.is_final);
   const hasFinal = finals.length > 0;
   const firstFinal = finals[0];
-  const units = finals.map((s) => s.text.trim()).filter(Boolean);
-  const combinedText = units.join(" ");
-  const partialTail = segments
-    .filter((s) => !s.is_final && s.text.trim())
-    .map((s) => s.text.trim())
-    .join(" ");
+  const { finalUnits, liveConfirmed, liveTentative } = useTranscriptStability(segments);
+  const combinedText = finalUnits.map((u) => u.text).join(" ");
 
   // RAG-grounded highlight terms for the whole turn (best-effort). Detected
   // terms are also reported to the live-terms store so the Terms tab lists
@@ -948,9 +951,9 @@ function Bubble({
           <CollapsedPreview text={combinedText} onExpand={onToggleCollapse} />
         ) : (
           <div className="min-w-0">
-            {units.length > 0 && (
+            {finalUnits.length > 0 && (
               <FlowText
-                units={units}
+                units={finalUnits}
                 terms={highlightTerms}
                 captures={captures}
                 onAskText={onAskText}
@@ -959,13 +962,23 @@ function Bubble({
                 onSendToAsk={onSendToAsk}
               />
             )}
-            {partialTail && (
-              <span className="text-fg-muted">
-                {units.length > 0 ? " " : ""}
-                {partialTail}…
+            {/* The confirmed part of an in-flight segment reads as normal
+                text — it already survived two independent decode passes
+                (LocalAgreement-2) — only the short unconfirmed tail past it
+                is muted/tentative (F13). */}
+            {liveConfirmed && (
+              <span>
+                {finalUnits.length > 0 ? " " : ""}
+                {liveConfirmed}
               </span>
             )}
-            {units.length === 0 && !partialTail && (
+            {liveTentative && (
+              <span className="text-fg-muted">
+                {finalUnits.length > 0 || liveConfirmed ? " " : ""}
+                {liveTentative}…
+              </span>
+            )}
+            {finalUnits.length === 0 && !liveConfirmed && !liveTentative && (
               <span className="text-fg-muted">…</span>
             )}
             {/* Time — the last item, right after the words; hover = full date. */}
@@ -1573,6 +1586,10 @@ function AllyPanel({
   const backend = useBackend();
   const activeId = useGroundingStore((s) => s.activeId);
   const activeTitle = useGroundingStore((s) => s.activeTitle);
+  // Re-activating the SAME context bumps only the nonce — the reload below
+  // must key on it too, or a re-ground (which may have just backfilled the
+  // context's glossary backend-side) leaves this panel showing stale terms.
+  const activationNonce = useGroundingStore((s) => s.activationNonce);
   const [groundingDocs, setGroundingDocs] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -1601,7 +1618,7 @@ function AllyPanel({
     return () => {
       alive = false;
     };
-  }, [activeId, backend]);
+  }, [activeId, activationNonce, backend]);
 
   // Terms tab: words-only chips, info on click (owner, 2026-08-21 —
   // "Live Cockpit Tabs" canvas V3). "Detected" = FANER captures + every

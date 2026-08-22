@@ -31,3 +31,4 @@ Thumbs.db
 
 # Tauri generated artifacts
 src-tauri/gen/
+.superpowers/

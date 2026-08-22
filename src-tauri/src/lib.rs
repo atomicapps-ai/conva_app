@@ -378,7 +378,22 @@ fn rag_list(state: State<AppState>) -> Vec<RagDocument> {
 /// elaborate) on. Empty when the library is empty or nothing overlaps.
 #[tauri::command]
 fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<String> {
-    let chunks = state.rag.retrieve(&text, 4);
+    // With a context active, its own documents are the relevance prior — an
+    // "Amazon interview" context's AWS docs should drive what gets underlined,
+    // not whatever else happens to live in the library (owner, 2026-08-21:
+    // grounded context missed "API Gateway"/"Lambda"). No active scope (or a
+    // never-prepared context with no profile docs) falls back to the whole
+    // library, exactly as before.
+    let scope = state
+        .active_context_doc_ids
+        .lock()
+        .expect("ctx lock")
+        .clone();
+    let chunks = if scope.is_empty() {
+        state.rag.retrieve(&text, 4)
+    } else {
+        state.rag.retrieve_scoped(&text, 4, &scope)
+    };
     if chunks.is_empty() {
         return Vec::new();
     }
@@ -811,7 +826,30 @@ fn activate_context(
     state: State<AppState>,
     id: String,
 ) -> Result<SimConSession, String> {
-    let session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+    let mut session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+
+    // Backfill: a context that became "ready" before glossary harvesting
+    // existed (or whose digest section didn't parse at the time) carries an
+    // empty glossary forever, because the picker's ready fast-path activates
+    // without regenerating anything — the "From your documents list is empty
+    // even though the context has compiled intelligence" bug (owner,
+    // 2026-08-21). If a dossier exists, re-extract its glossary now and
+    // persist it; the terms also flow into this activation below either way.
+    if session.glossary.is_empty() {
+        if let Some(text) = session
+            .dossier_doc_id
+            .as_deref()
+            .and_then(|doc_id| state.rag.document_text(doc_id))
+        {
+            let glossary = conva_core::simcon::extract_glossary(&text);
+            if !glossary.is_empty() {
+                session.glossary = glossary;
+                // Best-effort persist — activation still proceeds with the
+                // in-memory terms if the save fails.
+                let _ = simcon::save(&app, session.clone());
+            }
+        }
+    }
 
     // The profile's doc_ids (docs + any generated dossier) is the same
     // grounding scope rehearsal's persona prompt already uses. A context with
