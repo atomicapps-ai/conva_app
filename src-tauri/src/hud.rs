@@ -60,6 +60,8 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
         .resizable(true)
         // Do not take focus when it appears — the whole point of the panel.
         .focused(false)
+        // Debug builds only — see the matching comment in `partner.rs`.
+        .devtools(cfg!(debug_assertions))
         .build()
         .map_err(|e| e.to_string())?;
 

@@ -44,25 +44,54 @@ pub fn open(app: &AppHandle, payload: PartnerPayload) -> Result<(), String> {
         return Ok(());
     }
 
-    let builder = WebviewWindowBuilder::new(
-        app,
-        PARTNER_LABEL,
-        WebviewUrl::App("index.html?partner=1".into()),
-    )
-    .title("conva — Ally")
-    .inner_size(PARTNER_WIDTH, 720.0)
-    .min_inner_size(320.0, 360.0)
-    // Frameless: the view draws its own title bar (drag region + re-dock/
-    // close), same convention as the main window's custom chrome.
-    .decorations(false)
-    .resizable(true);
+    // KNOWN ISSUE (owner report, 2026-08-21 — still open): the partner window
+    // opens at the right title/size/dock position but its content area stays
+    // solid white forever — no paint, no input, not even a right-click
+    // context menu with `.devtools(true)` wired up (below), across a
+    // decorated *and* a frameless build. That rules out a JS/CSS crash (the
+    // identical bundle, hit directly in a browser at the same dev-server URL
+    // the app uses, renders correctly) and rules out the window itself
+    // failing to construct (title/size/position are all correct — this is
+    // Rust-level window creation succeeding). The WebView2 content control
+    // for this second window appears to never attach at all. Root cause is
+    // still unconfirmed; a live COM-apartment/threading conflict from this
+    // app's other native Windows usage (cpal/WASAPI, whisper GPU) on the
+    // main thread is the leading suspect, but unverified.
+    //
+    // `run_on_main_thread` below defers the actual build off the current
+    // call stack — `open_partner` (lib.rs) is a synchronous
+    // `#[tauri::command]`, so without this it runs nested inside the main
+    // window's own webview dispatching the IPC call. That nesting is a
+    // real hazard on its own (tried and kept as a hardening step), but it
+    // did NOT resolve the blank-window symptom above when tested live.
+    let app = app.clone();
+    app.clone()
+        .run_on_main_thread(move || {
+            let builder = WebviewWindowBuilder::new(
+                &app,
+                PARTNER_LABEL,
+                WebviewUrl::App("index.html?partner=1".into()),
+            )
+            .title("conva — Ally")
+            .inner_size(PARTNER_WIDTH, 720.0)
+            .min_inner_size(320.0, 360.0)
+            // Frameless: the view draws its own title bar (drag region + re-dock/
+            // close), same convention as the main window's custom chrome.
+            .decorations(false)
+            .resizable(true)
+            // Debug builds only — never shipped in release (see the `devtools`
+            // Cargo feature gate too).
+            .devtools(cfg!(debug_assertions));
 
-    let builder = match dock_rect(app) {
-        Some((x, y, h)) => builder.position(x, y).inner_size(PARTNER_WIDTH, h),
-        None => builder,
-    };
-    builder.build().map_err(|e| e.to_string())?;
-    Ok(())
+            let builder = match dock_rect(&app) {
+                Some((x, y, h)) => builder.position(x, y).inner_size(PARTNER_WIDTH, h),
+                None => builder,
+            };
+            if let Err(e) = builder.build() {
+                eprintln!("[partner] failed to build window: {e}");
+            }
+        })
+        .map_err(|e| e.to_string())
 }
 
 /// Snap the (open) partner window back flush to the main window's right edge,
