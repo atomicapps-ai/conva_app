@@ -1,19 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { derivePartnerAnswer } from "@/components/partner/deriveAnswer";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import type { PartnerPayload } from "@/lib/ipc";
 import { useIpcBridge } from "@/lib/useIpcBridge";
-import { groupSourcesByFile, useAllyStore } from "@/state/ally";
+import { useAllyStore } from "@/state/ally";
 
 /**
  * The partner window's whole view (`?partner=1` — see `src/main.tsx` and
- * `src-tauri/src/partner.rs`). A large reading surface for one term: its
- * FANER preview (when it came from a capture) plus a full Ally answer
- * requested on arrival, streamed via this window's own ally store (the
- * `conva://*` events are emitted app-wide, so the bridge works per-window).
- * The custom title bar is the drag region; ⇥ re-docks flush to the app's
- * right edge; the window is an ordinary resizable OS window, not a HUD.
+ * `src-tauri/src/partner.rs`). THE viewer (owner, 2026-08-22): a real OS
+ * window, docked to the app's right edge by default, not an internal
+ * drawer — every "open in viewer" affordance in the main window routes
+ * here. Two ways in:
+ *  - **A fresh term** (Terms tab chip, no `answer` in the payload) — the
+ *    window researches it itself via a full Ally pass.
+ *  - **An already-answered card** ("Open in viewer" on a card — `answer` +
+ *    `source_lines` set) — shown directly, no redundant research.
+ * Either way, a follow-up asked in the window's own Ask field streams
+ * through this window's own ally store (the `conva://*` events are emitted
+ * app-wide, so the bridge works per-window) and takes over the display —
+ * asking something new means show the new thing. The custom title bar is
+ * the drag region; ⇥ re-docks; the window is ordinary and resizable, not a
+ * HUD.
  */
 export function PartnerWindow() {
   useIpcBridge();
@@ -24,15 +33,19 @@ export function PartnerWindow() {
   const request = useAllyStore((s) => s.request);
   const clearAlly = useAllyStore((s) => s.clear);
   const [ask, setAsk] = useState("");
-  // The term we already researched — a re-delivered payload for the same term
-  // (window refocus, double-click) must not re-ask.
-  const askedFor = useRef<string | null>(null);
+  // Guards a redundant redelivery of the identical payload (e.g. window
+  // refocus) from clearing an in-progress follow-up conversation. Keyed on
+  // term + answer so a genuinely new payload (different term, or the same
+  // term reopened with a fresh answer) always resets.
+  const openedFor = useRef<string | null>(null);
 
-  const research = useCallback(
+  const openPayload = useCallback(
     (p: PartnerPayload) => {
-      if (askedFor.current === p.term) return;
-      askedFor.current = p.term;
+      const signature = `${p.term}::${p.answer ?? ""}`;
+      if (openedFor.current === signature) return;
+      openedFor.current = signature;
       clearAlly();
+      if (p.answer !== null) return; // Already-answered card — nothing to fetch.
       const context = p.preview ? ` Known so far: ${p.preview}` : "";
       void request(
         "question",
@@ -48,13 +61,13 @@ export function PartnerWindow() {
     void backend.partner.payload().then((p) => {
       if (alive && p) {
         setPayload(p);
-        research(p);
+        openPayload(p);
       }
     });
     let unsub: (() => void) | undefined;
     void backend.subscribe("partnerTerm", (p) => {
       setPayload(p);
-      research(p);
+      openPayload(p);
     }).then((un) => {
       if (alive) unsub = un;
       else un();
@@ -63,7 +76,7 @@ export function PartnerWindow() {
       alive = false;
       unsub?.();
     };
-  }, [backend, research]);
+  }, [backend, openPayload]);
 
   const close = async () => {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -74,19 +87,21 @@ export function PartnerWindow() {
     await getCurrentWindow().minimize();
   };
 
-  const answer = cards[0] ?? null;
-  // Clean citations (owner, 2026-08-22): one line per FILE, ¶ ranges grouped.
-  const sources = answer
-    ? groupSourcesByFile(answer.sources).map(
-        (g) => `${g.file} — ${g.locations.join(", ")}`,
-      )
-    : [];
+  // A follow-up asked in THIS window takes over the display once it exists;
+  // otherwise fall back to the payload's already-answered content (if any).
+  const liveCard = cards[0] ?? null;
+  const {
+    heading: answerHeading,
+    text: answerText,
+    error: answerError,
+    sources,
+  } = derivePartnerAnswer(payload, liveCard);
 
   const submitAsk = () => {
     const q = ask.trim();
     if (!q || !payload) return;
     setAsk("");
-    askedFor.current = `${payload.term}::${q}`;
+    openedFor.current = `ask::${payload.term}::${q}`;
     void request("question", `About "${payload.term}": ${q}`);
   };
 
@@ -162,13 +177,13 @@ export function PartnerWindow() {
 
             <div className="rounded-[var(--radius)] border border-border bg-bg-2 p-3">
               <h4 className="mb-1.5 font-mono text-[10px] font-bold tracking-[0.14em] text-fg-muted">
-                FETCHED INFO
+                {answerHeading}
               </h4>
-              {answer?.error ? (
-                <p className="text-[12.5px] text-rec">{answer.error}</p>
+              {answerError ? (
+                <p className="text-[12.5px] text-rec">{answerError}</p>
               ) : (
                 <p className="whitespace-pre-line text-[12.5px] leading-relaxed text-fg-muted">
-                  {answer?.text || (busy ? "Researching…" : "…")}
+                  {answerText || (busy ? "Researching…" : "…")}
                 </p>
               )}
             </div>

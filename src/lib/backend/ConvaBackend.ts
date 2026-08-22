@@ -251,7 +251,13 @@ export interface ConvaBackend {
    *  for one term/answer, docked to the app's right edge by default.
    *  Desktop-only (Layer 4); gate on `capabilities().system.partnerWindow`. */
   partner: {
-    open(term: string, kind: string | null, preview: string | null): Promise<void>;
+    open(
+      term: string,
+      kind: string | null,
+      preview: string | null,
+      answer?: string | null,
+      sourceLines?: string[],
+    ): Promise<void>;
     close(): Promise<void>;
     redock(): Promise<void>;
     payload(): Promise<PartnerPayload | null>;

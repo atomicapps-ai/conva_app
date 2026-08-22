@@ -2125,6 +2125,11 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
  * gaps found along the way (Pause/mic-mute/Ally-mute have no backend yet).
  */
 export function TranscriptView() {
+  const backend = useBackend();
+  // Gates whether "open in viewer" launches the partner window (desktop —
+  // the specced viewer) or falls back to the internal drawer (web, where no
+  // OS window can be spawned).
+  const caps = useCapabilities();
   const liveSegments = useTranscriptStore((s) => s.segments);
   const levels = useTranscriptStore((s) => s.levels);
   const archived = useTranscriptStore((s) => s.archived);
@@ -2194,7 +2199,10 @@ export function TranscriptView() {
     });
   }, []);
 
-  // The card currently open in the large detail drawer (V4.0 §7).
+  // The card open in the internal detail drawer — the WEB fallback only
+  // (owner, 2026-08-22: the viewer IS the partner window on desktop; this
+  // stays as the honest-degraded-state surface where no OS window can be
+  // spawned, per capabilities().system.partnerWindow).
   const [viewerCardId, setViewerCardId] = useState<string | null>(null);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -2389,12 +2397,14 @@ export function TranscriptView() {
     else cardEls.current.delete(id);
   }, []);
 
-  /** Open the viewer on `card`, flash + scroll to its card in the Ally
-   *  answers column (when the column is inline; below 640px there's no card
-   *  element and the viewer alone carries the answer). */
+  /** Open the viewer on `card` — the partner window on desktop (owner,
+   *  2026-08-22: THE viewer is that external, dockable OS window, not an
+   *  internal drawer; every "open in viewer" affordance funnels here), the
+   *  internal drawer as the web fallback where no OS window can be
+   *  spawned. Either way, flash + scroll to the card in the Ally answers
+   *  column so its place in the conversation stays visible. */
   const openThread = useCallback(
     (card: AllyCard) => {
-      setViewerCardId(card.id);
       setPanelTab("details");
       flashToken.current += 1;
       setFlash({ key: card.id, token: flashToken.current });
@@ -2404,15 +2414,26 @@ export function TranscriptView() {
         if (card.sourceKey) n.delete(card.sourceKey);
         return n;
       });
-      if (drawer) setDrawerOpen(true);
       allyScroll.setPinned(false);
       requestAnimationFrame(() => {
         const el = cardEls.current.get(card.id);
         if (el && allyScroll.ref.current)
           centerInScroller(allyScroll.ref.current, el);
       });
+
+      if (caps?.system.partnerWindow) {
+        const { answer: sayText } = splitReasoning(card.text);
+        const term = card.sourceQuote || card.question || cardLabel(card);
+        const sourceLines = groupSourcesByFile(card.sources).map(
+          (g) => `${g.file} — ${g.locations.join(", ")}`,
+        );
+        void backend.partner.open(term, card.kind, null, sayText || card.text, sourceLines);
+        return;
+      }
+      setViewerCardId(card.id);
+      if (drawer) setDrawerOpen(true);
     },
-    [allyScroll, drawer],
+    [allyScroll, backend, caps, drawer],
   );
 
   const jumpToLive = useCallback(() => {

@@ -208,6 +208,12 @@ export interface PartnerPayload {
   term: string;
   kind: string | null;
   preview: string | null;
+  /** An already-answered card's text ("Open in viewer" — owner, 2026-08-22:
+   *  the viewer IS the partner window). `null` = a fresh term, researched
+   *  by the window itself. */
+  answer: string | null;
+  /** Already-grouped "file — ¶loc, ¶loc" citation lines for `answer`. */
+  source_lines: string[];
 }
 
 export interface SessionSummary {

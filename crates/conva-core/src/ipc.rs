@@ -127,6 +127,14 @@ pub struct PartnerPayload {
     pub kind: Option<String>,
     /// The capture's short preview/definition, when available.
     pub preview: Option<String>,
+    /// An already-answered Ally card's text, when the partner window was
+    /// opened via "Open in viewer" on an existing card (owner, 2026-08-22:
+    /// the viewer IS the partner window, not an internal drawer) — the
+    /// window shows this directly instead of re-researching the term.
+    /// `None` for a fresh term opened from the Terms tab, which researches.
+    pub answer: Option<String>,
+    /// Already-grouped "file — ¶loc, ¶loc" citation lines for `answer`.
+    pub source_lines: Vec<String>,
 }
 
 /// Live Sim Con rehearsal phase (Phase E) — drives the "who's talking" UI
