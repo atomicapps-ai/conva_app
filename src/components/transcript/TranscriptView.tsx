@@ -22,7 +22,12 @@ import {
   type FanerHit,
 } from "@/lib/faner";
 import { useAppStore } from "@/state/app";
-import { useAllyStore, type AllyCard } from "@/state/ally";
+import {
+  groupSourcesByFile,
+  uniqueSourceFiles,
+  useAllyStore,
+  type AllyCard,
+} from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
 import { MAX_TERM_LEN, useLiveTermsStore } from "@/state/liveTerms";
 import { useRehearsalStore } from "@/state/rehearsal";
@@ -1053,9 +1058,7 @@ function ThreadViewer({
   const label = cardLabel(card);
   const { answer, context } = splitReasoning(card.text);
   const sayText = answer || card.text;
-  const sources = [
-    ...new Set(card.sources.map((s) => `${s.file_name} · ${s.location}`)),
-  ];
+  const sourceGroups = groupSourcesByFile(card.sources);
   const rephrase = () =>
     onRequest(
       "question",
@@ -1116,7 +1119,7 @@ function ThreadViewer({
           )}
         </div>
 
-        {(card.sourceQuote || sources.length > 0) && (
+        {(card.sourceQuote || sourceGroups.length > 0) && (
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-faint">
               Grounding
@@ -1126,8 +1129,15 @@ function ThreadViewer({
                 “{card.sourceQuote}”
               </p>
             )}
-            {sources.length > 0 && (
-              <p className="mt-1.5 text-[12px] text-fg-faint">{sources.join(" · ")}</p>
+            {sourceGroups.length > 0 && (
+              <div className="mt-1.5 flex flex-col gap-0.5">
+                {sourceGroups.map((g) => (
+                  <p key={g.file} className="text-[12px] text-fg-faint">
+                    {g.file}
+                    <span className="text-fg-faint/70"> — {g.locations.join(", ")}</span>
+                  </p>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -1196,6 +1206,7 @@ function AllyAnswerCard({
   onOpenViewer,
   onContextMenu,
   onRequest,
+  onSummarize,
   fontPx,
 }: {
   card: AllyCard;
@@ -1210,6 +1221,7 @@ function AllyAnswerCard({
     question?: string,
     source?: { key: string; quote: string },
   ) => void;
+  onSummarize: () => void;
   fontPx: number;
 }) {
   const label = cardLabel(card);
@@ -1217,9 +1229,13 @@ function AllyAnswerCard({
   const eyebrow = suggest ? "Say this" : label;
   const { answer, context } = splitReasoning(card.text);
   const sayText = answer || card.text;
-  const sources = [
-    ...new Set(card.sources.map((s) => `${s.file_name} · ${s.location}`)),
-  ];
+  // Clean citation line (owner, 2026-08-22): unique FILE names only — the
+  // per-chunk ¶ ranges live in the thread viewer, not on the card.
+  const sourceFiles = uniqueSourceFiles(card.sources);
+  const sourceDetail = groupSourcesByFile(card.sources)
+    .map((g) => `${g.file} — ${g.locations.join(", ")}`)
+    .join("\n");
+  const [summaryOpen, setSummaryOpen] = useState(true);
   const rephrase = () =>
     onRequest(
       "question",
@@ -1303,6 +1319,33 @@ function AllyAnswerCard({
           className="mt-2 flex flex-col gap-2 text-fg leading-relaxed"
           style={{ fontSize: `${fontPx}px` }}
         >
+          {/* Collapsible Summary — sits at the TOP of the card once the
+              Summarize action has run (owner, 2026-08-22). */}
+          {card.summary !== null && (
+            <div className="rounded-[4px] border border-ai/30 bg-ai/[0.05]">
+              <button
+                type="button"
+                onClick={() => setSummaryOpen((o) => !o)}
+                aria-expanded={summaryOpen}
+                className="flex w-full items-center gap-2 px-2.5 py-1.5"
+              >
+                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-ai">
+                  Summary
+                </span>
+                <Icon
+                  name="chevron"
+                  size={12}
+                  className={`ml-auto text-fg-faint transition-transform ${summaryOpen ? "rotate-90" : ""}`}
+                />
+              </button>
+              {summaryOpen && (
+                <p className="whitespace-pre-line px-2.5 pb-2 text-[0.92em] leading-relaxed text-fg">
+                  {card.summary || "Summarizing…"}
+                </p>
+              )}
+            </div>
+          )}
+
           {card.error ? (
             <p className="text-[13px] text-rec">{card.error}</p>
           ) : card.text ? (
@@ -1314,10 +1357,15 @@ function AllyAnswerCard({
             <p className="text-[13px] text-fg-muted">…</p>
           )}
 
-          {sources.length > 0 && (
-            <p className="flex items-center gap-1.5 font-mono text-[10.5px] text-fg-faint">
+          {sourceFiles.length > 0 && (
+            <p
+              title={sourceDetail}
+              className="flex items-center gap-1.5 font-mono text-[10.5px] text-fg-faint"
+            >
               <Icon name="file" size={12} className="text-ai" />
-              {sources.join(" · ")}
+              <span className="min-w-0 truncate">
+                Grounded in {sourceFiles.join(" · ")}
+              </span>
             </p>
           )}
 
@@ -1351,6 +1399,16 @@ function AllyAnswerCard({
               >
                 Research this line
               </button>
+              {card.summary === null && (
+                <button
+                  type="button"
+                  onClick={onSummarize}
+                  title="Condense this answer into a scannable summary at the top of the card"
+                  className="rounded-full border border-border-strong px-3 py-1 text-[11.5px] font-medium text-fg-muted transition hover:text-fg"
+                >
+                  Summarize
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -2074,6 +2132,7 @@ export function TranscriptView() {
   const cards = useAllyStore((s) => s.cards);
   const busy = useAllyStore((s) => s.busy);
   const request = useAllyStore((s) => s.request);
+  const summarizeCard = useAllyStore((s) => s.summarize);
   const clearAlly = useAllyStore((s) => s.clear);
   // FANER's routed captures for this session (F11) — matched against each
   // bubble's text by `FanerAwareText`/`FlowText`.
@@ -2850,6 +2909,7 @@ export function TranscriptView() {
                     onRequest={(kind, question, source) =>
                       void request(kind, question, source)
                     }
+                    onSummarize={() => void summarizeCard(c.id)}
                     fontPx={allyFontPx}
                   />
                 ))
