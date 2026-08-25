@@ -5,7 +5,7 @@ import {
   removeEntry,
   toggleExpanded,
   type ViewEntry,
-} from "@/components/transcript/viewHistory";
+} from "@/components/transcript/viewEntries";
 import type { FoundItem } from "@/components/transcript/foundGroups";
 
 function item(id: string): FoundItem {

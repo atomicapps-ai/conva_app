@@ -49,7 +49,7 @@ import {
   removeEntry,
   toggleExpanded,
   type ViewEntry,
-} from "@/components/transcript/viewHistory";
+} from "@/components/transcript/viewEntries";
 import { FoundList } from "@/components/transcript/FoundList";
 import { ViewHistory } from "@/components/transcript/ViewHistory";
 import { useCapabilities } from "@/lib/backend/context";

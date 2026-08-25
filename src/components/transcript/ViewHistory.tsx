@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import type { ViewEntry } from "@/components/transcript/viewHistory";
+import type { ViewEntry } from "@/components/transcript/viewEntries";
 import { Icon } from "@/components/ui/Icon";
 
 /**
