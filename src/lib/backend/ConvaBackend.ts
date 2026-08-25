@@ -261,5 +261,9 @@ export interface ConvaBackend {
     close(): Promise<void>;
     redock(): Promise<void>;
     payload(): Promise<PartnerPayload | null>;
+    /** Lock (follow the app) / unlock (float free). Desktop-only. */
+    setLocked(locked: boolean): Promise<void>;
+    /** Current lock state; `false` where the window doesn't exist (web). */
+    locked(): Promise<boolean>;
   };
 }

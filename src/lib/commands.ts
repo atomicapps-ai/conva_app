@@ -494,3 +494,15 @@ export function redockPartner(): Promise<void> {
 export function getPartnerPayload(): Promise<PartnerPayload | null> {
   return invoke<PartnerPayload | null>("get_partner_payload");
 }
+
+/** Lock (follow the main window, snapping flush to its right edge) or
+ *  unlock (float free) the partner window. Locking keeps the window's
+ *  current size — only position follows. */
+export function setPartnerLocked(locked: boolean): Promise<void> {
+  return invoke("set_partner_locked", { locked });
+}
+
+/** Whether the partner window is currently locked to the main window. */
+export function getPartnerLocked(): Promise<boolean> {
+  return invoke<boolean>("get_partner_locked");
+}

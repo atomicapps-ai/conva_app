@@ -20,6 +20,7 @@ export const EVENTS = {
   capture: "conva://capture",
   authChanged: "conva://auth-changed",
   partnerTerm: "conva://partner-term",
+  partnerLock: "conva://partner-lock",
 } as const;
 
 export interface TranscriptSegment {
@@ -214,6 +215,12 @@ export interface PartnerPayload {
   answer: string | null;
   /** Already-grouped "file — ¶loc, ¶loc" citation lines for `answer`. */
   source_lines: string[];
+}
+
+/** Mirror of `ipc.rs::PartnerLockEvent` — sent when the shell changes the
+ *  partner window's lock-to-app state (e.g. a manual drag released it). */
+export interface PartnerLockEvent {
+  locked: boolean;
 }
 
 export interface SessionSummary {

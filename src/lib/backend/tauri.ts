@@ -155,5 +155,7 @@ export class TauriBackend implements ConvaBackend {
     close: cmd.closePartner,
     redock: cmd.redockPartner,
     payload: cmd.getPartnerPayload,
+    setLocked: cmd.setPartnerLocked,
+    locked: cmd.getPartnerLocked,
   };
 }
