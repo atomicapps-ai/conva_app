@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { derivePartnerAnswer } from "@/components/partner/deriveAnswer";
+import {
+  addOrFocus,
+  closeTab,
+  itemTab,
+  tabLabel,
+  type PartnerTab,
+} from "@/components/partner/partnerTabs";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
-import type { PartnerPayload } from "@/lib/ipc";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAllyStore } from "@/state/ally";
 
@@ -12,71 +18,66 @@ import { useAllyStore } from "@/state/ally";
  * `src-tauri/src/partner.rs`). THE viewer (owner, 2026-08-22): a real OS
  * window, docked to the app's right edge by default, not an internal
  * drawer — every "open in viewer" affordance in the main window routes
- * here. Two ways in:
- *  - **A fresh term** (Terms tab chip, no `answer` in the payload) — the
- *    window researches it itself via a full Ally pass.
- *  - **An already-answered card** ("Open in viewer" on a card — `answer` +
- *    `source_lines` set) — shown directly, no redundant research.
- * Either way, a follow-up asked in the window's own Ask field streams
- * through this window's own ally store (the `conva://*` events are emitted
- * app-wide, so the bridge works per-window) and takes over the display —
- * asking something new means show the new thing. The custom title bar is
- * the drag region; ⇥ re-docks; the window is ordinary and resizable, not a
- * HUD.
+ * here. Every delivery becomes a TAB (spec §4.1) — opening a second item
+ * keeps the first; re-opening an item focuses its existing tab. Each tab's
+ * research/follow-ups are tagged `partner::<tabKey>` via the ally request's
+ * `source` param, so per-tab content is a filter over this window's own
+ * ally store (each webview has its own store instance; `conva://*` events
+ * are emitted app-wide).
  */
 export function PartnerWindow() {
   useIpcBridge();
   const backend = useBackend();
-  const [payload, setPayload] = useState<PartnerPayload | null>(null);
+  const [tabs, setTabs] = useState<PartnerTab[]>([]);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const cards = useAllyStore((s) => s.cards);
   const busy = useAllyStore((s) => s.busy);
-  const request = useAllyStore((s) => s.request);
-  const clearAlly = useAllyStore((s) => s.clear);
   const [ask, setAsk] = useState("");
-  // Guards a redundant redelivery of the identical payload (e.g. window
-  // refocus) from clearing an in-progress follow-up conversation. Keyed on
-  // term + answer so a genuinely new payload (different term, or the same
-  // term reopened with a fresh answer) always resets.
-  const openedFor = useRef<string | null>(null);
 
-  const openPayload = useCallback(
-    (p: PartnerPayload) => {
-      const signature = `${p.term}::${p.answer ?? ""}`;
-      if (openedFor.current === signature) return;
-      openedFor.current = signature;
-      clearAlly();
-      if (p.answer !== null) return; // Already-answered card — nothing to fetch.
-      const context = p.preview ? ` Known so far: ${p.preview}` : "";
-      void request(
-        "question",
-        `Research "${p.term}" in depth for this conversation: a concise definition, the standard approaches or fixes, and how it connects to my material.${context}`,
-      );
+  /** Kick off the tab's research if it's a fresh term with no answer yet —
+   *  on first open, and again on focus (heals a cap-evicted answer). */
+  const ensureResearched = useCallback((tab: PartnerTab) => {
+    if (tab.kind !== "item" || tab.payload.answer !== null) return;
+    const store = useAllyStore.getState();
+    const key = `partner::${tab.key}`;
+    if (store.busy || store.cards.some((c) => c.sourceKey === key)) return;
+    const context = tab.payload.preview
+      ? ` Known so far: ${tab.payload.preview}`
+      : "";
+    void store.request(
+      "question",
+      `Research "${tab.payload.term}" in depth for this conversation: a concise definition, the standard approaches or fixes, and how it connects to my material.${context}`,
+      { key, quote: tab.payload.term },
+    );
+  }, []);
+
+  const openTab = useCallback(
+    (tab: PartnerTab) => {
+      setTabs((prev) => addOrFocus(prev, tab).tabs);
+      setActiveKey(tab.key);
+      ensureResearched(tab);
     },
-    [clearAlly, request],
+    [ensureResearched],
   );
 
   // Initial payload on boot + re-targeting events while open.
   useEffect(() => {
     let alive = true;
     void backend.partner.payload().then((p) => {
-      if (alive && p) {
-        setPayload(p);
-        openPayload(p);
-      }
+      if (alive && p) openTab(itemTab(p));
     });
     let unsub: (() => void) | undefined;
-    void backend.subscribe("partnerTerm", (p) => {
-      setPayload(p);
-      openPayload(p);
-    }).then((un) => {
-      if (alive) unsub = un;
-      else un();
-    });
+    void backend
+      .subscribe("partnerTerm", (p) => openTab(itemTab(p)))
+      .then((un) => {
+        if (alive) unsub = un;
+        else un();
+      });
     return () => {
       alive = false;
       unsub?.();
     };
-  }, [backend, openPayload]);
+  }, [backend, openTab]);
 
   const close = async () => {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -87,22 +88,33 @@ export function PartnerWindow() {
     await getCurrentWindow().minimize();
   };
 
-  // A follow-up asked in THIS window takes over the display once it exists;
-  // otherwise fall back to the payload's already-answered content (if any).
-  const liveCard = cards[0] ?? null;
+  const active = tabs.find((t) => t.key === activeKey) ?? null;
+  // Per-tab content: the newest card tagged for this tab wins over the
+  // payload's already-answered text (asking something new shows the new
+  // thing — same rule as before, now per tab).
+  const activeCard = active
+    ? (cards.find((c) => c.sourceKey === `partner::${active.key}`) ?? null)
+    : null;
   const {
     heading: answerHeading,
     text: answerText,
     error: answerError,
     sources,
-  } = derivePartnerAnswer(payload, liveCard);
+  } = derivePartnerAnswer(
+    active?.kind === "item" ? active.payload : null,
+    activeCard,
+  );
 
   const submitAsk = () => {
     const q = ask.trim();
-    if (!q || !payload) return;
+    if (!q || !active) return;
     setAsk("");
-    openedFor.current = `ask::${payload.term}::${q}`;
-    void request("question", `About "${payload.term}": ${q}`);
+    void useAllyStore
+      .getState()
+      .request("question", `About "${tabLabel(active)}": ${q}`, {
+        key: `partner::${active.key}`,
+        quote: tabLabel(active),
+      });
   };
 
   return (
@@ -119,7 +131,7 @@ export function PartnerWindow() {
           data-tauri-drag-region
           className="min-w-0 flex-1 truncate text-xs font-bold"
         >
-          Ally{payload ? ` — ${payload.term}` : ""}
+          Ally{active ? ` — ${tabLabel(active)}` : ""}
         </span>
         <button
           type="button"
@@ -150,28 +162,90 @@ export function PartnerWindow() {
         </button>
       </header>
 
+      {/* Tab strip — one tab per open item (spec §4.1); the sanctioned
+          exclusive-tab silhouette (2px top spine + raised fill). */}
+      {tabs.length > 0 && (
+        <div
+          role="tablist"
+          aria-label="Open items"
+          className="flex shrink-0 items-stretch overflow-x-auto border-b border-border bg-bg-2"
+        >
+          {tabs.map((t) => {
+            const isActive = t.key === activeKey;
+            return (
+              <div
+                key={t.key}
+                className={[
+                  "relative flex h-[30px] shrink-0 items-stretch border-r border-border",
+                  isActive ? "bg-panel-raised" : "",
+                ].join(" ")}
+              >
+                {isActive && (
+                  <span
+                    className="absolute inset-x-0 top-0 h-[2px] bg-primary"
+                    aria-hidden
+                  />
+                )}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => {
+                    setActiveKey(t.key);
+                    ensureResearched(t);
+                  }}
+                  className={[
+                    "max-w-[16ch] truncate pl-2.5 pr-1 text-[11.5px]",
+                    isActive
+                      ? "font-bold text-primary"
+                      : "font-semibold text-fg-faint hover:text-fg",
+                  ].join(" ")}
+                >
+                  {tabLabel(t)}
+                </button>
+                <button
+                  type="button"
+                  title="Close tab"
+                  aria-label={`Close "${tabLabel(t)}"`}
+                  onClick={() => {
+                    const r = closeTab(tabs, t.key, activeKey);
+                    setTabs(r.tabs);
+                    setActiveKey(r.activeKey);
+                  }}
+                  className="pr-2 text-fg-faint hover:text-rec"
+                >
+                  <Icon name="close" size={10} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-        {!payload ? (
+        {!active ? (
           <p className="mt-8 text-center text-xs text-fg-faint">
             Open a term from the Terms tab to research it here.
           </p>
         ) : (
           <>
             <div>
-              <h2 className="text-lg font-extrabold">{payload.term}</h2>
-              {payload.kind && (
+              <h2 className="text-lg font-extrabold">{tabLabel(active)}</h2>
+              {active.kind === "item" && active.payload.kind && (
                 <p className="mt-0.5 font-mono text-[10px] uppercase text-fg-faint">
-                  {payload.kind}
+                  {active.payload.kind}
                 </p>
               )}
             </div>
 
-            {payload.preview && (
+            {active.kind === "item" && active.payload.preview && (
               <div className="border border-ai/34 bg-ai/[0.06] p-3">
                 <h4 className="mb-1.5 font-mono text-[10px] font-bold tracking-[0.14em] text-ai">
                   PREVIEW
                 </h4>
-                <p className="text-[13px] leading-relaxed">{payload.preview}</p>
+                <p className="text-[13px] leading-relaxed">
+                  {active.payload.preview}
+                </p>
               </div>
             )}
 
@@ -204,7 +278,7 @@ export function PartnerWindow() {
         )}
       </div>
 
-      {/* Follow-up ask. */}
+      {/* Follow-up ask — tags the ACTIVE tab. */}
       <div className="shrink-0 border-t border-border px-3 py-2.5">
         <label className="flex h-9 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
           <Icon name="lightbulb" size={16} className="shrink-0 text-ai/70" />
