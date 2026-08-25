@@ -36,16 +36,23 @@ import { useTranscriptStore } from "@/state/transcript";
  *   and End & summarise, so it belongs grouped with them.
  * - Record + End & summarise sit in the LEFT group (owner, 2026-08-21) so
  *   the bar's absolute bottom-right corner holds the two Ally-panel TABS —
- *   Details · Terms — exclusive tabs in the left-nav silhouette, aligned
- *   under the 340px right panel. Passed via `tabs` by the live cockpit;
- *   omitted (e.g. compact mode) the bar renders without them.
+ *   Details · Terms — in the left-nav silhouette, aligned under the 340px
+ *   right panel. They are MAXIMIZE controls over the split panel (spec
+ *   §3.1): in the split state both render half-lit; tapping one maximizes
+ *   that half, tapping the maximized tab returns to the split (the parent
+ *   implements that toggle — the bar only reports clicks). Passed via
+ *   `tabs` by the live cockpit; omitted (e.g. compact mode) the bar
+ *   renders without them.
  */
 export type AllyPanelTab = "details" | "terms";
+/** The panel's layout state: split (default) or one half maximized.
+ *  "terms" maximizes Found, "details" maximizes View (spec §3.1). */
+export type AllyPanelView = AllyPanelTab | "split";
 
 export function LiveControlBar({
   tabs,
 }: {
-  tabs?: { tab: AllyPanelTab; onSelect: (tab: AllyPanelTab) => void };
+  tabs?: { view: AllyPanelView; onSelect: (tab: AllyPanelTab) => void };
 }) {
   const session = useTranscriptStore((s) => s.session);
   const listening = session.state === "listening";
@@ -222,25 +229,28 @@ export function LiveControlBar({
               ["terms", "Terms"],
             ] as const
           ).map(([key, label], i) => {
-            const active = tabs.tab === key;
+            const maximized = tabs.view === key;
+            const split = tabs.view === "split";
             return (
               <button
                 key={key}
                 type="button"
                 role="tab"
-                aria-selected={active}
+                aria-selected={maximized || split}
                 onClick={() => tabs.onSelect(key)}
                 className={[
                   "relative flex flex-1 items-center justify-center gap-2 text-[12.5px] transition",
                   i > 0 ? "border-l border-border" : "",
-                  active
+                  maximized
                     ? "bg-panel-raised font-bold text-primary"
-                    : "font-semibold text-fg-faint hover:text-fg",
+                    : split
+                      ? "bg-panel-raised/50 font-semibold text-primary/70"
+                      : "font-semibold text-fg-faint hover:text-fg",
                 ].join(" ")}
               >
-                {active && (
+                {(maximized || split) && (
                   <span
-                    className="absolute inset-x-0 top-0 h-[2px] bg-primary"
+                    className={`absolute inset-x-0 top-0 h-[2px] ${maximized ? "bg-primary" : "bg-primary/40"}`}
                     aria-hidden
                   />
                 )}

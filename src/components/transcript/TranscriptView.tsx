@@ -7,9 +7,12 @@ import {
   type ReactNode,
 } from "react";
 
-import { LiveControlBar, type AllyPanelTab } from "@/components/studio/LiveControlBar";
+import {
+  LiveControlBar,
+  type AllyPanelTab,
+  type AllyPanelView,
+} from "@/components/studio/LiveControlBar";
 import { LiveTopBar } from "@/components/studio/LiveTopBar";
-import { TrackerRail } from "@/components/TrackerRail";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import type { AllyKind, AudioLevelEvent, Capture, TranscriptSegment } from "@/lib/ipc";
@@ -35,13 +38,20 @@ import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
 import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
 import { groupTurns, segmentKey } from "@/lib/turns";
+import { buildDocTerms } from "@/components/transcript/terms";
 import {
-  buildDocTerms,
-  buildTermChips,
-  captureTermLabel,
-  chipKindTag,
-  type TermChip,
-} from "@/components/transcript/terms";
+  buildFoundGroups,
+  type FoundGroups,
+  type FoundItem,
+} from "@/components/transcript/foundGroups";
+import {
+  appendOrFocus,
+  removeEntry,
+  toggleExpanded,
+  type ViewEntry,
+} from "@/components/transcript/viewHistory";
+import { FoundList } from "@/components/transcript/FoundList";
+import { ViewHistory } from "@/components/transcript/ViewHistory";
 import { useCapabilities } from "@/lib/backend/context";
 import {
   useTranscriptStability,
@@ -1522,81 +1532,24 @@ function ContextMenu({
   );
 }
 
-/** One row in the meta panel's "Open threads" list (V4.0's `.thread`) — a
- *  status dot, a one-line preview, pin. Clicking opens the viewer. */
-function ThreadRow({
-  card,
-  pinned,
-  onTogglePin,
-  onOpen,
-}: {
-  card: AllyCard;
-  pinned: boolean;
-  onTogglePin: () => void;
-  onOpen: () => void;
-}) {
-  const label = cardLabel(card);
-  const dotClass = card.error
-    ? "bg-rec"
-    : card.done
-      ? "bg-ok"
-      : "bg-ai animate-pulse";
-  const tag = card.error ? "ERROR" : card.done ? "DONE" : "OPEN";
-  return (
-    <div className="group flex items-center gap-2 py-1.5 text-[0.9em]">
-      <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} aria-hidden />
-      <button
-        type="button"
-        onClick={onOpen}
-        title={`A${card.seq} · ${label}`}
-        className="min-w-0 flex-1 truncate text-left text-fg transition hover:text-ai"
-      >
-        {card.text || label}
-      </button>
-      <span className="shrink-0 font-mono text-[9px] tracking-[0.1em] text-fg-faint">
-        {tag}
-      </span>
-      <button
-        type="button"
-        onClick={onTogglePin}
-        title={pinned ? `Unpin A${card.seq}` : `Pin A${card.seq} to the top`}
-        aria-pressed={pinned}
-        className={[
-          "shrink-0 rounded p-0.5 transition-opacity",
-          pinned ? "text-ai opacity-100" : "text-fg-faint opacity-0 hover:text-ai group-hover:opacity-100",
-        ].join(" ")}
-      >
-        <Icon name="pin" size={12} />
-      </button>
-    </div>
-  );
-}
-
 /**
  * The right Ally panel (grown from V4.0's `.ally-panel`) — the ONE home for
- * everything Ally, split across two EXCLUSIVE tabs selected from the bottom
- * control bar's bottom-right corner (owner mockup, 2026-08-21 — approved on
- * the "Live Cockpit Tabs" canvas):
+ * everything Ally, a SPLIT panel by default (live-panel re-scope spec §3.1,
+ * owner 2026-08-22):
  *
- * - **Details** — everything supporting the call: Live summary, Open
- *   threads, Grounding docs, and the answers feed (rendered last so the
- *   auto-scrolled bottom is always the newest answer).
- * - **Terms** — key terms detected live: FANER captures ("detected in
- *   conversation", each with its preview definition) + the grounded
- *   context's key terms/glossary ("from your documents"), each with an
- *   Ask-Ally action that answers into Details.
+ * - **Found** (top) — everything the AI surfaced from the call, grouped
+ *   (They asked · Commitments · Terms · Mentioned), each item one tap from
+ *   its card (`FoundList`).
+ * - **View** (bottom) — ONLY the cards the user selected or asked for, in
+ *   order, height-capped with More/Less (`ViewHistory`); the answers feed
+ *   renders after them so the auto-scrolled bottom stays newest.
  *
- * Answers never render in the conversation column. See the note at the top
- * of `TranscriptView` for
- * the two honest gaps this surfaces (no continuously-updating summary, no
- * open/waiting/resolved thread lifecycle — both flagged inline below rather
- * than faked).
+ * The control-bar tabs MAXIMIZE a half (Terms = Found, Details = View);
+ * tapping the maximized tab returns to the split — `view` carries that
+ * state. The divider between the halves drags (`splitRatio`, persisted).
+ * Answers never render in the conversation column.
  */
 function AllyPanel({
-  cards,
-  pinned,
-  togglePin,
-  onOpenViewer,
   busy,
   request,
   allyFontPx,
@@ -1605,20 +1558,25 @@ function AllyPanel({
   setReasoningDefaultOpen,
   clearAlly,
   barPad,
-  answersCount,
   renderAnswers,
   scrollRef,
   onBodyScroll,
   askField,
-  tab,
-  captures,
-  onAskCapture,
-  onAskTerm,
+  view,
+  groups,
+  groundingDocs,
+  viewEntries,
+  viewFocusKey,
+  onSelectFound,
+  onToggleEntry,
+  onRemoveEntry,
+  onEntryFetchInfo,
+  onEntryDefine,
+  onEntryElaborate,
+  onEntryOpenInViewer,
+  splitRatio,
+  onSplitRatio,
 }: {
-  cards: AllyCard[];
-  pinned: Set<string>;
-  togglePin: (id: string) => void;
-  onOpenViewer: (card: AllyCard) => void;
   busy: boolean;
   request: (
     kind: AllyKind,
@@ -1631,158 +1589,29 @@ function AllyPanel({
   setReasoningDefaultOpen: (v: boolean) => void;
   clearAlly: () => void;
   barPad: string;
-  answersCount: number;
   renderAnswers: () => React.ReactNode;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onBodyScroll: () => void;
   askField: React.ReactNode;
-  tab: AllyPanelTab;
-  captures: Capture[];
-  onAskCapture: (capture: Capture) => void;
-  onAskTerm: (action: "definition" | "elaborate", term: string) => void;
+  view: AllyPanelView;
+  groups: FoundGroups;
+  /** File names of the grounded context's docs — the header count + the
+   *  3-dot grounding line (loaded by the cockpit's grounding effect). */
+  groundingDocs: string[];
+  viewEntries: ViewEntry[];
+  viewFocusKey: string | null;
+  onSelectFound: (item: FoundItem) => void;
+  onToggleEntry: (key: string) => void;
+  onRemoveEntry: (key: string) => void;
+  onEntryFetchInfo: (entry: ViewEntry) => void;
+  onEntryDefine: (entry: ViewEntry) => void;
+  onEntryElaborate: (entry: ViewEntry) => void;
+  onEntryOpenInViewer: (entry: ViewEntry) => void;
+  splitRatio: number;
+  onSplitRatio: (r: number) => void;
 }) {
-  const backend = useBackend();
-  const activeId = useGroundingStore((s) => s.activeId);
   const activeTitle = useGroundingStore((s) => s.activeTitle);
-  // Re-activating the SAME context bumps only the nonce — the reload below
-  // must key on it too, or a re-ground (which may have just backfilled the
-  // context's glossary backend-side) leaves this panel showing stale terms.
-  const activationNonce = useGroundingStore((s) => s.activationNonce);
-  const [groundingDocs, setGroundingDocs] = useState<string[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
-
-  const [docTerms, setDocTerms] = useState<string[]>([]);
-  useEffect(() => {
-    if (!activeId || !isTauri()) {
-      setGroundingDocs([]);
-      setDocTerms([]);
-      return;
-    }
-    let alive = true;
-    void Promise.all([backend.simcon.load(activeId), backend.rag.list()])
-      .then(([session, docs]) => {
-        if (!alive) return;
-        const names = session.source_doc_ids
-          .map((id) => docs.find((d) => d.id === id)?.file_name)
-          .filter((n): n is string => Boolean(n));
-        setGroundingDocs(names);
-        setDocTerms(buildDocTerms(session.key_terms, session.glossary));
-      })
-      .catch(() => {
-        if (!alive) return;
-        setGroundingDocs([]);
-        setDocTerms([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [activeId, activationNonce, backend]);
-
-  // Terms tab: words-only chips, info on click (owner, 2026-08-21 —
-  // "Live Cockpit Tabs" canvas V3). "Detected" = FANER captures + every
-  // word underlined in the transcript (RAG highlights + user selections,
-  // via the live-terms store). Selection is panel-local UI state.
-  const caps = useCapabilities();
-  const spokenTerms = useLiveTermsStore((s) => s.spoken);
-  const addedTerms = useLiveTermsStore((s) => s.added);
-  const chips = useMemo(
-    () => buildTermChips(captures, [...addedTerms, ...spokenTerms], docTerms),
-    [captures, addedTerms, spokenTerms, docTerms],
-  );
-  const [selectedChipId, setSelectedChipId] = useState<string | null>(null);
-  const selectedDetected =
-    chips.detected.find((c) => c.id === selectedChipId) ?? null;
-  const selectedDoc = chips.docs.find((c) => c.id === selectedChipId) ?? null;
-
-  const termChipButton = (chip: TermChip) => (
-    <button
-      key={chip.id}
-      type="button"
-      aria-pressed={selectedChipId === chip.id}
-      onClick={() =>
-        setSelectedChipId((cur) => (cur === chip.id ? null : chip.id))
-      }
-      className={[
-        "flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-[3px] text-[0.86em] font-semibold transition",
-        selectedChipId === chip.id
-          ? "border-ai bg-ai/[0.12] text-fg"
-          : "border-border bg-panel text-fg-muted hover:text-fg",
-      ].join(" ")}
-    >
-      <span
-        className={`h-[5px] w-[5px] shrink-0 rounded-full ${chip.source === "doc" ? "bg-ai" : "bg-primary"}`}
-        aria-hidden
-      />
-      <span className="min-w-0 truncate">{chip.label}</span>
-    </button>
-  );
-
-  /** The clicked chip's info card: preview + the per-phrase actions. */
-  const termInfoCard = (chip: TermChip) => (
-    <div className="rounded-[var(--radius)] border border-ai/40 bg-ai/[0.06] p-2.5">
-      <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-[0.86em] font-bold text-fg">
-          {chip.label}
-        </span>
-        <span className="shrink-0 font-mono text-[9px] uppercase text-fg-faint">
-          {chipKindTag(chip)}
-        </span>
-        <span className="flex shrink-0 gap-1">
-          <button
-            type="button"
-            title="Fetch info — Ally researches this"
-            aria-label={`Fetch info on "${chip.label}"`}
-            onClick={() =>
-              chip.capture
-                ? onAskCapture(chip.capture)
-                : onAskTerm("elaborate", chip.label)
-            }
-            className="grid h-[22px] w-[22px] place-items-center rounded-[5px] border border-ai/45 bg-ai/10 text-ai transition hover:brightness-110"
-          >
-            <Icon name="search" size={12} />
-          </button>
-          <button
-            type="button"
-            title="Define"
-            aria-label={`Define "${chip.label}"`}
-            onClick={() => onAskTerm("definition", chip.label)}
-            className="grid h-[22px] w-[22px] place-items-center rounded-[5px] border border-ai/45 bg-ai/10 text-ai transition hover:brightness-110"
-          >
-            <Icon name="book" size={12} />
-          </button>
-          {caps?.system.partnerWindow && (
-            <button
-              type="button"
-              title="Open in partner window"
-              aria-label={`Open "${chip.label}" in the partner window`}
-              onClick={() =>
-                void backend.partner.open(
-                  chip.label,
-                  chipKindTag(chip),
-                  chip.capture?.preview ?? null,
-                )
-              }
-              className="grid h-[22px] w-[22px] place-items-center rounded-[5px] border border-primary/50 bg-primary/[0.12] text-primary transition hover:brightness-110"
-            >
-              <Icon name="expand" size={12} />
-            </button>
-          )}
-        </span>
-      </div>
-      {chip.capture?.preview && (
-        <p className="mt-1.5 text-[0.82em] leading-relaxed text-fg-muted">
-          {chip.capture.preview}
-        </p>
-      )}
-    </div>
-  );
-
-  // Most recent manual summary, if any — not a continuously-updating live
-  // summary (that would need a background summarizer this app doesn't have
-  // yet; see the doc comment above).
-  const latestSummary = cards.find((c) => c.kind === "summarize") ?? null;
-  const pinnedCards = cards.filter((c) => pinned.has(c.id));
-  const restCards = cards.filter((c) => !pinned.has(c.id));
 
   return (
     <aside className={`flex h-full w-[340px] max-w-full shrink-0 flex-col border-l border-border bg-bg-2${barPad}`}>
@@ -1859,6 +1688,23 @@ function AllyPanel({
                 </span>
                 Expand reasoning by default
               </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => {
+                  void request("summarize");
+                  setMenuOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-[12px] text-fg hover:bg-white/[0.06] disabled:opacity-40"
+              >
+                <Icon name="summarize" size={14} />
+                Summarize the call
+              </button>
+              <div className="px-1.5 py-1 text-[11px] text-fg-faint">
+                {activeTitle ?? "No context grounded"}
+                {groundingDocs.length > 0 && ` · ${groundingDocs.join(" · ")}`}
+              </div>
               <div className="my-1 h-px bg-border" />
               <button
                 type="button"
@@ -1882,156 +1728,59 @@ function AllyPanel({
           in em so smaller font genuinely shows more. Mono eyebrows stay
           fixed-px — they're labels, not content. */}
       <div
-        ref={scrollRef}
-        onScroll={onBodyScroll}
         style={{ fontSize: `${allyFontPx}px` }}
-        className="flex flex-1 flex-col gap-3.5 overflow-y-auto p-3.5"
+        className="flex min-h-0 flex-1 flex-col"
       >
-        {tab === "details" && (
-          <div className="rounded-[var(--radius)] border border-border bg-panel p-3.5">
-            <h4 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
-              Live summary
-            </h4>
-            {latestSummary ? (
-              latestSummary.error ? (
-                <p className="text-[12px] text-rec">{latestSummary.error}</p>
-              ) : (
-                <p className="text-[0.9em] leading-relaxed text-fg-muted">
-                  {latestSummary.text || "…"}
-                </p>
-              )
-            ) : (
-              <p className="text-[0.9em] leading-relaxed text-fg-faint">
-                No summary yet — ask Ally to summarize.
-              </p>
-            )}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void request("summarize")}
-              className="mt-2.5 text-[11px] font-semibold text-ai transition hover:underline disabled:opacity-40"
-            >
-              {latestSummary ? "Refresh summary" : "Summarize now"}
-            </button>
-          </div>
-        )}
-
-        {tab === "details" && (
-          <div className="rounded-[var(--radius)] border border-border bg-panel p-3.5">
-            <h4 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
-              Open threads
-            </h4>
-            {cards.length === 0 ? (
-              <p className="text-[0.86em] text-fg-faint">
-                Ally's answers land here as you go — tap the lightbulb on any
-                message, or use Ask Ally below.
-              </p>
-            ) : (
-              <div className="flex flex-col divide-y divide-border">
-                {pinnedCards.length > 0 && (
-                  <>
-                    <span className="pb-1 font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-fg-faint">
-                      Pinned
-                    </span>
-                    {pinnedCards.map((c) => (
-                      <ThreadRow
-                        key={c.id}
-                        card={c}
-                        pinned
-                        onTogglePin={() => togglePin(c.id)}
-                        onOpen={() => onOpenViewer(c)}
-                      />
-                    ))}
-                  </>
-                )}
-                <div className="max-h-[160px] overflow-y-auto">
-                  {restCards.map((c) => (
-                    <ThreadRow
-                      key={c.id}
-                      card={c}
-                      pinned={false}
-                      onTogglePin={() => togglePin(c.id)}
-                      onOpen={() => onOpenViewer(c)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {tab === "details" && (
-          <div className="rounded-[var(--radius)] border border-border bg-panel p-3.5">
-            <h4 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
-              Grounding
-            </h4>
-            {groundingDocs.length === 0 ? (
-              <p className="text-[0.86em] text-fg-faint">
-                {activeTitle ?? "No context grounded yet."}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                {groundingDocs.map((name) => (
-                  <div key={name} className="flex items-center gap-2 text-[0.86em] text-fg-muted">
-                    <Icon name="file" size={13} className="shrink-0 text-fg-faint" />
-                    <span className="min-w-0 flex-1 truncate">{name}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Answers feed — LAST in the scroller so the auto-scrolled bottom
-            is always the newest answer (owner rule, 2026-08-21: answers
-            live here, never in the conversation column). */}
-        {tab === "details" && (
+        {view !== "details" && (
           <div
-            role="log"
-            aria-live="polite"
-            aria-label="Ally answers"
-            className="flex flex-col gap-2.5"
+            style={view === "split" ? { flexBasis: `${splitRatio * 100}%` } : undefined}
+            className={[
+              "min-h-0 overflow-y-auto p-3.5",
+              view === "split" ? "shrink-0 grow-0" : "flex-1",
+            ].join(" ")}
           >
-            <h4 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
-              Answers{answersCount > 0 ? ` · ${answersCount}` : ""}
-            </h4>
-            {renderAnswers()}
+            <FoundList groups={groups} onSelect={onSelectFound} />
           </div>
         )}
-
-        {tab === "terms" && (
-          <>
-            <h4 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
-              Detected in conversation
-            </h4>
-            {chips.detected.length === 0 ? (
-              <p className="px-1 text-[0.86em] text-fg-faint">
-                Terms Ally catches live — questions, tasks, concepts — appear
-                here as the conversation runs.
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {chips.detected.map(termChipButton)}
-              </div>
-            )}
-            {selectedDetected && termInfoCard(selectedDetected)}
-
-            <h4 className="mt-1 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
-              From your documents
-            </h4>
-            {chips.docs.length === 0 ? (
-              <p className="px-1 text-[0.86em] text-fg-faint">
-                {activeTitle
-                  ? "No key terms in this context yet — add them in the context's setup."
-                  : "Ground a context to bring in its key terms and glossary."}
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {chips.docs.map(termChipButton)}
-              </div>
-            )}
-            {selectedDoc && termInfoCard(selectedDoc)}
-          </>
+        {view === "split" && (
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize panels"
+            onPointerDown={(e) => {
+              const host = e.currentTarget.parentElement;
+              if (!host) return;
+              const rect = host.getBoundingClientRect();
+              const move = (ev: PointerEvent) =>
+                onSplitRatio((ev.clientY - rect.top) / rect.height);
+              const up = () => {
+                window.removeEventListener("pointermove", move);
+                window.removeEventListener("pointerup", up);
+              };
+              window.addEventListener("pointermove", move);
+              window.addEventListener("pointerup", up);
+            }}
+            className="h-[5px] shrink-0 cursor-row-resize border-y border-border bg-bg-2 hover:bg-panel-raised"
+          />
+        )}
+        {view !== "terms" && (
+          <div
+            ref={scrollRef}
+            onScroll={onBodyScroll}
+            className="min-h-0 flex-1 overflow-y-auto p-3.5"
+          >
+            <ViewHistory
+              entries={viewEntries}
+              focusKey={viewFocusKey}
+              onToggleExpanded={onToggleEntry}
+              onRemove={onRemoveEntry}
+              onFetchInfo={onEntryFetchInfo}
+              onDefine={onEntryDefine}
+              onElaborate={onEntryElaborate}
+              onOpenInViewer={onEntryOpenInViewer}
+              renderAnswerCards={renderAnswers}
+            />
+          </div>
         )}
       </div>
 
@@ -2155,6 +1904,8 @@ export function TranscriptView() {
   const bumpTranscriptFont = useUiPrefs((s) => s.bumpTranscriptFont);
   const collapseYou = useUiPrefs((s) => s.collapseYou);
   const setCollapseYou = useUiPrefs((s) => s.setCollapseYou);
+  const panelSplitRatio = useUiPrefs((s) => s.panelSplitRatio);
+  const setPanelSplitRatio = useUiPrefs((s) => s.setPanelSplitRatio);
   // Session start (epoch ms) — lets a bubble's time hover show a wall-clock.
   const sessionEvent = useTranscriptStore((s) => s.session);
   const sessionStartMs =
@@ -2185,19 +1936,6 @@ export function TranscriptView() {
     const t = setTimeout(() => setFlash(null), 900);
     return () => clearTimeout(t);
   }, [flash]);
-
-  // Pinned Ally cards (V4.0 §7) — session-only, not persisted, same as
-  // `collapsed` below. Pinned rise to the top of the meta panel's threads
-  // list, under a divider.
-  const [pinned, setPinned] = useState<Set<string>>(new Set());
-  const togglePin = useCallback((id: string) => {
-    setPinned((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
 
   // The card open in the internal detail drawer — the WEB fallback only
   // (owner, 2026-08-22: the viewer IS the partner window on desktop; this
@@ -2330,16 +2068,95 @@ export function TranscriptView() {
   }, []);
   const headerTight = convoColW > 0 && convoColW < 520;
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  // Which Ally-panel tab is active — selected from the control bar's
-  // bottom-right tabs; asks from the Terms tab flip back to Details so the
-  // answer is visible where it lands.
-  const [panelTab, setPanelTab] = useState<AllyPanelTab>("details");
+  // Split by default (spec §3.1): tapping a tab maximizes that half;
+  // tapping the maximized tab returns to the split. In drawer mode
+  // (<640px) there is no split — a tab tap opens that half as the
+  // overlay drawer, exclusive as before.
+  const [panelView, setPanelView] = useState<AllyPanelView>("split");
   const selectPanelTab = useCallback(
     (tab: AllyPanelTab) => {
-      setPanelTab(tab);
+      setPanelView((v) => (!drawer && v === tab ? "split" : tab));
       if (drawer) setDrawerOpen(true);
     },
     [drawer],
+  );
+  // Answers/asks must land visibly: if Found is maximized, drop back to
+  // the split so the View half (where the answer streams) is on screen.
+  const ensureViewVisible = useCallback(() => {
+    setPanelView((v) => (v === "terms" ? "split" : v));
+  }, []);
+
+  // The View half's chosen entries (spec §3.3). One monotone counter
+  // sequences selections against future needs; focusKey drives the
+  // scroll+ring focus of an already-present card.
+  const [viewEntries, setViewEntries] = useState<ViewEntry[]>([]);
+  const [viewFocusKey, setViewFocusKey] = useState<string | null>(null);
+  const viewSeq = useRef(0);
+  const selectFound = useCallback(
+    (item: FoundItem) => {
+      viewSeq.current += 1;
+      setViewEntries((prev) => {
+        const r = appendOrFocus(prev, item, viewSeq.current);
+        setViewFocusKey(r.focusKey);
+        return r.entries;
+      });
+      ensureViewVisible();
+    },
+    [ensureViewVisible],
+  );
+
+  // The Found half's supply: radar history + tracker + FANER captures +
+  // live/doc terms, grouped by foundGroups. The grounding effect below
+  // (moved up from AllyPanel) loads the grounded context's doc names +
+  // key terms/glossary; docTerms feeds the groups, groundingDocs feeds
+  // the panel header + its 3-dot grounding line.
+  const radarHistory = useAllyStore((s) => s.radarHistory);
+  const tracker = useAllyStore((s) => s.tracker);
+  const spokenTerms = useLiveTermsStore((s) => s.spoken);
+  const addedTerms = useLiveTermsStore((s) => s.added);
+  const activeId = useGroundingStore((s) => s.activeId);
+  // Re-activating the SAME context bumps only the nonce — the reload below
+  // must key on it too, or a re-ground (which may have just backfilled the
+  // context's glossary backend-side) leaves the panel showing stale terms.
+  const activationNonce = useGroundingStore((s) => s.activationNonce);
+  const [groundingDocs, setGroundingDocs] = useState<string[]>([]);
+  const [docTerms, setDocTerms] = useState<string[]>([]);
+  useEffect(() => {
+    if (!activeId || !isTauri()) {
+      setGroundingDocs([]);
+      setDocTerms([]);
+      return;
+    }
+    let alive = true;
+    void Promise.all([backend.simcon.load(activeId), backend.rag.list()])
+      .then(([session, docs]) => {
+        if (!alive) return;
+        const names = session.source_doc_ids
+          .map((id) => docs.find((d) => d.id === id)?.file_name)
+          .filter((n): n is string => Boolean(n));
+        setGroundingDocs(names);
+        setDocTerms(buildDocTerms(session.key_terms, session.glossary));
+      })
+      .catch(() => {
+        if (!alive) return;
+        setGroundingDocs([]);
+        setDocTerms([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeId, activationNonce, backend]);
+
+  const foundGroups = useMemo(
+    () =>
+      buildFoundGroups({
+        radarHistory,
+        tracker,
+        captures,
+        liveTerms: [...addedTerms, ...spokenTerms],
+        docTerms,
+      }),
+    [radarHistory, tracker, captures, addedTerms, spokenTerms, docTerms],
   );
 
   // sourceKey → ALL cards derived from it, oldest-first (cards itself is
@@ -2357,16 +2174,6 @@ export function TranscriptView() {
     return m;
   }, [cards]);
 
-  // TrackerRail (FANER Engine — merged from main, #49): the old spine/
-  // split-drag layout it was written against is gone here (V4.0 rebuild
-  // retired it — transcript | Ally meta panel is the whole column set now),
-  // so the width gate is re-derived from `drawer`'s own breakpoint (640px)
-  // instead of the old MIN_COL/SPINE_W pair.
-  const TRACKER_W = 256; // px — TrackerRail's own w-64
-  // Only show the tracker rail once conversation (≥300px) + the Ally panel
-  // (340px) can hold their floors AND there's still room for a third 256px
-  // column — otherwise it'd squeeze the other two below comfortable width.
-  const showTracker = !drawer && width >= 640 + TRACKER_W;
   // Freeform "Ask Ally" cards (no turn to attach to) — appended at the end
   // of the stream, oldest-first, in the order they were asked.
   const sourcelessCards = useMemo(
@@ -2405,7 +2212,7 @@ export function TranscriptView() {
    *  column so its place in the conversation stays visible. */
   const openThread = useCallback(
     (card: AllyCard) => {
-      setPanelTab("details");
+      ensureViewVisible();
       flashToken.current += 1;
       setFlash({ key: card.id, token: flashToken.current });
       setCollapsed((prev) => {
@@ -2433,7 +2240,7 @@ export function TranscriptView() {
       setViewerCardId(card.id);
       if (drawer) setDrawerOpen(true);
     },
-    [allyScroll, backend, caps, drawer],
+    [allyScroll, backend, caps, drawer, ensureViewVisible],
   );
 
   const jumpToLive = useCallback(() => {
@@ -2442,19 +2249,19 @@ export function TranscriptView() {
       convo.ref.current.scrollTop = convo.ref.current.scrollHeight;
   }, [convo]);
 
-  // Every ask lands its answer in the Details tab — flip the panel there
-  // first (owner bug, 2026-08-21: selection → lightbulb looked dead because
-  // the answer streamed into the hidden tab while Terms was active).
+  // Every ask lands its answer in the View half — make sure it's on
+  // screen first (owner bug, 2026-08-21: selection → lightbulb looked
+  // dead because the answer streamed into a hidden surface).
   const requestVisible = useCallback(
     (
       kind: AllyKind,
       question?: string,
       source?: { key: string; quote: string },
     ) => {
-      setPanelTab("details");
+      ensureViewVisible();
       return request(kind, question, source);
     },
-    [request],
+    [request, ensureViewVisible],
   );
 
   const research = useCallback(
@@ -2884,10 +2691,6 @@ export function TranscriptView() {
           }
         >
           <AllyPanel
-            cards={cards}
-            pinned={pinned}
-            togglePin={togglePin}
-            onOpenViewer={openThread}
             busy={busy}
             request={request}
             allyFontPx={allyFontPx}
@@ -2896,20 +2699,41 @@ export function TranscriptView() {
             setReasoningDefaultOpen={setReasoningDefaultOpen}
             clearAlly={clearAlly}
             barPad={barPad}
-            answersCount={orderedCards.length}
             scrollRef={allyScroll.ref}
             onBodyScroll={allyScroll.onScroll}
             askField={drawer ? null : askAllyField}
-            tab={panelTab}
-            captures={captures}
-            onAskCapture={(c) => {
-              setPanelTab("details");
-              askFaner(c, captureTermLabel(c));
+            view={drawer ? (panelView === "split" ? "details" : panelView) : panelView}
+            groups={foundGroups}
+            groundingDocs={groundingDocs}
+            viewEntries={viewEntries}
+            viewFocusKey={viewFocusKey}
+            onSelectFound={selectFound}
+            onToggleEntry={(k) => setViewEntries((p) => toggleExpanded(p, k))}
+            onRemoveEntry={(k) => setViewEntries((p) => removeEntry(p, k))}
+            onEntryFetchInfo={(e) =>
+              e.item.chip?.capture
+                ? (ensureViewVisible(), askFaner(e.item.chip.capture, e.item.label))
+                : (ensureViewVisible(), askTerm("elaborate", e.item.label))
+            }
+            onEntryDefine={(e) => {
+              ensureViewVisible();
+              askTerm("definition", e.item.label);
             }}
-            onAskTerm={(action, term) => {
-              setPanelTab("details");
-              askTerm(action, term);
+            onEntryElaborate={(e) => {
+              ensureViewVisible();
+              void requestVisible("question", e.item.label);
             }}
+            onEntryOpenInViewer={(e) => {
+              if (caps?.system.partnerWindow) {
+                void backend.partner.open(
+                  e.item.label,
+                  e.item.group,
+                  e.item.chip?.capture?.preview ?? e.item.detail ?? null,
+                );
+              }
+            }}
+            splitRatio={panelSplitRatio}
+            onSplitRatio={setPanelSplitRatio}
             renderAnswers={() =>
               orderedCards.length === 0 ? (
                 <p className="px-2 py-4 text-center text-xs text-fg-faint">
@@ -2939,13 +2763,6 @@ export function TranscriptView() {
           />
         </div>
 
-        {/* Commitments & entities (FANER Engine — §6.3) — a persistent side
-            rail once the tracker has produced something; collapsible to a
-            thin edge tab. Hidden until the window is wide enough that it
-            doesn't squeeze the transcript/Ally columns below comfortable
-            width (see `showTracker` above). */}
-        {showTracker && <TrackerRail />}
-
         <ThreadViewer
           card={cards.find((c) => c.id === viewerCardId) ?? null}
           onClose={() => setViewerCardId(null)}
@@ -2956,7 +2773,7 @@ export function TranscriptView() {
 
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       </main>
-      <LiveControlBar tabs={{ tab: panelTab, onSelect: selectPanelTab }} />
+      <LiveControlBar tabs={{ view: panelView, onSelect: selectPanelTab }} />
     </div>
   );
 }

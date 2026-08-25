@@ -10,6 +10,7 @@ const TRANSCRIPT_FONT_KEY = "conva.transcript.fontPx";
 const REASONING_KEY = "conva.ally.reasoningOpen";
 const COLLAPSE_YOU_KEY = "conva.transcript.collapseYou";
 const PARTNER_FONT_KEY = "conva.partner.fontPx";
+const PANEL_SPLIT_KEY = "conva.panel.splitRatio";
 const FONT_MIN = 11;
 const FONT_MAX = 20;
 const FONT_DEFAULT = 14;
@@ -32,6 +33,9 @@ interface UiPrefs {
   /** Partner-window content text size, in px — its own setting (spec §4.2):
    *  the detached window often sits farther away than the in-app panel. */
   partnerFontPx: number;
+  /** Found/View split ratio (Found's share of the panel height), 0.25–0.75. */
+  panelSplitRatio: number;
+  setPanelSplitRatio: (r: number) => void;
   setAllyFontPx: (px: number) => void;
   bumpAllyFont: (delta: number) => void;
   bumpTranscriptFont: (delta: number) => void;
@@ -47,7 +51,16 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
   // Default on — the user rarely re-reads their own words.
   collapseYou: localStorage.getItem(COLLAPSE_YOU_KEY) !== "0",
   partnerFontPx: loadFont(PARTNER_FONT_KEY, FONT_DEFAULT),
+  panelSplitRatio: (() => {
+    const v = Number(localStorage.getItem(PANEL_SPLIT_KEY));
+    return v >= 0.25 && v <= 0.75 ? v : 0.45;
+  })(),
 
+  setPanelSplitRatio: (r) => {
+    const clamped = Math.max(0.25, Math.min(0.75, r));
+    localStorage.setItem(PANEL_SPLIT_KEY, String(clamped));
+    set({ panelSplitRatio: clamped });
+  },
   setAllyFontPx: (px) => {
     const clamped = Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(px)));
     localStorage.setItem(FONT_KEY, String(clamped));
