@@ -4,6 +4,7 @@ import { derivePartnerAnswer } from "@/components/partner/deriveAnswer";
 import {
   addOrFocus,
   closeTab,
+  documentTab,
   itemTab,
   tabLabel,
   type PartnerTab,
@@ -37,6 +38,30 @@ export function PartnerWindow() {
   const partnerFontPx = useUiPrefs((s) => s.partnerFontPx);
   const bumpPartnerFont = useUiPrefs((s) => s.bumpPartnerFont);
   const [fontMenuOpen, setFontMenuOpen] = useState(false);
+
+  // file_name -> doc id, resolved once from the library (spec §4.3 as
+  // amended: AllySource carries no id, so the window resolves names itself).
+  const [docIdsByName, setDocIdsByName] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  // Loaded document bodies per doc id; undefined = still loading.
+  const [docTexts, setDocTexts] = useState<Map<string, string | null>>(
+    () => new Map(),
+  );
+
+  useEffect(() => {
+    let alive = true;
+    void backend.rag
+      .list()
+      .then((docs) => {
+        if (!alive) return;
+        setDocIdsByName(new Map(docs.map((d) => [d.file_name, d.id])));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [backend]);
 
   /** Kick off the tab's research if it's a fresh term with no answer yet —
    *  on first open, and again on focus (heals a cap-evicted answer). */
@@ -93,6 +118,18 @@ export function PartnerWindow() {
   };
 
   const active = tabs.find((t) => t.key === activeKey) ?? null;
+  const activeDocId = active?.kind === "document" ? active.docId : null;
+  useEffect(() => {
+    if (!activeDocId || docTexts.has(activeDocId)) return;
+    let alive = true;
+    void backend.rag.documentText(activeDocId).then((text) => {
+      if (!alive) return;
+      setDocTexts((m) => new Map(m).set(activeDocId, text));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [activeDocId, backend, docTexts]);
   // Per-tab content: the newest card tagged for this tab wins over the
   // payload's already-answered text (asking something new shows the new
   // thing — same rule as before, now per tab).
@@ -284,6 +321,23 @@ export function PartnerWindow() {
           <p className="mt-8 text-center text-[0.86em] text-fg-faint">
             Open a term from the Terms tab to research it here.
           </p>
+        ) : active.kind === "document" ? (
+          <>
+            <h2 className="text-[1.3em] font-extrabold">{active.fileName}</h2>
+            <div className="rounded-[var(--radius)] border border-border bg-bg-2 p-3">
+              {!docTexts.has(active.docId) ? (
+                <p className="text-[0.9em] text-fg-faint">Loading…</p>
+              ) : docTexts.get(active.docId) === null ? (
+                <p className="text-[0.9em] text-fg-faint">
+                  This document's text isn't available.
+                </p>
+              ) : (
+                <p className="whitespace-pre-wrap text-[0.9em] leading-relaxed text-fg-muted">
+                  {docTexts.get(active.docId)}
+                </p>
+              )}
+            </div>
+          </>
         ) : (
           <>
             <div>
@@ -324,11 +378,26 @@ export function PartnerWindow() {
                 <h4 className="mb-1.5 font-mono text-[0.72em] font-bold tracking-[0.14em] text-fg-muted">
                   FROM YOUR DOCUMENTS
                 </h4>
-                {sources.map((s) => (
-                  <p key={s} className="text-[0.86em] text-fg-muted">
-                    {s}
-                  </p>
-                ))}
+                {sources.map((s) => {
+                  const fileName = s.split(" — ")[0] ?? s;
+                  const docId = docIdsByName.get(fileName);
+                  return docId ? (
+                    <button
+                      key={s}
+                      type="button"
+                      title={`Open "${fileName}"`}
+                      aria-label={`Open "${fileName}"`}
+                      onClick={() => openTab(documentTab(docId, fileName))}
+                      className="block text-left text-[0.86em] text-ai underline decoration-2 underline-offset-2 hover:brightness-110"
+                    >
+                      {s}
+                    </button>
+                  ) : (
+                    <p key={s} className="text-[0.86em] text-fg-muted">
+                      {s}
+                    </p>
+                  );
+                })}
               </div>
             )}
           </>

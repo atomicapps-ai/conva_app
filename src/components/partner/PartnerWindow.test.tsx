@@ -178,3 +178,55 @@ describe("PartnerWindow font menu", () => {
     });
   });
 });
+
+describe("PartnerWindow document tabs", () => {
+  beforeEach(() => {
+    useAllyStore.getState().clear();
+    for (const k of Object.keys(subscribers)) delete subscribers[k];
+    vi.clearAllMocks();
+    backend.partner.payload.mockResolvedValue(null);
+    backend.partner.locked.mockResolvedValue(true);
+    backend.rag.list.mockResolvedValue([
+      { id: "doc-1", file_name: "aws.pdf" },
+    ]);
+    backend.rag.documentText.mockResolvedValue("full document body");
+  });
+
+  it("a source line matching a library document opens it as a tab with its text", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    await deliver(
+      payload({
+        term: "API Gateway",
+        answer: "Fronts APIs.",
+        source_lines: ["aws.pdf — ¶1–4", "missing.txt — ¶2"],
+      }),
+    );
+    // The matching line is a button; the unmatched one is plain text.
+    const openDoc = await screen.findByRole("button", {
+      name: 'Open "aws.pdf"',
+    });
+    expect(screen.queryByRole("button", { name: 'Open "missing.txt"' })).toBeNull();
+    fireEvent.click(openDoc);
+    expect(
+      screen.getByRole("tab", { name: /aws\.pdf/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText("full document body")).toBeInTheDocument();
+    expect(backend.rag.documentText).toHaveBeenCalledWith("doc-1");
+  });
+
+  it("shows the unavailable message when the document text is null", async () => {
+    backend.rag.documentText.mockResolvedValue(null);
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    await deliver(
+      payload({ answer: "x", source_lines: ["aws.pdf — ¶1"] }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: 'Open "aws.pdf"' }));
+    expect(
+      await screen.findByText("This document's text isn't available."),
+    ).toBeInTheDocument();
+  });
+});
