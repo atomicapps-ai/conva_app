@@ -1305,6 +1305,19 @@ fn get_partner_payload() -> Option<conva_core::ipc::PartnerPayload> {
     partner::payload()
 }
 
+/// Lock (follow the main window) / unlock (float free) the partner window.
+/// Locking snaps it flush to the app's right edge, keeping its size.
+#[tauri::command]
+fn set_partner_locked(app: AppHandle, locked: bool) -> Result<(), String> {
+    partner::set_locked(&app, locked)
+}
+
+/// Whether the partner window currently follows the main window.
+#[tauri::command]
+fn get_partner_locked() -> bool {
+    partner::locked()
+}
+
 /// Build the retrieval query for an Ally answer: the explicit question, or the
 /// text of the last few finalized turns (what's being discussed right now).
 fn retrieval_query(question: Option<&str>, segments: &[TranscriptSegment]) -> String {
@@ -1590,6 +1603,26 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
 
     builder
+        // Lock-to-app (spec §4.4): the main window dragging its docked
+        // partner along, and a manual partner drag releasing the lock.
+        .on_window_event(|window, event| {
+            let app = window.app_handle();
+            match event {
+                tauri::WindowEvent::Moved(pos) => match window.label() {
+                    "main" => partner::follow_main(app),
+                    l if l == partner::PARTNER_LABEL => {
+                        partner::on_partner_moved(app, (pos.x, pos.y));
+                    }
+                    _ => {}
+                },
+                tauri::WindowEvent::Resized(_) => {
+                    if window.label() == "main" {
+                        partner::follow_main(app);
+                    }
+                }
+                _ => {}
+            }
+        })
         .setup(|app| {
             let config = load_config(app.handle());
             let data_dir = app
@@ -1750,6 +1783,8 @@ pub fn run() {
             close_partner,
             redock_partner,
             get_partner_payload,
+            set_partner_locked,
+            get_partner_locked,
         ])
         .run(tauri::generate_context!())
         .expect("error while running conva");
