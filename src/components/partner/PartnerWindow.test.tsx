@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PartnerPayload } from "@/lib/ipc";
 import { useAllyStore } from "@/state/ally";
+import { useUiPrefs } from "@/state/uiPrefs";
 
 const subscribers: Record<string, (p: unknown) => void> = {};
 const backend = {
@@ -140,5 +141,40 @@ describe("PartnerWindow tabs", () => {
     expect(screen.queryByText("Streamed answer.")).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: /Fresh term/ }));
     expect(screen.getByText("Streamed answer.")).toBeInTheDocument();
+  });
+});
+
+describe("PartnerWindow font menu", () => {
+  beforeEach(() => {
+    useAllyStore.getState().clear();
+    for (const k of Object.keys(subscribers)) delete subscribers[k];
+    vi.clearAllMocks();
+    backend.partner.payload.mockResolvedValue(null);
+    backend.partner.locked.mockResolvedValue(true);
+    backend.rag.list.mockResolvedValue([]);
+    localStorage.removeItem("conva.partner.fontPx");
+    // The uiPrefs store is a module singleton — clearing localStorage alone
+    // doesn't reset the in-memory value bumped by an earlier test.
+    useUiPrefs.setState({ partnerFontPx: 14 });
+  });
+
+  it("A+ bumps the persisted partner font size", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Text size" }));
+    fireEvent.click(screen.getByRole("button", { name: "Larger text" }));
+    expect(localStorage.getItem("conva.partner.fontPx")).toBe("15");
+  });
+
+  it("applies the font size to the content body", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Text size" }));
+    fireEvent.click(screen.getByRole("button", { name: "Larger text" }));
+    expect(document.querySelector('[data-testid="partner-body"]')).toHaveStyle({
+      fontSize: "15px",
+    });
   });
 });

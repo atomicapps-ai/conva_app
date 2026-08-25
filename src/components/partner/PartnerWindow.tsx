@@ -12,6 +12,7 @@ import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAllyStore } from "@/state/ally";
+import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
 
 /**
  * The partner window's whole view (`?partner=1` — see `src/main.tsx` and
@@ -33,6 +34,9 @@ export function PartnerWindow() {
   const cards = useAllyStore((s) => s.cards);
   const busy = useAllyStore((s) => s.busy);
   const [ask, setAsk] = useState("");
+  const partnerFontPx = useUiPrefs((s) => s.partnerFontPx);
+  const bumpPartnerFont = useUiPrefs((s) => s.bumpPartnerFont);
+  const [fontMenuOpen, setFontMenuOpen] = useState(false);
 
   /** Kick off the tab's research if it's a fresh term with no answer yet —
    *  on first open, and again on focus (heals a cap-evicted answer). */
@@ -118,7 +122,7 @@ export function PartnerWindow() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden border border-border-strong bg-bg text-fg">
+    <div className="relative flex h-screen flex-col overflow-hidden border border-border-strong bg-bg text-fg">
       {/* Title bar — the drag region. */}
       <header
         data-tauri-drag-region
@@ -133,6 +137,16 @@ export function PartnerWindow() {
         >
           Ally{active ? ` — ${tabLabel(active)}` : ""}
         </span>
+        <button
+          type="button"
+          onClick={() => setFontMenuOpen((o) => !o)}
+          title="Text size"
+          aria-label="Text size"
+          aria-expanded={fontMenuOpen}
+          className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${fontMenuOpen ? "text-fg" : "text-fg-faint hover:text-fg"}`}
+        >
+          Aa
+        </button>
         <button
           type="button"
           onClick={() => void backend.partner.redock()}
@@ -161,6 +175,45 @@ export function PartnerWindow() {
           ×
         </button>
       </header>
+
+      {fontMenuOpen && (
+        <>
+          <button
+            type="button"
+            aria-hidden
+            tabIndex={-1}
+            onClick={() => setFontMenuOpen(false)}
+            className="fixed inset-0 z-40 cursor-default"
+          />
+          <div
+            role="menu"
+            aria-label="Text size"
+            className="glass-raised absolute right-2 top-[38px] z-50 flex items-center gap-1 rounded-lg border border-border p-2 shadow-[var(--shadow-lg)]"
+          >
+            <button
+              type="button"
+              onClick={() => bumpPartnerFont(-1)}
+              disabled={partnerFontPx <= ALLY_FONT_MIN}
+              aria-label="Smaller text"
+              className="grid h-6 w-6 place-items-center rounded border border-border text-fg-muted hover:text-fg disabled:opacity-30"
+            >
+              A−
+            </button>
+            <span className="w-10 text-center font-mono text-[11px] text-fg-faint">
+              {partnerFontPx}px
+            </span>
+            <button
+              type="button"
+              onClick={() => bumpPartnerFont(1)}
+              disabled={partnerFontPx >= ALLY_FONT_MAX}
+              aria-label="Larger text"
+              className="grid h-6 w-6 place-items-center rounded border border-border text-fg-muted hover:text-fg disabled:opacity-30"
+            >
+              A+
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Tab strip — one tab per open item (spec §4.1); the sanctioned
           exclusive-tab silhouette (2px top spine + raised fill). */}
@@ -222,17 +275,21 @@ export function PartnerWindow() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+      <div
+        data-testid="partner-body"
+        style={{ fontSize: partnerFontPx }}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
+      >
         {!active ? (
-          <p className="mt-8 text-center text-xs text-fg-faint">
+          <p className="mt-8 text-center text-[0.86em] text-fg-faint">
             Open a term from the Terms tab to research it here.
           </p>
         ) : (
           <>
             <div>
-              <h2 className="text-lg font-extrabold">{tabLabel(active)}</h2>
+              <h2 className="text-[1.3em] font-extrabold">{tabLabel(active)}</h2>
               {active.kind === "item" && active.payload.kind && (
-                <p className="mt-0.5 font-mono text-[10px] uppercase text-fg-faint">
+                <p className="mt-0.5 font-mono text-[0.72em] uppercase text-fg-faint">
                   {active.payload.kind}
                 </p>
               )}
@@ -240,23 +297,23 @@ export function PartnerWindow() {
 
             {active.kind === "item" && active.payload.preview && (
               <div className="border border-ai/34 bg-ai/[0.06] p-3">
-                <h4 className="mb-1.5 font-mono text-[10px] font-bold tracking-[0.14em] text-ai">
+                <h4 className="mb-1.5 font-mono text-[0.72em] font-bold tracking-[0.14em] text-ai">
                   PREVIEW
                 </h4>
-                <p className="text-[13px] leading-relaxed">
+                <p className="text-[0.93em] leading-relaxed">
                   {active.payload.preview}
                 </p>
               </div>
             )}
 
             <div className="rounded-[var(--radius)] border border-border bg-bg-2 p-3">
-              <h4 className="mb-1.5 font-mono text-[10px] font-bold tracking-[0.14em] text-fg-muted">
+              <h4 className="mb-1.5 font-mono text-[0.72em] font-bold tracking-[0.14em] text-fg-muted">
                 {answerHeading}
               </h4>
               {answerError ? (
-                <p className="text-[12.5px] text-rec">{answerError}</p>
+                <p className="text-[0.9em] text-rec">{answerError}</p>
               ) : (
-                <p className="whitespace-pre-line text-[12.5px] leading-relaxed text-fg-muted">
+                <p className="whitespace-pre-line text-[0.9em] leading-relaxed text-fg-muted">
                   {answerText || (busy ? "Researching…" : "…")}
                 </p>
               )}
@@ -264,11 +321,11 @@ export function PartnerWindow() {
 
             {sources.length > 0 && (
               <div className="rounded-[var(--radius)] border border-border bg-bg-2 p-3">
-                <h4 className="mb-1.5 font-mono text-[10px] font-bold tracking-[0.14em] text-fg-muted">
+                <h4 className="mb-1.5 font-mono text-[0.72em] font-bold tracking-[0.14em] text-fg-muted">
                   FROM YOUR DOCUMENTS
                 </h4>
                 {sources.map((s) => (
-                  <p key={s} className="text-[12px] text-fg-muted">
+                  <p key={s} className="text-[0.86em] text-fg-muted">
                     {s}
                   </p>
                 ))}
