@@ -131,18 +131,23 @@ swap a layer without asking the owner.**
     the control bar's bottom-right.** (Owner, 2026-08-21 — confirmed on the
     "Live Cockpit Tabs" mockup canvas.) Ally answers never render in the
     transcript stream (V4.0's inline-cards layout was explicitly reversed).
-    The right `AllyPanel` (`TranscriptView.tsx`) has two EXCLUSIVE tabs —
-    the left-nav-rail tab pattern, one active — selected from the bottom
-    `LiveControlBar`'s absolute bottom-right corner (aligned under the
-    340px panel; Record + "End & summarise" sit in the bar's LEFT group to
-    make room): **Details** = answers feed + Live summary + Open threads +
-    Grounding; **Terms** = words-only chips packed tight (azure dot =
-    detected live via FANER, gold dot = grounded context key terms/glossary)
-    — a CLICK opens the chip's info card (FANER preview + per-phrase action
-    icons: fetch info · define · open in partner window; the FANER
-    classification tags each phrase, so actions are never one-size-fits-all).
-    Asks answer into Details. The A−/A+ pref (3-dot menu) scales ALL panel
-    content, not just answer cards. The **partner window**
+    The right `AllyPanel` (`TranscriptView.tsx`) is a SPLIT by default
+    (owner, 2026-08-22): **Found** (top) = everything Ally surfaced,
+    grouped — They asked (radar history) · Commitments · Terms (azure dot
+    = detected live, gold = doc) · Mentioned (neutral dot) — each item one
+    tap from its card; **View** (bottom) = ONLY the cards the user
+    selected or asked for, in order, height-capped with More/Less, each
+    with fetch info / define / open-in-viewer / remove. The two control-bar
+    tabs (bottom-right corner, aligned under the 340px panel; Record +
+    "End & summarise" sit in the bar's LEFT group to make room) MAXIMIZE a
+    half (Terms = Found, Details = View); tapping the maximized tab
+    returns to the split, whose ratio is the draggable divider
+    (`conva.panel.splitRatio`). Live summary is the 3-dot "Summarize the
+    call" (lands in View); Grounding is a 3-dot line; Open threads and the
+    TrackerRail/AllyDock surfaces are retired — the View history is the
+    engagement record, the tracker/radar data lives in Found. Asks answer
+    into View. The A−/A+ pref (3-dot menu) scales ALL panel content, not
+    just answer cards. The **partner window**
     (`src-tauri/src/partner.rs` + `PartnerWindow.tsx`, `?partner=1`) is a
     real, ordinary OS window for one term's deep-dive — draggable custom
     title bar, resizable, defaults docked flush to the app's right edge, ⇥
