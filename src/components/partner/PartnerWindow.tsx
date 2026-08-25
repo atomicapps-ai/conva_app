@@ -49,6 +49,31 @@ export function PartnerWindow() {
     () => new Map(),
   );
 
+  // Lock-to-app: Rust owns the truth (spec §4.4); this mirrors it for the
+  // toggle icon. Boot-read + shell pushes (a manual drag releases the lock).
+  const [locked, setLocked] = useState(true);
+  useEffect(() => {
+    let alive = true;
+    void backend.partner.locked().then((v) => alive && setLocked(v));
+    let unsub: (() => void) | undefined;
+    void backend
+      .subscribe("partnerLock", (e) => setLocked(e.locked))
+      .then((un) => {
+        if (alive) unsub = un;
+        else un();
+      });
+    return () => {
+      alive = false;
+      unsub?.();
+    };
+  }, [backend]);
+
+  const toggleLock = () => {
+    const next = !locked;
+    setLocked(next);
+    void backend.partner.setLocked(next);
+  };
+
   useEffect(() => {
     let alive = true;
     void backend.rag
@@ -186,12 +211,21 @@ export function PartnerWindow() {
         </button>
         <button
           type="button"
-          onClick={() => void backend.partner.redock()}
-          title="Re-dock to the app's right side"
-          aria-label="Re-dock to the app's right side"
-          className="rounded px-1.5 py-0.5 text-fg-faint hover:text-fg"
+          onClick={toggleLock}
+          aria-pressed={locked}
+          title={
+            locked
+              ? "Locked to the app — click to float free"
+              : "Floating — click to lock to the app"
+          }
+          aria-label={
+            locked
+              ? "Locked to the app — click to float free"
+              : "Floating — click to lock to the app"
+          }
+          className={`rounded px-1.5 py-0.5 ${locked ? "text-primary" : "text-fg-faint hover:text-fg"}`}
         >
-          ⇥
+          <Icon name={locked ? "lock" : "unlock"} size={13} />
         </button>
         <button
           type="button"

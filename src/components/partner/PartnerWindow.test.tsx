@@ -230,3 +230,41 @@ describe("PartnerWindow document tabs", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("PartnerWindow lock toggle", () => {
+  beforeEach(() => {
+    useAllyStore.getState().clear();
+    for (const k of Object.keys(subscribers)) delete subscribers[k];
+    vi.clearAllMocks();
+    backend.partner.payload.mockResolvedValue(null);
+    backend.partner.locked.mockResolvedValue(true);
+    backend.rag.list.mockResolvedValue([]);
+  });
+
+  it("shows the locked state from the shell and toggles to unlocked", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    const toggle = await screen.findByRole("button", {
+      name: /Locked to the app/,
+    });
+    fireEvent.click(toggle);
+    expect(backend.partner.setLocked).toHaveBeenCalledWith(false);
+    expect(
+      screen.getByRole("button", { name: /Floating/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("updates the icon when the shell releases the lock (drag)", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    await screen.findByRole("button", { name: /Locked to the app/ });
+    await act(async () => {
+      subscribers["partnerLock"]?.({ locked: false });
+    });
+    expect(
+      screen.getByRole("button", { name: /Floating/ }),
+    ).toBeInTheDocument();
+  });
+});
