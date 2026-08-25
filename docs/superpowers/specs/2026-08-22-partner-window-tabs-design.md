@@ -112,25 +112,23 @@ for. Tabs live as long as the window does.
 
 ### 4.3 Document tabs
 
-- **IPC (mirrored both sides in one commit, rule 2):** `PartnerPayload` gains
-  `source_docs: { id: string, file_name: string }[]` (serde default = empty,
-  so old payload JSON stays valid). Rust `ipc.rs` struct + TS `ipc.ts`
-  interface. Every constructor site fills it (the Terms-tab open path and the
-  answer-card "open in viewer" path pass the ids they already have from
-  `AllySource`/RAG results; where ids are genuinely unavailable it stays
-  empty and the UI simply isn't clickable).
-- In the viewer, each "FROM YOUR DOCUMENTS" line whose file name matches a
-  `source_docs` entry renders as a button; clicking it synthesizes a
-  document payload `{ term: file_name, kind: "document", preview: null,
-  answer: null, source_lines: [], source_docs: [{ id, file_name }] }` —
-  carrying exactly the clicked document's id — and runs `addOrFocus`, with
-  no round-trip through Rust.
-- A `kind === "document"` tab renders no research request; its body loads
-  `backend.rag.documentText(id)` once (the id travels in the synthesized
-  payload's `source_docs[0]`), shows a loading state, then the text in a
-  scrollable `whitespace-pre-wrap` block at `text-[0.9em]`; `null` → "This
-  document's text isn't available." The Ask bar still works and tags the
-  active (document) tab — asking about a document is a normal Ally question.
+- **No IPC change** (amended during planning, 2026-08-22): `AllySource`
+  carries no document id, so a payload-side `source_docs` field could never
+  be filled with real ids. Instead the partner window resolves ids itself:
+  on mount it loads `backend.rag.list()` once and builds a
+  `file_name → id` map (the same resolution `AllyMetaPanel` already does
+  for grounding docs).
+- In the viewer, each "FROM YOUR DOCUMENTS" line whose leading file name
+  (the text before the " — " separator `groupSourcesByFile` produces)
+  matches a library document renders as a button; clicking it opens a
+  `kind: "document"` tab carrying that `{ id, file_name }` — no round-trip
+  through Rust. Lines with no library match stay plain text.
+- A document tab renders no research request; its body loads
+  `backend.rag.documentText(id)` once (the id lives on the tab itself),
+  shows a loading state, then the text in a scrollable
+  `whitespace-pre-wrap` block at `text-[0.9em]`; `null` → "This document's
+  text isn't available." The Ask bar still works and tags the active
+  (document) tab.
 
 ### 4.4 Lock-to-app (default) vs independent
 
@@ -186,8 +184,6 @@ for. Tabs live as long as the window does.
   the neighbor; Aa menu bumps the persisted pref; a document tab loads and
   renders `documentText`; per-tab answer routing (a card tagged for tab A
   never renders under tab B).
-- Core-side: serde round-trip test that a `PartnerPayload` JSON **without**
-  `source_docs` still deserializes (the additive-field guarantee).
 - Lock/follow behavior is shell-side (Windows window events) — covered by
   CI's Windows clippy/compile and the owner's manual pass: move the app with
   the window locked (it follows, size preserved), resize the partner while
