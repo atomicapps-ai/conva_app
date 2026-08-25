@@ -1615,10 +1615,8 @@ pub fn run() {
                     }
                     _ => {}
                 },
-                tauri::WindowEvent::Resized(_) => {
-                    if window.label() == "main" {
-                        partner::follow_main(app);
-                    }
+                tauri::WindowEvent::Resized(_) if window.label() == "main" => {
+                    partner::follow_main(app);
                 }
                 _ => {}
             }
