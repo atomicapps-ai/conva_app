@@ -129,7 +129,9 @@ export const useAllyStore = create<AllyState>((set, get) => ({
           sourceQuote: source?.quote ?? null,
           summary: null,
         },
-        ...s.cards.slice(0, 5),
+        // Keep enough history for several partner-window tabs' answers to
+        // coexist (spec §4.1) — the newest 12, not 6.
+        ...s.cards.slice(0, 11),
       ],
     }));
     try {

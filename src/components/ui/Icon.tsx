@@ -48,6 +48,8 @@ export type IconName =
   | "dragHandle"
   | "check"
   | "pin"
+  | "lock"
+  | "unlock"
   | "save"
   | "add"
   | "link"
@@ -329,6 +331,20 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M9 3h6l1 6-2 2h-6l-2-2 1-6z" />
       <path d="M12 17v5" />
+    </>
+  ),
+  // Lock — partner window follows the app (closed shackle).
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </>
+  ),
+  // Unlock — partner window floats free (open shackle).
+  unlock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 7.6-1.7" />
     </>
   ),
   // Save — a floppy disk, for committing the live/current state as a named
