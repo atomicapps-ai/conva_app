@@ -205,6 +205,17 @@ pub struct SimConSession {
     /// Replaced on regeneration, like the knowledge document.
     #[serde(default)]
     pub research_doc_id: Option<String>,
+    /// Opt-in: research the web broadly for common interview questions +
+    /// strong answers and write them into their own generated document
+    /// (spec 2026-08-26, part A) — costs meaningfully more searches/tokens
+    /// than default research, so it's a separate toggle. Interview
+    /// category only.
+    #[serde(default)]
+    pub deep_qa_enabled: bool,
+    /// The `RagDocument` id of the generated Interview Q&A document, once
+    /// generated (replaced on regeneration, like the other two).
+    #[serde(default)]
+    pub qa_doc_id: Option<String>,
     /// True when a grounding input (documents, job description, key terms,
     /// research toggle) changed after resources were generated — the digest/
     /// glossary no longer reflect the inputs. Set by the shell's save paths,
@@ -989,6 +1000,8 @@ mod tests {
             conversation_id: None,
             dossier_doc_id: None,
             research_doc_id: None,
+            deep_qa_enabled: false,
+            qa_doc_id: None,
             resources_stale: false,
         }
     }
@@ -1179,6 +1192,8 @@ mod tests {
             conversation_id: None,
             dossier_doc_id: Some("dossier-1".into()),
             research_doc_id: None,
+            deep_qa_enabled: false,
+            qa_doc_id: None,
             resources_stale: false,
         }
     }

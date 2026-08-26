@@ -346,6 +346,12 @@ export interface SimConSession {
   /** RagDocument id of the Stage-2 Research findings document, once
    * generated (replaced on regeneration, like the knowledge doc). */
   research_doc_id?: string | null;
+  /** Opt-in deep interview Q&A research (Interview category only) —
+   * costs meaningfully more searches/tokens than default research. */
+  deep_qa_enabled?: boolean;
+  /** RagDocument id of the generated Interview Q&A document, once
+   * generated (replaced on regeneration). */
+  qa_doc_id?: string | null;
   /** True when grounding inputs changed after resources were generated —
    * the digest/glossary no longer reflect the inputs (cleared by a
    * successful regeneration). Optional: older records omit it. */
