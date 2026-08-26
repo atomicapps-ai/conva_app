@@ -7,11 +7,7 @@ import {
   type ReactNode,
 } from "react";
 
-import {
-  LiveControlBar,
-  type AllyPanelTab,
-  type AllyPanelView,
-} from "@/components/studio/LiveControlBar";
+import { LiveControlBar } from "@/components/studio/LiveControlBar";
 import { LiveTopBar } from "@/components/studio/LiveTopBar";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
@@ -46,6 +42,11 @@ import {
 } from "@/components/transcript/viewEntries";
 import { FoundList } from "@/components/transcript/FoundList";
 import { ViewHistory } from "@/components/transcript/ViewHistory";
+import { AllyAccordion } from "@/components/transcript/AllyAccordion";
+import {
+  revealAnswers,
+  type PanelState,
+} from "@/components/transcript/panelSections";
 import { useCapabilities } from "@/lib/backend/context";
 import {
   useTranscriptStability,
@@ -1370,19 +1371,17 @@ function ContextMenu({
 
 /**
  * The right Ally panel (grown from V4.0's `.ally-panel`) — the ONE home for
- * everything Ally, a SPLIT panel by default (live-panel re-scope spec §3.1,
- * owner 2026-08-22):
+ * everything Ally, a spine-icon ACCORDION (spec 2026-08-26, superseding the
+ * 2026-08-22 Found/View split + control-bar tabs):
  *
- * - **Found** (top) — everything the AI surfaced from the call, grouped
- *   (They asked · Commitments · Terms · Mentioned), each item one tap from
- *   its card (`FoundList`).
- * - **View** (bottom) — ONLY the cards the user selected or asked for, in
- *   order, height-capped with More/Less (`ViewHistory`); the answers feed
- *   renders after them so the auto-scrolled bottom stays newest.
+ * - Four sections in fixed order — Questions · Tracking · Terms (all fed by
+ *   `FoundList` in single-group mode) · Answers (`ViewHistory` + the answer
+ *   feed). Exactly one content section open (`panelSections.ts` is the
+ *   model); Answers is pinnable as a bottom dock resized by the divider
+ *   (`splitRatio`, persisted — same key as the retired split).
+ * - `panelState`/`onPanelState` carry the accordion state; the cockpit
+ *   persists it via uiPrefs and calls `revealAnswers` on every ask.
  *
- * The control-bar tabs MAXIMIZE a half (Terms = Found, Details = View);
- * tapping the maximized tab returns to the split — `view` carries that
- * state. The divider between the halves drags (`splitRatio`, persisted).
  * Answers never render in the conversation column.
  */
 function AllyPanel({
@@ -1397,8 +1396,8 @@ function AllyPanel({
   renderAnswers,
   scrollRef,
   onBodyScroll,
-  askField,
-  view,
+  panelState,
+  onPanelState,
   groups,
   groundingDocs,
   viewEntries,
@@ -1430,8 +1429,8 @@ function AllyPanel({
   renderAnswers: () => React.ReactNode;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onBodyScroll: () => void;
-  askField: React.ReactNode;
-  view: AllyPanelView;
+  panelState: PanelState;
+  onPanelState: (s: PanelState) => void;
   groups: FoundGroups;
   /** File names of the grounded context's docs — the header count + the
    *  3-dot grounding line (loaded by the cockpit's grounding effect). */
@@ -1594,60 +1593,46 @@ function AllyPanel({
         style={{ fontSize: `${allyFontPx}px` }}
         className="flex min-h-0 flex-1 flex-col"
       >
-        {view !== "details" && (
-          <div
-            style={view === "split" ? { flexBasis: `${splitRatio * 100}%` } : undefined}
-            className={[
-              "min-h-0 overflow-y-auto p-3.5",
-              view === "split" ? "shrink-0 grow-0" : "flex-1",
-            ].join(" ")}
-          >
-            <FoundList groups={groups} onSelect={onSelectFound} />
-          </div>
-        )}
-        {view === "split" && (
-          <div
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Resize panels"
-            onPointerDown={(e) => {
-              const host = e.currentTarget.parentElement;
-              if (!host) return;
-              const rect = host.getBoundingClientRect();
-              const move = (ev: PointerEvent) =>
-                onSplitRatio((ev.clientY - rect.top) / rect.height);
-              const up = () => {
-                window.removeEventListener("pointermove", move);
-                window.removeEventListener("pointerup", up);
-              };
-              window.addEventListener("pointermove", move);
-              window.addEventListener("pointerup", up);
-            }}
-            className="h-[5px] shrink-0 cursor-row-resize border-y border-border bg-bg-2 hover:bg-panel-raised"
-          />
-        )}
-        {view !== "terms" && (
-          <div
-            ref={scrollRef}
-            onScroll={onBodyScroll}
-            className="min-h-0 flex-1 overflow-y-auto p-3.5"
-          >
-            <ViewHistory
-              entries={viewEntries}
-              focusKey={viewFocusKey}
-              onToggleExpanded={onToggleEntry}
-              onRemove={onRemoveEntry}
-              onFetchInfo={onEntryFetchInfo}
-              onDefine={onEntryDefine}
-              onElaborate={onEntryElaborate}
-              onOpenInViewer={onEntryOpenInViewer}
-              renderAnswerCards={renderAnswers}
-            />
-          </div>
-        )}
+        <AllyAccordion
+          state={panelState}
+          onState={onPanelState}
+          counts={{
+            questions: groups.questions.length,
+            tracking: groups.commitments.length + groups.mentions.length,
+            terms: groups.terms.length,
+            answers: viewEntries.length,
+          }}
+          splitRatio={splitRatio}
+          onSplitRatio={onSplitRatio}
+          renderSection={(id) =>
+            id === "answers" ? (
+              // The streaming-answers scroll container. `h-full` makes it
+              // exactly fill the accordion's own overflow div (content-box
+              // height), so only THIS div ever scrolls — one scrollbar, and
+              // the auto-scroll ref/onScroll pair keeps working unchanged.
+              <div
+                ref={scrollRef}
+                onScroll={onBodyScroll}
+                className="h-full overflow-y-auto"
+              >
+                <ViewHistory
+                  entries={viewEntries}
+                  focusKey={viewFocusKey}
+                  onToggleExpanded={onToggleEntry}
+                  onRemove={onRemoveEntry}
+                  onFetchInfo={onEntryFetchInfo}
+                  onDefine={onEntryDefine}
+                  onElaborate={onEntryElaborate}
+                  onOpenInViewer={onEntryOpenInViewer}
+                  renderAnswerCards={renderAnswers}
+                />
+              </div>
+            ) : (
+              <FoundList groups={groups} onSelect={onSelectFound} only={id} />
+            )
+          }
+        />
       </div>
-
-      {askField}
     </aside>
   );
 }
@@ -1896,10 +1881,10 @@ export function TranscriptView() {
   }, []);
 
   // Column gate (owner rules 2026-08-21: the conversation column is
-  // conversation text ONLY). ONE right Ally panel carries everything Ally,
-  // split across the Details/Terms tabs in the control bar's bottom-right
-  // corner (always visible); the panel is inline from 640px and folds into
-  // an overlay drawer below that — a tab tap then opens the drawer.
+  // conversation text ONLY). ONE right Ally panel carries everything Ally
+  // as the spine-icon accordion (spec 2026-08-26); the panel is inline from
+  // 640px and folds into an overlay drawer below that — the control bar's
+  // Ally button then opens the drawer.
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const el = containerRef.current;
@@ -1939,23 +1924,32 @@ export function TranscriptView() {
   }, []);
   const headerTight = convoColW > 0 && convoColW < 520;
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  // Split by default (spec §3.1): tapping a tab maximizes that half;
-  // tapping the maximized tab returns to the split. In drawer mode
-  // (<640px) there is no split — a tab tap opens that half as the
-  // overlay drawer, exclusive as before.
-  const [panelView, setPanelView] = useState<AllyPanelView>("split");
-  const selectPanelTab = useCallback(
-    (tab: AllyPanelTab) => {
-      setPanelView((v) => (!drawer && v === tab ? "split" : tab));
-      if (drawer) setDrawerOpen(true);
-    },
-    [drawer],
+  // Spine-accordion state (spec 2026-08-26), persisted via uiPrefs: one
+  // open content section + the Answers pin, combined into the pure
+  // `PanelState` the accordion's model functions operate on.
+  const answersPinned = useUiPrefs((s) => s.answersPinned);
+  const setAnswersPinned = useUiPrefs((s) => s.setAnswersPinned);
+  const panelOpenSection = useUiPrefs((s) => s.panelOpenSection);
+  const setPanelOpenSection = useUiPrefs((s) => s.setPanelOpenSection);
+  const panelState = useMemo<PanelState>(
+    () => ({ open: panelOpenSection, answersPinned }),
+    [panelOpenSection, answersPinned],
   );
-  // Answers/asks must land visibly: if Found is maximized, drop back to
-  // the split so the View half (where the answer streams) is on screen.
+  const applyPanelState = useCallback(
+    (next: PanelState) => {
+      setPanelOpenSection(next.open);
+      setAnswersPinned(next.answersPinned);
+    },
+    [setPanelOpenSection, setAnswersPinned],
+  );
+  // Answers/asks must land visibly: reveal the Answers surface (the pinned
+  // dock already is; unpinned → open the Answers section), and in drawer
+  // mode also open the drawer itself so the stream isn't hidden off-screen.
   const ensureViewVisible = useCallback(() => {
-    setPanelView((v) => (v === "terms" ? "split" : v));
-  }, []);
+    const next = revealAnswers(panelState);
+    if (next !== panelState) applyPanelState(next);
+    if (drawer) setDrawerOpen(true);
+  }, [panelState, applyPanelState, drawer]);
 
   // The View half's chosen entries (spec §3.3). One monotone counter
   // sequences selections against future needs; focusKey drives the
@@ -2262,21 +2256,21 @@ export function TranscriptView() {
     );
   }
 
-  // Always-available Ask Ally field — lives at the bottom of the Ally
-  // answers column when it's inline, and falls back to the conversation
-  // section's bottom edge only when the column is hidden (<640px), so
-  // asking stays possible at every width.
+  // Always-available Ask Ally field — compact, at the conversation
+  // column's bottom edge at EVERY width (spec 2026-08-26 §4; the panel's
+  // foot slot is gone with the accordion). Answers stream into the panel's
+  // Answers surface via ensureViewVisible.
   const askAllyField = (
-    <div className="shrink-0 border-t border-border px-3 py-2.5">
-      <label className="flex h-9 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
-        <Icon name="lightbulb" size={16} className="shrink-0 text-ai/70" />
+    <div className="shrink-0 border-t border-border px-2.5 py-1.5">
+      <label className="flex h-8 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
+        <Icon name="lightbulb" size={14} className="shrink-0 text-ai/70" />
         <input
           value={ask}
           onChange={(e) => setAsk(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submitAsk()}
           placeholder="Ask Ally anything…"
           aria-label="Ask Ally"
-          className="min-w-0 flex-1 bg-transparent text-sm text-fg placeholder:text-fg-faint focus:outline-none"
+          className="min-w-0 flex-1 bg-transparent text-[12px] text-fg placeholder:text-fg-faint focus:outline-none"
         />
         <button
           type="button"
@@ -2284,9 +2278,9 @@ export function TranscriptView() {
           disabled={busy || !ask.trim()}
           title="Ask Ally"
           aria-label="Send question to Ally"
-          className="shrink-0 rounded-[4px] p-1.5 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
+          className="shrink-0 rounded-[4px] p-1 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
         >
-          <Icon name="chevron" size={16} className="rotate-90" />
+          <Icon name="chevron" size={14} className="rotate-90" />
         </button>
       </label>
     </div>
@@ -2538,9 +2532,7 @@ export function TranscriptView() {
             </button>
           )}
 
-          {/* Narrow fallback only — with the Ally panel inline, the field
-              lives at the panel's foot instead. */}
-          {drawer && askAllyField}
+          {askAllyField}
         </section>
 
         {/* The Ally panel — inline (≥640px) or an overlay drawer (narrow). */}
@@ -2575,8 +2567,8 @@ export function TranscriptView() {
             barPad={barPad}
             scrollRef={allyScroll.ref}
             onBodyScroll={allyScroll.onScroll}
-            askField={drawer ? null : askAllyField}
-            view={drawer ? (panelView === "split" ? "details" : panelView) : panelView}
+            panelState={panelState}
+            onPanelState={applyPanelState}
             groups={foundGroups}
             groundingDocs={groundingDocs}
             viewEntries={viewEntries}
@@ -2650,15 +2642,11 @@ export function TranscriptView() {
 
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       </main>
-      {/* Tabs render in drawer mode too (a tap opens the overlay drawer),
-          so the tab zone keeps a fixed sensible width there instead of
-          tracking the (hidden-inline) panel width. */}
+      {/* In drawer mode the bar grows an Ally button on its right edge —
+          the one way to open the overlay panel. Inline, the panel is
+          always on screen, so the bar carries no panel control. */}
       <LiveControlBar
-        tabs={{
-          view: panelView,
-          onSelect: selectPanelTab,
-          widthPx: drawer ? 200 : effectivePanelWidth,
-        }}
+        onOpenPanel={drawer ? () => setDrawerOpen(true) : undefined}
       />
     </div>
   );
