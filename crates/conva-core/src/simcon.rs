@@ -793,6 +793,74 @@ Output only the Markdown document — no preamble.",
     }
 }
 
+/// Category-aware analytical performance report prompt (spec 2026-08-26,
+/// part B) — grounded in the linked context's job description/vocabulary
+/// when available, otherwise a generic structural analysis the transcript
+/// alone supports. `category: None` covers a conversation with no linked
+/// context (or one whose context was since deleted) — never an error,
+/// always a valid, useful prompt.
+pub fn performance_analysis_prompt(
+    category: Option<SimConCategory>,
+    job_description: Option<&str>,
+    glossary: &[String],
+    transcript_text: &str,
+) -> LlmRequest {
+    let task = match category {
+        Some(SimConCategory::Interview) => {
+            "Analyze how well the user performed as the CANDIDATE in this \
+interview — strengths, gaps versus the job description and the \
+vocabulary an interviewer would expect, clarity and structure of \
+answers, and concrete, specific suggestions for improvement. Cite \
+specific moments from the transcript."
+        }
+        Some(SimConCategory::SalesCall) => {
+            "Analyze how well the user handled this sales call — objection \
+handling, rapport, and any close attempts. Cite specific moments from \
+the transcript and give concrete suggestions for improvement."
+        }
+        Some(SimConCategory::CompanyMeeting) => {
+            "Analyze this meeting's structure — decisions reached, action \
+items and who owns them, and how clearly the user communicated. Cite \
+specific moments from the transcript."
+        }
+        Some(SimConCategory::Other) | None => {
+            "Analyze this conversation's clarity and structure — what \
+went well, what was unclear, and concrete suggestions for improvement. \
+Cite specific moments from the transcript."
+        }
+    };
+    let system = format!(
+        "You are Ally, writing an analytical performance report. {task} \
+Ground every claim in what's actually in the transcript — never invent. \
+Output only the Markdown report — no preamble."
+    );
+
+    let mut user = String::new();
+    if let Some(jd) = job_description {
+        let jd = jd.trim();
+        if !jd.is_empty() {
+            user.push_str(&format!(
+                "Role expectations (job description):\n{}\n\n",
+                jd.chars().take(4_000).collect::<String>()
+            ));
+        }
+    }
+    if !glossary.is_empty() {
+        user.push_str(&format!(
+            "Vocabulary the candidate was expected to know: {}\n\n",
+            glossary.join(", ")
+        ));
+    }
+    user.push_str("Transcript:\n\n");
+    user.push_str(transcript_text);
+
+    LlmRequest {
+        system,
+        user,
+        max_tokens: 3000,
+    }
+}
+
 // ── Glossary extraction — digest → context-highlight terms (Phase 3c) ────────
 
 /// Max glossary terms harvested from a digest.
@@ -1377,5 +1445,39 @@ mod tests {
             req.system
         );
         assert_eq!(req.max_tokens, 6000);
+    }
+
+    #[test]
+    fn performance_analysis_prompt_interview_framing_with_grounding() {
+        let req = performance_analysis_prompt(
+            Some(SimConCategory::Interview),
+            Some("Senior DevOps role requiring Terraform and EKS."),
+            &["Terraform".to_string(), "EKS".to_string()],
+            "Them: Tell me about your Terraform experience.\nYou: I've used it for three years.",
+        );
+        let sys = req.system.to_lowercase();
+        assert!(sys.contains("candidate"));
+        assert!(sys.contains("job description"));
+        assert!(req.user.contains("Senior DevOps role"));
+        assert!(req.user.contains("Terraform"));
+        assert!(req.user.contains("Tell me about your Terraform experience"));
+        assert_eq!(req.max_tokens, 3000);
+    }
+
+    #[test]
+    fn performance_analysis_prompt_ungrounded_still_produces_valid_prompt() {
+        let req = performance_analysis_prompt(None, None, &[], "Them: Hi.\nYou: Hello.");
+        assert!(!req.system.trim().is_empty());
+        assert!(!req.user.contains("Role expectations"));
+        assert!(req.user.contains("Them: Hi."));
+    }
+
+    #[test]
+    fn performance_analysis_prompt_sales_framing_differs_from_interview() {
+        let interview =
+            performance_analysis_prompt(Some(SimConCategory::Interview), None, &[], "x");
+        let sales = performance_analysis_prompt(Some(SimConCategory::SalesCall), None, &[], "x");
+        assert_ne!(interview.system, sales.system);
+        assert!(sales.system.to_lowercase().contains("objection"));
     }
 }
