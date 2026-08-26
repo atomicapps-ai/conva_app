@@ -1,5 +1,10 @@
 import { create } from "zustand";
 
+import {
+  SECTION_ORDER,
+  type PanelSectionId,
+} from "@/components/transcript/panelSections";
+
 /**
  * Small, local UI preferences for the Ally column — persisted to localStorage
  * (not synced settings). Font size for the research text and whether the
@@ -12,6 +17,8 @@ const COLLAPSE_YOU_KEY = "conva.transcript.collapseYou";
 const PARTNER_FONT_KEY = "conva.partner.fontPx";
 const PANEL_SPLIT_KEY = "conva.panel.splitRatio";
 const PANEL_WIDTH_KEY = "conva.panel.widthPx";
+const ANSWERS_PINNED_KEY = "conva.panel.answersPinned";
+const PANEL_OPEN_SECTION_KEY = "conva.panel.openSection";
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 560;
 const PANEL_WIDTH_DEFAULT = 340;
@@ -40,6 +47,14 @@ interface UiPrefs {
   /** Found/View split ratio (Found's share of the panel height), 0.25–0.75. */
   panelSplitRatio: number;
   setPanelSplitRatio: (r: number) => void;
+  /** Whether the Answers dock is pinned at the panel's bottom (spine
+   *  accordion, spec 2026-08-26). Default on. */
+  answersPinned: boolean;
+  setAnswersPinned: (pinned: boolean) => void;
+  /** The accordion's open section. While Answers is pinned this names one
+   *  of the three content sections (load coerces a stored "answers"). */
+  panelOpenSection: PanelSectionId;
+  setPanelOpenSection: (id: PanelSectionId) => void;
   /** Right Ally panel width, px — drives BOTH the panel and the control
    *  bar's tab zone so they stay aligned (spec A.2). */
   panelWidthPx: number;
@@ -69,11 +84,30 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
       ? v
       : PANEL_WIDTH_DEFAULT;
   })(),
+  // Default pinned — the Answers dock stays visible unless turned off.
+  answersPinned: localStorage.getItem(ANSWERS_PINNED_KEY) !== "false",
+  panelOpenSection: (() => {
+    const v = localStorage.getItem(PANEL_OPEN_SECTION_KEY) as PanelSectionId;
+    if (!SECTION_ORDER.includes(v)) return "terms";
+    // While Answers is pinned, "answers" can't be the open section — the
+    // dock is already on screen; fall back to Terms.
+    const pinned = localStorage.getItem(ANSWERS_PINNED_KEY) !== "false";
+    return pinned && v === "answers" ? "terms" : v;
+  })(),
 
   setPanelSplitRatio: (r) => {
     const clamped = Math.max(0.25, Math.min(0.75, r));
     localStorage.setItem(PANEL_SPLIT_KEY, String(clamped));
     set({ panelSplitRatio: clamped });
+  },
+  setAnswersPinned: (pinned) => {
+    localStorage.setItem(ANSWERS_PINNED_KEY, pinned ? "true" : "false");
+    set({ answersPinned: pinned });
+  },
+  setPanelOpenSection: (id) => {
+    if (!SECTION_ORDER.includes(id)) return; // invalid → keep current
+    localStorage.setItem(PANEL_OPEN_SECTION_KEY, id);
+    set({ panelOpenSection: id });
   },
   setPanelWidthPx: (px) => {
     const clamped = Math.max(
