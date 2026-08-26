@@ -640,6 +640,30 @@ pub fn extract_glossary(digest_md: &str) -> Vec<String> {
             break;
         }
     }
+    // Fallback (spec B.3): a digest cut off before its ## Glossary section
+    // (token-budget truncation) still bolds the key term in each bullet per
+    // the prompt — harvest every **bolded** phrase instead of yielding
+    // nothing. Same length/dedupe/cap discipline as the section path.
+    if out.is_empty() {
+        for raw in digest_md.lines() {
+            let mut rest = raw;
+            while let Some(start) = rest.find("**") {
+                let after = &rest[start + 2..];
+                let Some(end) = after.find("**") else { break };
+                let term = after[..end].trim().to_string();
+                rest = &after[end + 2..];
+                if term.is_empty() || term.chars().count() > 60 {
+                    continue;
+                }
+                if !out.iter().any(|t| t.eq_ignore_ascii_case(&term)) {
+                    out.push(term);
+                }
+                if out.len() >= MAX_GLOSSARY_TERMS {
+                    return out;
+                }
+            }
+        }
+    }
     out
 }
 
@@ -801,6 +825,29 @@ mod tests {
         assert!(g.iter().any(|t| t == "Deferred revenue"), "{g:?}");
         // Terms outside the Glossary section are not harvested.
         assert!(!g.iter().any(|t| t.contains("Not a glossary")), "{g:?}");
+    }
+
+    #[test]
+    fn extract_glossary_falls_back_to_bolded_phrases_without_a_section() {
+        // A digest truncated before its ## Glossary section (the 2026-08-26
+        // Amazon-interview failure) still bolds key terms inline per the
+        // prompt — harvest those instead of yielding nothing.
+        let md = "## Overview\nStrong match.\n\n## Strong talking points\n\
+                  - Used **Terraform** and **EKS** on the account.\n\
+                  - Governance via **HashiCorp Sentinel**.\n\
+                  - Standards adopted across **12 engineering teams**.";
+        let terms = extract_glossary(md);
+        assert!(terms.iter().any(|t| t == "Terraform"), "{terms:?}");
+        assert!(terms.iter().any(|t| t == "EKS"), "{terms:?}");
+        assert!(terms.iter().any(|t| t == "HashiCorp Sentinel"), "{terms:?}");
+    }
+
+    #[test]
+    fn extract_glossary_prefers_the_real_section_when_present() {
+        let md = "## Glossary\n- **RRF** — rank fusion.\n\n## Notes\n\
+                  Also mentions **Terraform** in prose.";
+        let terms = extract_glossary(md);
+        assert_eq!(terms, vec!["RRF".to_string()]);
     }
 
     #[test]
