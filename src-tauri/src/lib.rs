@@ -841,7 +841,12 @@ fn activate_context(
             .as_deref()
             .and_then(|doc_id| state.rag.document_text(doc_id))
         {
-            let glossary = conva_core::simcon::extract_glossary(&text);
+            let glossary = conva_core::highlight::sanitize_mined_terms(
+                conva_core::simcon::extract_glossary(&text),
+                &text,
+                session.job_description.as_deref(),
+                1,
+            );
             if !glossary.is_empty() {
                 session.glossary = glossary;
                 // Best-effort persist — activation still proceeds with the
@@ -856,14 +861,34 @@ fn activate_context(
     // terms straight from those documents so "From your documents" is never
     // empty for a grounded context with content. A later digest generation
     // overwrites `glossary` with the real extracted set.
+    // JD-primacy (spec B.2): the job description's own vocabulary fills the
+    // list first — it's what the interviewer will actually say.
     if session.glossary.is_empty() && session.key_terms.is_empty() {
         let mut mined: Vec<String> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // The interviewer's vocabulary first (spec B.2): the job
+        // description is the best predictor of what the other side will
+        // say — up to 16 of the 24 slots.
+        if let Some(jd) = session.job_description.as_deref() {
+            for term in conva_core::highlight::interviewer_terms(jd, 16) {
+                if seen.insert(term.to_lowercase()) {
+                    mined.push(term);
+                }
+            }
+        }
+        // Then per-document mining fills what's left — gated (floor 2, or
+        // JD presence) so one-off extraction-glue artifacts die here.
         for doc_id in &session.source_doc_ids {
             let Some(text) = state.rag.document_text(doc_id) else {
                 continue;
             };
-            for term in conva_core::highlight::salient_doc_terms(&text, 8) {
+            let doc_terms = conva_core::highlight::sanitize_mined_terms(
+                conva_core::highlight::salient_doc_terms(&text, 8),
+                &text,
+                session.job_description.as_deref(),
+                2,
+            );
+            for term in doc_terms {
                 if seen.insert(term.to_lowercase()) {
                     mined.push(term);
                 }
@@ -968,7 +993,7 @@ fn simcon_generate_dossier(
         .llm_quality
         .clone();
     let key = resolve_key(selection.provider)?;
-    let request = conva_core::simcon::dossier_prompt(&session, &profile.research, &chunks, 1200);
+    let request = conva_core::simcon::dossier_prompt(&session, &profile.research, &chunks, 2500);
     let mut buf = String::new();
     let usage = llm::stream_completion(
         selection.provider,
@@ -1008,7 +1033,16 @@ fn simcon_generate_dossier(
     session.dossier_doc_id = Some(doc_id);
     // Harvest the digest's glossary into structured context terms (Phase 3c) so
     // the highlighter can surface them during the conversation.
-    session.glossary = conva_core::simcon::extract_glossary(&text);
+    // Harvested terms pass the mined-term hygiene gate (spec B.2/B.3):
+    // bolding is already an LLM-curated signal, so the occurrence floor is
+    // 1, but the word-cap and stopword rules still apply, and JD presence
+    // still counts in the term's favor.
+    session.glossary = conva_core::highlight::sanitize_mined_terms(
+        conva_core::simcon::extract_glossary(&text),
+        &text,
+        session.job_description.as_deref(),
+        1,
+    );
     simcon::save(&app, session).map_err(|e| e.to_string())
 }
 
