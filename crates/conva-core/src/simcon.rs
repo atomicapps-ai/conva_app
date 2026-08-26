@@ -698,15 +698,29 @@ preamble.",
 /// Max glossary terms harvested from a digest.
 const MAX_GLOSSARY_TERMS: usize = 32;
 
-/// Extract the glossary terms from a generated Context Digest — the entries
-/// under its `## Glossary` or `## Core vocabulary` section. Prefers the
-/// **bolded** term in each bullet,
-/// falling back to the text before an em/en dash or colon. Case-insensitively
-/// deduped, capped at [`MAX_GLOSSARY_TERMS`]. Pure; the shell stores the result
-/// on the context (`SimConSession::glossary`) to drive context-aware
-/// highlighting (see `docs/technical/highlighting-relevance.md`).
-pub fn extract_glossary(digest_md: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+/// Extract `(term, definition)` pairs from a generated Context Digest — the
+/// entries under its `## Glossary` or `## Core vocabulary` section (or, when
+/// that section is missing entirely, every **bolded** phrase in the digest —
+/// spec B.3's truncation fallback). The definition is whatever text follows
+/// the term on its line (after the closing `**`, or after the first
+/// em/en-dash or colon when the term isn't bolded), trimmed of leading
+/// punctuation/whitespace and capped at 200 chars; empty when nothing
+/// follows. Case-insensitively deduped by term, capped at
+/// [`MAX_GLOSSARY_TERMS`]. Pure; [`extract_glossary`] is a thin wrapper over
+/// this that keeps only the term (existing callers, existing behavior); the
+/// shell also reads the definition half to cache instant term lookups
+/// (spec 2026-08-26, cached term definitions).
+pub fn extract_glossary_entries(digest_md: &str) -> Vec<(String, String)> {
+    fn clean_definition(raw: &str) -> String {
+        raw.trim()
+            .trim_start_matches(['—', '–', ':', '-'])
+            .trim()
+            .chars()
+            .take(200)
+            .collect()
+    }
+
+    let mut out: Vec<(String, String)> = Vec::new();
     let mut in_section = false;
 
     for raw in digest_md.lines() {
@@ -721,30 +735,35 @@ pub fn extract_glossary(digest_md: &str) -> Vec<String> {
             continue;
         }
         let content = line.trim_start_matches(['-', '*', '+', '•']).trim_start();
-        let term = if let Some(rest) = content.strip_prefix("**") {
-            rest.split("**").next().unwrap_or("").trim().to_string()
+        let (term, definition) = if let Some(rest) = content.strip_prefix("**") {
+            let mut parts = rest.splitn(2, "**");
+            let term = parts.next().unwrap_or("").trim().to_string();
+            let definition = clean_definition(parts.next().unwrap_or(""));
+            (term, definition)
         } else {
-            content
-                .split(['—', '–', ':'])
+            let mut parts = content.splitn(2, ['—', '–', ':']);
+            let term = parts
                 .next()
                 .unwrap_or("")
                 .trim_matches(['*', ' '])
-                .to_string()
+                .to_string();
+            let definition = clean_definition(parts.next().unwrap_or(""));
+            (term, definition)
         };
         if term.is_empty() || term.chars().count() > 60 {
             continue;
         }
-        if !out.iter().any(|t| t.eq_ignore_ascii_case(&term)) {
-            out.push(term);
+        if !out.iter().any(|(t, _)| t.eq_ignore_ascii_case(&term)) {
+            out.push((term, definition));
         }
         if out.len() >= MAX_GLOSSARY_TERMS {
             break;
         }
     }
     // Fallback (spec B.3): a digest cut off before its ## Glossary section
-    // (token-budget truncation) still bolds the key term in each bullet per
-    // the prompt — harvest every **bolded** phrase instead of yielding
-    // nothing. Same length/dedupe/cap discipline as the section path.
+    // still bolds the key term in each bullet per the prompt — harvest
+    // every **bolded** phrase (plus whatever follows it on the line, up to
+    // the next bold marker) instead of yielding nothing.
     if out.is_empty() {
         for raw in digest_md.lines() {
             let mut rest = raw;
@@ -752,12 +771,17 @@ pub fn extract_glossary(digest_md: &str) -> Vec<String> {
                 let after = &rest[start + 2..];
                 let Some(end) = after.find("**") else { break };
                 let term = after[..end].trim().to_string();
+                let mut tail = &after[end + 2..];
+                if let Some(next_bold) = tail.find("**") {
+                    tail = &tail[..next_bold];
+                }
+                let definition = clean_definition(tail);
                 rest = &after[end + 2..];
                 if term.is_empty() || term.chars().count() > 60 {
                     continue;
                 }
-                if !out.iter().any(|t| t.eq_ignore_ascii_case(&term)) {
-                    out.push(term);
+                if !out.iter().any(|(t, _)| t.eq_ignore_ascii_case(&term)) {
+                    out.push((term, definition));
                 }
                 if out.len() >= MAX_GLOSSARY_TERMS {
                     return out;
@@ -766,6 +790,17 @@ pub fn extract_glossary(digest_md: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// Extract just the glossary TERMS (see [`extract_glossary_entries`] for the
+/// full term+definition pairs). Pure; the shell stores the result on the
+/// context (`SimConSession::glossary`) to drive context-aware highlighting
+/// (see `docs/technical/highlighting-relevance.md`).
+pub fn extract_glossary(digest_md: &str) -> Vec<String> {
+    extract_glossary_entries(digest_md)
+        .into_iter()
+        .map(|(term, _)| term)
+        .collect()
 }
 
 /// True when any grounding input differs between two versions of a context —
@@ -1138,5 +1173,49 @@ mod tests {
         let sys = req.system.to_lowercase();
         assert!(sys.contains("cite"), "citation instruction missing");
         assert!(req.max_tokens == 2000);
+    }
+
+    #[test]
+    fn extract_glossary_entries_captures_bolded_term_definitions() {
+        let digest = "## Overview\nIntro.\n\n## Core vocabulary\n\
+- **API Gateway** — managed API front door for backend services.\n\
+- **Terraform**: infrastructure-as-code tool.\n\n## Watch-outs\n- none";
+        let entries = extract_glossary_entries(digest);
+        let gateway = entries
+            .iter()
+            .find(|(t, _)| t == "API Gateway")
+            .expect("API Gateway missing");
+        assert_eq!(gateway.1, "managed API front door for backend services.");
+        let terraform = entries
+            .iter()
+            .find(|(t, _)| t == "Terraform")
+            .expect("Terraform missing");
+        assert_eq!(terraform.1, "infrastructure-as-code tool.");
+    }
+
+    #[test]
+    fn extract_glossary_entries_empty_definition_when_nothing_follows() {
+        let digest = "## Glossary\n- **GAAP**\n";
+        let entries = extract_glossary_entries(digest);
+        let gaap = entries
+            .iter()
+            .find(|(t, _)| t == "GAAP")
+            .expect("GAAP missing");
+        assert_eq!(gaap.1, "");
+    }
+
+    #[test]
+    fn extract_glossary_still_returns_only_terms() {
+        // extract_glossary is now a thin wrapper — every pre-existing test
+        // of it already covers this, but pin the relationship explicitly.
+        let digest = "## Glossary\n- **GAAP**: accounting standards.\n";
+        assert_eq!(extract_glossary(digest), vec!["GAAP".to_string()]);
+        assert_eq!(
+            extract_glossary(digest),
+            extract_glossary_entries(digest)
+                .into_iter()
+                .map(|(t, _)| t)
+                .collect::<Vec<_>>()
+        );
     }
 }
