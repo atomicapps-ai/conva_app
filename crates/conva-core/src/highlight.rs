@@ -522,6 +522,49 @@ pub fn salient_doc_terms(doc_text: &str, limit: usize) -> Vec<String> {
     terms
 }
 
+/// Count non-overlapping word-bounded occurrences of `needle` in `hay`
+/// (both already tokenized lowercase).
+fn phrase_count(hay: &[String], needle: &[String]) -> usize {
+    if needle.is_empty() || needle.len() > hay.len() {
+        return 0;
+    }
+    hay.windows(needle.len()).filter(|w| *w == needle).count()
+}
+
+/// Hygiene gate for MINED terms (never user-typed key terms) — spec B.2.
+/// A term survives when it is ≤4 words, isn't a bare stopword, and either
+/// occurs at least `min_occurrences` times in `doc_text` or appears in the
+/// job description. One-off extraction-glue artifacts ("CloudOpenShift"
+/// jammed at a PDF line break) occur once and die here; real camel-case
+/// product names repeat or show up in the JD and survive.
+pub fn sanitize_mined_terms(
+    terms: Vec<String>,
+    doc_text: &str,
+    jd_text: Option<&str>,
+    min_occurrences: usize,
+) -> Vec<String> {
+    let doc_toks = tokens(doc_text);
+    let jd_toks = jd_text.map(tokens);
+    terms
+        .into_iter()
+        .filter(|term| {
+            let t = term.trim();
+            if t.is_empty() {
+                return false;
+            }
+            let nt = tokens(t);
+            if nt.is_empty() || nt.len() > 4 {
+                return false;
+            }
+            if nt.len() == 1 && STOPWORDS.contains(&nt[0].as_str()) {
+                return false;
+            }
+            let in_jd = jd_toks.as_ref().is_some_and(|j| contains_phrase(j, &nt));
+            in_jd || phrase_count(&doc_toks, &nt) >= min_occurrences
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod doc_terms_tests {
     use super::salient_doc_terms;
@@ -545,5 +588,63 @@ mod doc_terms_tests {
     #[test]
     fn empty_document_yields_nothing() {
         assert!(salient_doc_terms("", 8).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod sanitize_mined_tests {
+    use super::sanitize_mined_terms;
+
+    const DOC: &str = "Built DynamoDB tables and tuned DynamoDB capacity. \
+        Migrated workloads to the CloudOpenShift platform once. \
+        Used CloudWatch dashboards and CloudWatch alarms daily.";
+
+    #[test]
+    fn drops_a_one_occurrence_glue_token_and_keeps_repeaters() {
+        let out = sanitize_mined_terms(
+            vec![
+                "DynamoDB".into(),
+                "CloudOpenShift".into(),
+                "CloudWatch".into(),
+            ],
+            DOC,
+            None,
+            2,
+        );
+        assert_eq!(out, vec!["DynamoDB".to_string(), "CloudWatch".to_string()]);
+    }
+
+    #[test]
+    fn jd_presence_rescues_a_single_occurrence() {
+        let out = sanitize_mined_terms(
+            vec!["CloudOpenShift".into()],
+            DOC,
+            Some("Experience with CloudOpenShift required."),
+            2,
+        );
+        assert_eq!(out, vec!["CloudOpenShift".to_string()]);
+    }
+
+    #[test]
+    fn enforces_the_four_word_cap_and_drops_stopword_singles() {
+        let doc = "the well architected framework twelve factor app method \
+                   the well architected framework twelve factor app method";
+        let out = sanitize_mined_terms(
+            vec![
+                "well architected framework twelve factor".into(), // 5 words
+                "the".into(),                                      // stopword
+                "well architected framework".into(),               // 3 words, occurs 2x
+            ],
+            doc,
+            None,
+            2,
+        );
+        assert_eq!(out, vec!["well architected framework".to_string()]);
+    }
+
+    #[test]
+    fn floor_one_keeps_single_occurrences() {
+        let out = sanitize_mined_terms(vec!["CloudOpenShift".into()], DOC, None, 1);
+        assert_eq!(out, vec!["CloudOpenShift".to_string()]);
     }
 }
