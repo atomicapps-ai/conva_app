@@ -267,10 +267,10 @@ impl SimConCategory {
                     },
                 ],
                 digest_sections: &[
-                    "Likely questions",
-                    "Glossary",
-                    "Role & company background",
-                    "Your talking points",
+                    "Role profile",
+                    "Core vocabulary",
+                    "Likely questions & strong answers",
+                    "Facts & figures",
                 ],
                 default_research_enabled: true,
             },
@@ -293,7 +293,7 @@ impl SimConCategory {
                         multiple: true,
                     },
                 ],
-                digest_sections: &["Key figures", "Glossary", "Likely discussion points"],
+                digest_sections: &["Key figures", "Core vocabulary", "Likely discussion points"],
                 default_research_enabled: false,
             },
             SimConCategory::SalesCall => ConversationTemplate {
@@ -303,11 +303,11 @@ impl SimConCategory {
                     label: "Prospect / account docs",
                     multiple: true,
                 }],
-                // Glossary included so sales contexts harvest highlight terms
-                // like every other category (extract_glossary reads it).
+                // Core vocabulary included so sales contexts harvest highlight
+                // terms like every other category (extract_glossary reads it).
                 digest_sections: &[
                     "Company background",
-                    "Glossary",
+                    "Core vocabulary",
                     "Objections",
                     "Talking points",
                 ],
@@ -320,7 +320,7 @@ impl SimConCategory {
                     label: "Files",
                     multiple: true,
                 }],
-                digest_sections: &["Glossary", "Summary", "Likely questions"],
+                digest_sections: &["Core vocabulary", "Summary", "Likely questions"],
                 default_research_enabled: false,
             },
         }
@@ -522,18 +522,21 @@ first line, in character.\n",
 
 // ── Prep dossier — Ally-authored briefing document ──────────────────────────
 
-/// Reference budget for the dossier prompt (docs + research it synthesizes).
+/// Reference budget for the knowledge prompt (docs + research it synthesizes).
 const DOSSIER_REFERENCE_CHAR_BUDGET: usize = 10_000;
 
-/// Build the `(system, user)` prompt for the **Context Digest** (a.k.a. the
-/// Ally prep dossier): one concise, dense, LLM-optimized briefing Ally *writes*
-/// from the context's documents + web research, saved back to the library as a
-/// readable document and re-indexed into RAG. Its sections come from the type's
-/// template ([`ConversationTemplate::digest_sections`]) so the digest is
-/// tailored to the conversation — likely questions for an interview, key
-/// figures for a meeting, and so on. Distinct from retrieval — this is
-/// synthesis (see `conva_core/docs/technical/conversation-context.md`).
-pub fn dossier_prompt(
+/// Build the prompt for the Stage-1 **Context Knowledge** document (the
+/// logic layer of the two-stage grounding pipeline, spec 2026-08-26): one
+/// dense, high-signal briefing Ally *writes* from the context's documents +
+/// web research, saved back to the library as a readable document and
+/// re-indexed into RAG. Its sections come from the type's template
+/// ([`ConversationTemplate::digest_sections`]) so the document is tailored
+/// to the conversation — role profile and likely Q&A for an interview, key
+/// figures for a meeting, and so on — and its `## Core vocabulary` section
+/// carries the 20–30-term contract `extract_glossary` harvests. Distinct
+/// from retrieval — this is synthesis (see
+/// `conva_core/docs/technical/conversation-context.md`).
+pub fn knowledge_prompt(
     session: &SimConSession,
     research: &[ResearchSource],
     chunks: &[ScoredChunk],
@@ -549,13 +552,19 @@ pub fn dossier_prompt(
     let section_list = sections.join(", ");
 
     let system = format!(
-        "You are Ally, writing a Context Digest — one dense, high-signal briefing \
-the user (and later the AI) will rely on before a {label}. Write it in Markdown \
-with exactly these `##` sections, in this order: {sections}. Give `## Overview` \
-2–3 sentences; keep every other section tight and scannable — short bullets, \
-**bold** the key term, name, or figure in each. Ground everything strictly in \
-the provided material: be specific, never generic, and never invent facts or \
-figures. Output only the Markdown document — no preamble.",
+        "You are Ally, writing a Context Knowledge document — one dense, \
+high-signal briefing the user (and later the AI) will rely on before a \
+{label}. Write it in Markdown with exactly these `##` sections, in this \
+order: {sections}. Give `## Overview` 2–3 sentences; keep the other \
+sections tight and scannable — short bullets, **bold** the key term, name, \
+or figure in each. EXCEPTION — `## Core vocabulary` must be thorough, not \
+tight: list 20–30 terms the other party is likely to actually say — \
+services, tools, acronyms, methodologies, named practices — as bullets of \
+the form `**Term** — one-line why it matters here`, drawn from the job \
+description FIRST, then the documents; use exact product and service names \
+verbatim (e.g. \"API Gateway\", never just \"Gateway\"). Ground everything \
+strictly in the provided material: be specific, never generic, and never \
+invent facts or figures. Output only the Markdown document — no preamble.",
         label = template.label,
         sections = section_list,
     );
@@ -582,7 +591,7 @@ figures. Output only the Markdown document — no preamble.",
         if !jd.is_empty() {
             user.push_str(&format!(
                 "Role / job description:\n{}\n",
-                jd.chars().take(2_000).collect::<String>()
+                jd.chars().take(8_000).collect::<String>()
             ));
         }
     }
@@ -733,13 +742,13 @@ mod tests {
             assert!(!t.label.is_empty());
             assert!(!t.file_slots.is_empty(), "{cat:?} has file slots");
             assert!(!t.digest_sections.is_empty(), "{cat:?} has digest sections");
-            // Every category's digest must carry a Glossary section —
+            // Every category's digest must carry a Core vocabulary section —
             // extract_glossary harvests it into context-highlight terms, and
             // a category without one silently produces contexts that never
             // highlight (the empty "From your documents" bug, 2026-08-21).
             assert!(
-                t.digest_sections.contains(&"Glossary"),
-                "{cat:?} digest has a Glossary section"
+                t.digest_sections.contains(&"Core vocabulary"),
+                "{cat:?} digest has a Core vocabulary section"
             );
             assert_eq!(cat.label(), t.label);
         }
@@ -826,7 +835,7 @@ mod tests {
     }
 
     #[test]
-    fn dossier_prompt_has_sections_and_synthesizes_material() {
+    fn knowledge_prompt_has_sections_and_synthesizes_material() {
         let chunks = vec![ScoredChunk {
             document_id: "d1".into(),
             file_name: "resume.pdf".into(),
@@ -834,14 +843,43 @@ mod tests {
             text: "Led the monthly close for 3 years.".into(),
             score: 0.9,
         }];
-        let req = dossier_prompt(&sample_session(), &[], &chunks, 1200);
+        let req = knowledge_prompt(&sample_session(), &[], &chunks, 1200);
         // Interview digest carries the interview template's sections + label.
         assert!(req.system.contains("job interview"));
         assert!(req.system.contains("Overview"));
         assert!(req.system.contains("Likely questions"));
-        assert!(req.system.contains("Your talking points"));
+        assert!(req.system.contains("Facts & figures"));
         assert!(req.system.contains("Watch-outs"));
         assert!(req.user.contains("Led the monthly close"));
+    }
+
+    #[test]
+    fn knowledge_prompt_has_fixed_interview_sections_and_vocab_contract() {
+        let mut s = sample_session();
+        // A JD longer than the old 2,000-char slice, with the key service
+        // name appearing only past that point.
+        let mut jd = "Senior DevOps Engineer. ".repeat(100); // ~2,400 chars
+        jd.push_str("Experience with API Gateway and Lambda required.");
+        s.job_description = Some(jd);
+        let req = knowledge_prompt(&s, &[], &[], 3000);
+        for section in [
+            "Role profile",
+            "Core vocabulary",
+            "Likely questions & strong answers",
+            "Facts & figures",
+            "Watch-outs",
+        ] {
+            assert!(req.system.contains(section), "missing section {section}");
+        }
+        assert!(req.system.contains("20"), "vocab floor missing");
+        assert!(req.system.contains("30"), "vocab ceiling missing");
+        assert!(
+            req.system.to_lowercase().contains("verbatim"),
+            "verbatim-names instruction missing"
+        );
+        // The full JD reaches the prompt — past the old 2,000-char cut.
+        assert!(req.user.contains("API Gateway"), "JD truncated too early");
+        assert_eq!(req.max_tokens, 3000);
     }
 
     #[test]
@@ -906,7 +944,7 @@ mod tests {
         // A company meeting gets its own sections, not the interview's.
         let mut session = sample_session();
         session.category = SimConCategory::CompanyMeeting;
-        let req = dossier_prompt(&session, &[], &[], 1200);
+        let req = knowledge_prompt(&session, &[], &[], 1200);
         assert!(req.system.contains("company meeting"));
         assert!(req.system.contains("Key figures"));
         assert!(req.system.contains("Likely discussion points"));
