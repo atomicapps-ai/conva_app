@@ -339,6 +339,10 @@ export interface SimConSession {
   conversation_id: string | null;
   /** RagDocument id of the Ally-generated prep briefing, once generated. */
   dossier_doc_id: string | null;
+  /** True when grounding inputs changed after resources were generated —
+   * the digest/glossary no longer reflect the inputs (cleared by a
+   * successful regeneration). Optional: older records omit it. */
+  resources_stale?: boolean;
 }
 
 /** Catalog entry for the SimCon list view. */
@@ -356,6 +360,8 @@ export interface SimConSummary {
   research_enabled: boolean;
   has_job_description: boolean;
   has_generated_resources: boolean;
+  /** Mirrors SimConSession.resources_stale for the list row's pill. */
+  resources_stale?: boolean;
 }
 
 export type ModelStatusEvent =

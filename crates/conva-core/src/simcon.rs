@@ -191,6 +191,12 @@ pub struct SimConSession {
     /// generated (also included in the profile's `doc_ids` so it grounds too).
     #[serde(default)]
     pub dossier_doc_id: Option<String>,
+    /// True when a grounding input (documents, job description, key terms,
+    /// research toggle) changed after resources were generated — the digest/
+    /// glossary no longer reflect the inputs. Set by the shell's save paths,
+    /// cleared by a successful dossier regeneration.
+    #[serde(default)]
+    pub resources_stale: bool,
 }
 
 /// Catalog entry for the SimCon list view (cheap to list without loading the
@@ -220,6 +226,9 @@ pub struct SimConSummary {
     /// Whether the Context Digest has been generated at least once.
     #[serde(default)]
     pub has_generated_resources: bool,
+    /// Mirrors [`SimConSession::resources_stale`] for the list row's pill.
+    #[serde(default)]
+    pub resources_stale: bool,
 }
 
 impl SimConCategory {
@@ -667,6 +676,25 @@ pub fn extract_glossary(digest_md: &str) -> Vec<String> {
     out
 }
 
+/// True when any grounding input differs between two versions of a context —
+/// the signal that derived resources (glossary, dossier) no longer reflect
+/// the inputs. Job description compares trimmed (`None` ≡ empty); key terms
+/// and source docs compare as order-insensitive sets; research toggle
+/// compares directly. Non-grounding edits (title, purpose, personas, status)
+/// never count.
+pub fn grounding_changed(old: &SimConSession, new: &SimConSession) -> bool {
+    fn norm_jd(jd: Option<&str>) -> &str {
+        jd.map(str::trim).unwrap_or("")
+    }
+    fn as_set(items: &[String]) -> std::collections::BTreeSet<&str> {
+        items.iter().map(String::as_str).collect()
+    }
+    norm_jd(old.job_description.as_deref()) != norm_jd(new.job_description.as_deref())
+        || as_set(&old.key_terms) != as_set(&new.key_terms)
+        || as_set(&old.source_doc_ids) != as_set(&new.source_doc_ids)
+        || old.research_enabled != new.research_enabled
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -743,6 +771,7 @@ mod tests {
             chosen_persona_id: None,
             conversation_id: None,
             dossier_doc_id: None,
+            resources_stale: false,
         }
     }
 
@@ -860,5 +889,71 @@ mod tests {
         assert!(req.system.contains("Key figures"));
         assert!(req.system.contains("Likely discussion points"));
         assert!(!req.system.contains("Your talking points"));
+    }
+
+    fn grounding_base() -> SimConSession {
+        SimConSession {
+            id: "sim-1".into(),
+            title: "Acme interview".into(),
+            purpose: "Prep".into(),
+            job_description: Some("Build on AWS.".into()),
+            category: SimConCategory::Interview,
+            status: SimConStatus::Ready,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            source_doc_ids: vec!["doc-a".into(), "doc-b".into()],
+            auto_generate_context: false,
+            research_enabled: true,
+            key_terms: vec!["GAAP".into()],
+            glossary: vec!["EKS".into()],
+            knowledge_profile_id: Some("kp-1".into()),
+            personas: Vec::new(),
+            chosen_persona_id: None,
+            conversation_id: None,
+            dossier_doc_id: Some("dossier-1".into()),
+            resources_stale: false,
+        }
+    }
+
+    #[test]
+    fn grounding_changed_detects_each_grounding_input() {
+        let old = grounding_base();
+
+        let mut jd = grounding_base();
+        jd.job_description = Some("Build on Azure.".into());
+        assert!(grounding_changed(&old, &jd));
+
+        let mut terms = grounding_base();
+        terms.key_terms.push("SOX".into());
+        assert!(grounding_changed(&old, &terms));
+
+        let mut docs = grounding_base();
+        docs.source_doc_ids = vec!["doc-a".into()];
+        assert!(grounding_changed(&old, &docs));
+
+        let mut research = grounding_base();
+        research.research_enabled = false;
+        assert!(grounding_changed(&old, &research));
+    }
+
+    #[test]
+    fn grounding_changed_ignores_non_grounding_edits_and_ordering() {
+        let old = grounding_base();
+
+        // Same sets, different order + a renamed title/purpose: no change.
+        let mut same = grounding_base();
+        same.title = "Renamed".into();
+        same.purpose = "New purpose".into();
+        same.source_doc_ids = vec!["doc-b".into(), "doc-a".into()];
+        same.glossary = vec!["different".into()];
+        same.status = SimConStatus::Ended;
+        assert!(!grounding_changed(&old, &same));
+
+        // None vs empty/whitespace JD is not a change.
+        let mut old_no_jd = grounding_base();
+        old_no_jd.job_description = None;
+        let mut new_blank_jd = grounding_base();
+        new_blank_jd.job_description = Some("   ".into());
+        assert!(!grounding_changed(&old_no_jd, &new_blank_jd));
     }
 }
