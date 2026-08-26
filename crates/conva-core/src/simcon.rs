@@ -702,6 +702,86 @@ preamble.",
     }
 }
 
+/// Broader query set for the deep interview Q&A pass (spec 2026-08-26,
+/// part A) — many more queries than [`research_queries`], deliberately
+/// aimed at question BANKS rather than general background. No fixed
+/// per-role count is baked in here; breadth comes from more queries and a
+/// bigger source budget (the shell's `QA_MAX_QUERIES`/`QA_MAX_SOURCES`),
+/// and the synthesis prompt decides how many distinct pairs the material
+/// actually supports.
+pub fn qa_research_queries(
+    session: &SimConSession,
+    vocabulary: &[String],
+    cap: usize,
+) -> Vec<String> {
+    let topic = if session.title.trim().is_empty() {
+        session.category.label().to_string()
+    } else {
+        session.title.trim().to_string()
+    };
+    let role = session
+        .job_description
+        .as_deref()
+        .map(|jd| jd.trim())
+        .filter(|jd| !jd.is_empty())
+        .map(|jd| jd.chars().take(80).collect::<String>())
+        .unwrap_or_else(|| topic.clone());
+
+    let mut q = vec![
+        format!("{topic} most common interview questions"),
+        format!("top interview questions for {role}"),
+        format!("{role} technical interview questions"),
+        format!("{role} behavioral interview questions"),
+        format!("{topic} interview questions and answers"),
+    ];
+    for chunk in vocabulary.chunks(3).take(3) {
+        q.push(format!("{} interview questions {}", chunk.join(" "), topic));
+    }
+    q.truncate(cap);
+    q
+}
+
+/// Prompt for the deep interview Q&A pass's document: synthesize the
+/// gathered sources into a standalone bank of real, distinct question +
+/// strong-answer pairs — spec 2026-08-26 part A. Themed `##` sections
+/// (the model chooses themes that fit what the sources support); each
+/// entry `**Q: ...** A: ...` so it reads well AND is harvestable by
+/// `extract_glossary_entries` incidentally. At least 20 pairs, up to 100
+/// — driven by how much the material supports, not a fixed target.
+pub fn interview_qa_prompt(session: &SimConSession, sources: &[ResearchSource]) -> LlmRequest {
+    let template = session.category.template();
+    let system = format!(
+        "You are Ally, building an Interview Q&A bank from web sources \
+gathered for a {label}. Organize into themed `##` sections (e.g. \
+Behavioral, Technical, Company & role-specific — choose themes that fit \
+what the sources actually support). Each entry: a bullet in the form \
+`**Q: <question>** A: <strong, specific answer>`, grounded strictly in \
+the sources — never invent a question or fact the sources don't support. \
+Produce as many DISTINCT, well-supported pairs as the material justifies \
+— at least 20, up to 100; do not pad with near-duplicates to hit a \
+number, and do not stop early if the sources clearly support more. \
+Output only the Markdown document — no preamble.",
+        label = template.label,
+    );
+
+    let mut user = format!(
+        "Context: {}\nGoal: {}\n\nSources:\n\n",
+        session.title, session.purpose
+    );
+    for src in sources {
+        user.push_str(&format!(
+            "[{}]({})\n{}\n\n",
+            src.title, src.url, src.snippet
+        ));
+    }
+
+    LlmRequest {
+        system,
+        user,
+        max_tokens: 6000,
+    }
+}
+
 // ── Glossary extraction — digest → context-highlight terms (Phase 3c) ────────
 
 /// Max glossary terms harvested from a digest.
@@ -1228,5 +1308,59 @@ mod tests {
                 .map(|(t, _)| t)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn qa_research_queries_are_broader_than_general_research() {
+        let s = sample_session();
+        let vocab: Vec<String> = vec!["API Gateway".into(), "Terraform".into()];
+        let q = qa_research_queries(&s, &vocab, 18);
+        assert!(q.len() <= 18);
+        assert!(
+            q.iter()
+                .any(|x| x.to_lowercase().contains("most common interview questions")),
+            "{q:?}"
+        );
+        assert!(
+            q.iter()
+                .any(|x| x.to_lowercase().contains("technical interview questions")),
+            "{q:?}"
+        );
+        assert!(
+            q.iter()
+                .any(|x| x.to_lowercase().contains("behavioral interview questions")),
+            "{q:?}"
+        );
+        assert!(q.iter().any(|x| x.contains("API Gateway")), "{q:?}");
+    }
+
+    #[test]
+    fn qa_research_queries_without_vocabulary_still_yields_base_queries() {
+        let s = sample_session();
+        let q = qa_research_queries(&s, &[], 18);
+        assert!(!q.is_empty());
+    }
+
+    #[test]
+    fn interview_qa_prompt_demands_themed_broad_coverage() {
+        let s = sample_session();
+        let sources = vec![ResearchSource {
+            title: "Top 50 accounting interview questions".into(),
+            url: "https://example.com/q".into(),
+            snippet: "Tell me about a time you found an error in a close.".into(),
+            fetched_at_unix_ms: 0,
+        }];
+        let req = interview_qa_prompt(&s, &sources);
+        assert!(req.user.contains("Top 50 accounting interview questions"));
+        assert!(req.user.contains("https://example.com/q"));
+        let sys = req.system.to_lowercase();
+        assert!(sys.contains("20"), "floor missing");
+        assert!(sys.contains("100"), "cap missing");
+        assert!(
+            sys.contains("behavioral") || sys.contains("theme"),
+            "{}",
+            req.system
+        );
+        assert_eq!(req.max_tokens, 6000);
     }
 }
