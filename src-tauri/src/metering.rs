@@ -12,6 +12,10 @@
 //! are best-effort: metering must never break a feature, so a failed persist
 //! is logged, not propagated.
 //!
+//! Feature call sites go through [`metered_stream`] — stream + record in one
+//! call, so a new site can't forget to report (Ally's tool loop is the one
+//! documented exception).
+//!
 //! Feature labels in use (stable snake_case, owned by the call sites):
 //! `ally_suggest_reply` · `ally_summarize` · `ally_question` ·
 //! `ally_card_summary` · `simcon_knowledge` · `simcon_research_findings` ·
@@ -24,8 +28,9 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};
 
-use conva_core::llm::{ProviderId, TokenUsage};
+use conva_core::llm::{LlmRequest, ModelSelection, ProviderId, TokenUsage};
 use conva_core::metering::{UsageLedger, UsageSummary};
+use conva_core::CoreError;
 
 use crate::session::now_unix_ms;
 use crate::AppState;
@@ -101,6 +106,43 @@ fn persist(app: &AppHandle, ledger: &UsageLedger) {
         }
         Err(e) => eprintln!("[metering] could not serialize usage ledger: {e}"),
     }
+}
+
+/// Stream one completion and record its usage **atomically** — the enforced
+/// metering path for feature call sites: stream + attribution can't be
+/// separated, so a new call site can't forget to report. Returns the
+/// provider-reported usage on success; on error the partial usage billed
+/// before the failure is already recorded when the error propagates.
+///
+/// The one documented exception is Ally's web-search tool loop
+/// (`lib.rs::ally`), which chooses between two transport functions and
+/// records through [`record_llm`] directly.
+pub fn metered_stream(
+    app: &AppHandle,
+    feature: &str,
+    selection: &ModelSelection,
+    api_key: &str,
+    request: &LlmRequest,
+    on_token: &mut dyn FnMut(&str),
+) -> Result<TokenUsage, CoreError> {
+    let mut usage = TokenUsage::default();
+    let result = crate::llm::stream_completion(
+        selection.provider,
+        api_key,
+        &selection.model,
+        request,
+        on_token,
+        &mut usage,
+    );
+    record_llm(
+        app,
+        feature,
+        selection.provider,
+        &selection.model,
+        usage,
+        result.is_ok(),
+    );
+    result.map(|()| usage)
 }
 
 /// Attribute one completion attempt's tokens to `provider` and its

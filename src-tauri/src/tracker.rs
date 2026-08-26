@@ -132,27 +132,18 @@ fn run_extraction(
 
     let mut reply = String::new();
     let t0 = Instant::now();
-    let mut usage = conva_core::llm::TokenUsage::default();
-    let result = crate::llm::stream_completion(
-        selection.provider,
-        api_key,
-        &selection.model,
-        &request,
-        &mut |token| reply.push_str(token),
-        &mut usage,
-    );
-    // Record even on failure — partial-stream tokens were billed.
-    crate::metering::record_llm(
+    // metered_stream records usage even on failure (partial tokens billed).
+    let result = crate::metering::metered_stream(
         app,
         "tracker",
-        selection.provider,
-        &selection.model,
-        usage,
-        result.is_ok(),
+        selection,
+        api_key,
+        &request,
+        &mut |token| reply.push_str(token),
     );
-    if result.is_err() {
+    let Ok(usage) = result else {
         return; // best-effort: skip this pass
-    }
+    };
     crate::trace::record(
         "llm",
         t0.elapsed().as_millis() as u64,

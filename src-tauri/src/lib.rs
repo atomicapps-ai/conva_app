@@ -1040,24 +1040,15 @@ fn simcon_generate_dossier(
     let key = resolve_key(selection.provider)?;
     let request = conva_core::simcon::knowledge_prompt(&session, &profile.research, &chunks, 3000);
     let mut buf = String::new();
-    let mut usage = conva_core::llm::TokenUsage::default();
-    let result = llm::stream_completion(
-        selection.provider,
-        &key,
-        &selection.model,
-        &request,
-        &mut |t| buf.push_str(t),
-        &mut usage,
-    );
-    metering::record_llm(
+    metering::metered_stream(
         &app,
         "simcon_knowledge",
-        selection.provider,
-        &selection.model,
-        usage,
-        result.is_ok(),
-    );
-    result.map_err(|e| e.to_string())?;
+        &selection,
+        &key,
+        &request,
+        &mut |t| buf.push_str(t),
+    )
+    .map_err(|e| e.to_string())?;
     let text = buf.trim().to_string();
     if text.is_empty() {
         return Err("Ally returned an empty briefing.".into());
@@ -1111,22 +1102,13 @@ fn simcon_generate_dossier(
                 profile.research = sources.clone();
                 let request = conva_core::simcon::research_findings_prompt(&session, &sources);
                 let mut fbuf = String::new();
-                let mut fusage = conva_core::llm::TokenUsage::default();
-                let fresult = llm::stream_completion(
-                    selection.provider,
-                    &key,
-                    &selection.model,
-                    &request,
-                    &mut |t| fbuf.push_str(t),
-                    &mut fusage,
-                );
-                metering::record_llm(
+                let fresult = metering::metered_stream(
                     &app,
                     "simcon_research_findings",
-                    selection.provider,
-                    &selection.model,
-                    fusage,
-                    fresult.is_ok(),
+                    &selection,
+                    &key,
+                    &request,
+                    &mut |t| fbuf.push_str(t),
                 );
                 if fresult.is_ok() {
                     let ftext = fbuf.trim().to_string();
@@ -1190,24 +1172,15 @@ fn simcon_generate_personas(
         max_tokens: 1500,
     };
     let mut buf = String::new();
-    let mut usage = conva_core::llm::TokenUsage::default();
-    let result = llm::stream_completion(
-        selection.provider,
-        &key,
-        &selection.model,
-        &request,
-        &mut |t| buf.push_str(t),
-        &mut usage,
-    );
-    metering::record_llm(
+    metering::metered_stream(
         &app,
         "simcon_personas",
-        selection.provider,
-        &selection.model,
-        usage,
-        result.is_ok(),
-    );
-    result.map_err(|e| e.to_string())?;
+        &selection,
+        &key,
+        &request,
+        &mut |t| buf.push_str(t),
+    )
+    .map_err(|e| e.to_string())?;
     session.personas = conva_core::simcon::parse_personas(&buf);
     session.chosen_persona_id = None;
     simcon::save(&app, session).map_err(|e| e.to_string())
@@ -1673,6 +1646,9 @@ fn ally(
                 )
             };
             // Record even on failure — partial-stream tokens were billed.
+            // This is the documented exception to `metering::metered_stream`:
+            // it picks between two transport variants (tool loop vs plain),
+            // so it records through `record_llm` directly.
             metering::record_llm(
                 &app,
                 feature,
