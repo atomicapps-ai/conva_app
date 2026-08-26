@@ -607,10 +607,11 @@ clearly general.",
 // ── Glossary extraction — digest → context-highlight terms (Phase 3c) ────────
 
 /// Max glossary terms harvested from a digest.
-const MAX_GLOSSARY_TERMS: usize = 24;
+const MAX_GLOSSARY_TERMS: usize = 32;
 
 /// Extract the glossary terms from a generated Context Digest — the entries
-/// under its `## Glossary` section. Prefers the **bolded** term in each bullet,
+/// under its `## Glossary` or `## Core vocabulary` section. Prefers the
+/// **bolded** term in each bullet,
 /// falling back to the text before an em/en dash or colon. Case-insensitively
 /// deduped, capped at [`MAX_GLOSSARY_TERMS`]. Pure; the shell stores the result
 /// on the context (`SimConSession::glossary`) to drive context-aware
@@ -622,7 +623,9 @@ pub fn extract_glossary(digest_md: &str) -> Vec<String> {
     for raw in digest_md.lines() {
         let line = raw.trim();
         if let Some(title) = line.strip_prefix("## ") {
-            in_section = title.trim().eq_ignore_ascii_case("glossary");
+            let t = title.trim();
+            in_section =
+                t.eq_ignore_ascii_case("glossary") || t.eq_ignore_ascii_case("core vocabulary");
             continue;
         }
         if !in_section || line.is_empty() {
@@ -877,6 +880,25 @@ mod tests {
                   Also mentions **Terraform** in prose.";
         let terms = extract_glossary(md);
         assert_eq!(terms, vec!["RRF".to_string()]);
+    }
+
+    #[test]
+    fn extract_glossary_reads_core_vocabulary_heading() {
+        let digest = "## Overview\nIntro.\n\n## Core vocabulary\n\
+- **API Gateway** — managed API front door.\n\
+- **Terraform** — IaC tool.\n\n## Watch-outs\n- none";
+        let g = extract_glossary(digest);
+        assert!(g.iter().any(|t| t == "API Gateway"), "{g:?}");
+        assert!(g.iter().any(|t| t == "Terraform"), "{g:?}");
+    }
+
+    #[test]
+    fn extract_glossary_caps_at_thirty_two() {
+        let mut digest = String::from("## Core vocabulary\n");
+        for i in 0..40 {
+            digest.push_str(&format!("- **Term number {i}** — meaning.\n"));
+        }
+        assert_eq!(extract_glossary(&digest).len(), 32);
     }
 
     #[test]
