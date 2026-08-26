@@ -191,6 +191,11 @@ pub struct SimConSession {
     /// generated (also included in the profile's `doc_ids` so it grounds too).
     #[serde(default)]
     pub dossier_doc_id: Option<String>,
+    /// The `RagDocument` id of the Stage-2 **Research findings** document,
+    /// if one has been generated (also in the profile's `doc_ids`).
+    /// Replaced on regeneration, like the knowledge document.
+    #[serde(default)]
+    pub research_doc_id: Option<String>,
     /// True when a grounding input (documents, job description, key terms,
     /// research toggle) changed after resources were generated — the digest/
     /// glossary no longer reflect the inputs. Set by the shell's save paths,
@@ -613,6 +618,81 @@ clearly general.",
     }
 }
 
+/// The bounded research query set for a context — base queries from its
+/// topic/type/goal/JD, plus up to 2 queries seeded from Stage 1's mined
+/// vocabulary (spec 2026-08-26 stage 2: "smarter queries"). Pure; the
+/// shell passes its budget as `cap` and issues the searches.
+pub fn research_queries(session: &SimConSession, vocabulary: &[String], cap: usize) -> Vec<String> {
+    let topic = if session.title.trim().is_empty() {
+        session.category.label().to_string()
+    } else {
+        session.title.trim().to_string()
+    };
+    let mut q = vec![
+        format!("{topic} common questions"),
+        format!("how to prepare for a {}", session.category.label()),
+    ];
+    if !session.purpose.trim().is_empty() {
+        q.push(session.purpose.trim().chars().take(120).collect());
+    }
+    if let Some(jd) = &session.job_description {
+        let jd = jd.trim();
+        if !jd.is_empty() {
+            q.push(format!(
+                "interview questions for role: {}",
+                jd.chars().take(120).collect::<String>()
+            ));
+        }
+    }
+    // Vocabulary-seeded queries: the terms the other party will actually
+    // say make the sharpest search keys (e.g. "Amazon Interview API
+    // Gateway Terraform interview questions").
+    for chunk in vocabulary.chunks(3).take(2) {
+        q.push(format!(
+            "{topic} {} {}",
+            chunk.join(" "),
+            session.category.label()
+        ));
+    }
+    q.truncate(cap);
+    q
+}
+
+/// Prompt for the Stage-2 **Research findings** document: synthesize the
+/// collected web sources into a human-readable, cited brief the user can
+/// inspect (and RAG can chunk by its `##` sections).
+pub fn research_findings_prompt(session: &SimConSession, sources: &[ResearchSource]) -> LlmRequest {
+    let template = session.category.template();
+    let system = format!(
+        "You are Ally, writing a Research Findings document from web \
+sources gathered for a {label}. Organize the findings into themed `##` \
+sections (you choose the themes — e.g. likely question areas, company \
+signals, process/format intel). Every finding bullet MUST cite its source \
+inline as a Markdown link: [source title](url). Only state what the \
+sources support — never invent. End with a `## Sources` section listing \
+every source as `- [title](url)`. Output only the Markdown document — no \
+preamble.",
+        label = template.label,
+    );
+
+    let mut user = format!(
+        "Context: {}\nGoal: {}\n\nSources:\n\n",
+        session.title, session.purpose
+    );
+    for src in sources {
+        user.push_str(&format!(
+            "[{}]({})\n{}\n\n",
+            src.title, src.url, src.snippet
+        ));
+    }
+
+    LlmRequest {
+        system,
+        user,
+        max_tokens: 2000,
+    }
+}
+
 // ── Glossary extraction — digest → context-highlight terms (Phase 3c) ────────
 
 /// Max glossary terms harvested from a digest.
@@ -783,6 +863,7 @@ mod tests {
             chosen_persona_id: None,
             conversation_id: None,
             dossier_doc_id: None,
+            research_doc_id: None,
             resources_stale: false,
         }
     }
@@ -971,6 +1052,7 @@ mod tests {
             chosen_persona_id: None,
             conversation_id: None,
             dossier_doc_id: Some("dossier-1".into()),
+            research_doc_id: None,
             resources_stale: false,
         }
     }
@@ -1015,5 +1097,46 @@ mod tests {
         let mut new_blank_jd = grounding_base();
         new_blank_jd.job_description = Some("   ".into());
         assert!(!grounding_changed(&old_no_jd, &new_blank_jd));
+    }
+
+    #[test]
+    fn research_queries_seed_from_vocabulary_and_cap() {
+        let s = sample_session();
+        let vocab: Vec<String> = vec!["API Gateway".into(), "Terraform".into(), "EKS".into()];
+        let q = research_queries(&s, &vocab, 6);
+        assert!(q.len() <= 6, "{q:?}");
+        assert!(
+            q.iter().any(|x| x.contains("API Gateway")),
+            "vocabulary must seed a query: {q:?}"
+        );
+        // Base queries survive alongside.
+        assert!(q.iter().any(|x| x.contains("common questions")), "{q:?}");
+    }
+
+    #[test]
+    fn research_queries_without_vocabulary_are_base_only() {
+        let s = sample_session();
+        let q = research_queries(&s, &[], 6);
+        assert!(!q.is_empty());
+        assert!(q.iter().all(|x| !x.is_empty()));
+    }
+
+    #[test]
+    fn research_findings_prompt_embeds_sources_and_demands_citations() {
+        let s = sample_session();
+        let sources = vec![ResearchSource {
+            title: "Top SRE interview questions".into(),
+            url: "https://example.com/sre".into(),
+            snippet: "Expect SLO and error-budget questions.".into(),
+            fetched_at_unix_ms: 0,
+        }];
+        let req = research_findings_prompt(&s, &sources);
+        assert!(req.user.contains("Top SRE interview questions"));
+        assert!(req.user.contains("https://example.com/sre"));
+        assert!(req.user.contains("error-budget"));
+        assert!(req.system.contains("## Sources"));
+        let sys = req.system.to_lowercase();
+        assert!(sys.contains("cite"), "citation instruction missing");
+        assert!(req.max_tokens == 2000);
     }
 }

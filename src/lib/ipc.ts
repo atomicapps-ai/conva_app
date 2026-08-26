@@ -339,6 +339,9 @@ export interface SimConSession {
   conversation_id: string | null;
   /** RagDocument id of the Ally-generated prep briefing, once generated. */
   dossier_doc_id: string | null;
+  /** RagDocument id of the Stage-2 Research findings document, once
+   * generated (replaced on regeneration, like the knowledge doc). */
+  research_doc_id?: string | null;
   /** True when grounding inputs changed after resources were generated —
    * the digest/glossary no longer reflect the inputs (cleared by a
    * successful regeneration). Optional: older records omit it. */
