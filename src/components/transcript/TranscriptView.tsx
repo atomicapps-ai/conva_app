@@ -7,23 +7,13 @@ import {
   type ReactNode,
 } from "react";
 
-import {
-  LiveControlBar,
-  type AllyPanelTab,
-  type AllyPanelView,
-} from "@/components/studio/LiveControlBar";
+import { LiveControlBar } from "@/components/studio/LiveControlBar";
 import { LiveTopBar } from "@/components/studio/LiveTopBar";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import type { AllyKind, AudioLevelEvent, Capture, TranscriptSegment } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
-import {
-  collectFanerHits,
-  fanerAccent,
-  fanerPrompt,
-  isFanerBoundaryMatch,
-  type FanerHit,
-} from "@/lib/faner";
+import { fanerPrompt } from "@/lib/faner";
 import { useAppStore } from "@/state/app";
 import {
   groupSourcesByFile,
@@ -52,6 +42,11 @@ import {
 } from "@/components/transcript/viewEntries";
 import { FoundList } from "@/components/transcript/FoundList";
 import { ViewHistory } from "@/components/transcript/ViewHistory";
+import { AllyAccordion } from "@/components/transcript/AllyAccordion";
+import {
+  revealAnswers,
+  type PanelState,
+} from "@/components/transcript/panelSections";
 import { useCapabilities } from "@/lib/backend/context";
 import {
   useTranscriptStability,
@@ -387,136 +382,6 @@ function HighlightedText({
   );
 }
 
-/** One FANER-marked term: persistently bold+underlined, color-coded by the
- *  capture's routed `action` (F11 handoff, 2026-08-20). Hovering reveals a
- *  slim ICON-ONLY strip — the same three actions `SelectionMenu` uses (Ask
- *  Ally / Copy / Send to Ask Ally). NO content card (owner, 2026-08-21:
- *  "just the words spoken, underlined, with menu icons" — the capture's
- *  preview text lives in the Terms tab and the partner window, never as a
- *  transcript hover popup). Pure CSS group-hover: the strip is a normal,
- *  clickable descendant of the hover group, so its icons work. */
-function FanerMark({
-  hit,
-  onAsk,
-  onSendToAsk,
-}: {
-  hit: FanerHit;
-  onAsk: (capture: Capture, phrase: string) => void;
-  onSendToAsk: (text: string) => void;
-}) {
-  const { phrase, capture } = hit;
-  return (
-    <span className={`group relative inline-block ${fanerAccent(capture)}`}>
-      <span className="cursor-help underline decoration-2 underline-offset-2 font-semibold">
-        {phrase}
-      </span>
-      <span className="invisible absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2 rounded-lg border border-border bg-panel-raised p-0.5 opacity-0 shadow-[var(--shadow-lg)] transition-opacity duration-100 group-hover:visible group-hover:opacity-100">
-        <span className="flex items-center gap-0.5">
-          <button
-            type="button"
-            title="Ask Ally about this"
-            aria-label={`Ask Ally about "${phrase}"`}
-            onClick={() => onAsk(capture, phrase)}
-            className="rounded p-1 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
-          >
-            <Icon name="lightbulb" size={14} />
-          </button>
-          <button
-            type="button"
-            title="Copy"
-            aria-label={`Copy "${phrase}"`}
-            onClick={() => void navigator.clipboard.writeText(phrase)}
-            className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
-          >
-            <Icon name="copy" size={14} />
-          </button>
-          <button
-            type="button"
-            title="Send to Ask Ally"
-            aria-label={`Send "${phrase}" to Ask Ally`}
-            onClick={() => onSendToAsk(phrase)}
-            className="rounded p-1 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
-          >
-            <Icon name="chevron" size={14} className="rotate-90" />
-          </button>
-        </span>
-      </span>
-    </span>
-  );
-}
-
-/** Splits `text` between FANER-marked spans (`FanerMark`) and everything
- *  else, which still goes through `HighlightedText` — so a FANER span and a
- *  RAG term/search-highlight can coexist in the same unit without one
- *  mechanism overriding the other. Hit computation is memoized on `text` +
- *  `captures`'s reference (F11 handoff requirement — the transcript
- *  re-renders on every streamed token, but `captures` only changes when a
- *  new CaptureEvent lands and `text` only changes for the turn currently
- *  streaming). */
-function FanerAwareText({
-  text,
-  captures,
-  terms,
-  onAskTerm,
-  onAskFaner,
-  onSendToAsk,
-}: {
-  text: string;
-  captures: Capture[];
-  terms: string[];
-  onAskTerm: (action: TermAction, term: string) => void;
-  onAskFaner: (capture: Capture, phrase: string) => void;
-  onSendToAsk: (text: string) => void;
-}) {
-  const hits = useMemo(() => collectFanerHits(text, captures), [text, captures]);
-  if (hits.length === 0) return <HighlightedText text={text} terms={terms} onAsk={onAskTerm} />;
-
-  const lower = text.toLowerCase();
-  const nodes: ReactNode[] = [];
-  let plainStart = 0;
-  let key = 0;
-  const flushPlain = (end: number) => {
-    if (end > plainStart) {
-      nodes.push(
-        <HighlightedText
-          key={`p${key++}`}
-          text={text.slice(plainStart, end)}
-          terms={terms}
-          onAsk={onAskTerm}
-        />,
-      );
-    }
-  };
-  let i = 0;
-  outer: while (i < text.length) {
-    for (const h of hits) {
-      const p = h.phrase.toLowerCase();
-      // `collectFanerHits` only proves the phrase appears *somewhere* at a
-      // real word boundary; re-check the boundary here too, since this scan
-      // finds every raw substring occurrence and a phrase can have both
-      // valid (whole-word) and invalid (mid-word) occurrences in the same
-      // text — only the valid ones should render as a mark.
-      if (p && lower.startsWith(p, i) && isFanerBoundaryMatch(lower, i, p.length)) {
-        flushPlain(i);
-        nodes.push(
-          <FanerMark
-            key={`f${key++}`}
-            hit={h}
-            onAsk={onAskFaner}
-            onSendToAsk={onSendToAsk}
-          />,
-        );
-        i += h.phrase.length;
-        plainStart = i;
-        continue outer;
-      }
-    }
-    i += 1;
-  }
-  flushPlain(text.length);
-  return <>{nodes}</>;
-}
-
 /** Icon menu shown when the user selects text inside a bubble: ask Ally about
  *  the selection, copy it, or drop it into the Ask-Ally box. */
 function SelectionMenu({
@@ -655,24 +520,16 @@ function CollapsedPreview({
 function FlowText({
   units,
   terms,
-  captures,
   onAskText,
   onAskTerm,
-  onAskFaner,
-  onSendToAsk,
 }: {
   /** Stability-aware units (F13) — one per finalized segment in this turn,
    *  from `useTranscriptStability`. `diff` is non-null only for the rare
    *  case where the true final text corrected what was last shown. */
   units: StabilityUnit[];
   terms: string[];
-  /** FANER captures to mark inline (F11) — filtered/matched per-unit by
-   *  `FanerAwareText`, not here. */
-  captures: Capture[];
   onAskText: (t: string) => void;
   onAskTerm: (action: TermAction, term: string) => void;
-  onAskFaner: (capture: Capture, phrase: string) => void;
-  onSendToAsk: (text: string) => void;
 }) {
   return (
     <span className="leading-snug">
@@ -684,14 +541,7 @@ function FlowText({
           {unit.diff ? (
             <ScrambleText words={unit.diff} />
           ) : (
-            <FanerAwareText
-              text={unit.text}
-              captures={captures}
-              terms={terms}
-              onAskTerm={onAskTerm}
-              onAskFaner={onAskFaner}
-              onSendToAsk={onSendToAsk}
-            />
+            <HighlightedText text={unit.text} terms={terms} onAsk={onAskTerm} />
           )}
           <button
             type="button"
@@ -737,8 +587,6 @@ function Bubble({
   fontPx,
   sessionStartMs,
   searchHighlight,
-  captures,
-  onAskFaner,
 }: {
   segments: TranscriptSegment[];
   turnKey: string;
@@ -764,14 +612,6 @@ function Bubble({
    *  RAG `terms` highlight pass below so every occurrence in this bubble
    *  renders highlighted, same visual treatment as a RAG term. */
   searchHighlight?: string | null;
-  /** FANER's routed captures for the whole session (F11, 2026-08-20) —
-   *  matched against this bubble's own text by `FanerAwareText`. Applies to
-   *  both columns (you + them): a `task_frame`/`prep_reference` capture can
-   *  originate from either speaker, and matching is purely text-based
-   *  (same principle as the search highlight above), so side-restricting
-   *  would silently drop real captures without a corresponding upside. */
-  captures: Capture[];
-  onAskFaner: (capture: Capture, phrase: string) => void;
 }) {
   const backend = useBackend();
   const inbound = segments[0]?.side === "inbound";
@@ -970,11 +810,8 @@ function Bubble({
               <FlowText
                 units={finalUnits}
                 terms={highlightTerms}
-                captures={captures}
                 onAskText={onAskText}
                 onAskTerm={onAskTerm}
-                onAskFaner={onAskFaner}
-                onSendToAsk={onSendToAsk}
               />
             )}
             {/* The confirmed part of an in-flight segment reads as normal
@@ -1534,19 +1371,17 @@ function ContextMenu({
 
 /**
  * The right Ally panel (grown from V4.0's `.ally-panel`) — the ONE home for
- * everything Ally, a SPLIT panel by default (live-panel re-scope spec §3.1,
- * owner 2026-08-22):
+ * everything Ally, a spine-icon ACCORDION (spec 2026-08-26, superseding the
+ * 2026-08-22 Found/View split + control-bar tabs):
  *
- * - **Found** (top) — everything the AI surfaced from the call, grouped
- *   (They asked · Commitments · Terms · Mentioned), each item one tap from
- *   its card (`FoundList`).
- * - **View** (bottom) — ONLY the cards the user selected or asked for, in
- *   order, height-capped with More/Less (`ViewHistory`); the answers feed
- *   renders after them so the auto-scrolled bottom stays newest.
+ * - Four sections in fixed order — Questions · Tracking · Terms (all fed by
+ *   `FoundList` in single-group mode) · Answers (`ViewHistory` + the answer
+ *   feed). Exactly one content section open (`panelSections.ts` is the
+ *   model); Answers is pinnable as a bottom dock resized by the divider
+ *   (`splitRatio`, persisted — same key as the retired split).
+ * - `panelState`/`onPanelState` carry the accordion state; the cockpit
+ *   persists it via uiPrefs and calls `revealAnswers` on every ask.
  *
- * The control-bar tabs MAXIMIZE a half (Terms = Found, Details = View);
- * tapping the maximized tab returns to the split — `view` carries that
- * state. The divider between the halves drags (`splitRatio`, persisted).
  * Answers never render in the conversation column.
  */
 function AllyPanel({
@@ -1561,8 +1396,8 @@ function AllyPanel({
   renderAnswers,
   scrollRef,
   onBodyScroll,
-  askField,
-  view,
+  panelState,
+  onPanelState,
   groups,
   groundingDocs,
   viewEntries,
@@ -1594,8 +1429,8 @@ function AllyPanel({
   renderAnswers: () => React.ReactNode;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onBodyScroll: () => void;
-  askField: React.ReactNode;
-  view: AllyPanelView;
+  panelState: PanelState;
+  onPanelState: (s: PanelState) => void;
   groups: FoundGroups;
   /** File names of the grounded context's docs — the header count + the
    *  3-dot grounding line (loaded by the cockpit's grounding effect). */
@@ -1758,60 +1593,46 @@ function AllyPanel({
         style={{ fontSize: `${allyFontPx}px` }}
         className="flex min-h-0 flex-1 flex-col"
       >
-        {view !== "details" && (
-          <div
-            style={view === "split" ? { flexBasis: `${splitRatio * 100}%` } : undefined}
-            className={[
-              "min-h-0 overflow-y-auto p-3.5",
-              view === "split" ? "shrink-0 grow-0" : "flex-1",
-            ].join(" ")}
-          >
-            <FoundList groups={groups} onSelect={onSelectFound} />
-          </div>
-        )}
-        {view === "split" && (
-          <div
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Resize panels"
-            onPointerDown={(e) => {
-              const host = e.currentTarget.parentElement;
-              if (!host) return;
-              const rect = host.getBoundingClientRect();
-              const move = (ev: PointerEvent) =>
-                onSplitRatio((ev.clientY - rect.top) / rect.height);
-              const up = () => {
-                window.removeEventListener("pointermove", move);
-                window.removeEventListener("pointerup", up);
-              };
-              window.addEventListener("pointermove", move);
-              window.addEventListener("pointerup", up);
-            }}
-            className="h-[5px] shrink-0 cursor-row-resize border-y border-border bg-bg-2 hover:bg-panel-raised"
-          />
-        )}
-        {view !== "terms" && (
-          <div
-            ref={scrollRef}
-            onScroll={onBodyScroll}
-            className="min-h-0 flex-1 overflow-y-auto p-3.5"
-          >
-            <ViewHistory
-              entries={viewEntries}
-              focusKey={viewFocusKey}
-              onToggleExpanded={onToggleEntry}
-              onRemove={onRemoveEntry}
-              onFetchInfo={onEntryFetchInfo}
-              onDefine={onEntryDefine}
-              onElaborate={onEntryElaborate}
-              onOpenInViewer={onEntryOpenInViewer}
-              renderAnswerCards={renderAnswers}
-            />
-          </div>
-        )}
+        <AllyAccordion
+          state={panelState}
+          onState={onPanelState}
+          counts={{
+            questions: groups.questions.length,
+            tracking: groups.commitments.length + groups.mentions.length,
+            terms: groups.terms.length,
+            answers: viewEntries.length,
+          }}
+          splitRatio={splitRatio}
+          onSplitRatio={onSplitRatio}
+          renderSection={(id) =>
+            id === "answers" ? (
+              // The streaming-answers scroll container. `h-full` makes it
+              // exactly fill the accordion's own overflow div (content-box
+              // height), so only THIS div ever scrolls — one scrollbar, and
+              // the auto-scroll ref/onScroll pair keeps working unchanged.
+              <div
+                ref={scrollRef}
+                onScroll={onBodyScroll}
+                className="h-full overflow-y-auto"
+              >
+                <ViewHistory
+                  entries={viewEntries}
+                  focusKey={viewFocusKey}
+                  onToggleExpanded={onToggleEntry}
+                  onRemove={onRemoveEntry}
+                  onFetchInfo={onEntryFetchInfo}
+                  onDefine={onEntryDefine}
+                  onElaborate={onEntryElaborate}
+                  onOpenInViewer={onEntryOpenInViewer}
+                  renderAnswerCards={renderAnswers}
+                />
+              </div>
+            ) : (
+              <FoundList groups={groups} onSelect={onSelectFound} only={id} />
+            )
+          }
+        />
       </div>
-
-      {askField}
     </aside>
   );
 }
@@ -1915,8 +1736,9 @@ export function TranscriptView() {
   const request = useAllyStore((s) => s.request);
   const summarizeCard = useAllyStore((s) => s.summarize);
   const clearAlly = useAllyStore((s) => s.clear);
-  // FANER's routed captures for this session (F11) — matched against each
-  // bubble's text by `FanerAwareText`/`FlowText`.
+  // FANER's routed captures for this session (F11). The inline transcript
+  // marks were retired (owner, 2026-08-26 — Highlighter kept); captures now
+  // feed only the Found groups' Terms chips via `buildFoundGroups`.
   const captures = useAllyStore((s) => s.capture?.captures ?? EMPTY_CAPTURES);
   // While a rehearsal is running, the floating RehearsalBar sits over the
   // bottom of both panes — pad them so their last content stays reachable.
@@ -2059,10 +1881,10 @@ export function TranscriptView() {
   }, []);
 
   // Column gate (owner rules 2026-08-21: the conversation column is
-  // conversation text ONLY). ONE right Ally panel carries everything Ally,
-  // split across the Details/Terms tabs in the control bar's bottom-right
-  // corner (always visible); the panel is inline from 640px and folds into
-  // an overlay drawer below that — a tab tap then opens the drawer.
+  // conversation text ONLY). ONE right Ally panel carries everything Ally
+  // as the spine-icon accordion (spec 2026-08-26); the panel is inline from
+  // 640px and folds into an overlay drawer below that — the control bar's
+  // Ally button then opens the drawer.
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const el = containerRef.current;
@@ -2102,23 +1924,32 @@ export function TranscriptView() {
   }, []);
   const headerTight = convoColW > 0 && convoColW < 520;
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  // Split by default (spec §3.1): tapping a tab maximizes that half;
-  // tapping the maximized tab returns to the split. In drawer mode
-  // (<640px) there is no split — a tab tap opens that half as the
-  // overlay drawer, exclusive as before.
-  const [panelView, setPanelView] = useState<AllyPanelView>("split");
-  const selectPanelTab = useCallback(
-    (tab: AllyPanelTab) => {
-      setPanelView((v) => (!drawer && v === tab ? "split" : tab));
-      if (drawer) setDrawerOpen(true);
-    },
-    [drawer],
+  // Spine-accordion state (spec 2026-08-26), persisted via uiPrefs: one
+  // open content section + the Answers pin, combined into the pure
+  // `PanelState` the accordion's model functions operate on.
+  const answersPinned = useUiPrefs((s) => s.answersPinned);
+  const setAnswersPinned = useUiPrefs((s) => s.setAnswersPinned);
+  const panelOpenSection = useUiPrefs((s) => s.panelOpenSection);
+  const setPanelOpenSection = useUiPrefs((s) => s.setPanelOpenSection);
+  const panelState = useMemo<PanelState>(
+    () => ({ open: panelOpenSection, answersPinned }),
+    [panelOpenSection, answersPinned],
   );
-  // Answers/asks must land visibly: if Found is maximized, drop back to
-  // the split so the View half (where the answer streams) is on screen.
+  const applyPanelState = useCallback(
+    (next: PanelState) => {
+      setPanelOpenSection(next.open);
+      setAnswersPinned(next.answersPinned);
+    },
+    [setPanelOpenSection, setAnswersPinned],
+  );
+  // Answers/asks must land visibly: reveal the Answers surface (the pinned
+  // dock already is; unpinned → open the Answers section), and in drawer
+  // mode also open the drawer itself so the stream isn't hidden off-screen.
   const ensureViewVisible = useCallback(() => {
-    setPanelView((v) => (v === "terms" ? "split" : v));
-  }, []);
+    const next = revealAnswers(panelState);
+    if (next !== panelState) applyPanelState(next);
+    if (drawer) setDrawerOpen(true);
+  }, [panelState, applyPanelState, drawer]);
 
   // The View half's chosen entries (spec §3.3). One monotone counter
   // sequences selections against future needs; focusKey drives the
@@ -2425,21 +2256,21 @@ export function TranscriptView() {
     );
   }
 
-  // Always-available Ask Ally field — lives at the bottom of the Ally
-  // answers column when it's inline, and falls back to the conversation
-  // section's bottom edge only when the column is hidden (<640px), so
-  // asking stays possible at every width.
+  // Always-available Ask Ally field — compact, at the conversation
+  // column's bottom edge at EVERY width (spec 2026-08-26 §4; the panel's
+  // foot slot is gone with the accordion). Answers stream into the panel's
+  // Answers surface via ensureViewVisible.
   const askAllyField = (
-    <div className="shrink-0 border-t border-border px-3 py-2.5">
-      <label className="flex h-9 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
-        <Icon name="lightbulb" size={16} className="shrink-0 text-ai/70" />
+    <div className="shrink-0 border-t border-border px-2.5 py-1.5">
+      <label className="flex h-8 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
+        <Icon name="lightbulb" size={14} className="shrink-0 text-ai/70" />
         <input
           value={ask}
           onChange={(e) => setAsk(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submitAsk()}
           placeholder="Ask Ally anything…"
           aria-label="Ask Ally"
-          className="min-w-0 flex-1 bg-transparent text-sm text-fg placeholder:text-fg-faint focus:outline-none"
+          className="min-w-0 flex-1 bg-transparent text-[12px] text-fg placeholder:text-fg-faint focus:outline-none"
         />
         <button
           type="button"
@@ -2447,9 +2278,9 @@ export function TranscriptView() {
           disabled={busy || !ask.trim()}
           title="Ask Ally"
           aria-label="Send question to Ally"
-          className="shrink-0 rounded-[4px] p-1.5 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
+          className="shrink-0 rounded-[4px] p-1 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
         >
-          <Icon name="chevron" size={16} className="rotate-90" />
+          <Icon name="chevron" size={14} className="rotate-90" />
         </button>
       </label>
     </div>
@@ -2685,8 +2516,6 @@ export function TranscriptView() {
                     fontPx={transcriptFontPx}
                     sessionStartMs={sessionStartMs}
                     searchHighlight={searchHighlight}
-                    captures={captures}
-                    onAskFaner={askFaner}
                   />
                 );
               })
@@ -2703,9 +2532,7 @@ export function TranscriptView() {
             </button>
           )}
 
-          {/* Narrow fallback only — with the Ally panel inline, the field
-              lives at the panel's foot instead. */}
-          {drawer && askAllyField}
+          {askAllyField}
         </section>
 
         {/* The Ally panel — inline (≥640px) or an overlay drawer (narrow). */}
@@ -2740,8 +2567,8 @@ export function TranscriptView() {
             barPad={barPad}
             scrollRef={allyScroll.ref}
             onBodyScroll={allyScroll.onScroll}
-            askField={drawer ? null : askAllyField}
-            view={drawer ? (panelView === "split" ? "details" : panelView) : panelView}
+            panelState={panelState}
+            onPanelState={applyPanelState}
             groups={foundGroups}
             groundingDocs={groundingDocs}
             viewEntries={viewEntries}
@@ -2815,15 +2642,11 @@ export function TranscriptView() {
 
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       </main>
-      {/* Tabs render in drawer mode too (a tap opens the overlay drawer),
-          so the tab zone keeps a fixed sensible width there instead of
-          tracking the (hidden-inline) panel width. */}
+      {/* In drawer mode the bar grows an Ally button on its right edge —
+          the one way to open the overlay panel. Inline, the panel is
+          always on screen, so the bar carries no panel control. */}
       <LiveControlBar
-        tabs={{
-          view: panelView,
-          onSelect: selectPanelTab,
-          widthPx: drawer ? 200 : effectivePanelWidth,
-        }}
+        onOpenPanel={drawer ? () => setDrawerOpen(true) : undefined}
       />
     </div>
   );

@@ -34,31 +34,19 @@ import { useTranscriptStore } from "@/state/transcript";
  * - Record sits here too (owner feedback) — it was stranded alone up in
  *   `LiveTopBar`; it's a session-lifecycle action, same family as Start/Stop
  *   and End & summarise, so it belongs grouped with them.
- * - Record + End & summarise sit in the LEFT group (owner, 2026-08-21) so
- *   the bar's absolute bottom-right corner holds the two Ally-panel TABS —
- *   Details · Terms — in the left-nav silhouette, aligned under the 340px
- *   right panel. They are MAXIMIZE controls over the split panel (spec
- *   §3.1): in the split state both render half-lit; tapping one maximizes
- *   that half, tapping the maximized tab returns to the split (the parent
- *   implements that toggle — the bar only reports clicks). Passed via
- *   `tabs` by the live cockpit; omitted (e.g. compact mode) the bar
- *   renders without them.
+ * - The Details/Terms tab zone is RETIRED (spine-accordion spec,
+ *   2026-08-26): the right panel is now a spine-icon accordion that
+ *   carries its own section controls, so the bar holds no panel tabs.
+ *   In drawer mode (<640px) the cockpit passes `onOpenPanel`, and the
+ *   bar's right edge grows a single Ally button that opens the overlay
+ *   panel; omitted (inline panel, compact mode) the bar ends at the
+ *   control cluster.
  */
-export type AllyPanelTab = "details" | "terms";
-/** The panel's layout state: split (default) or one half maximized.
- *  "terms" maximizes Found, "details" maximizes View (spec §3.1). */
-export type AllyPanelView = AllyPanelTab | "split";
-
 export function LiveControlBar({
-  tabs,
+  onOpenPanel,
 }: {
-  tabs?: {
-    view: AllyPanelView;
-    onSelect: (tab: AllyPanelTab) => void;
-    /** Matches the Ally panel's current width so the tab zone stays
-     *  aligned under it (spec A.2). */
-    widthPx: number;
-  };
+  /** Drawer mode only: opens the Ally panel overlay. */
+  onOpenPanel?: () => void;
 }) {
   const session = useTranscriptStore((s) => s.session);
   const listening = session.state === "listening";
@@ -220,54 +208,16 @@ export function LiveControlBar({
       )}
       </div>
 
-      {/* Ally-panel tabs — the absolute bottom-right corner, aligned under
-          the right panel (width matched via tabs.widthPx). Exclusive tabs
-          (one active), the same silhouette language as the left nav rail's
-          active state. */}
-      {tabs && (
-        <div
-          role="tablist"
-          aria-label="Ally panel tabs"
-          style={{ width: tabs.widthPx }}
-          className="flex shrink-0 items-stretch border-l border-border"
+      {onOpenPanel && (
+        <button
+          type="button"
+          onClick={onOpenPanel}
+          title="Open Ally panel"
+          aria-label="Open Ally panel"
+          className="grid w-12 shrink-0 place-items-center border-l border-border text-ai hover:bg-panel-raised/60"
         >
-          {(
-            [
-              ["details", "Details"],
-              ["terms", "Terms"],
-            ] as const
-          ).map(([key, label], i) => {
-            const maximized = tabs.view === key;
-            const split = tabs.view === "split";
-            return (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={maximized || split}
-                onClick={() => tabs.onSelect(key)}
-                className={[
-                  "relative flex flex-1 items-center justify-center gap-2 text-[12.5px] transition",
-                  i > 0 ? "border-l border-border" : "",
-                  maximized
-                    ? "bg-panel-raised font-bold text-primary"
-                    : split
-                      ? "bg-panel-raised/50 font-semibold text-primary/70"
-                      : "font-semibold text-fg-faint hover:text-fg",
-                ].join(" ")}
-              >
-                {(maximized || split) && (
-                  <span
-                    className={`absolute inset-x-0 top-0 h-[2px] ${maximized ? "bg-primary" : "bg-primary/40"}`}
-                    aria-hidden
-                  />
-                )}
-                <Icon name={key === "details" ? "summarize" : "file"} size={14} />
-                {label}
-              </button>
-            );
-          })}
-        </div>
+          <Icon name="ally" size={16} />
+        </button>
       )}
     </div>
   );

@@ -32,6 +32,8 @@ export type IconName =
   | "thumbDown"
   | "book"
   | "howto"
+  | "question"
+  | "target"
   | "elaborate"
   | "simicon"
   | "edit"
@@ -271,6 +273,22 @@ const PATHS: Record<IconName, ReactNode> = {
       <rect x="4" y="4" width="16" height="16" rx="4" />
       <path d="M9.5 9.2a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2-2.5 3.6" />
       <path d="M12 17h.01" />
+    </>
+  ),
+  // Questions section — a speech bubble carrying a question mark.
+  question: (
+    <>
+      <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-4 3.5V17H6a2 2 0 0 1-2-2z" />
+      <path d="M10.2 8.6a2 2 0 0 1 3.8.7c0 1.3-1.9 1.5-1.9 2.7" />
+      <path d="M12.1 14.4h.01" />
+    </>
+  ),
+  // Tracking section — a target/crosshair (things being watched live).
+  target: (
+    <>
+      <circle cx="12" cy="12" r="7" />
+      <circle cx="12" cy="12" r="2.5" />
+      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
     </>
   ),
   // Elaborate — expand outward (plus with radiating arrows).

@@ -3,19 +3,33 @@ import type {
   FoundItem,
 } from "@/components/transcript/foundGroups";
 
+/** Per-section empty-state copy for single-group (`only`) mode. */
+const ONLY_EMPTY: Record<"questions" | "tracking" | "terms", string> = {
+  questions: "Nothing yet — questions from the other side land here.",
+  tracking: "Commitments and mentions appear as the call goes.",
+  terms: "Terms appear as they're detected — and from your grounded documents.",
+};
+
 /**
  * The Found half (spec §3.2) — everything the AI surfaced, grouped in
  * urgency order, each item one tap from showing its card in the View half
  * below. Groups hide entirely while empty; the sanctioned mono eyebrow is
  * the group header. Chip dots: azure = detected live, gold = doc term,
  * neutral = mention.
+ *
+ * Single-group mode (spine accordion, spec 2026-08-26): with `only` set,
+ * render ONLY that accordion section's items with NO eyebrow headers (the
+ * accordion's own section header replaces them) — `tracking` is commitment
+ * rows followed by mention chips — plus a per-section empty-state line.
  */
 export function FoundList({
   groups,
   onSelect,
+  only,
 }: {
   groups: FoundGroups;
   onSelect: (item: FoundItem) => void;
+  only?: "questions" | "tracking" | "terms";
 }) {
   const empty =
     groups.questions.length === 0 &&
@@ -67,6 +81,40 @@ export function FoundList({
       <span className="min-w-0 truncate">{item.label}</span>
     </button>
   );
+
+  if (only) {
+    const emptyLine = (
+      <p className="px-1 py-3 text-[0.86em] text-fg-faint">{ONLY_EMPTY[only]}</p>
+    );
+    if (only === "questions") {
+      if (groups.questions.length === 0) return emptyLine;
+      return (
+        <div className="flex flex-col gap-1.5">{groups.questions.map(row)}</div>
+      );
+    }
+    if (only === "tracking") {
+      if (groups.commitments.length === 0 && groups.mentions.length === 0)
+        return emptyLine;
+      return (
+        <div className="flex flex-col gap-3">
+          {groups.commitments.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {groups.commitments.map(row)}
+            </div>
+          )}
+          {groups.mentions.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {groups.mentions.map(chipButton)}
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (groups.terms.length === 0) return emptyLine;
+    return (
+      <div className="flex flex-wrap gap-1.5">{groups.terms.map(chipButton)}</div>
+    );
+  }
 
   if (empty) {
     return (
