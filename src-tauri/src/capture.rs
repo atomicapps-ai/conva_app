@@ -104,30 +104,38 @@ fn run_pass(
 
     let mut reply = String::new();
     let t0 = Instant::now();
+    let mut usage = conva_core::llm::TokenUsage::default();
     let result = crate::llm::stream_completion(
         selection.provider,
         api_key,
         &selection.model,
         &request,
         &mut |token| reply.push_str(token),
+        &mut usage,
     );
-    match result {
-        Ok(usage) => {
-            crate::metering::record_llm(app, selection.provider, usage);
-            crate::trace::record(
-                "llm",
-                t0.elapsed().as_millis() as u64,
-                serde_json::json!({
-                    "kind": "capture",
-                    "provider": crate::trace::provider_label(selection.provider),
-                    "model": selection.model.clone(),
-                    "in": usage.input_tokens,
-                    "out": usage.output_tokens,
-                }),
-            );
-        }
-        Err(_) => return, // best-effort: skip this pass
+    // Record even on failure — partial-stream tokens were billed.
+    crate::metering::record_llm(
+        app,
+        "capture",
+        selection.provider,
+        &selection.model,
+        usage,
+        result.is_ok(),
+    );
+    if result.is_err() {
+        return; // best-effort: skip this pass
     }
+    crate::trace::record(
+        "llm",
+        t0.elapsed().as_millis() as u64,
+        serde_json::json!({
+            "kind": "capture",
+            "provider": crate::trace::provider_label(selection.provider),
+            "model": selection.model.clone(),
+            "in": usage.input_tokens,
+            "out": usage.output_tokens,
+        }),
+    );
     let Some(extraction) = parse_capture_reply(&reply) else {
         return;
     };
@@ -174,6 +182,7 @@ impl ReplayLine {
 /// fast-slot model, exactly as the live worker does.
 #[tauri::command]
 pub async fn faner_replay(
+    app: AppHandle,
     state: State<'_, AppState>,
     role: String,
     terms: Vec<String>,
@@ -193,14 +202,26 @@ pub async fn faner_replay(
 
     tauri::async_runtime::spawn_blocking(move || {
         let mut reply = String::new();
-        crate::llm::stream_completion(
+        let mut usage = conva_core::llm::TokenUsage::default();
+        let result = crate::llm::stream_completion(
             selection.provider,
             &key,
             &selection.model,
             &request,
             &mut |token| reply.push_str(token),
-        )
-        .map_err(|e| e.to_string())?;
+            &mut usage,
+        );
+        // The replay is a dev/eval path but still spends real tokens — meter
+        // it under its own feature label so it never muddies live features.
+        crate::metering::record_llm(
+            &app,
+            "faner_replay",
+            selection.provider,
+            &selection.model,
+            usage,
+            result.is_ok(),
+        );
+        result.map_err(|e| e.to_string())?;
         // Unlike the live worker (best-effort: a parse failure is silently
         // skipped so a bad pass never blocks the session), this is the
         // dev/test path — silently returning an empty Vec here would look

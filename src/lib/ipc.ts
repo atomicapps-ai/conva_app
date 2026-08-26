@@ -412,9 +412,27 @@ export interface ProviderUsage {
   requests: number;
 }
 
+/**
+ * Running LLM usage for one feature × provider × model bucket. `feature` is a
+ * stable snake_case label owned by the Rust call site (the full set is listed
+ * in `src-tauri/src/metering.rs`); failed attempts keep the tokens billed
+ * before the failure.
+ */
+export interface LlmFeatureUsage {
+  feature: string;
+  provider: ProviderId;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  requests: number;
+  failed_requests: number;
+}
+
 /** Usage snapshot with cross-provider running totals. */
 export interface UsageSummary {
   providers: ProviderUsage[];
+  /** Feature × provider × model buckets, heaviest (total tokens) first. */
+  llm_features: LlmFeatureUsage[];
   total_input_tokens: number;
   total_output_tokens: number;
   total_requests: number;

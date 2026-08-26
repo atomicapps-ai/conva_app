@@ -204,6 +204,7 @@ fn respond(
     let mut reply = String::new();
     let t0 = std::time::Instant::now();
     let mut first_ms: Option<u64> = None;
+    let mut usage = conva_core::llm::TokenUsage::default();
     let result = crate::llm::stream_completion(
         ctx.selection.provider,
         &ctx.llm_key,
@@ -214,10 +215,19 @@ fn respond(
             reply.push_str(tok);
             emit(&reply, false);
         },
+        &mut usage,
+    );
+    // Record even on failure — partial-stream tokens were billed.
+    crate::metering::record_llm(
+        app,
+        "rehearsal_persona",
+        ctx.selection.provider,
+        &ctx.selection.model,
+        usage,
+        result.is_ok(),
     );
     match result {
-        Ok(usage) => {
-            crate::metering::record_llm(app, ctx.selection.provider, usage);
+        Ok(()) => {
             let total_ms = t0.elapsed().as_millis() as u64;
             crate::trace::record(
                 "llm",

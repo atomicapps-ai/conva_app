@@ -1040,15 +1040,24 @@ fn simcon_generate_dossier(
     let key = resolve_key(selection.provider)?;
     let request = conva_core::simcon::knowledge_prompt(&session, &profile.research, &chunks, 3000);
     let mut buf = String::new();
-    let usage = llm::stream_completion(
+    let mut usage = conva_core::llm::TokenUsage::default();
+    let result = llm::stream_completion(
         selection.provider,
         &key,
         &selection.model,
         &request,
         &mut |t| buf.push_str(t),
-    )
-    .map_err(|e| e.to_string())?;
-    metering::record_llm(&app, selection.provider, usage);
+        &mut usage,
+    );
+    metering::record_llm(
+        &app,
+        "simcon_knowledge",
+        selection.provider,
+        &selection.model,
+        usage,
+        result.is_ok(),
+    );
+    result.map_err(|e| e.to_string())?;
     let text = buf.trim().to_string();
     if text.is_empty() {
         return Err("Ally returned an empty briefing.".into());
@@ -1102,15 +1111,24 @@ fn simcon_generate_dossier(
                 profile.research = sources.clone();
                 let request = conva_core::simcon::research_findings_prompt(&session, &sources);
                 let mut fbuf = String::new();
-                let fusage = llm::stream_completion(
+                let mut fusage = conva_core::llm::TokenUsage::default();
+                let fresult = llm::stream_completion(
                     selection.provider,
                     &key,
                     &selection.model,
                     &request,
                     &mut |t| fbuf.push_str(t),
+                    &mut fusage,
                 );
-                if let Ok(fusage) = fusage {
-                    metering::record_llm(&app, selection.provider, fusage);
+                metering::record_llm(
+                    &app,
+                    "simcon_research_findings",
+                    selection.provider,
+                    &selection.model,
+                    fusage,
+                    fresult.is_ok(),
+                );
+                if fresult.is_ok() {
                     let ftext = fbuf.trim().to_string();
                     if !ftext.is_empty() {
                         // Replace any previous findings doc — no pile-up.
@@ -1172,15 +1190,24 @@ fn simcon_generate_personas(
         max_tokens: 1500,
     };
     let mut buf = String::new();
-    let usage = llm::stream_completion(
+    let mut usage = conva_core::llm::TokenUsage::default();
+    let result = llm::stream_completion(
         selection.provider,
         &key,
         &selection.model,
         &request,
         &mut |t| buf.push_str(t),
-    )
-    .map_err(|e| e.to_string())?;
-    metering::record_llm(&app, selection.provider, usage);
+        &mut usage,
+    );
+    metering::record_llm(
+        &app,
+        "simcon_personas",
+        selection.provider,
+        &selection.model,
+        usage,
+        result.is_ok(),
+    );
+    result.map_err(|e| e.to_string())?;
     session.personas = conva_core::simcon::parse_personas(&buf);
     session.chosen_persona_id = None;
     simcon::save(&app, session).map_err(|e| e.to_string())
@@ -1575,6 +1602,19 @@ fn ally(
 
     let request = build_ally_request(kind, &segments, &chunks, question.as_deref(), 1024);
 
+    // Usage attribution: which Ally surface asked. Card summaries reuse the
+    // `question` kind but are a distinct feature, marked by their "sum:"
+    // request-id prefix (src/state/ally.ts).
+    let feature: &'static str = if request_id.starts_with("sum:") {
+        "ally_card_summary"
+    } else {
+        match kind {
+            AllyKind::SuggestReply => "ally_suggest_reply",
+            AllyKind::Summarize => "ally_summarize",
+            AllyKind::Question => "ally_question",
+        }
+    };
+
     std::thread::Builder::new()
         .name("ally".into())
         .spawn(move || {
@@ -1600,6 +1640,7 @@ fn ally(
             // Latency trace: time to first token + total.
             let t0 = std::time::Instant::now();
             let mut first_ms: Option<u64> = None;
+            let mut usage = conva_core::llm::TokenUsage::default();
             let result = if web_enabled {
                 let tools = ally_web_tools();
                 let mut run_tool = |name: &str, input: &serde_json::Value| -> String {
@@ -1616,6 +1657,7 @@ fn ally(
                     },
                     &mut run_tool,
                     2,
+                    &mut usage,
                 )
             } else {
                 llm::stream_completion(
@@ -1627,11 +1669,20 @@ fn ally(
                         first_ms.get_or_insert_with(|| t0.elapsed().as_millis() as u64);
                         emit(token, false, None);
                     },
+                    &mut usage,
                 )
             };
+            // Record even on failure — partial-stream tokens were billed.
+            metering::record_llm(
+                &app,
+                feature,
+                selection.provider,
+                &selection.model,
+                usage,
+                result.is_ok(),
+            );
             match result {
-                Ok(usage) => {
-                    metering::record_llm(&app, selection.provider, usage);
+                Ok(()) => {
                     let total_ms = t0.elapsed().as_millis() as u64;
                     trace::record(
                         "llm",

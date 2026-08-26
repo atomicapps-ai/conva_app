@@ -18,21 +18,25 @@ use conva_core::CoreError;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Streaming completion: `on_token` receives text deltas as they arrive.
-/// Returns the provider-reported [`TokenUsage`] for metering (zeros when the
-/// provider doesn't report usage, e.g. some local endpoints).
+/// Provider-reported token counts accumulate into `usage` **as the stream
+/// progresses** (zeros when the provider doesn't report usage, e.g. some
+/// local endpoints) — an out-param rather than a return value so that a
+/// mid-stream error still leaves the tokens billed up to that point in
+/// `usage` for honest metering.
 pub fn stream_completion(
     provider: ProviderId,
     api_key: &str,
     model: &str,
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
-) -> Result<TokenUsage, CoreError> {
+    usage: &mut TokenUsage,
+) -> Result<(), CoreError> {
     match provider {
-        ProviderId::Anthropic => anthropic_stream(api_key, model, request, on_token),
+        ProviderId::Anthropic => anthropic_stream(api_key, model, request, on_token, usage),
         ProviderId::Openai | ProviderId::Xai | ProviderId::Deepseek | ProviderId::OllamaLocal => {
-            openai_compatible_stream(provider, api_key, model, request, on_token)
+            openai_compatible_stream(provider, api_key, model, request, on_token, usage)
         }
-        ProviderId::Google => gemini_stream(api_key, model, request, on_token),
+        ProviderId::Google => gemini_stream(api_key, model, request, on_token, usage),
     }
 }
 
@@ -48,9 +52,17 @@ pub fn validate_key(provider: ProviderId, api_key: &str, model: &str) -> Result<
     let mut first: Option<u32> = None;
     // The Test button is a diagnostic ping, not feature usage, so its tokens are
     // intentionally not recorded in the usage ledger.
-    stream_completion(provider, api_key, model, &request, &mut |_| {
-        first.get_or_insert_with(|| started.elapsed().as_millis() as u32);
-    })?;
+    let mut discarded = TokenUsage::default();
+    stream_completion(
+        provider,
+        api_key,
+        model,
+        &request,
+        &mut |_| {
+            first.get_or_insert_with(|| started.elapsed().as_millis() as u32);
+        },
+        &mut discarded,
+    )?;
     first.ok_or_else(|| CoreError::Llm("no tokens returned".into()))
 }
 
@@ -145,7 +157,8 @@ fn anthropic_stream(
     model: &str,
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
-) -> Result<TokenUsage, CoreError> {
+    usage: &mut TokenUsage,
+) -> Result<(), CoreError> {
     let response = ureq::post("https://api.anthropic.com/v1/messages")
         .timeout(HTTP_TIMEOUT)
         .set("x-api-key", api_key)
@@ -161,8 +174,8 @@ fn anthropic_stream(
         .map_err(map_ureq)?;
 
     // Anthropic reports input tokens in `message_start` and the (cumulative)
-    // output count in each `message_delta` — keep the latest of each.
-    let mut usage = TokenUsage::default();
+    // output count in each `message_delta` — keep the latest of each, written
+    // straight into the out-param so an aborted stream keeps its partial count.
     for_each_sse_data(response.into_reader(), |value| {
         match value["type"].as_str() {
             Some("content_block_delta") => {
@@ -195,16 +208,16 @@ fn anthropic_stream(
             _ => {}
         }
         Ok(())
-    })?;
-    Ok(usage)
+    })
 }
 
 /// Anthropic streaming **with tool use** — the Ally web-search loop. Streams
 /// assistant text via `on_token`; when the model requests a tool, `run_tool(name,
 /// input)` is called and its string output is fed back as a `tool_result`, up to
 /// `max_rounds` tool rounds (tools are withheld on the final round so the loop
-/// always terminates in a text answer). Returns the token usage **summed across
-/// every round** — so metering captures the full cost of a tool-assisted answer.
+/// always terminates in a text answer). Token usage accumulates into `usage`
+/// **summed across every round** — so metering captures the full cost of a
+/// tool-assisted answer, including rounds completed before a failure.
 ///
 /// The common case (model answers without searching) is a single request, no
 /// slower than [`anthropic_stream`]; the extra round-trip is paid only when the
@@ -218,11 +231,11 @@ pub fn anthropic_stream_with_tools(
     on_token: &mut dyn FnMut(&str),
     run_tool: &mut dyn FnMut(&str, &Value) -> String,
     max_rounds: usize,
-) -> Result<TokenUsage, CoreError> {
+    usage: &mut TokenUsage,
+) -> Result<(), CoreError> {
     use std::collections::HashMap;
 
     let mut messages: Vec<Value> = vec![json!({"role": "user", "content": request.user})];
-    let mut total = TokenUsage::default();
 
     for round in 0..=max_rounds {
         // Offer tools only while another round remains; the final round forces a
@@ -255,7 +268,7 @@ pub fn anthropic_stream_with_tools(
         // SSE content-block index -> position in `tool_blocks` (absent = text).
         let mut index_to_tool: HashMap<u64, usize> = HashMap::new();
 
-        for_each_sse_data(response.into_reader(), |value| {
+        let stream_result = for_each_sse_data(response.into_reader(), |value| {
             match value["type"].as_str() {
                 Some("message_start") => {
                     let u = &value["message"]["usage"];
@@ -317,12 +330,15 @@ pub fn anthropic_stream_with_tools(
                 _ => {}
             }
             Ok(())
-        })?;
+        });
 
-        total.input_tokens = total.input_tokens.saturating_add(round_usage.input_tokens);
-        total.output_tokens = total
+        // Fold this round's tokens in before propagating any stream error —
+        // an aborted round was still billed for what it streamed.
+        usage.input_tokens = usage.input_tokens.saturating_add(round_usage.input_tokens);
+        usage.output_tokens = usage
             .output_tokens
             .saturating_add(round_usage.output_tokens);
+        stream_result?;
 
         // No tool requested → this round's text is the final answer.
         if stop_reason != "tool_use" || tool_blocks.is_empty() {
@@ -350,7 +366,7 @@ pub fn anthropic_stream_with_tools(
         messages.push(json!({"role": "user", "content": tool_results}));
     }
 
-    Ok(total)
+    Ok(())
 }
 
 // ------------------------------------------------------- OpenAI-compatible
@@ -371,7 +387,8 @@ fn openai_compatible_stream(
     model: &str,
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
-) -> Result<TokenUsage, CoreError> {
+    usage: &mut TokenUsage,
+) -> Result<(), CoreError> {
     let url = format!("{}/chat/completions", openai_base(provider));
     let mut req = ureq::post(&url)
         .timeout(HTTP_TIMEOUT)
@@ -394,7 +411,6 @@ fn openai_compatible_stream(
         }))
         .map_err(map_ureq)?;
 
-    let mut usage = TokenUsage::default();
     for_each_sse_data(response.into_reader(), |value| {
         // OpenAI-shaped mid-stream failures arrive as a bare
         // `{"error": {"message": ..., "type": ...}}` chunk instead of a
@@ -416,8 +432,7 @@ fn openai_compatible_stream(
             usage.output_tokens = n;
         }
         Ok(())
-    })?;
-    Ok(usage)
+    })
 }
 
 // ------------------------------------------------------------------ Gemini
@@ -427,7 +442,8 @@ fn gemini_stream(
     model: &str,
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
-) -> Result<TokenUsage, CoreError> {
+    usage: &mut TokenUsage,
+) -> Result<(), CoreError> {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
     );
@@ -443,7 +459,6 @@ fn gemini_stream(
         .map_err(map_ureq)?;
 
     // Gemini reports cumulative `usageMetadata` on each chunk — keep the latest.
-    let mut usage = TokenUsage::default();
     for_each_sse_data(response.into_reader(), |value| {
         // Gemini reports a mid-stream failure as a top-level `error` object
         // rather than a `candidates` entry -- same silent-truncation risk as
@@ -467,8 +482,7 @@ fn gemini_stream(
             usage.output_tokens = n;
         }
         Ok(())
-    })?;
-    Ok(usage)
+    })
 }
 
 // -------------------------------------------------------------- key vault
