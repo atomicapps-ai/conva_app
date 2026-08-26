@@ -536,6 +536,30 @@ fn phrase_count(hay: &[String], needle: &[String]) -> usize {
     hay.windows(needle.len()).filter(|w| *w == needle).count()
 }
 
+/// Shared survival predicate for [`sanitize_mined_terms`] and
+/// [`sanitize_glossary_entries`] — kept in one place so the two filters
+/// can't drift (spec 2026-08-26).
+fn term_survives(
+    term: &str,
+    doc_toks: &[String],
+    jd_toks: Option<&[String]>,
+    min_occurrences: usize,
+) -> bool {
+    let t = term.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let nt = tokens(t);
+    if nt.is_empty() || nt.len() > 4 {
+        return false;
+    }
+    if nt.len() == 1 && STOPWORDS.contains(&nt[0].as_str()) {
+        return false;
+    }
+    let in_jd = jd_toks.is_some_and(|j| contains_phrase(j, &nt));
+    in_jd || phrase_count(doc_toks, &nt) >= min_occurrences
+}
+
 /// Hygiene gate for MINED terms (never user-typed key terms) — spec B.2.
 /// A term survives when it is ≤4 words, isn't a bare stopword, and either
 /// occurs at least `min_occurrences` times in `doc_text` or appears in the
@@ -552,21 +576,25 @@ pub fn sanitize_mined_terms(
     let jd_toks = jd_text.map(tokens);
     terms
         .into_iter()
-        .filter(|term| {
-            let t = term.trim();
-            if t.is_empty() {
-                return false;
-            }
-            let nt = tokens(t);
-            if nt.is_empty() || nt.len() > 4 {
-                return false;
-            }
-            if nt.len() == 1 && STOPWORDS.contains(&nt[0].as_str()) {
-                return false;
-            }
-            let in_jd = jd_toks.as_ref().is_some_and(|j| contains_phrase(j, &nt));
-            in_jd || phrase_count(&doc_toks, &nt) >= min_occurrences
-        })
+        .filter(|term| term_survives(term, &doc_toks, jd_toks.as_deref(), min_occurrences))
+        .collect()
+}
+
+/// [`sanitize_mined_terms`], applied to `(term, definition)` pairs — a term
+/// that doesn't survive drops its definition with it (spec 2026-08-26,
+/// cached term definitions: only hygiene-gated terms get their answer
+/// cached for instant retrieval).
+pub fn sanitize_glossary_entries(
+    entries: Vec<(String, String)>,
+    doc_text: &str,
+    jd_text: Option<&str>,
+    min_occurrences: usize,
+) -> Vec<(String, String)> {
+    let doc_toks = tokens(doc_text);
+    let jd_toks = jd_text.map(tokens);
+    entries
+        .into_iter()
+        .filter(|(term, _)| term_survives(term, &doc_toks, jd_toks.as_deref(), min_occurrences))
         .collect()
 }
 
@@ -612,7 +640,7 @@ mod doc_terms_tests {
 
 #[cfg(test)]
 mod sanitize_mined_tests {
-    use super::sanitize_mined_terms;
+    use super::{sanitize_glossary_entries, sanitize_mined_terms};
 
     const DOC: &str = "Built DynamoDB tables and tuned DynamoDB capacity. \
         Migrated workloads to the CloudOpenShift platform once. \
@@ -665,6 +693,47 @@ mod sanitize_mined_tests {
     fn floor_one_keeps_single_occurrences() {
         let out = sanitize_mined_terms(vec!["CloudOpenShift".into()], DOC, None, 1);
         assert_eq!(out, vec!["CloudOpenShift".to_string()]);
+    }
+
+    #[test]
+    fn sanitize_glossary_entries_drops_failing_terms_keeps_their_definitions_paired() {
+        let doc = "The team runs on Kubernetes daily. Kubernetes handles orchestration. \
+            CloudOpenShift appears once here.";
+        let entries = vec![
+            (
+                "Kubernetes".to_string(),
+                "container orchestration.".to_string(),
+            ),
+            ("CloudOpenShift".to_string(), "glue artifact.".to_string()),
+        ];
+        let out = sanitize_glossary_entries(entries, doc, None, 2);
+        assert!(
+            out.iter()
+                .any(|(t, d)| t == "Kubernetes" && d == "container orchestration."),
+            "{out:?}"
+        );
+        assert!(
+            !out.iter().any(|(t, _)| t == "CloudOpenShift"),
+            "one-occurrence glue term must be dropped: {out:?}"
+        );
+    }
+
+    #[test]
+    fn sanitize_glossary_entries_keeps_jd_present_single_occurrence() {
+        let doc = "API Gateway is mentioned once in the resume.";
+        let jd = "Experience with API Gateway is required.";
+        let entries = vec![(
+            "API Gateway".to_string(),
+            "managed API front door.".to_string(),
+        )];
+        let out = sanitize_glossary_entries(entries, doc, Some(jd), 2);
+        assert_eq!(
+            out,
+            vec![(
+                "API Gateway".to_string(),
+                "managed API front door.".to_string()
+            )]
+        );
     }
 }
 
