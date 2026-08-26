@@ -52,7 +52,13 @@ export type AllyPanelView = AllyPanelTab | "split";
 export function LiveControlBar({
   tabs,
 }: {
-  tabs?: { view: AllyPanelView; onSelect: (tab: AllyPanelTab) => void };
+  tabs?: {
+    view: AllyPanelView;
+    onSelect: (tab: AllyPanelTab) => void;
+    /** Matches the Ally panel's current width so the tab zone stays
+     *  aligned under it (spec A.2). */
+    widthPx: number;
+  };
 }) {
   const session = useTranscriptStore((s) => s.session);
   const listening = session.state === "listening";
@@ -215,13 +221,15 @@ export function LiveControlBar({
       </div>
 
       {/* Ally-panel tabs — the absolute bottom-right corner, aligned under
-          the 340px panel. Exclusive tabs (one active), the same silhouette
-          language as the left nav rail's active state. */}
+          the right panel (width matched via tabs.widthPx). Exclusive tabs
+          (one active), the same silhouette language as the left nav rail's
+          active state. */}
       {tabs && (
         <div
           role="tablist"
           aria-label="Ally panel tabs"
-          className="flex w-[340px] shrink-0 items-stretch border-l border-border"
+          style={{ width: tabs.widthPx }}
+          className="flex shrink-0 items-stretch border-l border-border"
         >
           {(
             [

@@ -1576,6 +1576,8 @@ function AllyPanel({
   onEntryOpenInViewer,
   splitRatio,
   onSplitRatio,
+  widthPx,
+  onResize,
 }: {
   busy: boolean;
   request: (
@@ -1609,12 +1611,37 @@ function AllyPanel({
   onEntryOpenInViewer: (entry: ViewEntry) => void;
   splitRatio: number;
   onSplitRatio: (r: number) => void;
+  widthPx: number;
+  onResize: (px: number) => void;
 }) {
   const activeTitle = useGroundingStore((s) => s.activeTitle);
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <aside className={`flex h-full w-[340px] max-w-full shrink-0 flex-col border-l border-border bg-bg-2${barPad}`}>
+    <aside
+      style={{ width: widthPx }}
+      className={`relative flex h-full max-w-full shrink-0 flex-col border-l border-border bg-bg-2${barPad}`}
+    >
+      {/* Left-edge width handle (spec A.2): dragging left widens. The
+          pref clamps 280-560; the cockpit clamps again vs window width. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize panel"
+        onPointerDown={(e) => {
+          const startX = e.clientX;
+          const startW = widthPx;
+          const move = (ev: PointerEvent) =>
+            onResize(startW + (startX - ev.clientX));
+          const up = () => {
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", up);
+          };
+          window.addEventListener("pointermove", move);
+          window.addEventListener("pointerup", up);
+        }}
+        className="absolute inset-y-0 left-0 z-30 w-[5px] cursor-col-resize hover:bg-panel-raised"
+      />
       <div className="relative flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
         <Icon name="ally" size={15} className="text-ai" />
         <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
@@ -1906,6 +1933,8 @@ export function TranscriptView() {
   const setCollapseYou = useUiPrefs((s) => s.setCollapseYou);
   const panelSplitRatio = useUiPrefs((s) => s.panelSplitRatio);
   const setPanelSplitRatio = useUiPrefs((s) => s.setPanelSplitRatio);
+  const panelWidthPx = useUiPrefs((s) => s.panelWidthPx);
+  const setPanelWidthPx = useUiPrefs((s) => s.setPanelWidthPx);
   // Session start (epoch ms) — lets a bubble's time hover show a wall-clock.
   const sessionEvent = useTranscriptStore((s) => s.session);
   const sessionStartMs =
@@ -2048,6 +2077,11 @@ export function TranscriptView() {
   }, []);
   const drawer = width > 0 && width < 640;
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Never let the panel squeeze the conversation below ~320px on a narrow
+  // window; the 640px drawer breakpoint takes over before this can push
+  // under the 280 floor (spec A.2).
+  const effectivePanelWidth =
+    width > 0 ? Math.min(panelWidthPx, Math.max(280, width - 320)) : panelWidthPx;
 
   // Conversation-header responsiveness (owner, 2026-08-21: the text-size /
   // expand controls bled over the right panel at narrow widths) — measure the
@@ -2734,6 +2768,8 @@ export function TranscriptView() {
             }}
             splitRatio={panelSplitRatio}
             onSplitRatio={setPanelSplitRatio}
+            widthPx={effectivePanelWidth}
+            onResize={setPanelWidthPx}
             renderAnswers={() =>
               orderedCards.length === 0 ? (
                 <p className="px-2 py-4 text-center text-xs text-fg-faint">
@@ -2773,7 +2809,16 @@ export function TranscriptView() {
 
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       </main>
-      <LiveControlBar tabs={{ view: panelView, onSelect: selectPanelTab }} />
+      {/* Tabs render in drawer mode too (a tap opens the overlay drawer),
+          so the tab zone keeps a fixed sensible width there instead of
+          tracking the (hidden-inline) panel width. */}
+      <LiveControlBar
+        tabs={{
+          view: panelView,
+          onSelect: selectPanelTab,
+          widthPx: drawer ? 200 : effectivePanelWidth,
+        }}
+      />
     </div>
   );
 }
