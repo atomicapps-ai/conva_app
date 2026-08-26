@@ -441,6 +441,13 @@ export function exportTranscript(
   return invoke("export_transcript", { path, segments });
 }
 
+/** Analyze a saved conversation's performance (category-aware, grounded
+ * in its linked context when one exists) — returns the report Markdown
+ * for the caller to save. */
+export function analyzeConversation(id: string): Promise<string> {
+  return invoke<string>("analyze_conversation", { id });
+}
+
 // --- Floating HUD panel (src-tauri/src/hud.rs) ------------------------------
 
 /** Open the floating HUD panel (or re-pin it if already open). */

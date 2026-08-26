@@ -137,6 +137,7 @@ export class TauriBackend implements ConvaBackend {
     list: cmd.sessionList,
     load: cmd.sessionLoad,
     exportTranscript: cmd.exportTranscript,
+    analyzeConversation: cmd.analyzeConversation,
   };
 
   diagnostics = {
