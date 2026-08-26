@@ -226,12 +226,11 @@ fn session_load(app: AppHandle, id: String) -> Result<Vec<TranscriptSegment>, St
     session::load_session(&app, &id).map_err(|e| e.to_string())
 }
 
-/// Export a transcript as Markdown to a caller-chosen path (U8). The UI
-/// obtains `path` from the native save dialog.
-#[tauri::command]
-fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(), String> {
+/// Render finalized transcript segments as speaker-labeled Markdown lines
+/// (shared by `export_transcript` and `analyze_conversation`).
+fn render_transcript_markdown(segments: &[TranscriptSegment]) -> String {
     use conva_core::audio::StreamSide;
-    let mut out = String::from("# conva transcript\n\n");
+    let mut out = String::new();
     for s in segments.iter().filter(|s| s.is_final) {
         let speaker = match s.side {
             StreamSide::Inbound => "Them",
@@ -246,7 +245,69 @@ fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(
             s.text.trim()
         ));
     }
+    out
+}
+
+/// Export a transcript as Markdown to a caller-chosen path (U8). The UI
+/// obtains `path` from the native save dialog.
+#[tauri::command]
+fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(), String> {
+    let out = format!(
+        "# conva transcript\n\n{}",
+        render_transcript_markdown(&segments)
+    );
     fs::write(&path, out).map_err(|e| e.to_string())
+}
+
+/// Analyze a saved conversation's performance (spec 2026-08-26, part B) —
+/// category-aware, grounded in its linked context's job description and
+/// vocabulary when one exists (best-effort: a missing/deleted context
+/// degrades to the ungrounded framing, never errors). Returns the
+/// Markdown report text for the caller to save via the native dialog.
+#[tauri::command]
+fn analyze_conversation(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<String, String> {
+    let conversation = conversations::load(&app, &id).map_err(|e| e.to_string())?;
+    let (category, job_description, glossary) = conversation
+        .linked_context_id
+        .as_deref()
+        .and_then(|cid| simcon::load(&app, cid).ok())
+        .map(|s| (Some(s.category), s.job_description, s.glossary))
+        .unwrap_or((None, None, Vec::new()));
+
+    let transcript_text = render_transcript_markdown(&conversation.segments);
+    let request = conva_core::simcon::performance_analysis_prompt(
+        category,
+        job_description.as_deref(),
+        &glossary,
+        &transcript_text,
+    );
+
+    let selection = state
+        .config
+        .lock()
+        .expect("config lock")
+        .llm_quality
+        .clone();
+    let key = resolve_key(selection.provider)?;
+    let mut buf = String::new();
+    metering::metered_stream(
+        &app,
+        "analyze_conversation",
+        &selection,
+        &key,
+        &request,
+        &mut |t| buf.push_str(t),
+    )
+    .map_err(|e| e.to_string())?;
+    let text = buf.trim().to_string();
+    if text.is_empty() {
+        return Err("Ally returned an empty analysis.".into());
+    }
+    Ok(text)
 }
 
 #[tauri::command]
@@ -1958,6 +2019,7 @@ pub fn run() {
             session_list,
             session_load,
             export_transcript,
+            analyze_conversation,
             conversation_save,
             conversation_list,
             conversation_load,
