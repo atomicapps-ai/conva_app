@@ -565,6 +565,20 @@ pub fn sanitize_mined_terms(
         .collect()
 }
 
+/// The interviewer's own vocabulary, mined from the job description — the
+/// PRIMARY term signal for interview contexts (spec B.2): the JD literally
+/// is what the interviewer will say. Occurrence floor 1 — a JD is short,
+/// clean, employer-curated text where a single mention matters.
+pub fn interviewer_terms(jd_text: &str, limit: usize) -> Vec<String> {
+    if jd_text.trim().is_empty() {
+        return Vec::new();
+    }
+    let mined = salient_doc_terms(jd_text, limit * 2);
+    let mut clean = sanitize_mined_terms(mined, jd_text, None, 1);
+    clean.truncate(limit);
+    clean
+}
+
 #[cfg(test)]
 mod doc_terms_tests {
     use super::salient_doc_terms;
@@ -646,5 +660,34 @@ mod sanitize_mined_tests {
     fn floor_one_keeps_single_occurrences() {
         let out = sanitize_mined_terms(vec!["CloudOpenShift".into()], DOC, None, 1);
         assert_eq!(out, vec!["CloudOpenShift".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod interviewer_terms_tests {
+    use super::interviewer_terms;
+
+    #[test]
+    fn mines_jd_vocabulary() {
+        let jd = "Deep technical expertise with AWS core services, including \
+            EC2, EKS, Lambda, IAM, VPC, S3, and CloudWatch. Define and monitor \
+            SLOs, SLAs, and SLIs. Resolve Sev-1 issues and perform RCAs. \
+            Design infrastructure using CloudFormation, CDK, or Terraform.";
+        let terms = interviewer_terms(jd, 12);
+        assert!(!terms.is_empty());
+        assert!(terms.len() <= 12);
+        let lower: Vec<String> = terms.iter().map(|t| t.to_lowercase()).collect();
+        assert!(
+            lower
+                .iter()
+                .any(|t| t.contains("cloudwatch") || t.contains("terraform") || t.contains("iam")),
+            "expected JD vocabulary in {terms:?}"
+        );
+    }
+
+    #[test]
+    fn empty_jd_yields_nothing() {
+        assert!(interviewer_terms("", 12).is_empty());
+        assert!(interviewer_terms("   ", 12).is_empty());
     }
 }
