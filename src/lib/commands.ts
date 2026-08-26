@@ -290,12 +290,14 @@ export function conversationSave(
   title: string | null,
   segments: TranscriptSegment[],
   linkedDocs: string[],
+  contextId?: string | null,
 ): Promise<Conversation> {
   return invoke<Conversation>("conversation_save", {
     id,
     title,
     segments,
     linkedDocs,
+    contextId: contextId ?? null,
   });
 }
 
@@ -437,6 +439,21 @@ export function exportTranscript(
   segments: TranscriptSegment[],
 ): Promise<void> {
   return invoke("export_transcript", { path, segments });
+}
+
+/** Analyze a saved conversation's performance (category-aware, grounded
+ * in its linked context when one exists) — returns the report Markdown
+ * for the caller to save. */
+export function analyzeConversation(id: string): Promise<string> {
+  return invoke<string>("analyze_conversation", { id });
+}
+
+/** Write arbitrary text content to a caller-chosen path — the generic
+ * counterpart to `exportTranscript` for callers (like `analyzeConversation`'s
+ * downloader) that produce a string rather than building the file
+ * server-side. `path` comes from the native save dialog. */
+export function writeTextFile(path: string, content: string): Promise<void> {
+  return invoke("write_text_file", { path, content });
 }
 
 // --- Floating HUD panel (src-tauri/src/hud.rs) ------------------------------

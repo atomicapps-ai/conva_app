@@ -95,6 +95,8 @@ specific is active."
             source_doc_ids: vec![doc_id.clone()],
             auto_generate_context: false,
             research_enabled: false,
+            deep_qa_enabled: false,
+            qa_doc_id: None,
             key_terms: Vec::new(),
             glossary: extract_glossary(DEFAULT_DIGEST_TEXT),
             glossary_definitions: std::collections::BTreeMap::new(),
@@ -294,7 +296,10 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<SimConSession, CoreError> {
     // Web research runs when enabled for this context (defaults from the type
     // template — decision 2). The legacy auto-generate flag still opts in.
     let research = if session.research_enabled || session.auto_generate_context {
-        match research(&session, &[]) {
+        match research(
+            conva_core::simcon::research_queries(&session, &[], RESEARCH_MAX_QUERIES),
+            RESEARCH_MAX_SOURCES,
+        ) {
             Ok((sources, searches)) => {
                 // Tavily bills per search — record what we actually issued.
                 crate::metering::record_tavily_search(app, searches);
@@ -327,8 +332,14 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<SimConSession, CoreError> {
 const TAVILY_KEYRING_SERVICE: &str = "conva";
 const TAVILY_KEYRING_USER: &str = "api-key-tavily";
 /// Hard budget so research can never run slow or expensive (SDLC/owner ask).
-const RESEARCH_MAX_QUERIES: usize = 6;
-const RESEARCH_MAX_SOURCES: usize = 12;
+/// `pub(crate)` so `lib.rs`'s Stage 2 call site can reuse the exact same
+/// budget values `research_queries` is called with.
+pub(crate) const RESEARCH_MAX_QUERIES: usize = 6;
+pub(crate) const RESEARCH_MAX_SOURCES: usize = 12;
+/// The deep Q&A pass's budget (spec 2026-08-26, part A) — deliberately
+/// much larger than default research; it's opt-in for exactly this cost.
+pub(crate) const QA_MAX_QUERIES: usize = 18;
+pub(crate) const QA_MAX_SOURCES: usize = 45;
 
 pub fn store_tavily_key(key: &str) -> Result<(), CoreError> {
     let entry = keyring::Entry::new(TAVILY_KEYRING_SERVICE, TAVILY_KEYRING_USER)
@@ -352,22 +363,27 @@ pub fn load_tavily_key() -> Option<String> {
         .ok()
 }
 
-/// Bounded autonomous web research (Step 2) via Tavily. Returns the sources to
-/// fold into the KnowledgeProfile plus the number of Tavily searches issued
-/// (each is one billed search — the caller records it for usage metering). No
-/// key configured → returns empty (the profile is docs-only). Failures per query
-/// are skipped, never fatal. Runs on a command thread, never the UI path.
+/// Bounded autonomous web research (Step 2) via Tavily. Takes the already-built
+/// query list and a source budget — the caller decides both (default research
+/// via [`conva_core::simcon::research_queries`] + `RESEARCH_MAX_QUERIES`/
+/// `RESEARCH_MAX_SOURCES`, or the deep Q&A pass via `qa_research_queries` +
+/// `QA_MAX_QUERIES`/`QA_MAX_SOURCES`), so this fn stays agnostic of which pass
+/// is calling it. Returns the sources to fold into the KnowledgeProfile plus
+/// the number of Tavily searches issued (each is one billed search — the
+/// caller records it for usage metering). No key configured → returns empty
+/// (the profile is docs-only). Failures per query are skipped, never fatal.
+/// Runs on a command thread, never the UI path.
 pub(crate) fn research(
-    session: &SimConSession,
-    vocabulary: &[String],
+    queries: Vec<String>,
+    max_sources: usize,
 ) -> Result<(Vec<ResearchSource>, u64), CoreError> {
     let Some(key) = load_tavily_key() else {
         return Ok((Vec::new(), 0));
     };
     let mut out: Vec<ResearchSource> = Vec::new();
     let mut searches: u64 = 0;
-    for query in conva_core::simcon::research_queries(session, vocabulary, RESEARCH_MAX_QUERIES) {
-        if out.len() >= RESEARCH_MAX_SOURCES {
+    for query in queries {
+        if out.len() >= max_sources {
             break;
         }
         searches += 1;
@@ -391,7 +407,7 @@ pub(crate) fn research(
             continue;
         };
         for r in results {
-            if out.len() >= RESEARCH_MAX_SOURCES {
+            if out.len() >= max_sources {
                 break;
             }
             let url = r.get("url").and_then(|v| v.as_str()).unwrap_or("");

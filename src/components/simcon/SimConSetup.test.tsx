@@ -48,7 +48,10 @@ describe("SimConSetup wizard", () => {
     const name = await screen.findByPlaceholderText(/Senior Accountant interview/i);
     fireEvent.change(name, { target: { value: "My interview" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    // Step 2's single checkbox is the research toggle — on by default for Interview.
-    expect(screen.getByRole("checkbox")).toBeChecked();
+    // The research toggle (now joined on step 2 by the interview-only deep
+    // Q&A checkbox) is on by default for Interview.
+    expect(
+      screen.getByRole("checkbox", { name: /research the web for context/i }),
+    ).toBeChecked();
   });
 });

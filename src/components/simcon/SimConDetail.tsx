@@ -64,6 +64,10 @@ export function SimConDetail({
   const [researchText, setResearchText] = useState<string | null>(null);
   const [showResearch, setShowResearch] = useState(false);
 
+  const qaDocId = session?.qa_doc_id ?? null;
+  const [qaText, setQaText] = useState<string | null>(null);
+  const [showQa, setShowQa] = useState(false);
+
   const generateDossier = async () => {
     setDossierBusy(true);
     setError(null);
@@ -85,6 +89,14 @@ export function SimConDetail({
         );
       } else {
         setResearchText(null);
+      }
+      // Refresh (or clear) the Interview Q&A document too.
+      if (updated.qa_doc_id) {
+        setQaText(
+          (await backend.rag.documentText(updated.qa_doc_id)) ?? "",
+        );
+      } else {
+        setQaText(null);
       }
       // Refresh the knowledge base doc list — non-fatal if it fails.
       if (updated.knowledge_profile_id) {
@@ -119,6 +131,14 @@ export function SimConDetail({
     setShowResearch(next);
     if (next && researchText === null && researchDocId) {
       setResearchText((await backend.rag.documentText(researchDocId)) ?? "");
+    }
+  };
+
+  const toggleQa = async () => {
+    const next = !showQa;
+    setShowQa(next);
+    if (next && qaText === null && qaDocId) {
+      setQaText((await backend.rag.documentText(qaDocId)) ?? "");
     }
   };
 
@@ -377,13 +397,51 @@ export function SimConDetail({
                       : researchText}
                 </pre>
               )}
+
+              {/* Row 3 — Interview Q&A (Stage 3, interview category only) */}
+              {session?.category === "interview" && (
+                <>
+                  <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
+                    <Icon name="question" size={15} className="shrink-0 text-ai" />
+                    <span className="text-[12px] font-semibold text-fg">
+                      Interview Q&A
+                    </span>
+                    <div className="flex-1" />
+                    {qaDocId && (
+                      <button
+                        type="button"
+                        onClick={() => void toggleQa()}
+                        className="rounded-sm px-2 py-0.5 text-[11px] font-semibold text-ai hover:bg-ai/10"
+                      >
+                        {showQa ? "Hide" : "View"}
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-fg-faint">
+                    {qaDocId
+                      ? "Common interview questions Ally found online, with strong answers."
+                      : session?.deep_qa_enabled
+                        ? "Runs with Generate — deep Q&A research is on for this context."
+                        : 'Turn on "Deep interview Q&A research" in Edit setup to generate this.'}
+                  </p>
+                  {qaDocId && showQa && (
+                    <pre className="mt-2 max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg/50 p-2.5 text-[12px] leading-relaxed text-fg-muted">
+                      {qaText === null
+                        ? "Loading…"
+                        : qaText.trim() === ""
+                          ? "(No content returned — try Regenerate.)"
+                          : qaText}
+                    </pre>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Attached documents (these live in your Library too). The generated
                 Ally documents are shown above, so they're excluded here. */}
             {(() => {
               const attached = profile.doc_ids.filter(
-                (d) => d !== dossierId && d !== researchDocId,
+                (d) => d !== dossierId && d !== researchDocId && d !== qaDocId,
               );
               return (
                 <div>

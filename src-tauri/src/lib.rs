@@ -226,12 +226,11 @@ fn session_load(app: AppHandle, id: String) -> Result<Vec<TranscriptSegment>, St
     session::load_session(&app, &id).map_err(|e| e.to_string())
 }
 
-/// Export a transcript as Markdown to a caller-chosen path (U8). The UI
-/// obtains `path` from the native save dialog.
-#[tauri::command]
-fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(), String> {
+/// Render finalized transcript segments as speaker-labeled Markdown lines
+/// (shared by `export_transcript` and `analyze_conversation`).
+fn render_transcript_markdown(segments: &[TranscriptSegment]) -> String {
     use conva_core::audio::StreamSide;
-    let mut out = String::from("# conva transcript\n\n");
+    let mut out = String::new();
     for s in segments.iter().filter(|s| s.is_final) {
         let speaker = match s.side {
             StreamSide::Inbound => "Them",
@@ -246,7 +245,79 @@ fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(
             s.text.trim()
         ));
     }
+    out
+}
+
+/// Export a transcript as Markdown to a caller-chosen path (U8). The UI
+/// obtains `path` from the native save dialog.
+#[tauri::command]
+fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(), String> {
+    let out = format!(
+        "# conva transcript\n\n{}",
+        render_transcript_markdown(&segments)
+    );
     fs::write(&path, out).map_err(|e| e.to_string())
+}
+
+/// Write arbitrary text content to a caller-chosen path — the generic
+/// counterpart to `export_transcript` for callers (like
+/// `analyze_conversation`'s downloader) that produce a string rather than
+/// building the file server-side. The UI obtains `path` from the native
+/// save dialog, same as every other export action.
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+/// Analyze a saved conversation's performance (spec 2026-08-26, part B) —
+/// category-aware, grounded in its linked context's job description and
+/// vocabulary when one exists (best-effort: a missing/deleted context
+/// degrades to the ungrounded framing, never errors). Returns the
+/// Markdown report text for the caller to save via the native dialog.
+#[tauri::command]
+fn analyze_conversation(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<String, String> {
+    let conversation = conversations::load(&app, &id).map_err(|e| e.to_string())?;
+    let (category, job_description, glossary) = conversation
+        .linked_context_id
+        .as_deref()
+        .and_then(|cid| simcon::load(&app, cid).ok())
+        .map(|s| (Some(s.category), s.job_description, s.glossary))
+        .unwrap_or((None, None, Vec::new()));
+
+    let transcript_text = render_transcript_markdown(&conversation.segments);
+    let request = conva_core::simcon::performance_analysis_prompt(
+        category,
+        job_description.as_deref(),
+        &glossary,
+        &transcript_text,
+    );
+
+    let selection = state
+        .config
+        .lock()
+        .expect("config lock")
+        .llm_quality
+        .clone();
+    let key = resolve_key(selection.provider)?;
+    let mut buf = String::new();
+    metering::metered_stream(
+        &app,
+        "analyze_conversation",
+        &selection,
+        &key,
+        &request,
+        &mut |t| buf.push_str(t),
+    )
+    .map_err(|e| e.to_string())?;
+    let text = buf.trim().to_string();
+    if text.is_empty() {
+        return Err("Ally returned an empty analysis.".into());
+    }
+    Ok(text)
 }
 
 #[tauri::command]
@@ -785,8 +856,10 @@ fn conversation_save(
     title: Option<String>,
     segments: Vec<TranscriptSegment>,
     linked_docs: Vec<String>,
+    context_id: Option<String>,
 ) -> Result<conversations::Conversation, String> {
-    conversations::save(&app, id, title, segments, linked_docs).map_err(|e| e.to_string())
+    conversations::save(&app, id, title, segments, linked_docs, context_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -997,13 +1070,15 @@ fn simcon_load_profile(app: AppHandle, profile_id: String) -> Result<KnowledgePr
     simcon::load_profile(&app, &profile_id).map_err(|e| e.to_string())
 }
 
-/// Generate Ally's grounding documents — the two-stage pipeline (spec
+/// Generate Ally's grounding documents — the staged pipeline (spec
 /// 2026-08-26). Stage 1 synthesizes the Sim Con's documents + role/JD into a
 /// **Context knowledge** briefing; Stage 2 (when research is enabled) runs
 /// vocabulary-seeded web research and writes a cited **Research findings**
-/// document. Both land in the library (viewable + reusable + grounding future
-/// answers) and attach to the knowledge profile. Regenerating replaces the
-/// previous documents. Returns the updated session.
+/// document; Stage 3 (opt-in, Interview only) runs a much broader research
+/// pass and writes an **Interview Q&A** bank (spec 2026-08-26, part A). All
+/// land in the library (viewable + reusable + grounding future answers) and
+/// attach to the knowledge profile. Regenerating replaces the previous
+/// documents. Returns the updated session.
 #[tauri::command]
 fn simcon_generate_dossier(
     app: AppHandle,
@@ -1096,7 +1171,9 @@ fn simcon_generate_dossier(
     // missing key skip the stage cleanly (Stage 1's document stands).
     if session.research_enabled {
         let vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
-        if let Ok((sources, searches)) = simcon::research(&session, &vocab) {
+        let queries =
+            conva_core::simcon::research_queries(&session, &vocab, simcon::RESEARCH_MAX_QUERIES);
+        if let Ok((sources, searches)) = simcon::research(queries, simcon::RESEARCH_MAX_SOURCES) {
             metering::record_tavily_search(&app, searches);
             if !sources.is_empty() {
                 profile.research = sources.clone();
@@ -1133,8 +1210,56 @@ fn simcon_generate_dossier(
         }
     }
 
-    // One profile save covers both stages (Stage 1's document + Stage 2's
-    // research and findings doc, when they ran).
+    // ── Stage 3: deep interview Q&A research (spec 2026-08-26, part A) —
+    // opt-in, Interview only, much broader than Stage 2. Failures/no key
+    // skip cleanly; Stage 1/2's documents stand regardless.
+    if session.deep_qa_enabled
+        && session.research_enabled
+        && session.category == conva_core::simcon::SimConCategory::Interview
+    {
+        let qa_vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
+        let qa_queries =
+            conva_core::simcon::qa_research_queries(&session, &qa_vocab, simcon::QA_MAX_QUERIES);
+        if let Ok((qa_sources, qa_searches)) = simcon::research(qa_queries, simcon::QA_MAX_SOURCES)
+        {
+            metering::record_tavily_search(&app, qa_searches);
+            if !qa_sources.is_empty() {
+                let qa_request = conva_core::simcon::interview_qa_prompt(&session, &qa_sources);
+                let mut qa_buf = String::new();
+                let qa_result = metering::metered_stream(
+                    &app,
+                    "simcon_qa",
+                    &selection,
+                    &key,
+                    &qa_request,
+                    &mut |t| qa_buf.push_str(t),
+                );
+                if qa_result.is_ok() {
+                    let qa_text = qa_buf.trim().to_string();
+                    if !qa_text.is_empty() {
+                        // Replace any previous Q&A doc — no pile-up.
+                        if let Some(old) = session.qa_doc_id.take() {
+                            let _ = state.rag.delete(&old);
+                            profile.doc_ids.retain(|d| d != &old);
+                        }
+                        let qa_name = format!("{} — Interview Q&A", session.title.trim());
+                        if let Ok(qa_report) =
+                            state.rag.ingest_generated(&qa_name, &qa_text, &session.id)
+                        {
+                            let qa_doc_id = qa_report.document.id.clone();
+                            if !profile.doc_ids.contains(&qa_doc_id) {
+                                profile.doc_ids.push(qa_doc_id.clone());
+                            }
+                            session.qa_doc_id = Some(qa_doc_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // One profile save covers all three stages (Stage 1's document + Stage
+    // 2's research/findings doc + Stage 3's Q&A doc, whichever ran).
     profile.updated_at_unix_ms = session::now_unix_ms();
     simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
@@ -1904,6 +2029,8 @@ pub fn run() {
             session_list,
             session_load,
             export_transcript,
+            write_text_file,
+            analyze_conversation,
             conversation_save,
             conversation_list,
             conversation_load,

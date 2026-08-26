@@ -205,6 +205,17 @@ pub struct SimConSession {
     /// Replaced on regeneration, like the knowledge document.
     #[serde(default)]
     pub research_doc_id: Option<String>,
+    /// Opt-in: research the web broadly for common interview questions +
+    /// strong answers and write them into their own generated document
+    /// (spec 2026-08-26, part A) — costs meaningfully more searches/tokens
+    /// than default research, so it's a separate toggle. Interview
+    /// category only.
+    #[serde(default)]
+    pub deep_qa_enabled: bool,
+    /// The `RagDocument` id of the generated Interview Q&A document, once
+    /// generated (replaced on regeneration, like the other two).
+    #[serde(default)]
+    pub qa_doc_id: Option<String>,
     /// True when a grounding input (documents, job description, key terms,
     /// research toggle) changed after resources were generated — the digest/
     /// glossary no longer reflect the inputs. Set by the shell's save paths,
@@ -702,6 +713,154 @@ preamble.",
     }
 }
 
+/// Broader query set for the deep interview Q&A pass (spec 2026-08-26,
+/// part A) — many more queries than [`research_queries`], deliberately
+/// aimed at question BANKS rather than general background. No fixed
+/// per-role count is baked in here; breadth comes from more queries and a
+/// bigger source budget (the shell's `QA_MAX_QUERIES`/`QA_MAX_SOURCES`),
+/// and the synthesis prompt decides how many distinct pairs the material
+/// actually supports.
+pub fn qa_research_queries(
+    session: &SimConSession,
+    vocabulary: &[String],
+    cap: usize,
+) -> Vec<String> {
+    let topic = if session.title.trim().is_empty() {
+        session.category.label().to_string()
+    } else {
+        session.title.trim().to_string()
+    };
+    let role = session
+        .job_description
+        .as_deref()
+        .map(|jd| jd.trim())
+        .filter(|jd| !jd.is_empty())
+        .map(|jd| jd.chars().take(80).collect::<String>())
+        .unwrap_or_else(|| topic.clone());
+
+    let mut q = vec![
+        format!("{topic} most common interview questions"),
+        format!("top interview questions for {role}"),
+        format!("{role} technical interview questions"),
+        format!("{role} behavioral interview questions"),
+        format!("{topic} interview questions and answers"),
+    ];
+    for chunk in vocabulary.chunks(3).take(3) {
+        q.push(format!("{} interview questions {}", chunk.join(" "), topic));
+    }
+    q.truncate(cap);
+    q
+}
+
+/// Prompt for the deep interview Q&A pass's document: synthesize the
+/// gathered sources into a standalone bank of real, distinct question +
+/// strong-answer pairs — spec 2026-08-26 part A. Themed `##` sections
+/// (the model chooses themes that fit what the sources support); each
+/// entry `**Q: ...** A: ...` so it reads well AND is harvestable by
+/// `extract_glossary_entries` incidentally. At least 20 pairs, up to 100
+/// — driven by how much the material supports, not a fixed target.
+pub fn interview_qa_prompt(session: &SimConSession, sources: &[ResearchSource]) -> LlmRequest {
+    let template = session.category.template();
+    let system = format!(
+        "You are Ally, building an Interview Q&A bank from web sources \
+gathered for a {label}. Organize into themed `##` sections (e.g. \
+Behavioral, Technical, Company & role-specific — choose themes that fit \
+what the sources actually support). Each entry: a bullet in the form \
+`**Q: <question>** A: <strong, specific answer>`, grounded strictly in \
+the sources — never invent a question or fact the sources don't support. \
+Produce as many DISTINCT, well-supported pairs as the material justifies \
+— at least 20, up to 100; do not pad with near-duplicates to hit a \
+number, and do not stop early if the sources clearly support more. \
+Output only the Markdown document — no preamble.",
+        label = template.label,
+    );
+
+    let mut user = format!(
+        "Context: {}\nGoal: {}\n\nSources:\n\n",
+        session.title, session.purpose
+    );
+    for src in sources {
+        user.push_str(&format!(
+            "[{}]({})\n{}\n\n",
+            src.title, src.url, src.snippet
+        ));
+    }
+
+    LlmRequest {
+        system,
+        user,
+        max_tokens: 6000,
+    }
+}
+
+/// Category-aware analytical performance report prompt (spec 2026-08-26,
+/// part B) — grounded in the linked context's job description/vocabulary
+/// when available, otherwise a generic structural analysis the transcript
+/// alone supports. `category: None` covers a conversation with no linked
+/// context (or one whose context was since deleted) — never an error,
+/// always a valid, useful prompt.
+pub fn performance_analysis_prompt(
+    category: Option<SimConCategory>,
+    job_description: Option<&str>,
+    glossary: &[String],
+    transcript_text: &str,
+) -> LlmRequest {
+    let task = match category {
+        Some(SimConCategory::Interview) => {
+            "Analyze how well the user performed as the CANDIDATE in this \
+interview — strengths, gaps versus the job description and the \
+vocabulary an interviewer would expect, clarity and structure of \
+answers, and concrete, specific suggestions for improvement. Cite \
+specific moments from the transcript."
+        }
+        Some(SimConCategory::SalesCall) => {
+            "Analyze how well the user handled this sales call — objection \
+handling, rapport, and any close attempts. Cite specific moments from \
+the transcript and give concrete suggestions for improvement."
+        }
+        Some(SimConCategory::CompanyMeeting) => {
+            "Analyze this meeting's structure — decisions reached, action \
+items and who owns them, and how clearly the user communicated. Cite \
+specific moments from the transcript."
+        }
+        Some(SimConCategory::Other) | None => {
+            "Analyze this conversation's clarity and structure — what \
+went well, what was unclear, and concrete suggestions for improvement. \
+Cite specific moments from the transcript."
+        }
+    };
+    let system = format!(
+        "You are Ally, writing an analytical performance report. {task} \
+Ground every claim in what's actually in the transcript — never invent. \
+Output only the Markdown report — no preamble."
+    );
+
+    let mut user = String::new();
+    if let Some(jd) = job_description {
+        let jd = jd.trim();
+        if !jd.is_empty() {
+            user.push_str(&format!(
+                "Role expectations (job description):\n{}\n\n",
+                jd.chars().take(4_000).collect::<String>()
+            ));
+        }
+    }
+    if !glossary.is_empty() {
+        user.push_str(&format!(
+            "Vocabulary the candidate was expected to know: {}\n\n",
+            glossary.join(", ")
+        ));
+    }
+    user.push_str("Transcript:\n\n");
+    user.push_str(transcript_text);
+
+    LlmRequest {
+        system,
+        user,
+        max_tokens: 3000,
+    }
+}
+
 // ── Glossary extraction — digest → context-highlight terms (Phase 3c) ────────
 
 /// Max glossary terms harvested from a digest.
@@ -909,6 +1068,8 @@ mod tests {
             conversation_id: None,
             dossier_doc_id: None,
             research_doc_id: None,
+            deep_qa_enabled: false,
+            qa_doc_id: None,
             resources_stale: false,
         }
     }
@@ -1099,6 +1260,8 @@ mod tests {
             conversation_id: None,
             dossier_doc_id: Some("dossier-1".into()),
             research_doc_id: None,
+            deep_qa_enabled: false,
+            qa_doc_id: None,
             resources_stale: false,
         }
     }
@@ -1228,5 +1391,93 @@ mod tests {
                 .map(|(t, _)| t)
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn qa_research_queries_are_broader_than_general_research() {
+        let s = sample_session();
+        let vocab: Vec<String> = vec!["API Gateway".into(), "Terraform".into()];
+        let q = qa_research_queries(&s, &vocab, 18);
+        assert!(q.len() <= 18);
+        assert!(
+            q.iter()
+                .any(|x| x.to_lowercase().contains("most common interview questions")),
+            "{q:?}"
+        );
+        assert!(
+            q.iter()
+                .any(|x| x.to_lowercase().contains("technical interview questions")),
+            "{q:?}"
+        );
+        assert!(
+            q.iter()
+                .any(|x| x.to_lowercase().contains("behavioral interview questions")),
+            "{q:?}"
+        );
+        assert!(q.iter().any(|x| x.contains("API Gateway")), "{q:?}");
+    }
+
+    #[test]
+    fn qa_research_queries_without_vocabulary_still_yields_base_queries() {
+        let s = sample_session();
+        let q = qa_research_queries(&s, &[], 18);
+        assert!(!q.is_empty());
+    }
+
+    #[test]
+    fn interview_qa_prompt_demands_themed_broad_coverage() {
+        let s = sample_session();
+        let sources = vec![ResearchSource {
+            title: "Top 50 accounting interview questions".into(),
+            url: "https://example.com/q".into(),
+            snippet: "Tell me about a time you found an error in a close.".into(),
+            fetched_at_unix_ms: 0,
+        }];
+        let req = interview_qa_prompt(&s, &sources);
+        assert!(req.user.contains("Top 50 accounting interview questions"));
+        assert!(req.user.contains("https://example.com/q"));
+        let sys = req.system.to_lowercase();
+        assert!(sys.contains("20"), "floor missing");
+        assert!(sys.contains("100"), "cap missing");
+        assert!(
+            sys.contains("behavioral") || sys.contains("theme"),
+            "{}",
+            req.system
+        );
+        assert_eq!(req.max_tokens, 6000);
+    }
+
+    #[test]
+    fn performance_analysis_prompt_interview_framing_with_grounding() {
+        let req = performance_analysis_prompt(
+            Some(SimConCategory::Interview),
+            Some("Senior DevOps role requiring Terraform and EKS."),
+            &["Terraform".to_string(), "EKS".to_string()],
+            "Them: Tell me about your Terraform experience.\nYou: I've used it for three years.",
+        );
+        let sys = req.system.to_lowercase();
+        assert!(sys.contains("candidate"));
+        assert!(sys.contains("job description"));
+        assert!(req.user.contains("Senior DevOps role"));
+        assert!(req.user.contains("Terraform"));
+        assert!(req.user.contains("Tell me about your Terraform experience"));
+        assert_eq!(req.max_tokens, 3000);
+    }
+
+    #[test]
+    fn performance_analysis_prompt_ungrounded_still_produces_valid_prompt() {
+        let req = performance_analysis_prompt(None, None, &[], "Them: Hi.\nYou: Hello.");
+        assert!(!req.system.trim().is_empty());
+        assert!(!req.user.contains("Role expectations"));
+        assert!(req.user.contains("Them: Hi."));
+    }
+
+    #[test]
+    fn performance_analysis_prompt_sales_framing_differs_from_interview() {
+        let interview =
+            performance_analysis_prompt(Some(SimConCategory::Interview), None, &[], "x");
+        let sales = performance_analysis_prompt(Some(SimConCategory::SalesCall), None, &[], "x");
+        assert_ne!(interview.system, sales.system);
+        assert!(sales.system.to_lowercase().contains("objection"));
     }
 }

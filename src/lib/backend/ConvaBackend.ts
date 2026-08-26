@@ -171,6 +171,7 @@ export interface ConvaBackend {
       title: string | null,
       segments: TranscriptSegment[],
       linkedDocs: string[],
+      contextId?: string | null,
     ): Promise<Conversation>;
     list(): Promise<ConversationSummary[]>;
     load(id: string): Promise<Conversation>;
@@ -230,6 +231,16 @@ export interface ConvaBackend {
     load(id: string): Promise<TranscriptSegment[]>;
     /** Desktop-only: write Markdown to a path. Web → browser download. */
     exportTranscript(path: string, segments: TranscriptSegment[]): Promise<void>;
+    /** Analyze a saved conversation's performance (category-aware, grounded
+     *  in its linked context's job description/vocabulary when one exists) —
+     *  returns the report Markdown for the caller to save. Desktop-only for
+     *  now (an LLM call metered the same as any other Ask). */
+    analyzeConversation(id: string): Promise<string>;
+    /** Desktop-only: write arbitrary text content to a path (the generic
+     *  counterpart to `exportTranscript` for callers that produce a string
+     *  rather than building the file server-side, e.g. `analyzeConversation`'s
+     *  downloader). */
+    writeTextFile(path: string, content: string): Promise<void>;
   };
 
   /** Diagnostics. */
