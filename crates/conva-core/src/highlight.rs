@@ -261,6 +261,13 @@ fn add_candidate(
 /// (👍 boost / 👎 suppress). Deduped case-insensitively, highest score first
 /// (ties by first appearance), capped at [`MAX_TERMS`].
 pub fn relevant_terms(message: &str, ctx: &HighlightContext) -> Vec<String> {
+    relevant_terms_capped(message, ctx, MAX_TERMS)
+}
+
+/// [`relevant_terms`] with an explicit result cap — the live-message path
+/// keeps [`MAX_TERMS`] via the wrapper; document/JD mining passes larger
+/// caps (spec 2026-08-26: the silent 12-term ceiling starved JD mining).
+pub fn relevant_terms_capped(message: &str, ctx: &HighlightContext, cap: usize) -> Vec<String> {
     let lower_msg = message.to_lowercase();
     let msg_tokens = tokens(message);
     let mut cands: Vec<Candidate> = Vec::new();
@@ -330,7 +337,7 @@ pub fn relevant_terms(message: &str, ctx: &HighlightContext) -> Vec<String> {
         }
         out.push(cand.display);
         admitted.push(cand_tokens);
-        if out.len() >= MAX_TERMS {
+        if out.len() >= cap {
             break;
         }
     }
@@ -509,17 +516,15 @@ mod tests {
 /// grounded against the full text, so entities, acronyms, and rare domain
 /// words win the slots.
 pub fn salient_doc_terms(doc_text: &str, limit: usize) -> Vec<String> {
-    // Char-boundary-safe opening slice (~4k chars) — enough to catch the
-    // document's own vocabulary without scoring a whole book.
+    // Char-boundary-safe opening slice (~12k chars — a whole job description
+    // fits; still not a whole book).
     let end = doc_text
         .char_indices()
-        .nth(4_000)
+        .nth(12_000)
         .map(|(i, _)| i)
         .unwrap_or(doc_text.len());
     let ctx = HighlightContext::from_doc_text(doc_text);
-    let mut terms = relevant_terms(&doc_text[..end], &ctx);
-    terms.truncate(limit);
-    terms
+    relevant_terms_capped(&doc_text[..end], &ctx, limit)
 }
 
 /// Count non-overlapping word-bounded occurrences of `needle` in `hay`
@@ -689,5 +694,71 @@ mod interviewer_terms_tests {
     fn empty_jd_yields_nothing() {
         assert!(interviewer_terms("", 12).is_empty());
         assert!(interviewer_terms("   ", 12).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod ceiling_tests {
+    use super::*;
+
+    /// A JD-like text with far more than 12 distinct entities, each
+    /// repeated so every signal path can admit them.
+    fn rich_jd() -> String {
+        let names = [
+            "Amazon EC2",
+            "Amazon EKS",
+            "AWS Lambda",
+            "Amazon VPC",
+            "AWS CloudFormation",
+            "Amazon CloudWatch",
+            "AWS CDK",
+            "Terraform Cloud",
+            "GitLab CI",
+            "GitHub Actions",
+            "Datadog APM",
+            "Prometheus Grafana",
+            "API Gateway",
+            "Control Tower",
+            "OpenTelemetry Collector",
+            "AWS Organizations",
+        ];
+        let mut s = String::from("Senior DevOps Engineer role. ");
+        for _ in 0..3 {
+            for n in &names {
+                s.push_str(&format!("Experience with {n} is required. "));
+            }
+        }
+        s
+    }
+
+    #[test]
+    fn salient_doc_terms_honors_limits_above_twelve() {
+        let jd = rich_jd();
+        let terms = salient_doc_terms(&jd, 16);
+        assert!(
+            terms.len() > 12,
+            "limit above MAX_TERMS must be honored, got {} terms: {terms:?}",
+            terms.len()
+        );
+        assert!(terms.len() <= 16, "{terms:?}");
+    }
+
+    #[test]
+    fn interviewer_terms_reaches_sixteen_on_a_rich_jd() {
+        let jd = rich_jd();
+        let terms = interviewer_terms(&jd, 16);
+        assert!(
+            terms.len() > 12,
+            "JD mining must not be silently capped at 12, got {}: {terms:?}",
+            terms.len()
+        );
+    }
+
+    #[test]
+    fn live_relevant_terms_still_caps_at_twelve() {
+        let jd = rich_jd();
+        let ctx = HighlightContext::from_doc_text(&jd);
+        let terms = relevant_terms(&jd, &ctx);
+        assert!(terms.len() <= 12, "live path cap regressed: {terms:?}");
     }
 }
