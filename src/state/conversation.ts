@@ -2,6 +2,9 @@ import { create } from "zustand";
 
 import { getBackend } from "@/lib/backend";
 import type { Conversation } from "@/lib/ipc";
+import { useAllyStore } from "@/state/ally";
+import { useGroundingStore } from "@/state/grounding";
+import { useLiveTermsStore } from "@/state/liveTerms";
 import { useTranscriptStore, withLiveArchived } from "@/state/transcript";
 
 /**
@@ -17,9 +20,25 @@ interface ConversationState {
   linkedDocs: string[];
   /** Stop offers to save; this drives the modal. */
   savePromptOpen: boolean;
+  /** The save modal was opened by "+ New" — after Save (or Discard) the live
+   *  pane resets for a fresh conversation instead of staying open. */
+  pendingNew: boolean;
   notice: string | null;
 
   setSavePromptOpen: (open: boolean) => void;
+  /**
+   * "+ New" (owner, 2026-08-21): start a fresh conversation from the Live
+   * view. With unsaved content on screen the save modal opens first
+   * (Save / Discard / Cancel); with nothing on screen it resets immediately.
+   */
+  requestNew: () => void;
+  /**
+   * Fully reset the live pane (owner, 2026-08-21): transcript, open
+   * conversation, and everything Ally (cards, captures, radar, tracker).
+   * The raw run is untouched — sessions persist on-device regardless
+   * (Sessions history).
+   */
+  discard: () => void;
   setNotice: (notice: string | null) => void;
   /** Pre-fill the save-dialog title (e.g. mark a rehearsal as a Sim Con). */
   setTitle: (title: string | null) => void;
@@ -40,9 +59,29 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   title: null,
   linkedDocs: [],
   savePromptOpen: false,
+  pendingNew: false,
   notice: null,
 
-  setSavePromptOpen: (open) => set({ savePromptOpen: open }),
+  setSavePromptOpen: (open) =>
+    set(open ? { savePromptOpen: true } : { savePromptOpen: false, pendingNew: false }),
+
+  requestNew: () => {
+    const t = useTranscriptStore.getState();
+    const hasContent =
+      t.archived.length > 0 ||
+      t.segments.some((s) => s.is_final && s.text.trim().length > 0);
+    if (hasContent) {
+      set({ savePromptOpen: true, pendingNew: true });
+    } else {
+      get().discard();
+    }
+  },
+
+  discard: () => {
+    get().newConversation();
+    useAllyStore.getState().clear();
+    set({ savePromptOpen: false, pendingNew: false, notice: null });
+  },
   setNotice: (notice) => set({ notice }),
   setTitle: (title) => set({ title }),
 
@@ -62,6 +101,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     const transcript = useTranscriptStore.getState();
     transcript.clear();
     transcript.setRetainHistory(false);
+    useLiveTermsStore.getState().clear();
     set({ openId: null, title: null, linkedDocs: [], notice: null });
   },
 
@@ -89,7 +129,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       title?.trim() || get().title,
       segments,
       get().linkedDocs,
+      useGroundingStore.getState().activeId,
     );
+    if (get().pendingNew) {
+      // "+ New" flow: the save was a farewell — reset for a fresh start.
+      get().discard();
+      set({ notice: `Saved "${saved.title}".` });
+      return;
+    }
     transcript.setRetainHistory(true);
     set({
       openId: saved.id,

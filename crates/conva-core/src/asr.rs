@@ -57,3 +57,45 @@ pub trait TranscriptionEngine: Send {
     /// Flush any buffered audio as final segments (session stop).
     fn finish(&mut self) -> Result<(), CoreError>;
 }
+
+/// Clean raw engine text for display: strip stray "|" marks (a decode
+/// artifact observed live, 2026-08-21), collapse whitespace runs to single
+/// spaces, and close up the space some tokenizers leave before punctuation
+/// (" ." → "."). Applied at the segment source so every consumer — UI,
+/// conversations, RAG grounding — sees the cleaned text.
+pub fn sanitize_transcript_text(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        if ch == '|' {
+            continue;
+        }
+        if ch.is_whitespace() {
+            if !out.is_empty() && !out.ends_with(' ') {
+                out.push(' ');
+            }
+            continue;
+        }
+        if matches!(ch, ',' | '.' | '!' | '?' | ';' | ':' | ')' | '%') && out.ends_with(' ') {
+            out.pop();
+        }
+        out.push(ch);
+    }
+    out.trim_end().to_string()
+}
+
+#[cfg(test)]
+mod sanitize_tests {
+    use super::sanitize_transcript_text;
+
+    #[test]
+    fn strips_pipes_collapses_spaces_and_tightens_punctuation() {
+        assert_eq!(
+            sanitize_transcript_text("back-end services . | When  an   authenticated user"),
+            "back-end services. When an authenticated user"
+        );
+        assert_eq!(sanitize_transcript_text("  plain text.  "), "plain text.");
+        assert_eq!(sanitize_transcript_text("P99 metrics ?"), "P99 metrics?");
+        assert_eq!(sanitize_transcript_text("| | |"), "");
+        assert_eq!(sanitize_transcript_text(""), "");
+    }
+}

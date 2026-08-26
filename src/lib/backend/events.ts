@@ -15,6 +15,8 @@ import type {
   AuthChangedEvent,
   CaptureEvent,
   ModelStatusEvent,
+  PartnerLockEvent,
+  PartnerPayload,
   RadarEvent,
   RehearsalStateEvent,
   SessionStateEvent,
@@ -34,6 +36,8 @@ export interface EventMap {
   capture: CaptureEvent;
   authChanged: AuthChangedEvent;
   rehearsalState: RehearsalStateEvent;
+  partnerTerm: PartnerPayload;
+  partnerLock: PartnerLockEvent;
 }
 
 /** Handle returned by `subscribe`; call to stop receiving the event. */
@@ -55,4 +59,6 @@ export const EVENT_CHANNEL: Record<keyof EventMap, string> = {
   capture: "conva://capture",
   authChanged: "conva://auth-changed",
   rehearsalState: "conva://rehearsal-state",
+  partnerTerm: "conva://partner-term",
+  partnerLock: "conva://partner-lock",
 };

@@ -16,6 +16,7 @@ mod hud;
 mod llm;
 mod metering;
 mod models;
+mod partner;
 mod rag;
 mod recorder;
 mod rehearsal;
@@ -225,12 +226,11 @@ fn session_load(app: AppHandle, id: String) -> Result<Vec<TranscriptSegment>, St
     session::load_session(&app, &id).map_err(|e| e.to_string())
 }
 
-/// Export a transcript as Markdown to a caller-chosen path (U8). The UI
-/// obtains `path` from the native save dialog.
-#[tauri::command]
-fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(), String> {
+/// Render finalized transcript segments as speaker-labeled Markdown lines
+/// (shared by `export_transcript` and `analyze_conversation`).
+fn render_transcript_markdown(segments: &[TranscriptSegment]) -> String {
     use conva_core::audio::StreamSide;
-    let mut out = String::from("# conva transcript\n\n");
+    let mut out = String::new();
     for s in segments.iter().filter(|s| s.is_final) {
         let speaker = match s.side {
             StreamSide::Inbound => "Them",
@@ -245,7 +245,79 @@ fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(
             s.text.trim()
         ));
     }
+    out
+}
+
+/// Export a transcript as Markdown to a caller-chosen path (U8). The UI
+/// obtains `path` from the native save dialog.
+#[tauri::command]
+fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(), String> {
+    let out = format!(
+        "# conva transcript\n\n{}",
+        render_transcript_markdown(&segments)
+    );
     fs::write(&path, out).map_err(|e| e.to_string())
+}
+
+/// Write arbitrary text content to a caller-chosen path — the generic
+/// counterpart to `export_transcript` for callers (like
+/// `analyze_conversation`'s downloader) that produce a string rather than
+/// building the file server-side. The UI obtains `path` from the native
+/// save dialog, same as every other export action.
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+/// Analyze a saved conversation's performance (spec 2026-08-26, part B) —
+/// category-aware, grounded in its linked context's job description and
+/// vocabulary when one exists (best-effort: a missing/deleted context
+/// degrades to the ungrounded framing, never errors). Returns the
+/// Markdown report text for the caller to save via the native dialog.
+#[tauri::command]
+fn analyze_conversation(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<String, String> {
+    let conversation = conversations::load(&app, &id).map_err(|e| e.to_string())?;
+    let (category, job_description, glossary) = conversation
+        .linked_context_id
+        .as_deref()
+        .and_then(|cid| simcon::load(&app, cid).ok())
+        .map(|s| (Some(s.category), s.job_description, s.glossary))
+        .unwrap_or((None, None, Vec::new()));
+
+    let transcript_text = render_transcript_markdown(&conversation.segments);
+    let request = conva_core::simcon::performance_analysis_prompt(
+        category,
+        job_description.as_deref(),
+        &glossary,
+        &transcript_text,
+    );
+
+    let selection = state
+        .config
+        .lock()
+        .expect("config lock")
+        .llm_quality
+        .clone();
+    let key = resolve_key(selection.provider)?;
+    let mut buf = String::new();
+    metering::metered_stream(
+        &app,
+        "analyze_conversation",
+        &selection,
+        &key,
+        &request,
+        &mut |t| buf.push_str(t),
+    )
+    .map_err(|e| e.to_string())?;
+    let text = buf.trim().to_string();
+    if text.is_empty() {
+        return Err("Ally returned an empty analysis.".into());
+    }
+    Ok(text)
 }
 
 #[tauri::command]
@@ -377,7 +449,22 @@ fn rag_list(state: State<AppState>) -> Vec<RagDocument> {
 /// elaborate) on. Empty when the library is empty or nothing overlaps.
 #[tauri::command]
 fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<String> {
-    let chunks = state.rag.retrieve(&text, 4);
+    // With a context active, its own documents are the relevance prior — an
+    // "Amazon interview" context's AWS docs should drive what gets underlined,
+    // not whatever else happens to live in the library (owner, 2026-08-21:
+    // grounded context missed "API Gateway"/"Lambda"). No active scope (or a
+    // never-prepared context with no profile docs) falls back to the whole
+    // library, exactly as before.
+    let scope = state
+        .active_context_doc_ids
+        .lock()
+        .expect("ctx lock")
+        .clone();
+    let chunks = if scope.is_empty() {
+        state.rag.retrieve(&text, 4)
+    } else {
+        state.rag.retrieve_scoped(&text, 4, &scope)
+    };
     if chunks.is_empty() {
         return Vec::new();
     }
@@ -481,12 +568,14 @@ fn rag_delete(state: State<AppState>, id: String) -> Result<(), String> {
     state.rag.delete(&id).map_err(|e| e.to_string())
 }
 
-/// Tag a library document as grounding a Conversation Context (drag-attach in
-/// the unified Contexts & Library UI). The caller also folds the id into the
-/// context's own `source_doc_ids` (via `simcon_save`) so the engine grounds on
-/// it — this command only updates the library-side tag/badge.
+/// Tag a document as attached to a Conversation Context AND sync the
+/// context's own `source_doc_ids` (spec 2026-08-26, part 1 — pane/library
+/// attaches previously never reached the context record, so doc counts and
+/// staleness missed them). The context sync is best-effort: the tag
+/// operation succeeds even if the context record can't be loaded.
 #[tauri::command]
 fn rag_attach_context(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     context_id: String,
@@ -494,14 +583,17 @@ fn rag_attach_context(
     state
         .rag
         .attach_context(&id, &context_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    sync_context_doc(&app, &context_id, &id, true);
+    Ok(())
 }
 
-/// Remove a document's tag for a Conversation Context. See
-/// [`rag_attach_context`] — the caller also drops the id from the context's
-/// `source_doc_ids`.
+/// Remove a document's tag for a Conversation Context; see
+/// [`rag_attach_context`] — also drops the id from the context's
+/// `source_doc_ids` (best-effort).
 #[tauri::command]
 fn rag_detach_context(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     context_id: String,
@@ -509,7 +601,31 @@ fn rag_detach_context(
     state
         .rag
         .detach_context(&id, &context_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    sync_context_doc(&app, &context_id, &id, false);
+    Ok(())
+}
+
+/// Add/remove `doc_id` in a context's `source_doc_ids` and apply the same
+/// grounding invalidation the wizard save applies (clear derived glossary;
+/// mark generated resources stale). Best-effort by design.
+fn sync_context_doc(app: &AppHandle, context_id: &str, doc_id: &str, attach: bool) {
+    let Ok(mut session) = simcon::load(app, context_id) else {
+        return;
+    };
+    let had = session.source_doc_ids.iter().any(|d| d == doc_id);
+    if attach && !had {
+        session.source_doc_ids.push(doc_id.to_string());
+    } else if !attach && had {
+        session.source_doc_ids.retain(|d| d != doc_id);
+    } else {
+        return; // no change — don't touch staleness
+    }
+    session.glossary.clear();
+    if session.dossier_doc_id.is_some() || session.knowledge_profile_id.is_some() {
+        session.resources_stale = true;
+    }
+    let _ = simcon::save(app, session);
 }
 
 /// Download a library document back to `dest` (chosen via the save dialog):
@@ -740,8 +856,10 @@ fn conversation_save(
     title: Option<String>,
     segments: Vec<TranscriptSegment>,
     linked_docs: Vec<String>,
+    context_id: Option<String>,
 ) -> Result<conversations::Conversation, String> {
-    conversations::save(&app, id, title, segments, linked_docs).map_err(|e| e.to_string())
+    conversations::save(&app, id, title, segments, linked_docs, context_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -810,7 +928,81 @@ fn activate_context(
     state: State<AppState>,
     id: String,
 ) -> Result<SimConSession, String> {
-    let session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+    let mut session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+
+    // Backfill: a context that became "ready" before glossary harvesting
+    // existed (or whose digest section didn't parse at the time) carries an
+    // empty glossary forever, because the picker's ready fast-path activates
+    // without regenerating anything — the "From your documents list is empty
+    // even though the context has compiled intelligence" bug (owner,
+    // 2026-08-21). If a dossier exists, re-extract its glossary now and
+    // persist it; the terms also flow into this activation below either way.
+    if session.glossary.is_empty() {
+        if let Some(text) = session
+            .dossier_doc_id
+            .as_deref()
+            .and_then(|doc_id| state.rag.document_text(doc_id))
+        {
+            let entries = conva_core::highlight::sanitize_glossary_entries(
+                conva_core::simcon::extract_glossary_entries(&text),
+                &text,
+                session.job_description.as_deref(),
+                1,
+            );
+            if !entries.is_empty() {
+                session.glossary = entries.iter().map(|(t, _)| t.clone()).collect();
+                session.glossary_definitions = entries.into_iter().collect();
+                // Best-effort persist — activation still proceeds with the
+                // in-memory terms if the save fails.
+                let _ = simcon::save(&app, session.clone());
+            }
+        }
+    }
+
+    // Second-stage backfill (owner, 2026-08-22): no key terms typed, no
+    // digest ever generated — but real documents ARE attached. Mine salient
+    // terms straight from those documents so "From your documents" is never
+    // empty for a grounded context with content. A later digest generation
+    // overwrites `glossary` with the real extracted set.
+    // JD-primacy (spec B.2): the job description's own vocabulary fills the
+    // list first — it's what the interviewer will actually say.
+    if session.glossary.is_empty() && session.key_terms.is_empty() {
+        let mut mined: Vec<String> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // The interviewer's vocabulary first (spec B.2): the job
+        // description is the best predictor of what the other side will
+        // say — up to 16 of the 24 slots.
+        if let Some(jd) = session.job_description.as_deref() {
+            for term in conva_core::highlight::interviewer_terms(jd, 16) {
+                if seen.insert(term.to_lowercase()) {
+                    mined.push(term);
+                }
+            }
+        }
+        // Then per-document mining fills what's left — gated (floor 2, or
+        // JD presence) so one-off extraction-glue artifacts die here.
+        for doc_id in &session.source_doc_ids {
+            let Some(text) = state.rag.document_text(doc_id) else {
+                continue;
+            };
+            let doc_terms = conva_core::highlight::sanitize_mined_terms(
+                conva_core::highlight::salient_doc_terms(&text, 8),
+                &text,
+                session.job_description.as_deref(),
+                2,
+            );
+            for term in doc_terms {
+                if seen.insert(term.to_lowercase()) {
+                    mined.push(term);
+                }
+            }
+        }
+        if !mined.is_empty() {
+            mined.truncate(24);
+            session.glossary = mined;
+            let _ = simcon::save(&app, session.clone());
+        }
+    }
 
     // The profile's doc_ids (docs + any generated dossier) is the same
     // grounding scope rehearsal's persona prompt already uses. A context with
@@ -828,6 +1020,18 @@ fn activate_context(
         terms.clear();
         terms.extend(session.key_terms.iter().cloned());
         terms.extend(session.glossary.iter().cloned());
+        // The interviewer's own vocabulary always rides along (spec
+        // 2026-08-26, part 2) — in-memory only, so live highlighting is
+        // never hostage to a stale or truncated digest.
+        if let Some(jd) = session.job_description.as_deref() {
+            let have: std::collections::HashSet<String> =
+                terms.iter().map(|t| t.to_lowercase()).collect();
+            terms.extend(
+                conva_core::highlight::interviewer_terms(jd, 16)
+                    .into_iter()
+                    .filter(|t| !have.contains(&t.to_lowercase())),
+            );
+        }
     }
     *state.active_context_doc_ids.lock().expect("ctx lock") = profile_doc_ids;
 
@@ -866,10 +1070,15 @@ fn simcon_load_profile(app: AppHandle, profile_id: String) -> Result<KnowledgePr
     simcon::load_profile(&app, &profile_id).map_err(|e| e.to_string())
 }
 
-/// Generate an **Ally prep dossier**: synthesize the Sim Con's documents + web
-/// research into a Markdown briefing, save it to the library (so it's viewable +
-/// reusable + grounds future answers), and attach it to the knowledge profile.
-/// Regenerating replaces the previous dossier. Returns the updated session.
+/// Generate Ally's grounding documents — the staged pipeline (spec
+/// 2026-08-26). Stage 1 synthesizes the Sim Con's documents + role/JD into a
+/// **Context knowledge** briefing; Stage 2 (when research is enabled) runs
+/// vocabulary-seeded web research and writes a cited **Research findings**
+/// document; Stage 3 (opt-in, Interview only) runs a much broader research
+/// pass and writes an **Interview Q&A** bank (spec 2026-08-26, part A). All
+/// land in the library (viewable + reusable + grounding future answers) and
+/// attach to the knowledge profile. Regenerating replaces the previous
+/// documents. Returns the updated session.
 #[tauri::command]
 fn simcon_generate_dossier(
     app: AppHandle,
@@ -904,17 +1113,17 @@ fn simcon_generate_dossier(
         .llm_quality
         .clone();
     let key = resolve_key(selection.provider)?;
-    let request = conva_core::simcon::dossier_prompt(&session, &profile.research, &chunks, 1200);
+    let request = conva_core::simcon::knowledge_prompt(&session, &profile.research, &chunks, 3000);
     let mut buf = String::new();
-    let usage = llm::stream_completion(
-        selection.provider,
+    metering::metered_stream(
+        &app,
+        "simcon_knowledge",
+        &selection,
         &key,
-        &selection.model,
         &request,
         &mut |t| buf.push_str(t),
     )
     .map_err(|e| e.to_string())?;
-    metering::record_llm(&app, selection.provider, usage);
     let text = buf.trim().to_string();
     if text.is_empty() {
         return Err("Ally returned an empty briefing.".into());
@@ -928,7 +1137,7 @@ fn simcon_generate_dossier(
 
     // Generated (not pasted) content, tagged to this context — the library's
     // "By conva" badge/filter (Conversation Context UI, organized library).
-    let name = format!("{} — Ally prep", session.title.trim());
+    let name = format!("{} — Context knowledge", session.title.trim());
     let report = state
         .rag
         .ingest_generated(&name, &text, &session.id)
@@ -938,13 +1147,122 @@ fn simcon_generate_dossier(
     if !profile.doc_ids.contains(&doc_id) {
         profile.doc_ids.push(doc_id.clone());
     }
-    profile.updated_at_unix_ms = session::now_unix_ms();
-    simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
     session.dossier_doc_id = Some(doc_id);
     // Harvest the digest's glossary into structured context terms (Phase 3c) so
     // the highlighter can surface them during the conversation.
-    session.glossary = conva_core::simcon::extract_glossary(&text);
+    // Harvested terms pass the mined-term hygiene gate (spec B.2/B.3):
+    // bolding is already an LLM-curated signal, so the occurrence floor is
+    // 1, but the word-cap and stopword rules still apply, and JD presence
+    // still counts in the term's favor.
+    let glossary_entries = conva_core::highlight::sanitize_glossary_entries(
+        conva_core::simcon::extract_glossary_entries(&text),
+        &text,
+        session.job_description.as_deref(),
+        1,
+    );
+    session.glossary = glossary_entries.iter().map(|(t, _)| t.clone()).collect();
+    session.glossary_definitions = glossary_entries.into_iter().collect();
+    // A fresh digest by definition reflects the current inputs.
+    session.resources_stale = false;
+
+    // ── Stage 2: web research → Research findings document (spec
+    // 2026-08-26). Queries are seeded by Stage 1's vocabulary; failures or
+    // missing key skip the stage cleanly (Stage 1's document stands).
+    if session.research_enabled {
+        let vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
+        let queries =
+            conva_core::simcon::research_queries(&session, &vocab, simcon::RESEARCH_MAX_QUERIES);
+        if let Ok((sources, searches)) = simcon::research(queries, simcon::RESEARCH_MAX_SOURCES) {
+            metering::record_tavily_search(&app, searches);
+            if !sources.is_empty() {
+                profile.research = sources.clone();
+                let request = conva_core::simcon::research_findings_prompt(&session, &sources);
+                let mut fbuf = String::new();
+                let fresult = metering::metered_stream(
+                    &app,
+                    "simcon_research_findings",
+                    &selection,
+                    &key,
+                    &request,
+                    &mut |t| fbuf.push_str(t),
+                );
+                if fresult.is_ok() {
+                    let ftext = fbuf.trim().to_string();
+                    if !ftext.is_empty() {
+                        // Replace any previous findings doc — no pile-up.
+                        if let Some(old) = session.research_doc_id.take() {
+                            let _ = state.rag.delete(&old);
+                            profile.doc_ids.retain(|d| d != &old);
+                        }
+                        let fname = format!("{} — Research findings", session.title.trim());
+                        if let Ok(freport) = state.rag.ingest_generated(&fname, &ftext, &session.id)
+                        {
+                            let fdoc_id = freport.document.id.clone();
+                            if !profile.doc_ids.contains(&fdoc_id) {
+                                profile.doc_ids.push(fdoc_id.clone());
+                            }
+                            session.research_doc_id = Some(fdoc_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Stage 3: deep interview Q&A research (spec 2026-08-26, part A) —
+    // opt-in, Interview only, much broader than Stage 2. Failures/no key
+    // skip cleanly; Stage 1/2's documents stand regardless.
+    if session.deep_qa_enabled
+        && session.research_enabled
+        && session.category == conva_core::simcon::SimConCategory::Interview
+    {
+        let qa_vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
+        let qa_queries =
+            conva_core::simcon::qa_research_queries(&session, &qa_vocab, simcon::QA_MAX_QUERIES);
+        if let Ok((qa_sources, qa_searches)) = simcon::research(qa_queries, simcon::QA_MAX_SOURCES)
+        {
+            metering::record_tavily_search(&app, qa_searches);
+            if !qa_sources.is_empty() {
+                let qa_request = conva_core::simcon::interview_qa_prompt(&session, &qa_sources);
+                let mut qa_buf = String::new();
+                let qa_result = metering::metered_stream(
+                    &app,
+                    "simcon_qa",
+                    &selection,
+                    &key,
+                    &qa_request,
+                    &mut |t| qa_buf.push_str(t),
+                );
+                if qa_result.is_ok() {
+                    let qa_text = qa_buf.trim().to_string();
+                    if !qa_text.is_empty() {
+                        // Replace any previous Q&A doc — no pile-up.
+                        if let Some(old) = session.qa_doc_id.take() {
+                            let _ = state.rag.delete(&old);
+                            profile.doc_ids.retain(|d| d != &old);
+                        }
+                        let qa_name = format!("{} — Interview Q&A", session.title.trim());
+                        if let Ok(qa_report) =
+                            state.rag.ingest_generated(&qa_name, &qa_text, &session.id)
+                        {
+                            let qa_doc_id = qa_report.document.id.clone();
+                            if !profile.doc_ids.contains(&qa_doc_id) {
+                                profile.doc_ids.push(qa_doc_id.clone());
+                            }
+                            session.qa_doc_id = Some(qa_doc_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // One profile save covers all three stages (Stage 1's document + Stage
+    // 2's research/findings doc + Stage 3's Q&A doc, whichever ran).
+    profile.updated_at_unix_ms = session::now_unix_ms();
+    simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
+
     simcon::save(&app, session).map_err(|e| e.to_string())
 }
 
@@ -979,15 +1297,15 @@ fn simcon_generate_personas(
         max_tokens: 1500,
     };
     let mut buf = String::new();
-    let usage = llm::stream_completion(
-        selection.provider,
+    metering::metered_stream(
+        &app,
+        "simcon_personas",
+        &selection,
         &key,
-        &selection.model,
         &request,
         &mut |t| buf.push_str(t),
     )
     .map_err(|e| e.to_string())?;
-    metering::record_llm(&app, selection.provider, usage);
     session.personas = conva_core::simcon::parse_personas(&buf);
     session.chosen_persona_id = None;
     simcon::save(&app, session).map_err(|e| e.to_string())
@@ -1159,12 +1477,18 @@ async fn rag_sync_library(state: State<'_, AppState>) -> Result<String, String> 
 }
 
 // --- Floating HUD panel (src/hud.rs) ----------------------------------------
-// Synchronous handlers on purpose: Tauri runs them on the main thread, where
-// window creation and native-handle mutation must happen.
+// `open`/`toggle` are `async fn` — NOT a style choice. `WebviewWindowBuilder
+// ::build()` deadlocks on Windows when called from a synchronous command
+// (it self-blocks posting the controller-creation work back to "the main
+// thread," which is the thread it's already running on); Tauri dispatches
+// async commands on a worker thread instead, where that same call is the
+// documented, supported pattern. See #82 and the matching comment in
+// `partner.rs::open`. `close`/`is_open` never build a window, so they stay
+// sync.
 
 /// Open the floating HUD panel (or re-pin it if already open).
 #[tauri::command]
-fn open_hud(app: AppHandle) -> Result<(), String> {
+async fn open_hud(app: AppHandle) -> Result<(), String> {
     hud::open(&app)
 }
 
@@ -1176,7 +1500,7 @@ fn close_hud(app: AppHandle) -> Result<(), String> {
 
 /// Toggle the floating HUD panel. Returns the new state (`true` = now open).
 #[tauri::command]
-fn toggle_hud(app: AppHandle) -> Result<bool, String> {
+async fn toggle_hud(app: AppHandle) -> Result<bool, String> {
     hud::toggle(&app)
 }
 
@@ -1184,6 +1508,68 @@ fn toggle_hud(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 fn hud_is_open(app: AppHandle) -> bool {
     hud::is_open(&app)
+}
+
+// --- Partner window (src/partner.rs) -----------------------------------------
+// `open_partner` is `async fn` for the same reason as the HUD commands
+// above — see that comment and #82. `close`/`redock`/`get_payload` never
+// build a window, so they stay sync.
+
+/// Open (or re-target) the partner window on a term. Docked to the main
+/// window's right edge on first open. `answer`/`source_lines` set = an
+/// already-answered card ("Open in viewer" — owner, 2026-08-22: the viewer
+/// IS this window, shown directly, no re-research); unset = a fresh term
+/// from the Terms tab, which the window researches itself.
+#[tauri::command]
+async fn open_partner(
+    app: AppHandle,
+    term: String,
+    kind: Option<String>,
+    preview: Option<String>,
+    answer: Option<String>,
+    source_lines: Vec<String>,
+) -> Result<(), String> {
+    partner::open(
+        &app,
+        conva_core::ipc::PartnerPayload {
+            term,
+            kind,
+            preview,
+            answer,
+            source_lines,
+        },
+    )
+}
+
+/// Close and destroy the partner window.
+#[tauri::command]
+fn close_partner(app: AppHandle) -> Result<(), String> {
+    partner::close(&app)
+}
+
+/// Snap the partner window back flush to the main window's right edge.
+#[tauri::command]
+fn redock_partner(app: AppHandle) -> Result<(), String> {
+    partner::redock(&app)
+}
+
+/// The payload the partner view should render (read on partner-window boot).
+#[tauri::command]
+fn get_partner_payload() -> Option<conva_core::ipc::PartnerPayload> {
+    partner::payload()
+}
+
+/// Lock (follow the main window) / unlock (float free) the partner window.
+/// Locking snaps it flush to the app's right edge, keeping its size.
+#[tauri::command]
+fn set_partner_locked(app: AppHandle, locked: bool) -> Result<(), String> {
+    partner::set_locked(&app, locked)
+}
+
+/// Whether the partner window currently follows the main window.
+#[tauri::command]
+fn get_partner_locked() -> bool {
+    partner::locked()
 }
 
 /// Build the retrieval query for an Ally answer: the explicit question, or the
@@ -1314,6 +1700,19 @@ fn ally(
 
     let request = build_ally_request(kind, &segments, &chunks, question.as_deref(), 1024);
 
+    // Usage attribution: which Ally surface asked. Card summaries reuse the
+    // `question` kind but are a distinct feature, marked by their "sum:"
+    // request-id prefix (src/state/ally.ts).
+    let feature: &'static str = if request_id.starts_with("sum:") {
+        "ally_card_summary"
+    } else {
+        match kind {
+            AllyKind::SuggestReply => "ally_suggest_reply",
+            AllyKind::Summarize => "ally_summarize",
+            AllyKind::Question => "ally_question",
+        }
+    };
+
     std::thread::Builder::new()
         .name("ally".into())
         .spawn(move || {
@@ -1339,6 +1738,7 @@ fn ally(
             // Latency trace: time to first token + total.
             let t0 = std::time::Instant::now();
             let mut first_ms: Option<u64> = None;
+            let mut usage = conva_core::llm::TokenUsage::default();
             let result = if web_enabled {
                 let tools = ally_web_tools();
                 let mut run_tool = |name: &str, input: &serde_json::Value| -> String {
@@ -1355,6 +1755,7 @@ fn ally(
                     },
                     &mut run_tool,
                     2,
+                    &mut usage,
                 )
             } else {
                 llm::stream_completion(
@@ -1366,11 +1767,23 @@ fn ally(
                         first_ms.get_or_insert_with(|| t0.elapsed().as_millis() as u64);
                         emit(token, false, None);
                     },
+                    &mut usage,
                 )
             };
+            // Record even on failure — partial-stream tokens were billed.
+            // This is the documented exception to `metering::metered_stream`:
+            // it picks between two transport variants (tool loop vs plain),
+            // so it records through `record_llm` directly.
+            metering::record_llm(
+                &app,
+                feature,
+                selection.provider,
+                &selection.model,
+                usage,
+                result.is_ok(),
+            );
             match result {
-                Ok(usage) => {
-                    metering::record_llm(&app, selection.provider, usage);
+                Ok(()) => {
                     let total_ms = t0.elapsed().as_millis() as u64;
                     trace::record(
                         "llm",
@@ -1471,6 +1884,24 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
 
     builder
+        // Lock-to-app (spec §4.4): the main window dragging its docked
+        // partner along, and a manual partner drag releasing the lock.
+        .on_window_event(|window, event| {
+            let app = window.app_handle();
+            match event {
+                tauri::WindowEvent::Moved(pos) => match window.label() {
+                    "main" => partner::follow_main(app),
+                    l if l == partner::PARTNER_LABEL => {
+                        partner::on_partner_moved(app, (pos.x, pos.y));
+                    }
+                    _ => {}
+                },
+                tauri::WindowEvent::Resized(_) if window.label() == "main" => {
+                    partner::follow_main(app);
+                }
+                _ => {}
+            }
+        })
         .setup(|app| {
             let config = load_config(app.handle());
             let data_dir = app
@@ -1598,6 +2029,8 @@ pub fn run() {
             session_list,
             session_load,
             export_transcript,
+            write_text_file,
+            analyze_conversation,
             conversation_save,
             conversation_list,
             conversation_load,
@@ -1627,6 +2060,12 @@ pub fn run() {
             close_hud,
             toggle_hud,
             hud_is_open,
+            open_partner,
+            close_partner,
+            redock_partner,
+            get_partner_payload,
+            set_partner_locked,
+            get_partner_locked,
         ])
         .run(tauri::generate_context!())
         .expect("error while running conva");

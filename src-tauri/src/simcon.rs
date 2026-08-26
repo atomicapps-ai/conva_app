@@ -95,13 +95,18 @@ specific is active."
             source_doc_ids: vec![doc_id.clone()],
             auto_generate_context: false,
             research_enabled: false,
+            deep_qa_enabled: false,
+            qa_doc_id: None,
             key_terms: Vec::new(),
             glossary: extract_glossary(DEFAULT_DIGEST_TEXT),
+            glossary_definitions: std::collections::BTreeMap::new(),
             knowledge_profile_id: Some(profile_id),
             personas: Vec::new(),
             chosen_persona_id: None,
             conversation_id: None,
             dossier_doc_id: Some(doc_id),
+            research_doc_id: None,
+            resources_stale: false,
         },
     )?;
     Ok(())
@@ -117,8 +122,20 @@ pub fn save(app: &AppHandle, mut session: SimConSession) -> Result<SimConSession
         session.created_at_unix_ms = now;
     } else {
         validate_id(&session.id)?;
-        if let Ok(existing) = load(app, &session.id) {
-            session.created_at_unix_ms = existing.created_at_unix_ms;
+        if let Ok(old) = load(app, &session.id) {
+            session.created_at_unix_ms = old.created_at_unix_ms;
+            // Grounding edits invalidate derived state (spec 2026-08-26, part 1):
+            // the glossary derives from the OLD inputs, so clear it (the next
+            // activation re-mines JD-first; the next Generate rebuilds it from the
+            // fresh digest), and mark generated resources stale so the UI can say
+            // "regenerate". Internal saves (dossier, personas, activation backfill)
+            // change no grounding fields and pass through untouched.
+            if conva_core::simcon::grounding_changed(&old, &session) {
+                session.glossary.clear();
+                if old.dossier_doc_id.is_some() || old.knowledge_profile_id.is_some() {
+                    session.resources_stale = true;
+                }
+            }
         }
     }
     session.updated_at_unix_ms = now;
@@ -176,6 +193,7 @@ pub fn list(app: &AppHandle) -> Result<Vec<SimConSummary>, CoreError> {
                 .as_deref()
                 .is_some_and(|jd| !jd.trim().is_empty()),
             has_generated_resources: s.dossier_doc_id.is_some(),
+            resources_stale: s.resources_stale,
         });
     }
     out.sort_by_key(|b| std::cmp::Reverse(b.updated_at_unix_ms));
@@ -278,7 +296,10 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<SimConSession, CoreError> {
     // Web research runs when enabled for this context (defaults from the type
     // template — decision 2). The legacy auto-generate flag still opts in.
     let research = if session.research_enabled || session.auto_generate_context {
-        match research(&session) {
+        match research(
+            conva_core::simcon::research_queries(&session, &[], RESEARCH_MAX_QUERIES),
+            RESEARCH_MAX_SOURCES,
+        ) {
             Ok((sources, searches)) => {
                 // Tavily bills per search — record what we actually issued.
                 crate::metering::record_tavily_search(app, searches);
@@ -311,8 +332,14 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<SimConSession, CoreError> {
 const TAVILY_KEYRING_SERVICE: &str = "conva";
 const TAVILY_KEYRING_USER: &str = "api-key-tavily";
 /// Hard budget so research can never run slow or expensive (SDLC/owner ask).
-const RESEARCH_MAX_QUERIES: usize = 4;
-const RESEARCH_MAX_SOURCES: usize = 8;
+/// `pub(crate)` so `lib.rs`'s Stage 2 call site can reuse the exact same
+/// budget values `research_queries` is called with.
+pub(crate) const RESEARCH_MAX_QUERIES: usize = 6;
+pub(crate) const RESEARCH_MAX_SOURCES: usize = 12;
+/// The deep Q&A pass's budget (spec 2026-08-26, part A) — deliberately
+/// much larger than default research; it's opt-in for exactly this cost.
+pub(crate) const QA_MAX_QUERIES: usize = 18;
+pub(crate) const QA_MAX_SOURCES: usize = 45;
 
 pub fn store_tavily_key(key: &str) -> Result<(), CoreError> {
     let entry = keyring::Entry::new(TAVILY_KEYRING_SERVICE, TAVILY_KEYRING_USER)
@@ -336,47 +363,27 @@ pub fn load_tavily_key() -> Option<String> {
         .ok()
 }
 
-/// The bounded query set for a Sim Con — from its topic, type, goal, and (for
-/// interviews) the job description. Capped at [`RESEARCH_MAX_QUERIES`].
-fn research_queries(session: &SimConSession) -> Vec<String> {
-    let topic = if session.title.trim().is_empty() {
-        session.category.label().to_string()
-    } else {
-        session.title.trim().to_string()
-    };
-    let mut q = vec![
-        format!("{topic} common questions"),
-        format!("how to prepare for a {}", session.category.label()),
-    ];
-    if !session.purpose.trim().is_empty() {
-        q.push(session.purpose.trim().chars().take(120).collect());
-    }
-    if let Some(jd) = &session.job_description {
-        let jd = jd.trim();
-        if !jd.is_empty() {
-            q.push(format!(
-                "interview questions for role: {}",
-                jd.chars().take(120).collect::<String>()
-            ));
-        }
-    }
-    q.truncate(RESEARCH_MAX_QUERIES);
-    q
-}
-
-/// Bounded autonomous web research (Step 2) via Tavily. Returns the sources to
-/// fold into the KnowledgeProfile plus the number of Tavily searches issued
-/// (each is one billed search — the caller records it for usage metering). No
-/// key configured → returns empty (the profile is docs-only). Failures per query
-/// are skipped, never fatal. Runs on a command thread, never the UI path.
-fn research(session: &SimConSession) -> Result<(Vec<ResearchSource>, u64), CoreError> {
+/// Bounded autonomous web research (Step 2) via Tavily. Takes the already-built
+/// query list and a source budget — the caller decides both (default research
+/// via [`conva_core::simcon::research_queries`] + `RESEARCH_MAX_QUERIES`/
+/// `RESEARCH_MAX_SOURCES`, or the deep Q&A pass via `qa_research_queries` +
+/// `QA_MAX_QUERIES`/`QA_MAX_SOURCES`), so this fn stays agnostic of which pass
+/// is calling it. Returns the sources to fold into the KnowledgeProfile plus
+/// the number of Tavily searches issued (each is one billed search — the
+/// caller records it for usage metering). No key configured → returns empty
+/// (the profile is docs-only). Failures per query are skipped, never fatal.
+/// Runs on a command thread, never the UI path.
+pub(crate) fn research(
+    queries: Vec<String>,
+    max_sources: usize,
+) -> Result<(Vec<ResearchSource>, u64), CoreError> {
     let Some(key) = load_tavily_key() else {
         return Ok((Vec::new(), 0));
     };
     let mut out: Vec<ResearchSource> = Vec::new();
     let mut searches: u64 = 0;
-    for query in research_queries(session) {
-        if out.len() >= RESEARCH_MAX_SOURCES {
+    for query in queries {
+        if out.len() >= max_sources {
             break;
         }
         searches += 1;
@@ -400,7 +407,7 @@ fn research(session: &SimConSession) -> Result<(Vec<ResearchSource>, u64), CoreE
             continue;
         };
         for r in results {
-            if out.len() >= RESEARCH_MAX_SOURCES {
+            if out.len() >= max_sources {
                 break;
             }
             let url = r.get("url").and_then(|v| v.as_str()).unwrap_or("");
@@ -419,7 +426,9 @@ fn research(session: &SimConSession) -> Result<(Vec<ResearchSource>, u64), CoreE
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .chars()
-                    .take(500)
+                    // Tavily's content excerpt — the findings synthesis
+                    // needs more than a headline.
+                    .take(1_200)
                     .collect(),
                 fetched_at_unix_ms: now_unix_ms(),
             });

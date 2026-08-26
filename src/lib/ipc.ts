@@ -19,6 +19,8 @@ export const EVENTS = {
   tracker: "conva://tracker",
   capture: "conva://capture",
   authChanged: "conva://auth-changed",
+  partnerTerm: "conva://partner-term",
+  partnerLock: "conva://partner-lock",
 } as const;
 
 export interface TranscriptSegment {
@@ -198,6 +200,29 @@ export interface CaptureEvent {
   captures: Capture[];
 }
 
+/** What the partner window shows (mirror of `ipc.rs::PartnerPayload`) — the
+ *  term it was opened for, plus the FANER classification + preview when it
+ *  came from a capture. Read via `get_partner_payload` on window boot;
+ *  re-sent over `conva://partner-term` when a new term targets an open
+ *  window. */
+export interface PartnerPayload {
+  term: string;
+  kind: string | null;
+  preview: string | null;
+  /** An already-answered card's text ("Open in viewer" — owner, 2026-08-22:
+   *  the viewer IS the partner window). `null` = a fresh term, researched
+   *  by the window itself. */
+  answer: string | null;
+  /** Already-grouped "file — ¶loc, ¶loc" citation lines for `answer`. */
+  source_lines: string[];
+}
+
+/** Mirror of `ipc.rs::PartnerLockEvent` — sent when the shell changes the
+ *  partner window's lock-to-app state (e.g. a manual drag released it). */
+export interface PartnerLockEvent {
+  locked: boolean;
+}
+
 export interface SessionSummary {
   id: string;
   started_at_unix_ms: number;
@@ -217,6 +242,7 @@ export interface Conversation {
   updated_at_unix_ms: number;
   segments: TranscriptSegment[];
   linked_docs: string[];
+  linked_context_id?: string | null;
 }
 
 /** Mirror of the shell's conversations::ConversationSummary. */
@@ -227,6 +253,7 @@ export interface ConversationSummary {
   updated_at_unix_ms: number;
   segment_count: number;
   linked_docs: string[];
+  linked_context_id?: string | null;
   preview: string;
 }
 
@@ -308,12 +335,29 @@ export interface SimConSession {
   key_terms?: string[];
   /** Glossary terms extracted from the generated digest (backend-derived). */
   glossary?: string[];
+  /** Definition text captured alongside each surviving glossary term
+   * (keyed by the exact term string in `glossary`) — empty/absent for
+   * terms mined without a written definition. */
+  glossary_definitions?: Record<string, string>;
   knowledge_profile_id: string | null;
   personas: SimConPersona[];
   chosen_persona_id: string | null;
   conversation_id: string | null;
   /** RagDocument id of the Ally-generated prep briefing, once generated. */
   dossier_doc_id: string | null;
+  /** RagDocument id of the Stage-2 Research findings document, once
+   * generated (replaced on regeneration, like the knowledge doc). */
+  research_doc_id?: string | null;
+  /** Opt-in deep interview Q&A research (Interview category only) —
+   * costs meaningfully more searches/tokens than default research. */
+  deep_qa_enabled?: boolean;
+  /** RagDocument id of the generated Interview Q&A document, once
+   * generated (replaced on regeneration). */
+  qa_doc_id?: string | null;
+  /** True when grounding inputs changed after resources were generated —
+   * the digest/glossary no longer reflect the inputs (cleared by a
+   * successful regeneration). Optional: older records omit it. */
+  resources_stale?: boolean;
 }
 
 /** Catalog entry for the SimCon list view. */
@@ -331,6 +375,8 @@ export interface SimConSummary {
   research_enabled: boolean;
   has_job_description: boolean;
   has_generated_resources: boolean;
+  /** Mirrors SimConSession.resources_stale for the list row's pill. */
+  resources_stale?: boolean;
 }
 
 export type ModelStatusEvent =
@@ -374,9 +420,27 @@ export interface ProviderUsage {
   requests: number;
 }
 
+/**
+ * Running LLM usage for one feature × provider × model bucket. `feature` is a
+ * stable snake_case label owned by the Rust call site (the full set is listed
+ * in `src-tauri/src/metering.rs`); failed attempts keep the tokens billed
+ * before the failure.
+ */
+export interface LlmFeatureUsage {
+  feature: string;
+  provider: ProviderId;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  requests: number;
+  failed_requests: number;
+}
+
 /** Usage snapshot with cross-provider running totals. */
 export interface UsageSummary {
   providers: ProviderUsage[];
+  /** Feature × provider × model buckets, heaviest (total tokens) first. */
+  llm_features: LlmFeatureUsage[];
   total_input_tokens: number;
   total_output_tokens: number;
   total_requests: number;

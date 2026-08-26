@@ -10,16 +10,13 @@ import { useTranscriptStore } from "@/state/transcript";
  * Start/Stop + Record cluster that used to live in the now-removed global
  * `TopBar`. Maps onto the mockup's row as:
  *
- * - `core` → the Start/Stop toggle itself (idle = click to start, listening
- *   = pulses, click to stop), now the real `<Core>` sonar instrument
- *   (rings + radar sweep + orbiting node + breathing center — the same
- *   component the mockup's own `.core` JS builds) instead of a plain
- *   pulsing dot. `Core.tsx` already existed, fully built, just never
- *   wired into anything (owner feedback 2026-08-17). The mockup draws it
- *   as a passive "Listening" indicator with no visible Start anywhere in
- *   its (mid-call) demo state; making it the click target is the one
- *   place this session's rebuild fills in a gap the mockup's single
- *   frozen frame doesn't show.
+ * - `core` → a passive LIVE INDICATOR, not a control (owner, 2026-08-21:
+ *   "the animation is not the button to start listening"): the `<Core>`
+ *   sonar is lit while listening/preparing and dimmed when idle. The
+ *   session toggle is the labeled button — idle: "Start listening"
+ *   (primary), listening: "End" (red, with elapsed) → today's stop, which
+ *   offers to save the transcript. (V4.0 briefly made the sonar the click
+ *   target; reversed per the same owner feedback.)
  * - `Pause` → present but disabled. `Paused` exists as an IPC enum variant
  *   (`crates/conva-core/src/ipc.rs`) but nothing in `src-tauri` ever
  *   constructs or handles it — there's no backend to wire this to yet.
@@ -37,8 +34,20 @@ import { useTranscriptStore } from "@/state/transcript";
  * - Record sits here too (owner feedback) — it was stranded alone up in
  *   `LiveTopBar`; it's a session-lifecycle action, same family as Start/Stop
  *   and End & summarise, so it belongs grouped with them.
+ * - The Details/Terms tab zone is RETIRED (spine-accordion spec,
+ *   2026-08-26): the right panel is now a spine-icon accordion that
+ *   carries its own section controls, so the bar holds no panel tabs.
+ *   In drawer mode (<640px) the cockpit passes `onOpenPanel`, and the
+ *   bar's right edge grows a single Ally button that opens the overlay
+ *   panel; omitted (inline panel, compact mode) the bar ends at the
+ *   control cluster.
  */
-export function LiveControlBar() {
+export function LiveControlBar({
+  onOpenPanel,
+}: {
+  /** Drawer mode only: opens the Ally panel overlay. */
+  onOpenPanel?: () => void;
+}) {
   const session = useTranscriptStore((s) => s.session);
   const listening = session.state === "listening";
   const preparing = session.state === "preparing";
@@ -73,17 +82,26 @@ export function LiveControlBar() {
   const coreState = coreStateFrom(session.state, recording);
 
   return (
-    <div className="flex h-[52px] shrink-0 items-center gap-3 border-t border-border bg-bg-2 px-3.5">
-      <button
-        type="button"
-        disabled={busy || preparing}
-        onClick={() => void (listening ? stop() : start())}
-        title={listening ? "Stop listening" : "Start listening"}
-        aria-pressed={listening}
-        className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition hover:brightness-110 disabled:opacity-50"
+    <div className="flex h-[52px] shrink-0 items-stretch border-t border-border bg-bg-2">
+      {/* overflow-hidden is load-bearing: every child here is shrink-0 +
+          nowrap, so at narrow widths the cluster's content would otherwise
+          paint straight across the border into the tab zone / right panel
+          (the "Start button bleeds into the right pane" bug). Clipping at
+          the cluster edge guarantees the bar's zones stay separate at any
+          window width; the md:-gated placeholders below keep the real
+          controls (Record, Start/End) inside the visible range. */}
+      <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden px-3.5">
+      {/* Live indicator — NOT a control: lit while listening, dimmed idle. */}
+      <div
+        role="status"
+        aria-label={listening ? "Listening" : preparing ? "Preparing" : "Not listening"}
+        title={listening ? "Listening" : preparing ? "Preparing" : "Not listening"}
+        className={`grid h-10 w-10 shrink-0 place-items-center rounded-full transition-opacity ${
+          listening || preparing ? "" : "opacity-35 saturate-50"
+        }`}
       >
         <Core state={coreState} size={34} />
-      </button>
+      </div>
 
       {statusText ? (
         <span
@@ -100,7 +118,7 @@ export function LiveControlBar() {
             disabled
             title="Pause — not wired up yet"
             aria-label="Pause (not yet available)"
-            className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] border border-border-strong px-3 text-[13px] font-bold text-fg-faint opacity-50"
+            className="hidden h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] border border-border-strong px-3 text-[13px] font-bold text-fg-faint opacity-50 md:flex"
           >
             <Icon name="pause" size={16} />
             <ResponsiveLabel full="Pause" short="" />
@@ -110,7 +128,7 @@ export function LiveControlBar() {
             disabled
             title="Mute microphone — not wired up yet"
             aria-label="Mute microphone (not yet available)"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-border-strong text-inbound opacity-50"
+            className="hidden h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-border-strong text-inbound opacity-50 md:grid"
           >
             <Icon name="mic" size={16} />
           </button>
@@ -119,23 +137,11 @@ export function LiveControlBar() {
             disabled
             title="Silence Ally — not wired up yet"
             aria-label="Silence Ally (not yet available)"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-border-strong text-ai opacity-50"
+            className="hidden h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-border-strong text-ai opacity-50 md:grid"
           >
             <Icon name="ally" size={16} />
           </button>
         </>
-      )}
-
-      <span className="flex-1" aria-hidden />
-
-      {listening && (
-        <span className="hidden shrink-0 items-center gap-1.5 font-mono text-[10.5px] text-fg-faint sm:flex">
-          <Icon name="lightbulb" size={13} className="text-ai/70" />
-          Ask Ally below
-          <kbd className="rounded border border-border-strong px-1.5 py-0.5 text-[9.5px] text-fg-muted">
-            Ctrl ⇧ Space
-          </kbd>
-        </span>
       )}
 
       <button
@@ -161,19 +167,58 @@ export function LiveControlBar() {
         <ResponsiveLabel full={recording ? "Recording" : "Record"} short="Rec" />
       </button>
 
+      {/* THE session toggle (owner, 2026-08-21): Start listening ↔ End. */}
       <button
         type="button"
-        disabled={!listening}
-        onClick={() => void stop()}
-        title="End & summarise — stops listening and offers to save the transcript"
-        className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] border border-rec/50 bg-rec/10 px-3 text-[13px] font-bold text-rec transition hover:brightness-110 disabled:opacity-40"
+        disabled={busy || preparing}
+        onClick={() => void (listening ? stop() : start())}
+        aria-pressed={listening}
+        title={
+          listening
+            ? "End — stops listening and offers to save the transcript"
+            : "Start listening"
+        }
+        className={[
+          "flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] px-3 text-[13px] font-bold transition hover:brightness-110 disabled:opacity-40",
+          listening
+            ? "border border-rec/50 bg-rec/10 text-rec"
+            : "bg-primary text-primary-ink",
+        ].join(" ")}
       >
-        <Icon name="record" size={15} />
-        <ResponsiveLabel full="End & summarise" short="End" />
+        <Icon name={listening ? "record" : "live"} size={15} />
+        <ResponsiveLabel
+          full={listening ? "End" : "Start listening"}
+          short={listening ? "End" : "Start"}
+        />
         {listening && (
           <span className="font-mono text-[11px] font-bold text-rec/80">{elapsed}</span>
         )}
       </button>
+
+      <span className="flex-1" aria-hidden />
+
+      {listening && (
+        <span className="hidden shrink-0 items-center gap-1.5 font-mono text-[10.5px] text-fg-faint sm:flex">
+          <Icon name="lightbulb" size={13} className="text-ai/70" />
+          Ask Ally
+          <kbd className="rounded border border-border-strong px-1.5 py-0.5 text-[9.5px] text-fg-muted">
+            Ctrl ⇧ Space
+          </kbd>
+        </span>
+      )}
+      </div>
+
+      {onOpenPanel && (
+        <button
+          type="button"
+          onClick={onOpenPanel}
+          title="Open Ally panel"
+          aria-label="Open Ally panel"
+          className="grid w-12 shrink-0 place-items-center border-l border-border text-ai hover:bg-panel-raised/60"
+        >
+          <Icon name="ally" size={16} />
+        </button>
+      )}
     </div>
   );
 }

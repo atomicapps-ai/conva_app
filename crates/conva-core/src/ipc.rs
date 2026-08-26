@@ -37,6 +37,11 @@ pub mod events {
     /// core) and mirrored in `src/lib/ipc.ts`. Emitted when an OAuth sign-in
     /// finishes out-of-band via the `conva://auth/callback` deep link.
     pub const AUTH_CHANGED: &str = "conva://auth-changed";
+    /// A new term was sent to the (already-open) partner window.
+    pub const PARTNER_TERM: &str = "conva://partner-term";
+    /// The partner window's lock-to-app state changed shell-side (e.g. a
+    /// manual drag released it) — the window updates its toggle icon.
+    pub const PARTNER_LOCK: &str = "conva://partner-lock";
 }
 
 /// Re-exported so the IPC module is a one-stop description of the wire.
@@ -112,6 +117,34 @@ pub struct TrackerEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureEvent {
     pub captures: Vec<crate::capture::Capture>,
+}
+
+/// What the partner window shows (owner mockup, 2026-08-21): the term it was
+/// opened for, plus the FANER classification + preview when it came from a
+/// capture. Delivered via the `get_partner_payload` command on window boot and
+/// re-sent over `events::PARTNER_TERM` when a new term targets an open window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartnerPayload {
+    pub term: String,
+    /// FANER kind/action tag when opened from a capture (e.g. "concept").
+    pub kind: Option<String>,
+    /// The capture's short preview/definition, when available.
+    pub preview: Option<String>,
+    /// An already-answered Ally card's text, when the partner window was
+    /// opened via "Open in viewer" on an existing card (owner, 2026-08-22:
+    /// the viewer IS the partner window, not an internal drawer) — the
+    /// window shows this directly instead of re-researching the term.
+    /// `None` for a fresh term opened from the Terms tab, which researches.
+    pub answer: Option<String>,
+    /// Already-grouped "file — ¶loc, ¶loc" citation lines for `answer`.
+    pub source_lines: Vec<String>,
+}
+
+/// Payload of [`events::PARTNER_LOCK`] — whether the partner window is
+/// locked to (follows) the main window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartnerLockEvent {
+    pub locked: bool,
 }
 
 /// Live Sim Con rehearsal phase (Phase E) — drives the "who's talking" UI

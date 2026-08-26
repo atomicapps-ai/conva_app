@@ -29,6 +29,7 @@ import type {
   SimConSummary,
   IngestReport,
   ModelInfo,
+  PartnerPayload,
   ProviderId,
   ProviderInfo,
   ProviderKeyStatus,
@@ -170,6 +171,7 @@ export interface ConvaBackend {
       title: string | null,
       segments: TranscriptSegment[],
       linkedDocs: string[],
+      contextId?: string | null,
     ): Promise<Conversation>;
     list(): Promise<ConversationSummary[]>;
     load(id: string): Promise<Conversation>;
@@ -229,6 +231,16 @@ export interface ConvaBackend {
     load(id: string): Promise<TranscriptSegment[]>;
     /** Desktop-only: write Markdown to a path. Web → browser download. */
     exportTranscript(path: string, segments: TranscriptSegment[]): Promise<void>;
+    /** Analyze a saved conversation's performance (category-aware, grounded
+     *  in its linked context's job description/vocabulary when one exists) —
+     *  returns the report Markdown for the caller to save. Desktop-only for
+     *  now (an LLM call metered the same as any other Ask). */
+    analyzeConversation(id: string): Promise<string>;
+    /** Desktop-only: write arbitrary text content to a path (the generic
+     *  counterpart to `exportTranscript` for callers that produce a string
+     *  rather than building the file server-side, e.g. `analyzeConversation`'s
+     *  downloader). */
+    writeTextFile(path: string, content: string): Promise<void>;
   };
 
   /** Diagnostics. */
@@ -244,5 +256,25 @@ export interface ConvaBackend {
     /** Resolves to the new state (true = open). */
     toggle(): Promise<boolean>;
     isOpen(): Promise<boolean>;
+  };
+
+  /** Partner window (`src-tauri/src/partner.rs`) — a large reading surface
+   *  for one term/answer, docked to the app's right edge by default.
+   *  Desktop-only (Layer 4); gate on `capabilities().system.partnerWindow`. */
+  partner: {
+    open(
+      term: string,
+      kind: string | null,
+      preview: string | null,
+      answer?: string | null,
+      sourceLines?: string[],
+    ): Promise<void>;
+    close(): Promise<void>;
+    redock(): Promise<void>;
+    payload(): Promise<PartnerPayload | null>;
+    /** Lock (follow the app) / unlock (float free). Desktop-only. */
+    setLocked(locked: boolean): Promise<void>;
+    /** Current lock state; `false` where the window doesn't exist (web). */
+    locked(): Promise<boolean>;
   };
 }

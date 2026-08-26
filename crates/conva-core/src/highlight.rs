@@ -261,6 +261,13 @@ fn add_candidate(
 /// (👍 boost / 👎 suppress). Deduped case-insensitively, highest score first
 /// (ties by first appearance), capped at [`MAX_TERMS`].
 pub fn relevant_terms(message: &str, ctx: &HighlightContext) -> Vec<String> {
+    relevant_terms_capped(message, ctx, MAX_TERMS)
+}
+
+/// [`relevant_terms`] with an explicit result cap — the live-message path
+/// keeps [`MAX_TERMS`] via the wrapper; document/JD mining passes larger
+/// caps (spec 2026-08-26: the silent 12-term ceiling starved JD mining).
+pub fn relevant_terms_capped(message: &str, ctx: &HighlightContext, cap: usize) -> Vec<String> {
     let lower_msg = message.to_lowercase();
     let msg_tokens = tokens(message);
     let mut cands: Vec<Candidate> = Vec::new();
@@ -330,7 +337,7 @@ pub fn relevant_terms(message: &str, ctx: &HighlightContext) -> Vec<String> {
         }
         out.push(cand.display);
         admitted.push(cand_tokens);
-        if out.len() >= MAX_TERMS {
+        if out.len() >= cap {
             break;
         }
     }
@@ -498,5 +505,329 @@ mod tests {
             hits.iter().any(|h| h.eq_ignore_ascii_case("gut feel")),
             "{hits:?}"
         );
+    }
+}
+
+/// Top salient terms OF a document itself — the Terms tab's "From your
+/// documents" fallback (owner, 2026-08-22): a grounded context whose owner
+/// never typed key terms and never generated a digest still has real
+/// documents attached, and those should surface words. Reuses the exact
+/// message-side scorer: the document's opening slice plays the "message",
+/// grounded against the full text, so entities, acronyms, and rare domain
+/// words win the slots.
+pub fn salient_doc_terms(doc_text: &str, limit: usize) -> Vec<String> {
+    // Char-boundary-safe opening slice (~12k chars — a whole job description
+    // fits; still not a whole book).
+    let end = doc_text
+        .char_indices()
+        .nth(12_000)
+        .map(|(i, _)| i)
+        .unwrap_or(doc_text.len());
+    let ctx = HighlightContext::from_doc_text(doc_text);
+    relevant_terms_capped(&doc_text[..end], &ctx, limit)
+}
+
+/// Count non-overlapping word-bounded occurrences of `needle` in `hay`
+/// (both already tokenized lowercase).
+fn phrase_count(hay: &[String], needle: &[String]) -> usize {
+    if needle.is_empty() || needle.len() > hay.len() {
+        return 0;
+    }
+    hay.windows(needle.len()).filter(|w| *w == needle).count()
+}
+
+/// Shared survival predicate for [`sanitize_mined_terms`] and
+/// [`sanitize_glossary_entries`] — kept in one place so the two filters
+/// can't drift (spec 2026-08-26).
+fn term_survives(
+    term: &str,
+    doc_toks: &[String],
+    jd_toks: Option<&[String]>,
+    min_occurrences: usize,
+) -> bool {
+    let t = term.trim();
+    if t.is_empty() {
+        return false;
+    }
+    let nt = tokens(t);
+    if nt.is_empty() || nt.len() > 4 {
+        return false;
+    }
+    if nt.len() == 1 && STOPWORDS.contains(&nt[0].as_str()) {
+        return false;
+    }
+    let in_jd = jd_toks.is_some_and(|j| contains_phrase(j, &nt));
+    in_jd || phrase_count(doc_toks, &nt) >= min_occurrences
+}
+
+/// Hygiene gate for MINED terms (never user-typed key terms) — spec B.2.
+/// A term survives when it is ≤4 words, isn't a bare stopword, and either
+/// occurs at least `min_occurrences` times in `doc_text` or appears in the
+/// job description. One-off extraction-glue artifacts ("CloudOpenShift"
+/// jammed at a PDF line break) occur once and die here; real camel-case
+/// product names repeat or show up in the JD and survive.
+pub fn sanitize_mined_terms(
+    terms: Vec<String>,
+    doc_text: &str,
+    jd_text: Option<&str>,
+    min_occurrences: usize,
+) -> Vec<String> {
+    let doc_toks = tokens(doc_text);
+    let jd_toks = jd_text.map(tokens);
+    terms
+        .into_iter()
+        .filter(|term| term_survives(term, &doc_toks, jd_toks.as_deref(), min_occurrences))
+        .collect()
+}
+
+/// [`sanitize_mined_terms`], applied to `(term, definition)` pairs — a term
+/// that doesn't survive drops its definition with it (spec 2026-08-26,
+/// cached term definitions: only hygiene-gated terms get their answer
+/// cached for instant retrieval).
+pub fn sanitize_glossary_entries(
+    entries: Vec<(String, String)>,
+    doc_text: &str,
+    jd_text: Option<&str>,
+    min_occurrences: usize,
+) -> Vec<(String, String)> {
+    let doc_toks = tokens(doc_text);
+    let jd_toks = jd_text.map(tokens);
+    entries
+        .into_iter()
+        .filter(|(term, _)| term_survives(term, &doc_toks, jd_toks.as_deref(), min_occurrences))
+        .collect()
+}
+
+/// The interviewer's own vocabulary, mined from the job description — the
+/// PRIMARY term signal for interview contexts (spec B.2): the JD literally
+/// is what the interviewer will say. Occurrence floor 1 — a JD is short,
+/// clean, employer-curated text where a single mention matters.
+pub fn interviewer_terms(jd_text: &str, limit: usize) -> Vec<String> {
+    if jd_text.trim().is_empty() {
+        return Vec::new();
+    }
+    let mined = salient_doc_terms(jd_text, limit * 2);
+    let mut clean = sanitize_mined_terms(mined, jd_text, None, 1);
+    clean.truncate(limit);
+    clean
+}
+
+#[cfg(test)]
+mod doc_terms_tests {
+    use super::salient_doc_terms;
+
+    #[test]
+    fn mines_entities_and_domain_words_from_a_document() {
+        let doc = "Amazon Leadership Principles interview prep. Focus areas: \
+                   DynamoDB partitioning, expand-and-contract schema migration, \
+                   idempotent retries, and P99 latency budgets. The STAR method \
+                   structures every answer. DynamoDB throttling is a classic probe.";
+        let terms = salient_doc_terms(doc, 8);
+        assert!(!terms.is_empty(), "no terms mined: {terms:?}");
+        assert!(terms.len() <= 8);
+        let lower: Vec<String> = terms.iter().map(|t| t.to_lowercase()).collect();
+        assert!(
+            lower.iter().any(|t| t.contains("dynamodb")),
+            "expected a domain entity in {terms:?}"
+        );
+    }
+
+    #[test]
+    fn empty_document_yields_nothing() {
+        assert!(salient_doc_terms("", 8).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod sanitize_mined_tests {
+    use super::{sanitize_glossary_entries, sanitize_mined_terms};
+
+    const DOC: &str = "Built DynamoDB tables and tuned DynamoDB capacity. \
+        Migrated workloads to the CloudOpenShift platform once. \
+        Used CloudWatch dashboards and CloudWatch alarms daily.";
+
+    #[test]
+    fn drops_a_one_occurrence_glue_token_and_keeps_repeaters() {
+        let out = sanitize_mined_terms(
+            vec![
+                "DynamoDB".into(),
+                "CloudOpenShift".into(),
+                "CloudWatch".into(),
+            ],
+            DOC,
+            None,
+            2,
+        );
+        assert_eq!(out, vec!["DynamoDB".to_string(), "CloudWatch".to_string()]);
+    }
+
+    #[test]
+    fn jd_presence_rescues_a_single_occurrence() {
+        let out = sanitize_mined_terms(
+            vec!["CloudOpenShift".into()],
+            DOC,
+            Some("Experience with CloudOpenShift required."),
+            2,
+        );
+        assert_eq!(out, vec!["CloudOpenShift".to_string()]);
+    }
+
+    #[test]
+    fn enforces_the_four_word_cap_and_drops_stopword_singles() {
+        let doc = "the well architected framework twelve factor app method \
+                   the well architected framework twelve factor app method";
+        let out = sanitize_mined_terms(
+            vec![
+                "well architected framework twelve factor".into(), // 5 words
+                "the".into(),                                      // stopword
+                "well architected framework".into(),               // 3 words, occurs 2x
+            ],
+            doc,
+            None,
+            2,
+        );
+        assert_eq!(out, vec!["well architected framework".to_string()]);
+    }
+
+    #[test]
+    fn floor_one_keeps_single_occurrences() {
+        let out = sanitize_mined_terms(vec!["CloudOpenShift".into()], DOC, None, 1);
+        assert_eq!(out, vec!["CloudOpenShift".to_string()]);
+    }
+
+    #[test]
+    fn sanitize_glossary_entries_drops_failing_terms_keeps_their_definitions_paired() {
+        let doc = "The team runs on Kubernetes daily. Kubernetes handles orchestration. \
+            CloudOpenShift appears once here.";
+        let entries = vec![
+            (
+                "Kubernetes".to_string(),
+                "container orchestration.".to_string(),
+            ),
+            ("CloudOpenShift".to_string(), "glue artifact.".to_string()),
+        ];
+        let out = sanitize_glossary_entries(entries, doc, None, 2);
+        assert!(
+            out.iter()
+                .any(|(t, d)| t == "Kubernetes" && d == "container orchestration."),
+            "{out:?}"
+        );
+        assert!(
+            !out.iter().any(|(t, _)| t == "CloudOpenShift"),
+            "one-occurrence glue term must be dropped: {out:?}"
+        );
+    }
+
+    #[test]
+    fn sanitize_glossary_entries_keeps_jd_present_single_occurrence() {
+        let doc = "API Gateway is mentioned once in the resume.";
+        let jd = "Experience with API Gateway is required.";
+        let entries = vec![(
+            "API Gateway".to_string(),
+            "managed API front door.".to_string(),
+        )];
+        let out = sanitize_glossary_entries(entries, doc, Some(jd), 2);
+        assert_eq!(
+            out,
+            vec![(
+                "API Gateway".to_string(),
+                "managed API front door.".to_string()
+            )]
+        );
+    }
+}
+
+#[cfg(test)]
+mod interviewer_terms_tests {
+    use super::interviewer_terms;
+
+    #[test]
+    fn mines_jd_vocabulary() {
+        let jd = "Deep technical expertise with AWS core services, including \
+            EC2, EKS, Lambda, IAM, VPC, S3, and CloudWatch. Define and monitor \
+            SLOs, SLAs, and SLIs. Resolve Sev-1 issues and perform RCAs. \
+            Design infrastructure using CloudFormation, CDK, or Terraform.";
+        let terms = interviewer_terms(jd, 12);
+        assert!(!terms.is_empty());
+        assert!(terms.len() <= 12);
+        let lower: Vec<String> = terms.iter().map(|t| t.to_lowercase()).collect();
+        assert!(
+            lower
+                .iter()
+                .any(|t| t.contains("cloudwatch") || t.contains("terraform") || t.contains("iam")),
+            "expected JD vocabulary in {terms:?}"
+        );
+    }
+
+    #[test]
+    fn empty_jd_yields_nothing() {
+        assert!(interviewer_terms("", 12).is_empty());
+        assert!(interviewer_terms("   ", 12).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod ceiling_tests {
+    use super::*;
+
+    /// A JD-like text with far more than 12 distinct entities, each
+    /// repeated so every signal path can admit them.
+    fn rich_jd() -> String {
+        let names = [
+            "Amazon EC2",
+            "Amazon EKS",
+            "AWS Lambda",
+            "Amazon VPC",
+            "AWS CloudFormation",
+            "Amazon CloudWatch",
+            "AWS CDK",
+            "Terraform Cloud",
+            "GitLab CI",
+            "GitHub Actions",
+            "Datadog APM",
+            "Prometheus Grafana",
+            "API Gateway",
+            "Control Tower",
+            "OpenTelemetry Collector",
+            "AWS Organizations",
+        ];
+        let mut s = String::from("Senior DevOps Engineer role. ");
+        for _ in 0..3 {
+            for n in &names {
+                s.push_str(&format!("Experience with {n} is required. "));
+            }
+        }
+        s
+    }
+
+    #[test]
+    fn salient_doc_terms_honors_limits_above_twelve() {
+        let jd = rich_jd();
+        let terms = salient_doc_terms(&jd, 16);
+        assert!(
+            terms.len() > 12,
+            "limit above MAX_TERMS must be honored, got {} terms: {terms:?}",
+            terms.len()
+        );
+        assert!(terms.len() <= 16, "{terms:?}");
+    }
+
+    #[test]
+    fn interviewer_terms_reaches_sixteen_on_a_rich_jd() {
+        let jd = rich_jd();
+        let terms = interviewer_terms(&jd, 16);
+        assert!(
+            terms.len() > 12,
+            "JD mining must not be silently capped at 12, got {}: {terms:?}",
+            terms.len()
+        );
+    }
+
+    #[test]
+    fn live_relevant_terms_still_caps_at_twelve() {
+        let jd = rich_jd();
+        let ctx = HighlightContext::from_doc_text(&jd);
+        let terms = relevant_terms(&jd, &ctx);
+        assert!(terms.len() <= 12, "live path cap regressed: {terms:?}");
     }
 }

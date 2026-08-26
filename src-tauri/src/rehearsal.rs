@@ -204,10 +204,12 @@ fn respond(
     let mut reply = String::new();
     let t0 = std::time::Instant::now();
     let mut first_ms: Option<u64> = None;
-    let result = crate::llm::stream_completion(
-        ctx.selection.provider,
+    // metered_stream records usage even on failure (partial tokens billed).
+    let result = crate::metering::metered_stream(
+        app,
+        "rehearsal_persona",
+        &ctx.selection,
         &ctx.llm_key,
-        &ctx.selection.model,
         &request,
         &mut |tok| {
             first_ms.get_or_insert_with(|| t0.elapsed().as_millis() as u64);
@@ -217,7 +219,6 @@ fn respond(
     );
     match result {
         Ok(usage) => {
-            crate::metering::record_llm(app, ctx.selection.provider, usage);
             let total_ms = t0.elapsed().as_millis() as u64;
             crate::trace::record(
                 "llm",

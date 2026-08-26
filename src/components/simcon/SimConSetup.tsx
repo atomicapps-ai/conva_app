@@ -66,11 +66,19 @@ export function SimConSetup({
       initial?.auto_generate_context ??
       researchDefault(initial?.category ?? "interview"),
   );
+  const [deepQa, setDeepQa] = useState(initial?.deep_qa_enabled ?? false);
 
   // Picking a type resets research to that type's default (user-overridable).
   const pickCategory = (c: SimConCategory) => {
     setCategory(c);
     setResearch(researchDefault(c));
+    setDeepQa(false);
+  };
+
+  // Deep Q&A depends on research being on — turning research off clears it.
+  const toggleResearch = (checked: boolean) => {
+    setResearch(checked);
+    if (!checked) setDeepQa(false);
   };
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -129,6 +137,7 @@ export function SimConSetup({
         source_doc_ids: selected,
         auto_generate_context: research,
         research_enabled: research,
+        deep_qa_enabled: deepQa,
         key_terms: keyTerms
           .split(/[\n,]/)
           .map((t) => t.trim())
@@ -273,7 +282,7 @@ export function SimConSetup({
               <input
                 type="checkbox"
                 checked={research}
-                onChange={(e) => setResearch(e.target.checked)}
+                onChange={(e) => toggleResearch(e.target.checked)}
               />
               Research the web for context
               <span className="text-fg-faint">
@@ -281,6 +290,27 @@ export function SimConSetup({
               </span>
             </label>
           </Section>
+          {category === "interview" && (
+            <Section
+              title="Deep interview Q&A research"
+              description="Ally searches the web broadly for common interview questions for this role and writes strong answers into your Context knowledge document — uses meaningfully more searches and tokens than standard research."
+            >
+              <label className="flex items-center gap-2 text-sm text-fg">
+                <input
+                  type="checkbox"
+                  checked={deepQa}
+                  disabled={!research}
+                  onChange={(e) => setDeepQa(e.target.checked)}
+                />
+                Research common interview questions + answers
+              </label>
+              {!research && (
+                <p className="mt-1 text-[11px] text-fg-faint">
+                  Needs "Let Ally research" enabled above.
+                </p>
+              )}
+            </Section>
+          )}
         </>
       )}
 
@@ -307,6 +337,12 @@ export function SimConSetup({
             <dd className="text-fg">{selected.length} attached</dd>
             <dt className="text-fg-faint">Web research</dt>
             <dd className="text-fg">{research ? "On" : "Off"}</dd>
+            {category === "interview" && (
+              <>
+                <dt className="text-fg-faint">Deep Q&A</dt>
+                <dd className="text-fg">{deepQa ? "On" : "Off"}</dd>
+              </>
+            )}
           </dl>
           <p className="mt-3 text-[12px] leading-relaxed text-fg-faint">
             Finishing saves this Sim Con. Building the knowledge base, generating

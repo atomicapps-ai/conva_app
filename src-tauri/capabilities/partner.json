@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "partner",
+  "description": "Partner window: core IPC + the window controls its custom title bar drives (drag, resize, minimize, close).",
+  "windows": ["partner"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-close",
+    "core:window:allow-inner-size",
+    "core:window:allow-scale-factor"
+  ]
+}

@@ -32,6 +32,8 @@ export type IconName =
   | "thumbDown"
   | "book"
   | "howto"
+  | "question"
+  | "target"
   | "elaborate"
   | "simicon"
   | "edit"
@@ -48,6 +50,8 @@ export type IconName =
   | "dragHandle"
   | "check"
   | "pin"
+  | "lock"
+  | "unlock"
   | "save"
   | "add"
   | "link"
@@ -271,6 +275,22 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M12 17h.01" />
     </>
   ),
+  // Questions section — a speech bubble carrying a question mark.
+  question: (
+    <>
+      <path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-4 3.5V17H6a2 2 0 0 1-2-2z" />
+      <path d="M10.2 8.6a2 2 0 0 1 3.8.7c0 1.3-1.9 1.5-1.9 2.7" />
+      <path d="M12.1 14.4h.01" />
+    </>
+  ),
+  // Tracking section — a target/crosshair (things being watched live).
+  target: (
+    <>
+      <circle cx="12" cy="12" r="7" />
+      <circle cx="12" cy="12" r="2.5" />
+      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+    </>
+  ),
   // Elaborate — expand outward (plus with radiating arrows).
   elaborate: (
     <>
@@ -329,6 +349,20 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M9 3h6l1 6-2 2h-6l-2-2 1-6z" />
       <path d="M12 17v5" />
+    </>
+  ),
+  // Lock — partner window follows the app (closed shackle).
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </>
+  ),
+  // Unlock — partner window floats free (open shackle).
+  unlock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 7.6-1.7" />
     </>
   ),
   // Save — a floppy disk, for committing the live/current state as a named

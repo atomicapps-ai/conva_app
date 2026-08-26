@@ -315,7 +315,7 @@ fn parse_result(side: StreamSide, text: &str, seq: u64) -> Option<TranscriptSegm
     Some(TranscriptSegment {
         side,
         seq,
-        text: transcript,
+        text: conva_core::asr::sanitize_transcript_text(&transcript),
         is_final,
         start_ms: (start_s * 1000.0) as u64,
         end_ms: ((start_s + duration_s) * 1000.0) as u64,

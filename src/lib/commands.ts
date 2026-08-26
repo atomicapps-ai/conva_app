@@ -18,6 +18,7 @@ import type {
   SimConSummary,
   IngestReport,
   ModelInfo,
+  PartnerPayload,
   ProviderId,
   ProviderInfo,
   ProviderKeyStatus,
@@ -289,12 +290,14 @@ export function conversationSave(
   title: string | null,
   segments: TranscriptSegment[],
   linkedDocs: string[],
+  contextId?: string | null,
 ): Promise<Conversation> {
   return invoke<Conversation>("conversation_save", {
     id,
     title,
     segments,
     linkedDocs,
+    contextId: contextId ?? null,
   });
 }
 
@@ -438,6 +441,21 @@ export function exportTranscript(
   return invoke("export_transcript", { path, segments });
 }
 
+/** Analyze a saved conversation's performance (category-aware, grounded
+ * in its linked context when one exists) — returns the report Markdown
+ * for the caller to save. */
+export function analyzeConversation(id: string): Promise<string> {
+  return invoke<string>("analyze_conversation", { id });
+}
+
+/** Write arbitrary text content to a caller-chosen path — the generic
+ * counterpart to `exportTranscript` for callers (like `analyzeConversation`'s
+ * downloader) that produce a string rather than building the file
+ * server-side. `path` comes from the native save dialog. */
+export function writeTextFile(path: string, content: string): Promise<void> {
+  return invoke("write_text_file", { path, content });
+}
+
 // --- Floating HUD panel (src-tauri/src/hud.rs) ------------------------------
 
 /** Open the floating HUD panel (or re-pin it if already open). */
@@ -458,4 +476,50 @@ export function toggleHud(): Promise<boolean> {
 /** Whether the floating HUD panel is currently open. */
 export function hudIsOpen(): Promise<boolean> {
   return invoke<boolean>("hud_is_open");
+}
+
+// --- Partner window (src-tauri/src/partner.rs) -------------------------------
+
+/** Open (or re-target) the partner window on a term. */
+export function openPartner(
+  term: string,
+  kind: string | null,
+  preview: string | null,
+  answer: string | null = null,
+  sourceLines: string[] = [],
+): Promise<void> {
+  return invoke("open_partner", {
+    term,
+    kind,
+    preview,
+    answer,
+    sourceLines,
+  });
+}
+
+/** Close and destroy the partner window. */
+export function closePartner(): Promise<void> {
+  return invoke("close_partner");
+}
+
+/** Snap the partner window back flush to the main window's right edge. */
+export function redockPartner(): Promise<void> {
+  return invoke("redock_partner");
+}
+
+/** The payload the partner view should render (read on partner-window boot). */
+export function getPartnerPayload(): Promise<PartnerPayload | null> {
+  return invoke<PartnerPayload | null>("get_partner_payload");
+}
+
+/** Lock (follow the main window, snapping flush to its right edge) or
+ *  unlock (float free) the partner window. Locking keeps the window's
+ *  current size — only position follows. */
+export function setPartnerLocked(locked: boolean): Promise<void> {
+  return invoke("set_partner_locked", { locked });
+}
+
+/** Whether the partner window is currently locked to the main window. */
+export function getPartnerLocked(): Promise<boolean> {
+  return invoke<boolean>("get_partner_locked");
 }

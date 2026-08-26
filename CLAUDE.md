@@ -126,6 +126,57 @@ swap a layer without asking the owner.**
    - Don't invent a third pattern (e.g. a persistent global breadcrumb trail)
      without updating this rule — one navigation model, consistently applied,
      beats two competing ones.
+10. **Live cockpit: conversation column is conversation text ONLY; everything
+    Ally lives in the right Ally panel — a SPINE-ICON ACCORDION.** (Owner,
+    2026-08-26 — supersedes the 2026-08-22 Found/View split + control-bar
+    Details/Terms tabs model, which itself superseded the 2026-08-17 dock.)
+    Ally answers never render in the transcript stream (V4.0's inline-cards
+    layout was explicitly reversed). The right `AllyPanel`
+    (`TranscriptView.tsx`) stacks FOUR sections in a FIXED order —
+    **Questions** (`question` icon; radar history) · **Tracking** (`target`;
+    commitments + mentions) · **Terms** (`book`; live + doc term chips,
+    azure dot = detected live, gold = doc) · **Answers** (`ally`, gold; the
+    cards the user selected or asked for, in click order, height-capped
+    with More/Less, each with fetch info / define / open-in-viewer /
+    remove). Each section's icon chip overlays the CENTER DIVIDER at that
+    section's top edge and slides with it as sections expand/collapse —
+    stacking order never changes. Exactly ONE content section is open
+    (exclusive accordion; `panelSections.ts` is the pure model —
+    `selectSection`/`togglePin`/`revealAnswers`, prefs
+    `conva.panel.openSection` + `conva.panel.answersPinned`). **Answers is
+    pinnable, default PINNED**: a bottom dock resized by the drag divider
+    (`conva.panel.splitRatio`); unpinned it becomes an ordinary fourth
+    accordion section, and every ask calls `revealAnswers` so a streaming
+    answer is never off-screen. The control bar has NO tabs anymore — in
+    drawer mode (<640px) it shows one right-edge Ally button that opens
+    the panel as an overlay drawer (same accordion inside). The **Ask
+    box** lives at the conversation column's foot (compact: h-8,
+    12px text) at EVERY width — never in the panel. Live summary is the
+    3-dot "Summarize the call" (lands in Answers); Grounding is a 3-dot
+    line; TrackerRail/AllyDock stay retired. The A−/A+ pref (3-dot menu)
+    scales ALL panel content, not just answer cards. **FANER inline
+    transcript marks are retired** (owner, 2026-08-26 — "keep FANER's
+    Highlighter, retire the inline live-transcript marks"):
+    `HighlightedText`'s clickable term underlines REMAIN, capture chips
+    remain in Terms, but no `FanerMark`-style inline capture underlines/
+    popovers in bubbles — don't reintroduce them. The **partner window**
+    (`src-tauri/src/partner.rs` + `PartnerWindow.tsx`, `?partner=1`) is a
+    real, ordinary OS window for one term's deep-dive — draggable custom
+    title bar, resizable, defaults docked flush to the app's right edge, ⇥
+    re-docks; gated on `capabilities().system.partnerWindow`. **It IS the
+    viewer** (owner, 2026-08-22 — an earlier round left "Open in viewer" on
+    answer cards pointing at an internal drawer left over from before the
+    partner-window spec; every "open in viewer" affordance — the card's
+    expand icon, its right-click menu, the meta panel's thread rows — must
+    route to `openThread` in `TranscriptView.tsx`, which opens the partner
+    window on desktop (`PartnerPayload.answer`/`source_lines` carry the
+    already-answered card so it's shown directly, no re-research) and falls
+    back to the internal drawer ONLY when `partnerWindow` is unsupported
+    (web). Don't reintroduce a second internal "viewer" surface on desktop.
+    Don't invent a second switching pattern for the panel either — the
+    spine-icon accordion IS the sanctioned pattern here, the way the rail
+    is for navigation; "section" in owner feedback means this exclusive
+    accordion, never on/off toggles or a tab strip.
 
 ## Build & run
 

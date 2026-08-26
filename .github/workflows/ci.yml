@@ -3,7 +3,10 @@ name: CI
 on:
   push:
     branches: [main, dev]
+  # `edited` included so fixing a PR title/body re-runs the hygiene checks
+  # below (they read the event payload, which a plain re-run keeps stale).
   pull_request:
+    types: [opened, edited, synchronize, reopened]
 
 jobs:
   version-check:

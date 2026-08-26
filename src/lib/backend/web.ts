@@ -211,6 +211,9 @@ export class WebBackend implements ConvaBackend {
     list: (): Promise<SessionSummary[]> => todo("GET /v1/sessions"),
     load: (): Promise<TranscriptSegment[]> => todo("GET /v1/sessions/:id"),
     exportTranscript: (): Promise<void> => unsupported("sessions.exportTranscript (file path)"),
+    analyzeConversation: (): Promise<string> =>
+      unsupported("sessions.analyzeConversation (desktop LLM analysis)"),
+    writeTextFile: (): Promise<void> => unsupported("sessions.writeTextFile (file path)"),
   };
 
   diagnostics = {
@@ -222,5 +225,14 @@ export class WebBackend implements ConvaBackend {
     close: (): Promise<void> => unsupported("hud.close"),
     toggle: (): Promise<boolean> => unsupported("hud.toggle"),
     isOpen: () => Promise.resolve(false),
+  };
+
+  partner = {
+    open: (): Promise<void> => unsupported("partner.open"),
+    close: (): Promise<void> => unsupported("partner.close"),
+    redock: (): Promise<void> => unsupported("partner.redock"),
+    payload: () => Promise.resolve(null),
+    setLocked: (): Promise<void> => Promise.resolve(),
+    locked: (): Promise<boolean> => Promise.resolve(false),
   };
 }

@@ -50,6 +50,9 @@ export interface Capabilities {
     keyring: boolean;
     updater: boolean;
     deepLink: boolean;
+    /** Partner window (`src-tauri/src/partner.rs`) — a browser tab can't
+     *  spawn a second OS window. */
+    partnerWindow: boolean;
   };
 }
 
@@ -73,6 +76,7 @@ export const DESKTOP_CAPABILITIES: Capabilities = {
     keyring: true,
     updater: true,
     deepLink: true,
+    partnerWindow: true,
   },
 };
 
@@ -93,5 +97,6 @@ export const WEB_CAPABILITIES: Capabilities = {
     keyring: false,
     updater: false,
     deepLink: false,
+    partnerWindow: false,
   },
 };

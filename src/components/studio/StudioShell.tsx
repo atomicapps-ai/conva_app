@@ -10,7 +10,7 @@ import { StatusBar } from "@/components/studio/StatusBar";
 import { ViewRouter } from "@/components/studio/ViewRouter";
 import { WindowChrome } from "@/components/studio/WindowChrome";
 import { Icon } from "@/components/ui/Icon";
-import { UpdateBanner } from "@/components/UpdateBanner";
+import { UpdateToast } from "@/components/UpdateToast";
 import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
 
@@ -69,7 +69,7 @@ export function StudioShell() {
   return (
     <div className="flex h-full flex-col">
       <WindowChrome />
-      <UpdateBanner />
+      <UpdateToast />
       {/* One continuous frame (V4.0's "file cabinet") — rail and content sit
           flush, joined by NavRail's own right border, not a gap between two
           floating cards. No padding/gap here: the window's own edges are the

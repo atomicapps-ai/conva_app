@@ -189,6 +189,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const [contexts, setContexts] = useState<SimConSummary[]>([]);
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  const [analyzing, setAnalyzing] = useState(false);
   const openId = useConversationStore((s) => s.openId);
   const title = useConversationStore((s) => s.title);
   const notice = useConversationStore((s) => s.notice);
@@ -402,6 +403,32 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // Analytical performance report (spec 2026-08-26, Part B) — a distinct,
+  // explicitly-requested LLM call, unlike the free instant transcript
+  // export above. Same native save-dialog flow as `exportShown`:
+  // `analyzeConversation` returns Markdown text (it doesn't write a file
+  // itself, unlike `exportTranscript`), so it's written via the generic
+  // `sessions.writeTextFile` counterpart to the caller-chosen path.
+  const analyzeAndDownload = async () => {
+    if (!openId) return;
+    setAnalyzing(true);
+    try {
+      const report = await backend.sessions.analyzeConversation(openId);
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({
+        defaultPath: "conva-analysis.md",
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+      });
+      if (!path) return;
+      await backend.sessions.writeTextFile(path, report);
+      setNotice(`Analysis saved to ${path}`);
+    } catch (e) {
+      setNotice(String(e));
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   // Merge + interleave by time for "All activity"; "Saved" stays exactly the
   // original conversations-only list/order.
   const rows: Row[] =
@@ -438,6 +465,16 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
             className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
           >
             <Icon name="download" size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={() => void analyzeAndDownload()}
+            disabled={analyzing || !openId}
+            title="Analyze performance & download…"
+            aria-label="Analyze performance and download"
+            className="rounded-sm p-1.5 text-ai transition hover:bg-ai/10 disabled:opacity-40"
+          >
+            <Icon name={analyzing ? "sparkle" : "ally"} size={16} />
           </button>
           <button
             type="button"

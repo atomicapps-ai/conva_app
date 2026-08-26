@@ -54,11 +54,19 @@ export function SimConDetail({
   const docName = (docId: string) =>
     docs.find((d) => d.id === docId)?.file_name ?? docId;
 
-  // ── Ally prep dossier ─────────────────────────────────────────────────────
+  // ── Ally documents ────────────────────────────────────────────────────────
   const dossierId = session?.dossier_doc_id ?? null;
   const [dossierBusy, setDossierBusy] = useState(false);
   const [dossierText, setDossierText] = useState<string | null>(null);
   const [showDossier, setShowDossier] = useState(false);
+
+  const researchDocId = session?.research_doc_id ?? null;
+  const [researchText, setResearchText] = useState<string | null>(null);
+  const [showResearch, setShowResearch] = useState(false);
+
+  const qaDocId = session?.qa_doc_id ?? null;
+  const [qaText, setQaText] = useState<string | null>(null);
+  const [showQa, setShowQa] = useState(false);
 
   const generateDossier = async () => {
     setDossierBusy(true);
@@ -72,6 +80,23 @@ export function SimConDetail({
         setDossierText(
           (await backend.rag.documentText(updated.dossier_doc_id)) ?? "",
         );
+      }
+      // Refresh (or clear) the research findings so a regenerate shows the
+      // new document immediately.
+      if (updated.research_doc_id) {
+        setResearchText(
+          (await backend.rag.documentText(updated.research_doc_id)) ?? "",
+        );
+      } else {
+        setResearchText(null);
+      }
+      // Refresh (or clear) the Interview Q&A document too.
+      if (updated.qa_doc_id) {
+        setQaText(
+          (await backend.rag.documentText(updated.qa_doc_id)) ?? "",
+        );
+      } else {
+        setQaText(null);
       }
       // Refresh the knowledge base doc list — non-fatal if it fails.
       if (updated.knowledge_profile_id) {
@@ -98,6 +123,22 @@ export function SimConDetail({
     setShowDossier(next);
     if (next && dossierText === null && dossierId) {
       setDossierText((await backend.rag.documentText(dossierId)) ?? "");
+    }
+  };
+
+  const toggleResearch = async () => {
+    const next = !showResearch;
+    setShowResearch(next);
+    if (next && researchText === null && researchDocId) {
+      setResearchText((await backend.rag.documentText(researchDocId)) ?? "");
+    }
+  };
+
+  const toggleQa = async () => {
+    const next = !showQa;
+    setShowQa(next);
+    if (next && qaText === null && qaDocId) {
+      setQaText((await backend.rag.documentText(qaDocId)) ?? "");
     }
   };
 
@@ -270,12 +311,13 @@ export function SimConDetail({
           </p>
         ) : (
           <div className="flex flex-col gap-3">
-            {/* Ally prep dossier — a document Ally writes from the material. */}
+            {/* Ally documents — the documents Ally writes from the material. */}
             <div className="rounded-lg border border-ai/30 bg-ai/[0.06] p-3">
+              {/* Row 1 — Context knowledge (Stage 1) */}
               <div className="flex items-center gap-2">
                 <Icon name="simicon" size={15} className="shrink-0 text-ai" />
                 <span className="text-[12px] font-semibold text-fg">
-                  Ally prep document
+                  Context knowledge
                 </span>
                 <div className="flex-1" />
                 {dossierId && (
@@ -301,10 +343,17 @@ export function SimConDetail({
                 </button>
               </div>
               <p className="mt-1 text-[11px] leading-relaxed text-fg-faint">
-                Ally reads your documents + research and writes a briefing (likely
-                questions, talking points, background). Saved to your Library and
-                used to ground the rehearsal.
+                Stage 1 — Ally reads the role, job description, and your
+                documents together and writes a structured knowledge document
+                (role profile, core vocabulary, likely Q&A). Saved to your
+                Library and indexed for grounding.
               </p>
+              {session?.resources_stale && (
+                <p className="mt-1 text-[11px] font-semibold text-ai">
+                  Inputs changed since this was generated — Regenerate to
+                  refresh.
+                </p>
+              )}
               {dossierId && showDossier && (
                 <pre className="mt-2 max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg/50 p-2.5 text-[12px] leading-relaxed text-fg-muted">
                   {dossierText === null
@@ -314,12 +363,86 @@ export function SimConDetail({
                       : dossierText}
                 </pre>
               )}
+
+              {/* Row 2 — Research findings (Stage 2) */}
+              <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
+                <Icon name="search" size={15} className="shrink-0 text-ai" />
+                <span className="text-[12px] font-semibold text-fg">
+                  Research findings
+                </span>
+                <div className="flex-1" />
+                {researchDocId && (
+                  <button
+                    type="button"
+                    onClick={() => void toggleResearch()}
+                    className="rounded-sm px-2 py-0.5 text-[11px] font-semibold text-ai hover:bg-ai/10"
+                  >
+                    {showResearch ? "Hide" : "View"}
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-fg-faint">
+                {session?.research_enabled
+                  ? researchDocId
+                    ? "Stage 2 — what Ally found on the web for this context, with sources cited. Regenerating resources refreshes it."
+                    : "Stage 2 — runs with Generate when web research is enabled (needs a search key in Settings)."
+                  : "Web research is off for this context — enable it in Edit setup to generate findings."}
+              </p>
+              {researchDocId && showResearch && (
+                <pre className="mt-2 max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg/50 p-2.5 text-[12px] leading-relaxed text-fg-muted">
+                  {researchText === null
+                    ? "Loading…"
+                    : researchText.trim() === ""
+                      ? "(No content returned — try Regenerate.)"
+                      : researchText}
+                </pre>
+              )}
+
+              {/* Row 3 — Interview Q&A (Stage 3, interview category only) */}
+              {session?.category === "interview" && (
+                <>
+                  <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
+                    <Icon name="question" size={15} className="shrink-0 text-ai" />
+                    <span className="text-[12px] font-semibold text-fg">
+                      Interview Q&A
+                    </span>
+                    <div className="flex-1" />
+                    {qaDocId && (
+                      <button
+                        type="button"
+                        onClick={() => void toggleQa()}
+                        className="rounded-sm px-2 py-0.5 text-[11px] font-semibold text-ai hover:bg-ai/10"
+                      >
+                        {showQa ? "Hide" : "View"}
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-fg-faint">
+                    {qaDocId
+                      ? "Common interview questions Ally found online, with strong answers."
+                      : session?.deep_qa_enabled
+                        ? "Runs with Generate — deep Q&A research is on for this context."
+                        : 'Turn on "Deep interview Q&A research" in Edit setup to generate this.'}
+                  </p>
+                  {qaDocId && showQa && (
+                    <pre className="mt-2 max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg/50 p-2.5 text-[12px] leading-relaxed text-fg-muted">
+                      {qaText === null
+                        ? "Loading…"
+                        : qaText.trim() === ""
+                          ? "(No content returned — try Regenerate.)"
+                          : qaText}
+                    </pre>
+                  )}
+                </>
+              )}
             </div>
 
-            {/* Attached documents (these live in your Library too). The dossier
-                is shown above, so it's excluded here. */}
+            {/* Attached documents (these live in your Library too). The generated
+                Ally documents are shown above, so they're excluded here. */}
             {(() => {
-              const attached = profile.doc_ids.filter((d) => d !== dossierId);
+              const attached = profile.doc_ids.filter(
+                (d) => d !== dossierId && d !== researchDocId && d !== qaDocId,
+              );
               return (
                 <div>
                   <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">

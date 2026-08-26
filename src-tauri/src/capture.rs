@@ -104,30 +104,29 @@ fn run_pass(
 
     let mut reply = String::new();
     let t0 = Instant::now();
-    let result = crate::llm::stream_completion(
-        selection.provider,
+    // metered_stream records usage even on failure (partial tokens billed).
+    let result = crate::metering::metered_stream(
+        app,
+        "capture",
+        selection,
         api_key,
-        &selection.model,
         &request,
         &mut |token| reply.push_str(token),
     );
-    match result {
-        Ok(usage) => {
-            crate::metering::record_llm(app, selection.provider, usage);
-            crate::trace::record(
-                "llm",
-                t0.elapsed().as_millis() as u64,
-                serde_json::json!({
-                    "kind": "capture",
-                    "provider": crate::trace::provider_label(selection.provider),
-                    "model": selection.model.clone(),
-                    "in": usage.input_tokens,
-                    "out": usage.output_tokens,
-                }),
-            );
-        }
-        Err(_) => return, // best-effort: skip this pass
-    }
+    let Ok(usage) = result else {
+        return; // best-effort: skip this pass
+    };
+    crate::trace::record(
+        "llm",
+        t0.elapsed().as_millis() as u64,
+        serde_json::json!({
+            "kind": "capture",
+            "provider": crate::trace::provider_label(selection.provider),
+            "model": selection.model.clone(),
+            "in": usage.input_tokens,
+            "out": usage.output_tokens,
+        }),
+    );
     let Some(extraction) = parse_capture_reply(&reply) else {
         return;
     };
@@ -174,6 +173,7 @@ impl ReplayLine {
 /// fast-slot model, exactly as the live worker does.
 #[tauri::command]
 pub async fn faner_replay(
+    app: AppHandle,
     state: State<'_, AppState>,
     role: String,
     terms: Vec<String>,
@@ -193,10 +193,13 @@ pub async fn faner_replay(
 
     tauri::async_runtime::spawn_blocking(move || {
         let mut reply = String::new();
-        crate::llm::stream_completion(
-            selection.provider,
+        // The replay is a dev/eval path but still spends real tokens — meter
+        // it under its own feature label so it never muddies live features.
+        crate::metering::metered_stream(
+            &app,
+            "faner_replay",
+            &selection,
             &key,
-            &selection.model,
             &request,
             &mut |token| reply.push_str(token),
         )

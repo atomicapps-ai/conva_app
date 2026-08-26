@@ -137,6 +137,8 @@ export class TauriBackend implements ConvaBackend {
     list: cmd.sessionList,
     load: cmd.sessionLoad,
     exportTranscript: cmd.exportTranscript,
+    analyzeConversation: cmd.analyzeConversation,
+    writeTextFile: cmd.writeTextFile,
   };
 
   diagnostics = {
@@ -148,5 +150,14 @@ export class TauriBackend implements ConvaBackend {
     close: cmd.closeHud,
     toggle: cmd.toggleHud,
     isOpen: cmd.hudIsOpen,
+  };
+
+  partner = {
+    open: cmd.openPartner,
+    close: cmd.closePartner,
+    redock: cmd.redockPartner,
+    payload: cmd.getPartnerPayload,
+    setLocked: cmd.setPartnerLocked,
+    locked: cmd.getPartnerLocked,
   };
 }
