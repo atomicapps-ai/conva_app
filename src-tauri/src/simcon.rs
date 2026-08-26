@@ -102,6 +102,7 @@ specific is active."
             chosen_persona_id: None,
             conversation_id: None,
             dossier_doc_id: Some(doc_id),
+            research_doc_id: None,
             resources_stale: false,
         },
     )?;
@@ -292,7 +293,7 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<SimConSession, CoreError> {
     // Web research runs when enabled for this context (defaults from the type
     // template — decision 2). The legacy auto-generate flag still opts in.
     let research = if session.research_enabled || session.auto_generate_context {
-        match research(&session) {
+        match research(&session, &[]) {
             Ok((sources, searches)) => {
                 // Tavily bills per search — record what we actually issued.
                 crate::metering::record_tavily_search(app, searches);
@@ -325,8 +326,8 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<SimConSession, CoreError> {
 const TAVILY_KEYRING_SERVICE: &str = "conva";
 const TAVILY_KEYRING_USER: &str = "api-key-tavily";
 /// Hard budget so research can never run slow or expensive (SDLC/owner ask).
-const RESEARCH_MAX_QUERIES: usize = 4;
-const RESEARCH_MAX_SOURCES: usize = 8;
+const RESEARCH_MAX_QUERIES: usize = 6;
+const RESEARCH_MAX_SOURCES: usize = 12;
 
 pub fn store_tavily_key(key: &str) -> Result<(), CoreError> {
     let entry = keyring::Entry::new(TAVILY_KEYRING_SERVICE, TAVILY_KEYRING_USER)
@@ -350,46 +351,21 @@ pub fn load_tavily_key() -> Option<String> {
         .ok()
 }
 
-/// The bounded query set for a Sim Con — from its topic, type, goal, and (for
-/// interviews) the job description. Capped at [`RESEARCH_MAX_QUERIES`].
-fn research_queries(session: &SimConSession) -> Vec<String> {
-    let topic = if session.title.trim().is_empty() {
-        session.category.label().to_string()
-    } else {
-        session.title.trim().to_string()
-    };
-    let mut q = vec![
-        format!("{topic} common questions"),
-        format!("how to prepare for a {}", session.category.label()),
-    ];
-    if !session.purpose.trim().is_empty() {
-        q.push(session.purpose.trim().chars().take(120).collect());
-    }
-    if let Some(jd) = &session.job_description {
-        let jd = jd.trim();
-        if !jd.is_empty() {
-            q.push(format!(
-                "interview questions for role: {}",
-                jd.chars().take(120).collect::<String>()
-            ));
-        }
-    }
-    q.truncate(RESEARCH_MAX_QUERIES);
-    q
-}
-
 /// Bounded autonomous web research (Step 2) via Tavily. Returns the sources to
 /// fold into the KnowledgeProfile plus the number of Tavily searches issued
 /// (each is one billed search — the caller records it for usage metering). No
 /// key configured → returns empty (the profile is docs-only). Failures per query
 /// are skipped, never fatal. Runs on a command thread, never the UI path.
-fn research(session: &SimConSession) -> Result<(Vec<ResearchSource>, u64), CoreError> {
+pub(crate) fn research(
+    session: &SimConSession,
+    vocabulary: &[String],
+) -> Result<(Vec<ResearchSource>, u64), CoreError> {
     let Some(key) = load_tavily_key() else {
         return Ok((Vec::new(), 0));
     };
     let mut out: Vec<ResearchSource> = Vec::new();
     let mut searches: u64 = 0;
-    for query in research_queries(session) {
+    for query in conva_core::simcon::research_queries(session, vocabulary, RESEARCH_MAX_QUERIES) {
         if out.len() >= RESEARCH_MAX_SOURCES {
             break;
         }
@@ -433,7 +409,9 @@ fn research(session: &SimConSession) -> Result<(Vec<ResearchSource>, u64), CoreE
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .chars()
-                    .take(500)
+                    // Tavily's content excerpt — the findings synthesis
+                    // needs more than a headline.
+                    .take(1_200)
                     .collect(),
                 fetched_at_unix_ms: now_unix_ms(),
             });

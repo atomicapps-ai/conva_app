@@ -996,10 +996,13 @@ fn simcon_load_profile(app: AppHandle, profile_id: String) -> Result<KnowledgePr
     simcon::load_profile(&app, &profile_id).map_err(|e| e.to_string())
 }
 
-/// Generate an **Ally prep dossier**: synthesize the Sim Con's documents + web
-/// research into a Markdown briefing, save it to the library (so it's viewable +
-/// reusable + grounds future answers), and attach it to the knowledge profile.
-/// Regenerating replaces the previous dossier. Returns the updated session.
+/// Generate Ally's grounding documents — the two-stage pipeline (spec
+/// 2026-08-26). Stage 1 synthesizes the Sim Con's documents + role/JD into a
+/// **Context knowledge** briefing; Stage 2 (when research is enabled) runs
+/// vocabulary-seeded web research and writes a cited **Research findings**
+/// document. Both land in the library (viewable + reusable + grounding future
+/// answers) and attach to the knowledge profile. Regenerating replaces the
+/// previous documents. Returns the updated session.
 #[tauri::command]
 fn simcon_generate_dossier(
     app: AppHandle,
@@ -1034,7 +1037,7 @@ fn simcon_generate_dossier(
         .llm_quality
         .clone();
     let key = resolve_key(selection.provider)?;
-    let request = conva_core::simcon::dossier_prompt(&session, &profile.research, &chunks, 2500);
+    let request = conva_core::simcon::knowledge_prompt(&session, &profile.research, &chunks, 3000);
     let mut buf = String::new();
     let usage = llm::stream_completion(
         selection.provider,
@@ -1058,7 +1061,7 @@ fn simcon_generate_dossier(
 
     // Generated (not pasted) content, tagged to this context — the library's
     // "By conva" badge/filter (Conversation Context UI, organized library).
-    let name = format!("{} — Ally prep", session.title.trim());
+    let name = format!("{} — Context knowledge", session.title.trim());
     let report = state
         .rag
         .ingest_generated(&name, &text, &session.id)
@@ -1068,8 +1071,6 @@ fn simcon_generate_dossier(
     if !profile.doc_ids.contains(&doc_id) {
         profile.doc_ids.push(doc_id.clone());
     }
-    profile.updated_at_unix_ms = session::now_unix_ms();
-    simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
     session.dossier_doc_id = Some(doc_id);
     // Harvest the digest's glossary into structured context terms (Phase 3c) so
@@ -1086,6 +1087,54 @@ fn simcon_generate_dossier(
     );
     // A fresh digest by definition reflects the current inputs.
     session.resources_stale = false;
+
+    // ── Stage 2: web research → Research findings document (spec
+    // 2026-08-26). Queries are seeded by Stage 1's vocabulary; failures or
+    // missing key skip the stage cleanly (Stage 1's document stands).
+    if session.research_enabled {
+        let vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
+        if let Ok((sources, searches)) = simcon::research(&session, &vocab) {
+            metering::record_tavily_search(&app, searches);
+            if !sources.is_empty() {
+                profile.research = sources.clone();
+                let request = conva_core::simcon::research_findings_prompt(&session, &sources);
+                let mut fbuf = String::new();
+                let fusage = llm::stream_completion(
+                    selection.provider,
+                    &key,
+                    &selection.model,
+                    &request,
+                    &mut |t| fbuf.push_str(t),
+                );
+                if let Ok(fusage) = fusage {
+                    metering::record_llm(&app, selection.provider, fusage);
+                    let ftext = fbuf.trim().to_string();
+                    if !ftext.is_empty() {
+                        // Replace any previous findings doc — no pile-up.
+                        if let Some(old) = session.research_doc_id.take() {
+                            let _ = state.rag.delete(&old);
+                            profile.doc_ids.retain(|d| d != &old);
+                        }
+                        let fname = format!("{} — Research findings", session.title.trim());
+                        if let Ok(freport) = state.rag.ingest_generated(&fname, &ftext, &session.id)
+                        {
+                            let fdoc_id = freport.document.id.clone();
+                            if !profile.doc_ids.contains(&fdoc_id) {
+                                profile.doc_ids.push(fdoc_id.clone());
+                            }
+                            session.research_doc_id = Some(fdoc_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // One profile save covers both stages (Stage 1's document + Stage 2's
+    // research and findings doc, when they ran).
+    profile.updated_at_unix_ms = session::now_unix_ms();
+    simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
+
     simcon::save(&app, session).map_err(|e| e.to_string())
 }
 
