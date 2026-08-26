@@ -213,6 +213,7 @@ export class WebBackend implements ConvaBackend {
     exportTranscript: (): Promise<void> => unsupported("sessions.exportTranscript (file path)"),
     analyzeConversation: (): Promise<string> =>
       unsupported("sessions.analyzeConversation (desktop LLM analysis)"),
+    writeTextFile: (): Promise<void> => unsupported("sessions.writeTextFile (file path)"),
   };
 
   diagnostics = {

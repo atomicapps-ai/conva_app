@@ -405,28 +405,23 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
 
   // Analytical performance report (spec 2026-08-26, Part B) — a distinct,
   // explicitly-requested LLM call, unlike the free instant transcript
-  // export above. `analyzeConversation` returns Markdown text rather than
-  // writing a file itself (unlike `exportTranscript`, which takes a path and
-  // writes server-side), and this app has no `@tauri-apps/plugin-fs`
-  // dependency to write an arbitrary string to a caller-chosen path from the
-  // frontend — adding one would mean touching package.json/Cargo.toml/
-  // capabilities, outside this change's scope. A Blob + anchor-download
-  // needs no new dependency and matches the button's own name.
+  // export above. Same native save-dialog flow as `exportShown`:
+  // `analyzeConversation` returns Markdown text (it doesn't write a file
+  // itself, unlike `exportTranscript`), so it's written via the generic
+  // `sessions.writeTextFile` counterpart to the caller-chosen path.
   const analyzeAndDownload = async () => {
     if (!openId) return;
     setAnalyzing(true);
     try {
       const report = await backend.sessions.analyzeConversation(openId);
-      const url = URL.createObjectURL(new Blob([report], { type: "text/markdown" }));
-      try {
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "conva-analysis.md";
-        a.click();
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-      setNotice("Analysis downloaded.");
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const path = await save({
+        defaultPath: "conva-analysis.md",
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+      });
+      if (!path) return;
+      await backend.sessions.writeTextFile(path, report);
+      setNotice(`Analysis saved to ${path}`);
     } catch (e) {
       setNotice(String(e));
     } finally {

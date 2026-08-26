@@ -448,6 +448,14 @@ export function analyzeConversation(id: string): Promise<string> {
   return invoke<string>("analyze_conversation", { id });
 }
 
+/** Write arbitrary text content to a caller-chosen path — the generic
+ * counterpart to `exportTranscript` for callers (like `analyzeConversation`'s
+ * downloader) that produce a string rather than building the file
+ * server-side. `path` comes from the native save dialog. */
+export function writeTextFile(path: string, content: string): Promise<void> {
+  return invoke("write_text_file", { path, content });
+}
+
 // --- Floating HUD panel (src-tauri/src/hud.rs) ------------------------------
 
 /** Open the floating HUD panel (or re-pin it if already open). */

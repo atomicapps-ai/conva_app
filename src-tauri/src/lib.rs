@@ -259,6 +259,16 @@ fn export_transcript(path: String, segments: Vec<TranscriptSegment>) -> Result<(
     fs::write(&path, out).map_err(|e| e.to_string())
 }
 
+/// Write arbitrary text content to a caller-chosen path — the generic
+/// counterpart to `export_transcript` for callers (like
+/// `analyze_conversation`'s downloader) that produce a string rather than
+/// building the file server-side. The UI obtains `path` from the native
+/// save dialog, same as every other export action.
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    fs::write(&path, content).map_err(|e| e.to_string())
+}
+
 /// Analyze a saved conversation's performance (spec 2026-08-26, part B) —
 /// category-aware, grounded in its linked context's job description and
 /// vocabulary when one exists (best-effort: a missing/deleted context
@@ -2019,6 +2029,7 @@ pub fn run() {
             session_list,
             session_load,
             export_transcript,
+            write_text_file,
             analyze_conversation,
             conversation_save,
             conversation_list,

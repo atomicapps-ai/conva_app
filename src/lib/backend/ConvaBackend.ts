@@ -236,6 +236,11 @@ export interface ConvaBackend {
      *  returns the report Markdown for the caller to save. Desktop-only for
      *  now (an LLM call metered the same as any other Ask). */
     analyzeConversation(id: string): Promise<string>;
+    /** Desktop-only: write arbitrary text content to a path (the generic
+     *  counterpart to `exportTranscript` for callers that produce a string
+     *  rather than building the file server-side, e.g. `analyzeConversation`'s
+     *  downloader). */
+    writeTextFile(path: string, content: string): Promise<void>;
   };
 
   /** Diagnostics. */
