@@ -97,6 +97,7 @@ specific is active."
             research_enabled: false,
             key_terms: Vec::new(),
             glossary: extract_glossary(DEFAULT_DIGEST_TEXT),
+            glossary_definitions: std::collections::BTreeMap::new(),
             knowledge_profile_id: Some(profile_id),
             personas: Vec::new(),
             chosen_persona_id: None,
