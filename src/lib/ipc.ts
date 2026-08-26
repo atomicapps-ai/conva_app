@@ -333,6 +333,10 @@ export interface SimConSession {
   key_terms?: string[];
   /** Glossary terms extracted from the generated digest (backend-derived). */
   glossary?: string[];
+  /** Definition text captured alongside each surviving glossary term
+   * (keyed by the exact term string in `glossary`) — empty/absent for
+   * terms mined without a written definition. */
+  glossary_definitions?: Record<string, string>;
   knowledge_profile_id: string | null;
   personas: SimConPersona[];
   chosen_persona_id: string | null;

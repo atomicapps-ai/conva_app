@@ -175,6 +175,15 @@ pub struct SimConSession {
     /// context-aware highlighting.
     #[serde(default)]
     pub glossary: Vec<String>,
+    /// The definition text captured alongside each surviving glossary term
+    /// (spec 2026-08-26, cached term definitions) — keyed by the exact term
+    /// string as it appears in [`glossary`](Self::glossary) (both derive
+    /// from the same sanitized extraction, so lookup is an exact match).
+    /// Empty for terms mined without a written definition (heuristic
+    /// per-document mining, JD mining) — those still fall back to a live
+    /// Ally lookup on Define.
+    #[serde(default)]
+    pub glossary_definitions: std::collections::BTreeMap<String, String>,
     /// The knowledge profile driving this session (reusable; referenced by id).
     #[serde(default)]
     pub knowledge_profile_id: Option<String>,
@@ -893,6 +902,7 @@ mod tests {
             research_enabled: true,
             key_terms: vec![],
             glossary: vec![],
+            glossary_definitions: std::collections::BTreeMap::new(),
             knowledge_profile_id: None,
             personas: vec![],
             chosen_persona_id: None,
@@ -1082,6 +1092,7 @@ mod tests {
             research_enabled: true,
             key_terms: vec!["GAAP".into()],
             glossary: vec!["EKS".into()],
+            glossary_definitions: std::collections::BTreeMap::new(),
             knowledge_profile_id: Some("kp-1".into()),
             personas: Vec::new(),
             chosen_persona_id: None,
