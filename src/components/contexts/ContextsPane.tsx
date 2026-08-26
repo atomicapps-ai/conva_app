@@ -2,13 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { readinessOf } from "@/components/contexts/readiness";
+import { rowStatus } from "@/components/contexts/rowStatus";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import {
   DEFAULT_CONTEXT_ID,
   type RagDocument,
   type SimConCategory,
-  type SimConStatus,
   type SimConSummary,
 } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
@@ -18,25 +18,6 @@ const CATEGORY_LABEL: Record<SimConCategory, string> = {
   company_meeting: "Company meeting",
   sales_call: "Sales call",
   other: "Other",
-};
-
-const STATUS_LABEL: Record<SimConStatus, string> = {
-  draft: "Draft",
-  ingesting: "Preparing…",
-  ready: "Ready",
-  running: "Running",
-  ended: "Ended",
-};
-
-// Maps each session status to a shared `.pill-*` modifier (globals.css) —
-// draft/ended read as idle (neutral), ready is the one true "state" pill,
-// ingesting/running are transient chrome (azure), not a voice/state colour.
-const STATUS_TONE: Record<SimConStatus, string> = {
-  draft: "pill-idle",
-  ingesting: "pill-accent",
-  ready: "pill-ready",
-  running: "pill-accent",
-  ended: "pill-idle",
 };
 
 /** One checklist line — a check, or an advisory warning (never blocks). */
@@ -61,10 +42,13 @@ function ChecklistLine({ ok, label, advisory }: { ok: boolean; label: string; ad
 function RowMenu({
   title,
   onEdit,
+  onRegenerate,
   onDelete,
 }: {
   title: string;
   onEdit: () => void;
+  /** null = hide the item (e.g. while readiness blocks generation). */
+  onRegenerate: (() => void) | null;
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
@@ -118,6 +102,20 @@ function RowMenu({
             <Icon name="edit" size={13} className="text-fg-muted" />
             Edit setup
           </button>
+          {onRegenerate && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(null);
+                onRegenerate();
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-panel-raised/70"
+            >
+              <Icon name="sparkle" size={13} className="text-fg-muted" />
+              Regenerate resources
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"
@@ -289,6 +287,7 @@ export function ContextsPane({
         <ul className="min-h-0 flex-1 overflow-y-auto">
           {items.map((s) => {
             const readiness = readinessOf(s);
+            const status = rowStatus(s);
             const isGenerating = generatingId === s.id;
             // The always-present default: not editable or deletable —
             // system-managed until the community/LLM evolution owns it.
@@ -366,8 +365,15 @@ export function ContextsPane({
                       {CATEGORY_LABEL[s.category]}
                     </span>
                   )}
-                  <span className={`pill pill-sm shrink-0 ${STATUS_TONE[s.status]}`}>
-                    {isGenerating ? "Generating…" : STATUS_LABEL[s.status]}
+                  <span
+                    className={`pill pill-sm shrink-0 ${status.tone}`}
+                    title={
+                      status.label === "Stale"
+                        ? "Inputs changed since resources were generated — regenerate"
+                        : undefined
+                    }
+                  >
+                    {isGenerating ? "Generating…" : status.label}
                   </span>
                 </div>
 
@@ -398,6 +404,11 @@ export function ContextsPane({
                       <RowMenu
                         title={s.title}
                         onEdit={() => onEdit(s.id)}
+                        onRegenerate={
+                          readiness.canGenerate && !isGenerating
+                            ? () => onGenerate(s.id)
+                            : null
+                        }
                         onDelete={() => onDelete(s.id)}
                       />
                     </>

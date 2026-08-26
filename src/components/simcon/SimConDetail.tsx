@@ -305,6 +305,12 @@ export function SimConDetail({
                 questions, talking points, background). Saved to your Library and
                 used to ground the rehearsal.
               </p>
+              {session?.resources_stale && (
+                <p className="mt-1 text-[11px] font-semibold text-ai">
+                  Inputs changed since this was generated — Regenerate to
+                  refresh.
+                </p>
+              )}
               {dossierId && showDossier && (
                 <pre className="mt-2 max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg/50 p-2.5 text-[12px] leading-relaxed text-fg-muted">
                   {dossierText === null
