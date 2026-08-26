@@ -175,6 +175,15 @@ pub struct SimConSession {
     /// context-aware highlighting.
     #[serde(default)]
     pub glossary: Vec<String>,
+    /// The definition text captured alongside each surviving glossary term
+    /// (spec 2026-08-26, cached term definitions) — keyed by the exact term
+    /// string as it appears in [`glossary`](Self::glossary) (both derive
+    /// from the same sanitized extraction, so lookup is an exact match).
+    /// Empty for terms mined without a written definition (heuristic
+    /// per-document mining, JD mining) — those still fall back to a live
+    /// Ally lookup on Define.
+    #[serde(default)]
+    pub glossary_definitions: std::collections::BTreeMap<String, String>,
     /// The knowledge profile driving this session (reusable; referenced by id).
     #[serde(default)]
     pub knowledge_profile_id: Option<String>,
@@ -191,6 +200,17 @@ pub struct SimConSession {
     /// generated (also included in the profile's `doc_ids` so it grounds too).
     #[serde(default)]
     pub dossier_doc_id: Option<String>,
+    /// The `RagDocument` id of the Stage-2 **Research findings** document,
+    /// if one has been generated (also in the profile's `doc_ids`).
+    /// Replaced on regeneration, like the knowledge document.
+    #[serde(default)]
+    pub research_doc_id: Option<String>,
+    /// True when a grounding input (documents, job description, key terms,
+    /// research toggle) changed after resources were generated — the digest/
+    /// glossary no longer reflect the inputs. Set by the shell's save paths,
+    /// cleared by a successful dossier regeneration.
+    #[serde(default)]
+    pub resources_stale: bool,
 }
 
 /// Catalog entry for the SimCon list view (cheap to list without loading the
@@ -220,6 +240,9 @@ pub struct SimConSummary {
     /// Whether the Context Digest has been generated at least once.
     #[serde(default)]
     pub has_generated_resources: bool,
+    /// Mirrors [`SimConSession::resources_stale`] for the list row's pill.
+    #[serde(default)]
+    pub resources_stale: bool,
 }
 
 impl SimConCategory {
@@ -258,10 +281,10 @@ impl SimConCategory {
                     },
                 ],
                 digest_sections: &[
-                    "Likely questions",
-                    "Glossary",
-                    "Role & company background",
-                    "Your talking points",
+                    "Role profile",
+                    "Core vocabulary",
+                    "Likely questions & strong answers",
+                    "Facts & figures",
                 ],
                 default_research_enabled: true,
             },
@@ -284,7 +307,7 @@ impl SimConCategory {
                         multiple: true,
                     },
                 ],
-                digest_sections: &["Key figures", "Glossary", "Likely discussion points"],
+                digest_sections: &["Key figures", "Core vocabulary", "Likely discussion points"],
                 default_research_enabled: false,
             },
             SimConCategory::SalesCall => ConversationTemplate {
@@ -294,11 +317,11 @@ impl SimConCategory {
                     label: "Prospect / account docs",
                     multiple: true,
                 }],
-                // Glossary included so sales contexts harvest highlight terms
-                // like every other category (extract_glossary reads it).
+                // Core vocabulary included so sales contexts harvest highlight
+                // terms like every other category (extract_glossary reads it).
                 digest_sections: &[
                     "Company background",
-                    "Glossary",
+                    "Core vocabulary",
                     "Objections",
                     "Talking points",
                 ],
@@ -311,7 +334,7 @@ impl SimConCategory {
                     label: "Files",
                     multiple: true,
                 }],
-                digest_sections: &["Glossary", "Summary", "Likely questions"],
+                digest_sections: &["Core vocabulary", "Summary", "Likely questions"],
                 default_research_enabled: false,
             },
         }
@@ -513,18 +536,21 @@ first line, in character.\n",
 
 // ── Prep dossier — Ally-authored briefing document ──────────────────────────
 
-/// Reference budget for the dossier prompt (docs + research it synthesizes).
+/// Reference budget for the knowledge prompt (docs + research it synthesizes).
 const DOSSIER_REFERENCE_CHAR_BUDGET: usize = 10_000;
 
-/// Build the `(system, user)` prompt for the **Context Digest** (a.k.a. the
-/// Ally prep dossier): one concise, dense, LLM-optimized briefing Ally *writes*
-/// from the context's documents + web research, saved back to the library as a
-/// readable document and re-indexed into RAG. Its sections come from the type's
-/// template ([`ConversationTemplate::digest_sections`]) so the digest is
-/// tailored to the conversation — likely questions for an interview, key
-/// figures for a meeting, and so on. Distinct from retrieval — this is
-/// synthesis (see `conva_core/docs/technical/conversation-context.md`).
-pub fn dossier_prompt(
+/// Build the prompt for the Stage-1 **Context Knowledge** document (the
+/// logic layer of the two-stage grounding pipeline, spec 2026-08-26): one
+/// dense, high-signal briefing Ally *writes* from the context's documents +
+/// web research, saved back to the library as a readable document and
+/// re-indexed into RAG. Its sections come from the type's template
+/// ([`ConversationTemplate::digest_sections`]) so the document is tailored
+/// to the conversation — role profile and likely Q&A for an interview, key
+/// figures for a meeting, and so on — and its `## Core vocabulary` section
+/// carries the 20–30-term contract `extract_glossary` harvests. Distinct
+/// from retrieval — this is synthesis (see
+/// `conva_core/docs/technical/conversation-context.md`).
+pub fn knowledge_prompt(
     session: &SimConSession,
     research: &[ResearchSource],
     chunks: &[ScoredChunk],
@@ -540,13 +566,19 @@ pub fn dossier_prompt(
     let section_list = sections.join(", ");
 
     let system = format!(
-        "You are Ally, writing a Context Digest — one dense, high-signal briefing \
-the user (and later the AI) will rely on before a {label}. Write it in Markdown \
-with exactly these `##` sections, in this order: {sections}. Give `## Overview` \
-2–3 sentences; keep every other section tight and scannable — short bullets, \
-**bold** the key term, name, or figure in each. Ground everything strictly in \
-the provided material: be specific, never generic, and never invent facts or \
-figures. Output only the Markdown document — no preamble.",
+        "You are Ally, writing a Context Knowledge document — one dense, \
+high-signal briefing the user (and later the AI) will rely on before a \
+{label}. Write it in Markdown with exactly these `##` sections, in this \
+order: {sections}. Give `## Overview` 2–3 sentences; keep the other \
+sections tight and scannable — short bullets, **bold** the key term, name, \
+or figure in each. EXCEPTION — `## Core vocabulary` must be thorough, not \
+tight: list 20–30 terms the other party is likely to actually say — \
+services, tools, acronyms, methodologies, named practices — as bullets of \
+the form `**Term** — one-line why it matters here`, drawn from the job \
+description FIRST, then the documents; use exact product and service names \
+verbatim (e.g. \"API Gateway\", never just \"Gateway\"). Ground everything \
+strictly in the provided material: be specific, never generic, and never \
+invent facts or figures. Output only the Markdown document — no preamble.",
         label = template.label,
         sections = section_list,
     );
@@ -573,7 +605,7 @@ figures. Output only the Markdown document — no preamble.",
         if !jd.is_empty() {
             user.push_str(&format!(
                 "Role / job description:\n{}\n",
-                jd.chars().take(2_000).collect::<String>()
+                jd.chars().take(8_000).collect::<String>()
             ));
         }
     }
@@ -595,52 +627,208 @@ clearly general.",
     }
 }
 
+/// The bounded research query set for a context — base queries from its
+/// topic/type/goal/JD, plus up to 2 queries seeded from Stage 1's mined
+/// vocabulary (spec 2026-08-26 stage 2: "smarter queries"). Pure; the
+/// shell passes its budget as `cap` and issues the searches.
+pub fn research_queries(session: &SimConSession, vocabulary: &[String], cap: usize) -> Vec<String> {
+    let topic = if session.title.trim().is_empty() {
+        session.category.label().to_string()
+    } else {
+        session.title.trim().to_string()
+    };
+    let mut q = vec![
+        format!("{topic} common questions"),
+        format!("how to prepare for a {}", session.category.label()),
+    ];
+    if !session.purpose.trim().is_empty() {
+        q.push(session.purpose.trim().chars().take(120).collect());
+    }
+    if let Some(jd) = &session.job_description {
+        let jd = jd.trim();
+        if !jd.is_empty() {
+            q.push(format!(
+                "interview questions for role: {}",
+                jd.chars().take(120).collect::<String>()
+            ));
+        }
+    }
+    // Vocabulary-seeded queries: the terms the other party will actually
+    // say make the sharpest search keys (e.g. "Amazon Interview API
+    // Gateway Terraform interview questions").
+    for chunk in vocabulary.chunks(3).take(2) {
+        q.push(format!(
+            "{topic} {} {}",
+            chunk.join(" "),
+            session.category.label()
+        ));
+    }
+    q.truncate(cap);
+    q
+}
+
+/// Prompt for the Stage-2 **Research findings** document: synthesize the
+/// collected web sources into a human-readable, cited brief the user can
+/// inspect (and RAG can chunk by its `##` sections).
+pub fn research_findings_prompt(session: &SimConSession, sources: &[ResearchSource]) -> LlmRequest {
+    let template = session.category.template();
+    let system = format!(
+        "You are Ally, writing a Research Findings document from web \
+sources gathered for a {label}. Organize the findings into themed `##` \
+sections (you choose the themes — e.g. likely question areas, company \
+signals, process/format intel). Every finding bullet MUST cite its source \
+inline as a Markdown link: [source title](url). Only state what the \
+sources support — never invent. End with a `## Sources` section listing \
+every source as `- [title](url)`. Output only the Markdown document — no \
+preamble.",
+        label = template.label,
+    );
+
+    let mut user = format!(
+        "Context: {}\nGoal: {}\n\nSources:\n\n",
+        session.title, session.purpose
+    );
+    for src in sources {
+        user.push_str(&format!(
+            "[{}]({})\n{}\n\n",
+            src.title, src.url, src.snippet
+        ));
+    }
+
+    LlmRequest {
+        system,
+        user,
+        max_tokens: 2000,
+    }
+}
+
 // ── Glossary extraction — digest → context-highlight terms (Phase 3c) ────────
 
 /// Max glossary terms harvested from a digest.
-const MAX_GLOSSARY_TERMS: usize = 24;
+const MAX_GLOSSARY_TERMS: usize = 32;
 
-/// Extract the glossary terms from a generated Context Digest — the entries
-/// under its `## Glossary` section. Prefers the **bolded** term in each bullet,
-/// falling back to the text before an em/en dash or colon. Case-insensitively
-/// deduped, capped at [`MAX_GLOSSARY_TERMS`]. Pure; the shell stores the result
-/// on the context (`SimConSession::glossary`) to drive context-aware
-/// highlighting (see `docs/technical/highlighting-relevance.md`).
-pub fn extract_glossary(digest_md: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+/// Extract `(term, definition)` pairs from a generated Context Digest — the
+/// entries under its `## Glossary` or `## Core vocabulary` section (or, when
+/// that section is missing entirely, every **bolded** phrase in the digest —
+/// spec B.3's truncation fallback). The definition is whatever text follows
+/// the term on its line (after the closing `**`, or after the first
+/// em/en-dash or colon when the term isn't bolded), trimmed of leading
+/// punctuation/whitespace and capped at 200 chars; empty when nothing
+/// follows. Case-insensitively deduped by term, capped at
+/// [`MAX_GLOSSARY_TERMS`]. Pure; [`extract_glossary`] is a thin wrapper over
+/// this that keeps only the term (existing callers, existing behavior); the
+/// shell also reads the definition half to cache instant term lookups
+/// (spec 2026-08-26, cached term definitions).
+pub fn extract_glossary_entries(digest_md: &str) -> Vec<(String, String)> {
+    fn clean_definition(raw: &str) -> String {
+        raw.trim()
+            .trim_start_matches(['—', '–', ':', '-'])
+            .trim()
+            .chars()
+            .take(200)
+            .collect()
+    }
+
+    let mut out: Vec<(String, String)> = Vec::new();
     let mut in_section = false;
 
     for raw in digest_md.lines() {
         let line = raw.trim();
         if let Some(title) = line.strip_prefix("## ") {
-            in_section = title.trim().eq_ignore_ascii_case("glossary");
+            let t = title.trim();
+            in_section =
+                t.eq_ignore_ascii_case("glossary") || t.eq_ignore_ascii_case("core vocabulary");
             continue;
         }
         if !in_section || line.is_empty() {
             continue;
         }
         let content = line.trim_start_matches(['-', '*', '+', '•']).trim_start();
-        let term = if let Some(rest) = content.strip_prefix("**") {
-            rest.split("**").next().unwrap_or("").trim().to_string()
+        let (term, definition) = if let Some(rest) = content.strip_prefix("**") {
+            let mut parts = rest.splitn(2, "**");
+            let term = parts.next().unwrap_or("").trim().to_string();
+            let definition = clean_definition(parts.next().unwrap_or(""));
+            (term, definition)
         } else {
-            content
-                .split(['—', '–', ':'])
+            let mut parts = content.splitn(2, ['—', '–', ':']);
+            let term = parts
                 .next()
                 .unwrap_or("")
                 .trim_matches(['*', ' '])
-                .to_string()
+                .to_string();
+            let definition = clean_definition(parts.next().unwrap_or(""));
+            (term, definition)
         };
         if term.is_empty() || term.chars().count() > 60 {
             continue;
         }
-        if !out.iter().any(|t| t.eq_ignore_ascii_case(&term)) {
-            out.push(term);
+        if !out.iter().any(|(t, _)| t.eq_ignore_ascii_case(&term)) {
+            out.push((term, definition));
         }
         if out.len() >= MAX_GLOSSARY_TERMS {
             break;
         }
     }
+    // Fallback (spec B.3): a digest cut off before its ## Glossary section
+    // still bolds the key term in each bullet per the prompt — harvest
+    // every **bolded** phrase (plus whatever follows it on the line, up to
+    // the next bold marker) instead of yielding nothing.
+    if out.is_empty() {
+        for raw in digest_md.lines() {
+            let mut rest = raw;
+            while let Some(start) = rest.find("**") {
+                let after = &rest[start + 2..];
+                let Some(end) = after.find("**") else { break };
+                let term = after[..end].trim().to_string();
+                let mut tail = &after[end + 2..];
+                if let Some(next_bold) = tail.find("**") {
+                    tail = &tail[..next_bold];
+                }
+                let definition = clean_definition(tail);
+                rest = &after[end + 2..];
+                if term.is_empty() || term.chars().count() > 60 {
+                    continue;
+                }
+                if !out.iter().any(|(t, _)| t.eq_ignore_ascii_case(&term)) {
+                    out.push((term, definition));
+                }
+                if out.len() >= MAX_GLOSSARY_TERMS {
+                    return out;
+                }
+            }
+        }
+    }
     out
+}
+
+/// Extract just the glossary TERMS (see [`extract_glossary_entries`] for the
+/// full term+definition pairs). Pure; the shell stores the result on the
+/// context (`SimConSession::glossary`) to drive context-aware highlighting
+/// (see `docs/technical/highlighting-relevance.md`).
+pub fn extract_glossary(digest_md: &str) -> Vec<String> {
+    extract_glossary_entries(digest_md)
+        .into_iter()
+        .map(|(term, _)| term)
+        .collect()
+}
+
+/// True when any grounding input differs between two versions of a context —
+/// the signal that derived resources (glossary, dossier) no longer reflect
+/// the inputs. Job description compares trimmed (`None` ≡ empty); key terms
+/// and source docs compare as order-insensitive sets; research toggle
+/// compares directly. Non-grounding edits (title, purpose, personas, status)
+/// never count.
+pub fn grounding_changed(old: &SimConSession, new: &SimConSession) -> bool {
+    fn norm_jd(jd: Option<&str>) -> &str {
+        jd.map(str::trim).unwrap_or("")
+    }
+    fn as_set(items: &[String]) -> std::collections::BTreeSet<&str> {
+        items.iter().map(String::as_str).collect()
+    }
+    norm_jd(old.job_description.as_deref()) != norm_jd(new.job_description.as_deref())
+        || as_set(&old.key_terms) != as_set(&new.key_terms)
+        || as_set(&old.source_doc_ids) != as_set(&new.source_doc_ids)
+        || old.research_enabled != new.research_enabled
 }
 
 #[cfg(test)]
@@ -678,13 +866,13 @@ mod tests {
             assert!(!t.label.is_empty());
             assert!(!t.file_slots.is_empty(), "{cat:?} has file slots");
             assert!(!t.digest_sections.is_empty(), "{cat:?} has digest sections");
-            // Every category's digest must carry a Glossary section —
+            // Every category's digest must carry a Core vocabulary section —
             // extract_glossary harvests it into context-highlight terms, and
             // a category without one silently produces contexts that never
             // highlight (the empty "From your documents" bug, 2026-08-21).
             assert!(
-                t.digest_sections.contains(&"Glossary"),
-                "{cat:?} digest has a Glossary section"
+                t.digest_sections.contains(&"Core vocabulary"),
+                "{cat:?} digest has a Core vocabulary section"
             );
             assert_eq!(cat.label(), t.label);
         }
@@ -714,11 +902,14 @@ mod tests {
             research_enabled: true,
             key_terms: vec![],
             glossary: vec![],
+            glossary_definitions: std::collections::BTreeMap::new(),
             knowledge_profile_id: None,
             personas: vec![],
             chosen_persona_id: None,
             conversation_id: None,
             dossier_doc_id: None,
+            research_doc_id: None,
+            resources_stale: false,
         }
     }
 
@@ -770,7 +961,7 @@ mod tests {
     }
 
     #[test]
-    fn dossier_prompt_has_sections_and_synthesizes_material() {
+    fn knowledge_prompt_has_sections_and_synthesizes_material() {
         let chunks = vec![ScoredChunk {
             document_id: "d1".into(),
             file_name: "resume.pdf".into(),
@@ -778,14 +969,43 @@ mod tests {
             text: "Led the monthly close for 3 years.".into(),
             score: 0.9,
         }];
-        let req = dossier_prompt(&sample_session(), &[], &chunks, 1200);
+        let req = knowledge_prompt(&sample_session(), &[], &chunks, 1200);
         // Interview digest carries the interview template's sections + label.
         assert!(req.system.contains("job interview"));
         assert!(req.system.contains("Overview"));
         assert!(req.system.contains("Likely questions"));
-        assert!(req.system.contains("Your talking points"));
+        assert!(req.system.contains("Facts & figures"));
         assert!(req.system.contains("Watch-outs"));
         assert!(req.user.contains("Led the monthly close"));
+    }
+
+    #[test]
+    fn knowledge_prompt_has_fixed_interview_sections_and_vocab_contract() {
+        let mut s = sample_session();
+        // A JD longer than the old 2,000-char slice, with the key service
+        // name appearing only past that point.
+        let mut jd = "Senior DevOps Engineer. ".repeat(100); // ~2,400 chars
+        jd.push_str("Experience with API Gateway and Lambda required.");
+        s.job_description = Some(jd);
+        let req = knowledge_prompt(&s, &[], &[], 3000);
+        for section in [
+            "Role profile",
+            "Core vocabulary",
+            "Likely questions & strong answers",
+            "Facts & figures",
+            "Watch-outs",
+        ] {
+            assert!(req.system.contains(section), "missing section {section}");
+        }
+        assert!(req.system.contains("20"), "vocab floor missing");
+        assert!(req.system.contains("30"), "vocab ceiling missing");
+        assert!(
+            req.system.to_lowercase().contains("verbatim"),
+            "verbatim-names instruction missing"
+        );
+        // The full JD reaches the prompt — past the old 2,000-char cut.
+        assert!(req.user.contains("API Gateway"), "JD truncated too early");
+        assert_eq!(req.max_tokens, 3000);
     }
 
     #[test]
@@ -804,14 +1024,209 @@ mod tests {
     }
 
     #[test]
+    fn extract_glossary_falls_back_to_bolded_phrases_without_a_section() {
+        // A digest truncated before its ## Glossary section (the 2026-08-26
+        // Amazon-interview failure) still bolds key terms inline per the
+        // prompt — harvest those instead of yielding nothing.
+        let md = "## Overview\nStrong match.\n\n## Strong talking points\n\
+                  - Used **Terraform** and **EKS** on the account.\n\
+                  - Governance via **HashiCorp Sentinel**.\n\
+                  - Standards adopted across **12 engineering teams**.";
+        let terms = extract_glossary(md);
+        assert!(terms.iter().any(|t| t == "Terraform"), "{terms:?}");
+        assert!(terms.iter().any(|t| t == "EKS"), "{terms:?}");
+        assert!(terms.iter().any(|t| t == "HashiCorp Sentinel"), "{terms:?}");
+    }
+
+    #[test]
+    fn extract_glossary_prefers_the_real_section_when_present() {
+        let md = "## Glossary\n- **RRF** — rank fusion.\n\n## Notes\n\
+                  Also mentions **Terraform** in prose.";
+        let terms = extract_glossary(md);
+        assert_eq!(terms, vec!["RRF".to_string()]);
+    }
+
+    #[test]
+    fn extract_glossary_reads_core_vocabulary_heading() {
+        let digest = "## Overview\nIntro.\n\n## Core vocabulary\n\
+- **API Gateway** — managed API front door.\n\
+- **Terraform** — IaC tool.\n\n## Watch-outs\n- none";
+        let g = extract_glossary(digest);
+        assert!(g.iter().any(|t| t == "API Gateway"), "{g:?}");
+        assert!(g.iter().any(|t| t == "Terraform"), "{g:?}");
+    }
+
+    #[test]
+    fn extract_glossary_caps_at_thirty_two() {
+        let mut digest = String::from("## Core vocabulary\n");
+        for i in 0..40 {
+            digest.push_str(&format!("- **Term number {i}** — meaning.\n"));
+        }
+        assert_eq!(extract_glossary(&digest).len(), 32);
+    }
+
+    #[test]
     fn dossier_sections_are_type_specific() {
         // A company meeting gets its own sections, not the interview's.
         let mut session = sample_session();
         session.category = SimConCategory::CompanyMeeting;
-        let req = dossier_prompt(&session, &[], &[], 1200);
+        let req = knowledge_prompt(&session, &[], &[], 1200);
         assert!(req.system.contains("company meeting"));
         assert!(req.system.contains("Key figures"));
         assert!(req.system.contains("Likely discussion points"));
         assert!(!req.system.contains("Your talking points"));
+    }
+
+    fn grounding_base() -> SimConSession {
+        SimConSession {
+            id: "sim-1".into(),
+            title: "Acme interview".into(),
+            purpose: "Prep".into(),
+            job_description: Some("Build on AWS.".into()),
+            category: SimConCategory::Interview,
+            status: SimConStatus::Ready,
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            source_doc_ids: vec!["doc-a".into(), "doc-b".into()],
+            auto_generate_context: false,
+            research_enabled: true,
+            key_terms: vec!["GAAP".into()],
+            glossary: vec!["EKS".into()],
+            glossary_definitions: std::collections::BTreeMap::new(),
+            knowledge_profile_id: Some("kp-1".into()),
+            personas: Vec::new(),
+            chosen_persona_id: None,
+            conversation_id: None,
+            dossier_doc_id: Some("dossier-1".into()),
+            research_doc_id: None,
+            resources_stale: false,
+        }
+    }
+
+    #[test]
+    fn grounding_changed_detects_each_grounding_input() {
+        let old = grounding_base();
+
+        let mut jd = grounding_base();
+        jd.job_description = Some("Build on Azure.".into());
+        assert!(grounding_changed(&old, &jd));
+
+        let mut terms = grounding_base();
+        terms.key_terms.push("SOX".into());
+        assert!(grounding_changed(&old, &terms));
+
+        let mut docs = grounding_base();
+        docs.source_doc_ids = vec!["doc-a".into()];
+        assert!(grounding_changed(&old, &docs));
+
+        let mut research = grounding_base();
+        research.research_enabled = false;
+        assert!(grounding_changed(&old, &research));
+    }
+
+    #[test]
+    fn grounding_changed_ignores_non_grounding_edits_and_ordering() {
+        let old = grounding_base();
+
+        // Same sets, different order + a renamed title/purpose: no change.
+        let mut same = grounding_base();
+        same.title = "Renamed".into();
+        same.purpose = "New purpose".into();
+        same.source_doc_ids = vec!["doc-b".into(), "doc-a".into()];
+        same.glossary = vec!["different".into()];
+        same.status = SimConStatus::Ended;
+        assert!(!grounding_changed(&old, &same));
+
+        // None vs empty/whitespace JD is not a change.
+        let mut old_no_jd = grounding_base();
+        old_no_jd.job_description = None;
+        let mut new_blank_jd = grounding_base();
+        new_blank_jd.job_description = Some("   ".into());
+        assert!(!grounding_changed(&old_no_jd, &new_blank_jd));
+    }
+
+    #[test]
+    fn research_queries_seed_from_vocabulary_and_cap() {
+        let s = sample_session();
+        let vocab: Vec<String> = vec!["API Gateway".into(), "Terraform".into(), "EKS".into()];
+        let q = research_queries(&s, &vocab, 6);
+        assert!(q.len() <= 6, "{q:?}");
+        assert!(
+            q.iter().any(|x| x.contains("API Gateway")),
+            "vocabulary must seed a query: {q:?}"
+        );
+        // Base queries survive alongside.
+        assert!(q.iter().any(|x| x.contains("common questions")), "{q:?}");
+    }
+
+    #[test]
+    fn research_queries_without_vocabulary_are_base_only() {
+        let s = sample_session();
+        let q = research_queries(&s, &[], 6);
+        assert!(!q.is_empty());
+        assert!(q.iter().all(|x| !x.is_empty()));
+    }
+
+    #[test]
+    fn research_findings_prompt_embeds_sources_and_demands_citations() {
+        let s = sample_session();
+        let sources = vec![ResearchSource {
+            title: "Top SRE interview questions".into(),
+            url: "https://example.com/sre".into(),
+            snippet: "Expect SLO and error-budget questions.".into(),
+            fetched_at_unix_ms: 0,
+        }];
+        let req = research_findings_prompt(&s, &sources);
+        assert!(req.user.contains("Top SRE interview questions"));
+        assert!(req.user.contains("https://example.com/sre"));
+        assert!(req.user.contains("error-budget"));
+        assert!(req.system.contains("## Sources"));
+        let sys = req.system.to_lowercase();
+        assert!(sys.contains("cite"), "citation instruction missing");
+        assert!(req.max_tokens == 2000);
+    }
+
+    #[test]
+    fn extract_glossary_entries_captures_bolded_term_definitions() {
+        let digest = "## Overview\nIntro.\n\n## Core vocabulary\n\
+- **API Gateway** — managed API front door for backend services.\n\
+- **Terraform**: infrastructure-as-code tool.\n\n## Watch-outs\n- none";
+        let entries = extract_glossary_entries(digest);
+        let gateway = entries
+            .iter()
+            .find(|(t, _)| t == "API Gateway")
+            .expect("API Gateway missing");
+        assert_eq!(gateway.1, "managed API front door for backend services.");
+        let terraform = entries
+            .iter()
+            .find(|(t, _)| t == "Terraform")
+            .expect("Terraform missing");
+        assert_eq!(terraform.1, "infrastructure-as-code tool.");
+    }
+
+    #[test]
+    fn extract_glossary_entries_empty_definition_when_nothing_follows() {
+        let digest = "## Glossary\n- **GAAP**\n";
+        let entries = extract_glossary_entries(digest);
+        let gaap = entries
+            .iter()
+            .find(|(t, _)| t == "GAAP")
+            .expect("GAAP missing");
+        assert_eq!(gaap.1, "");
+    }
+
+    #[test]
+    fn extract_glossary_still_returns_only_terms() {
+        // extract_glossary is now a thin wrapper — every pre-existing test
+        // of it already covers this, but pin the relationship explicitly.
+        let digest = "## Glossary\n- **GAAP**: accounting standards.\n";
+        assert_eq!(extract_glossary(digest), vec!["GAAP".to_string()]);
+        assert_eq!(
+            extract_glossary(digest),
+            extract_glossary_entries(digest)
+                .into_iter()
+                .map(|(t, _)| t)
+                .collect::<Vec<_>>()
+        );
     }
 }

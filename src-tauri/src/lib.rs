@@ -497,12 +497,14 @@ fn rag_delete(state: State<AppState>, id: String) -> Result<(), String> {
     state.rag.delete(&id).map_err(|e| e.to_string())
 }
 
-/// Tag a library document as grounding a Conversation Context (drag-attach in
-/// the unified Contexts & Library UI). The caller also folds the id into the
-/// context's own `source_doc_ids` (via `simcon_save`) so the engine grounds on
-/// it — this command only updates the library-side tag/badge.
+/// Tag a document as attached to a Conversation Context AND sync the
+/// context's own `source_doc_ids` (spec 2026-08-26, part 1 — pane/library
+/// attaches previously never reached the context record, so doc counts and
+/// staleness missed them). The context sync is best-effort: the tag
+/// operation succeeds even if the context record can't be loaded.
 #[tauri::command]
 fn rag_attach_context(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     context_id: String,
@@ -510,14 +512,17 @@ fn rag_attach_context(
     state
         .rag
         .attach_context(&id, &context_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    sync_context_doc(&app, &context_id, &id, true);
+    Ok(())
 }
 
-/// Remove a document's tag for a Conversation Context. See
-/// [`rag_attach_context`] — the caller also drops the id from the context's
-/// `source_doc_ids`.
+/// Remove a document's tag for a Conversation Context; see
+/// [`rag_attach_context`] — also drops the id from the context's
+/// `source_doc_ids` (best-effort).
 #[tauri::command]
 fn rag_detach_context(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     context_id: String,
@@ -525,7 +530,31 @@ fn rag_detach_context(
     state
         .rag
         .detach_context(&id, &context_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    sync_context_doc(&app, &context_id, &id, false);
+    Ok(())
+}
+
+/// Add/remove `doc_id` in a context's `source_doc_ids` and apply the same
+/// grounding invalidation the wizard save applies (clear derived glossary;
+/// mark generated resources stale). Best-effort by design.
+fn sync_context_doc(app: &AppHandle, context_id: &str, doc_id: &str, attach: bool) {
+    let Ok(mut session) = simcon::load(app, context_id) else {
+        return;
+    };
+    let had = session.source_doc_ids.iter().any(|d| d == doc_id);
+    if attach && !had {
+        session.source_doc_ids.push(doc_id.to_string());
+    } else if !attach && had {
+        session.source_doc_ids.retain(|d| d != doc_id);
+    } else {
+        return; // no change — don't touch staleness
+    }
+    session.glossary.clear();
+    if session.dossier_doc_id.is_some() || session.knowledge_profile_id.is_some() {
+        session.resources_stale = true;
+    }
+    let _ = simcon::save(app, session);
 }
 
 /// Download a library document back to `dest` (chosen via the save dialog):
@@ -841,9 +870,15 @@ fn activate_context(
             .as_deref()
             .and_then(|doc_id| state.rag.document_text(doc_id))
         {
-            let glossary = conva_core::simcon::extract_glossary(&text);
-            if !glossary.is_empty() {
-                session.glossary = glossary;
+            let entries = conva_core::highlight::sanitize_glossary_entries(
+                conva_core::simcon::extract_glossary_entries(&text),
+                &text,
+                session.job_description.as_deref(),
+                1,
+            );
+            if !entries.is_empty() {
+                session.glossary = entries.iter().map(|(t, _)| t.clone()).collect();
+                session.glossary_definitions = entries.into_iter().collect();
                 // Best-effort persist — activation still proceeds with the
                 // in-memory terms if the save fails.
                 let _ = simcon::save(&app, session.clone());
@@ -856,14 +891,34 @@ fn activate_context(
     // terms straight from those documents so "From your documents" is never
     // empty for a grounded context with content. A later digest generation
     // overwrites `glossary` with the real extracted set.
+    // JD-primacy (spec B.2): the job description's own vocabulary fills the
+    // list first — it's what the interviewer will actually say.
     if session.glossary.is_empty() && session.key_terms.is_empty() {
         let mut mined: Vec<String> = Vec::new();
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // The interviewer's vocabulary first (spec B.2): the job
+        // description is the best predictor of what the other side will
+        // say — up to 16 of the 24 slots.
+        if let Some(jd) = session.job_description.as_deref() {
+            for term in conva_core::highlight::interviewer_terms(jd, 16) {
+                if seen.insert(term.to_lowercase()) {
+                    mined.push(term);
+                }
+            }
+        }
+        // Then per-document mining fills what's left — gated (floor 2, or
+        // JD presence) so one-off extraction-glue artifacts die here.
         for doc_id in &session.source_doc_ids {
             let Some(text) = state.rag.document_text(doc_id) else {
                 continue;
             };
-            for term in conva_core::highlight::salient_doc_terms(&text, 8) {
+            let doc_terms = conva_core::highlight::sanitize_mined_terms(
+                conva_core::highlight::salient_doc_terms(&text, 8),
+                &text,
+                session.job_description.as_deref(),
+                2,
+            );
+            for term in doc_terms {
                 if seen.insert(term.to_lowercase()) {
                     mined.push(term);
                 }
@@ -892,6 +947,18 @@ fn activate_context(
         terms.clear();
         terms.extend(session.key_terms.iter().cloned());
         terms.extend(session.glossary.iter().cloned());
+        // The interviewer's own vocabulary always rides along (spec
+        // 2026-08-26, part 2) — in-memory only, so live highlighting is
+        // never hostage to a stale or truncated digest.
+        if let Some(jd) = session.job_description.as_deref() {
+            let have: std::collections::HashSet<String> =
+                terms.iter().map(|t| t.to_lowercase()).collect();
+            terms.extend(
+                conva_core::highlight::interviewer_terms(jd, 16)
+                    .into_iter()
+                    .filter(|t| !have.contains(&t.to_lowercase())),
+            );
+        }
     }
     *state.active_context_doc_ids.lock().expect("ctx lock") = profile_doc_ids;
 
@@ -930,10 +997,13 @@ fn simcon_load_profile(app: AppHandle, profile_id: String) -> Result<KnowledgePr
     simcon::load_profile(&app, &profile_id).map_err(|e| e.to_string())
 }
 
-/// Generate an **Ally prep dossier**: synthesize the Sim Con's documents + web
-/// research into a Markdown briefing, save it to the library (so it's viewable +
-/// reusable + grounds future answers), and attach it to the knowledge profile.
-/// Regenerating replaces the previous dossier. Returns the updated session.
+/// Generate Ally's grounding documents — the two-stage pipeline (spec
+/// 2026-08-26). Stage 1 synthesizes the Sim Con's documents + role/JD into a
+/// **Context knowledge** briefing; Stage 2 (when research is enabled) runs
+/// vocabulary-seeded web research and writes a cited **Research findings**
+/// document. Both land in the library (viewable + reusable + grounding future
+/// answers) and attach to the knowledge profile. Regenerating replaces the
+/// previous documents. Returns the updated session.
 #[tauri::command]
 fn simcon_generate_dossier(
     app: AppHandle,
@@ -968,7 +1038,7 @@ fn simcon_generate_dossier(
         .llm_quality
         .clone();
     let key = resolve_key(selection.provider)?;
-    let request = conva_core::simcon::dossier_prompt(&session, &profile.research, &chunks, 1200);
+    let request = conva_core::simcon::knowledge_prompt(&session, &profile.research, &chunks, 3000);
     let mut buf = String::new();
     let usage = llm::stream_completion(
         selection.provider,
@@ -992,7 +1062,7 @@ fn simcon_generate_dossier(
 
     // Generated (not pasted) content, tagged to this context — the library's
     // "By conva" badge/filter (Conversation Context UI, organized library).
-    let name = format!("{} — Ally prep", session.title.trim());
+    let name = format!("{} — Context knowledge", session.title.trim());
     let report = state
         .rag
         .ingest_generated(&name, &text, &session.id)
@@ -1002,13 +1072,72 @@ fn simcon_generate_dossier(
     if !profile.doc_ids.contains(&doc_id) {
         profile.doc_ids.push(doc_id.clone());
     }
-    profile.updated_at_unix_ms = session::now_unix_ms();
-    simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
     session.dossier_doc_id = Some(doc_id);
     // Harvest the digest's glossary into structured context terms (Phase 3c) so
     // the highlighter can surface them during the conversation.
-    session.glossary = conva_core::simcon::extract_glossary(&text);
+    // Harvested terms pass the mined-term hygiene gate (spec B.2/B.3):
+    // bolding is already an LLM-curated signal, so the occurrence floor is
+    // 1, but the word-cap and stopword rules still apply, and JD presence
+    // still counts in the term's favor.
+    let glossary_entries = conva_core::highlight::sanitize_glossary_entries(
+        conva_core::simcon::extract_glossary_entries(&text),
+        &text,
+        session.job_description.as_deref(),
+        1,
+    );
+    session.glossary = glossary_entries.iter().map(|(t, _)| t.clone()).collect();
+    session.glossary_definitions = glossary_entries.into_iter().collect();
+    // A fresh digest by definition reflects the current inputs.
+    session.resources_stale = false;
+
+    // ── Stage 2: web research → Research findings document (spec
+    // 2026-08-26). Queries are seeded by Stage 1's vocabulary; failures or
+    // missing key skip the stage cleanly (Stage 1's document stands).
+    if session.research_enabled {
+        let vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
+        if let Ok((sources, searches)) = simcon::research(&session, &vocab) {
+            metering::record_tavily_search(&app, searches);
+            if !sources.is_empty() {
+                profile.research = sources.clone();
+                let request = conva_core::simcon::research_findings_prompt(&session, &sources);
+                let mut fbuf = String::new();
+                let fusage = llm::stream_completion(
+                    selection.provider,
+                    &key,
+                    &selection.model,
+                    &request,
+                    &mut |t| fbuf.push_str(t),
+                );
+                if let Ok(fusage) = fusage {
+                    metering::record_llm(&app, selection.provider, fusage);
+                    let ftext = fbuf.trim().to_string();
+                    if !ftext.is_empty() {
+                        // Replace any previous findings doc — no pile-up.
+                        if let Some(old) = session.research_doc_id.take() {
+                            let _ = state.rag.delete(&old);
+                            profile.doc_ids.retain(|d| d != &old);
+                        }
+                        let fname = format!("{} — Research findings", session.title.trim());
+                        if let Ok(freport) = state.rag.ingest_generated(&fname, &ftext, &session.id)
+                        {
+                            let fdoc_id = freport.document.id.clone();
+                            if !profile.doc_ids.contains(&fdoc_id) {
+                                profile.doc_ids.push(fdoc_id.clone());
+                            }
+                            session.research_doc_id = Some(fdoc_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // One profile save covers both stages (Stage 1's document + Stage 2's
+    // research and findings doc, when they ran).
+    profile.updated_at_unix_ms = session::now_unix_ms();
+    simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
+
     simcon::save(&app, session).map_err(|e| e.to_string())
 }
 
@@ -1305,6 +1434,19 @@ fn get_partner_payload() -> Option<conva_core::ipc::PartnerPayload> {
     partner::payload()
 }
 
+/// Lock (follow the main window) / unlock (float free) the partner window.
+/// Locking snaps it flush to the app's right edge, keeping its size.
+#[tauri::command]
+fn set_partner_locked(app: AppHandle, locked: bool) -> Result<(), String> {
+    partner::set_locked(&app, locked)
+}
+
+/// Whether the partner window currently follows the main window.
+#[tauri::command]
+fn get_partner_locked() -> bool {
+    partner::locked()
+}
+
 /// Build the retrieval query for an Ally answer: the explicit question, or the
 /// text of the last few finalized turns (what's being discussed right now).
 fn retrieval_query(question: Option<&str>, segments: &[TranscriptSegment]) -> String {
@@ -1590,6 +1732,24 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
 
     builder
+        // Lock-to-app (spec §4.4): the main window dragging its docked
+        // partner along, and a manual partner drag releasing the lock.
+        .on_window_event(|window, event| {
+            let app = window.app_handle();
+            match event {
+                tauri::WindowEvent::Moved(pos) => match window.label() {
+                    "main" => partner::follow_main(app),
+                    l if l == partner::PARTNER_LABEL => {
+                        partner::on_partner_moved(app, (pos.x, pos.y));
+                    }
+                    _ => {}
+                },
+                tauri::WindowEvent::Resized(_) if window.label() == "main" => {
+                    partner::follow_main(app);
+                }
+                _ => {}
+            }
+        })
         .setup(|app| {
             let config = load_config(app.handle());
             let data_dir = app
@@ -1750,6 +1910,8 @@ pub fn run() {
             close_partner,
             redock_partner,
             get_partner_payload,
+            set_partner_locked,
+            get_partner_locked,
         ])
         .run(tauri::generate_context!())
         .expect("error while running conva");

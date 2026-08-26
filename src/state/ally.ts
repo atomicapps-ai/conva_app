@@ -74,8 +74,10 @@ const SUMMARY_PREFIX = "sum:";
 interface AllyState {
   cards: AllyCard[];
   busy: boolean;
-  /** Latest Question Radar hit (§6.2); replaced by each new question. */
-  radar: RadarEvent | null;
+  /** Question Radar history (§6.2) — newest first, deduped by question
+   *  (case-insensitive; a repeat moves to the front), capped at 20. Feeds
+   *  the Found list's Questions group (live-panel re-scope, 2026-08-22). */
+  radarHistory: RadarEvent[];
   /** Cumulative session tracker state (§6.3). */
   tracker: TrackerEvent | null;
   /** Cumulative FANER routed captures for the session (F11). */
@@ -94,7 +96,6 @@ interface AllyState {
   applyRadar: (event: RadarEvent) => void;
   applyTracker: (event: TrackerEvent) => void;
   applyCapture: (event: CaptureEvent) => void;
-  dismissRadar: () => void;
   clear: () => void;
 }
 
@@ -103,7 +104,7 @@ let counter = 0;
 export const useAllyStore = create<AllyState>((set, get) => ({
   cards: [],
   busy: false,
-  radar: null,
+  radarHistory: [],
   tracker: null,
   capture: null,
 
@@ -129,7 +130,9 @@ export const useAllyStore = create<AllyState>((set, get) => ({
           sourceQuote: source?.quote ?? null,
           summary: null,
         },
-        ...s.cards.slice(0, 5),
+        // Keep enough history for several partner-window tabs' answers to
+        // coexist (spec §4.1) — the newest 12, not 6.
+        ...s.cards.slice(0, 11),
       ],
     }));
     try {
@@ -218,16 +221,21 @@ export const useAllyStore = create<AllyState>((set, get) => ({
       ),
     })),
 
-  applyRadar: (event) => set({ radar: event }),
+  applyRadar: (event) =>
+    set((s) => {
+      const q = event.question.trim().toLowerCase();
+      const rest = s.radarHistory.filter(
+        (r) => r.question.trim().toLowerCase() !== q,
+      );
+      return { radarHistory: [event, ...rest].slice(0, 20) };
+    }),
 
   applyTracker: (event) => set({ tracker: event }),
   applyCapture: (event) => set({ capture: event }),
 
-  dismissRadar: () => set({ radar: null }),
-
   clear: () => {
     // Reset the A# counter so each conversation numbers from A1.
     counter = 0;
-    set({ cards: [], radar: null, tracker: null, capture: null });
+    set({ cards: [], radarHistory: [], tracker: null, capture: null });
   },
 }));

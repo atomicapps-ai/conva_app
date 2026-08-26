@@ -9,6 +9,12 @@ const FONT_KEY = "conva.ally.fontPx";
 const TRANSCRIPT_FONT_KEY = "conva.transcript.fontPx";
 const REASONING_KEY = "conva.ally.reasoningOpen";
 const COLLAPSE_YOU_KEY = "conva.transcript.collapseYou";
+const PARTNER_FONT_KEY = "conva.partner.fontPx";
+const PANEL_SPLIT_KEY = "conva.panel.splitRatio";
+const PANEL_WIDTH_KEY = "conva.panel.widthPx";
+const PANEL_WIDTH_MIN = 280;
+const PANEL_WIDTH_MAX = 560;
+const PANEL_WIDTH_DEFAULT = 340;
 const FONT_MIN = 11;
 const FONT_MAX = 20;
 const FONT_DEFAULT = 14;
@@ -28,9 +34,20 @@ interface UiPrefs {
   reasoningDefaultOpen: boolean;
   /** Keep the user's own ("you") turns collapsed by default. */
   collapseYou: boolean;
+  /** Partner-window content text size, in px — its own setting (spec §4.2):
+   *  the detached window often sits farther away than the in-app panel. */
+  partnerFontPx: number;
+  /** Found/View split ratio (Found's share of the panel height), 0.25–0.75. */
+  panelSplitRatio: number;
+  setPanelSplitRatio: (r: number) => void;
+  /** Right Ally panel width, px — drives BOTH the panel and the control
+   *  bar's tab zone so they stay aligned (spec A.2). */
+  panelWidthPx: number;
+  setPanelWidthPx: (px: number) => void;
   setAllyFontPx: (px: number) => void;
   bumpAllyFont: (delta: number) => void;
   bumpTranscriptFont: (delta: number) => void;
+  bumpPartnerFont: (delta: number) => void;
   setReasoningDefaultOpen: (open: boolean) => void;
   setCollapseYou: (on: boolean) => void;
 }
@@ -41,7 +58,31 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
   reasoningDefaultOpen: localStorage.getItem(REASONING_KEY) === "1",
   // Default on — the user rarely re-reads their own words.
   collapseYou: localStorage.getItem(COLLAPSE_YOU_KEY) !== "0",
+  partnerFontPx: loadFont(PARTNER_FONT_KEY, FONT_DEFAULT),
+  panelSplitRatio: (() => {
+    const v = Number(localStorage.getItem(PANEL_SPLIT_KEY));
+    return v >= 0.25 && v <= 0.75 ? v : 0.45;
+  })(),
+  panelWidthPx: (() => {
+    const v = Number(localStorage.getItem(PANEL_WIDTH_KEY));
+    return v >= PANEL_WIDTH_MIN && v <= PANEL_WIDTH_MAX
+      ? v
+      : PANEL_WIDTH_DEFAULT;
+  })(),
 
+  setPanelSplitRatio: (r) => {
+    const clamped = Math.max(0.25, Math.min(0.75, r));
+    localStorage.setItem(PANEL_SPLIT_KEY, String(clamped));
+    set({ panelSplitRatio: clamped });
+  },
+  setPanelWidthPx: (px) => {
+    const clamped = Math.max(
+      PANEL_WIDTH_MIN,
+      Math.min(PANEL_WIDTH_MAX, Math.round(px)),
+    );
+    localStorage.setItem(PANEL_WIDTH_KEY, String(clamped));
+    set({ panelWidthPx: clamped });
+  },
   setAllyFontPx: (px) => {
     const clamped = Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(px)));
     localStorage.setItem(FONT_KEY, String(clamped));
@@ -61,6 +102,12 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
       );
       localStorage.setItem(TRANSCRIPT_FONT_KEY, String(clamped));
       return { transcriptFontPx: clamped };
+    }),
+  bumpPartnerFont: (delta) =>
+    set((s) => {
+      const clamped = Math.max(FONT_MIN, Math.min(FONT_MAX, s.partnerFontPx + delta));
+      localStorage.setItem(PARTNER_FONT_KEY, String(clamped));
+      return { partnerFontPx: clamped };
     }),
   setReasoningDefaultOpen: (open) => {
     localStorage.setItem(REASONING_KEY, open ? "1" : "0");

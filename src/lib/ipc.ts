@@ -20,6 +20,7 @@ export const EVENTS = {
   capture: "conva://capture",
   authChanged: "conva://auth-changed",
   partnerTerm: "conva://partner-term",
+  partnerLock: "conva://partner-lock",
 } as const;
 
 export interface TranscriptSegment {
@@ -216,6 +217,12 @@ export interface PartnerPayload {
   source_lines: string[];
 }
 
+/** Mirror of `ipc.rs::PartnerLockEvent` — sent when the shell changes the
+ *  partner window's lock-to-app state (e.g. a manual drag released it). */
+export interface PartnerLockEvent {
+  locked: boolean;
+}
+
 export interface SessionSummary {
   id: string;
   started_at_unix_ms: number;
@@ -326,12 +333,23 @@ export interface SimConSession {
   key_terms?: string[];
   /** Glossary terms extracted from the generated digest (backend-derived). */
   glossary?: string[];
+  /** Definition text captured alongside each surviving glossary term
+   * (keyed by the exact term string in `glossary`) — empty/absent for
+   * terms mined without a written definition. */
+  glossary_definitions?: Record<string, string>;
   knowledge_profile_id: string | null;
   personas: SimConPersona[];
   chosen_persona_id: string | null;
   conversation_id: string | null;
   /** RagDocument id of the Ally-generated prep briefing, once generated. */
   dossier_doc_id: string | null;
+  /** RagDocument id of the Stage-2 Research findings document, once
+   * generated (replaced on regeneration, like the knowledge doc). */
+  research_doc_id?: string | null;
+  /** True when grounding inputs changed after resources were generated —
+   * the digest/glossary no longer reflect the inputs (cleared by a
+   * successful regeneration). Optional: older records omit it. */
+  resources_stale?: boolean;
 }
 
 /** Catalog entry for the SimCon list view. */
@@ -349,6 +367,8 @@ export interface SimConSummary {
   research_enabled: boolean;
   has_job_description: boolean;
   has_generated_resources: boolean;
+  /** Mirrors SimConSession.resources_stale for the list row's pill. */
+  resources_stale?: boolean;
 }
 
 export type ModelStatusEvent =

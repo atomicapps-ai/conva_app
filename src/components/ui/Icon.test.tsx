@@ -10,4 +10,11 @@ describe("Icon", () => {
     rerender(<Icon name="thumbDown" />);
     expect(container.querySelector("svg")).toBeInTheDocument();
   });
+
+  it("renders the partner-window lock icons", () => {
+    const { container, rerender } = render(<Icon name="lock" />);
+    expect(container.querySelector("svg")).toBeInTheDocument();
+    rerender(<Icon name="unlock" />);
+    expect(container.querySelector("svg")).toBeInTheDocument();
+  });
 });

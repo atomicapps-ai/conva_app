@@ -5,6 +5,9 @@
 //! its custom title bar and resized on any edge, and simply overlaps whatever
 //! is beneath it. It defaults DOCKED flush to the main window's right edge at
 //! the main window's height; `redock` snaps it back there.
+//! Locked to the app by default (spec §4.4): while locked it follows the
+//! main window (position only — the user's size sticks); dragging it
+//! releases the lock; the title-bar toggle re-locks it.
 //!
 //! Payload handoff: window creation and webview boot race, so the term payload
 //! is never passed in the URL. `open` stashes it in a module `Mutex`; the
@@ -24,12 +27,11 @@
 //! themselves — the point is only that *this* code must not already be
 //! running on it.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use conva_core::ipc::{events, PartnerPayload};
-use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder,
-};
+use conva_core::ipc::{events, PartnerLockEvent, PartnerPayload};
+use tauri::{AppHandle, Emitter, LogicalPosition, Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// The dedicated window label; the UI bundle branches on `?partner=1`
 /// (see `src/main.tsx`) so both windows share one front-end build.
@@ -39,6 +41,73 @@ pub const PARTNER_LABEL: &str = "partner";
 const PARTNER_WIDTH: f64 = 430.0;
 
 static PAYLOAD: Mutex<Option<PartnerPayload>> = Mutex::new(None);
+
+/// Lock-to-app (spec §4.4): while true, the partner window follows the main
+/// window flush at its right edge, keeping its own user-set size. Default on
+/// for every app run.
+static LOCKED: AtomicBool = AtomicBool::new(true);
+
+/// The last position WE set (physical px). A partner `Moved` event matching
+/// it (±2px for DPI rounding) is our own follow/snap echoing back — anything
+/// else while locked is a user drag, which releases the lock.
+static PROGRAMMATIC_POS: Mutex<Option<(i32, i32)>> = Mutex::new(None);
+
+pub fn locked() -> bool {
+    LOCKED.load(Ordering::SeqCst)
+}
+
+/// Set the lock state. Turning it ON also snaps the window flush to the
+/// main window's right edge (keeping its size) so "locked" is immediately
+/// visibly true.
+pub fn set_locked(app: &AppHandle, locked: bool) -> Result<(), String> {
+    LOCKED.store(locked, Ordering::SeqCst);
+    if locked {
+        snap(app)?;
+    }
+    Ok(())
+}
+
+/// Move the (open) partner window flush to the main window's right edge,
+/// KEEPING its current size — position-only, unlike the old full-height
+/// re-dock. Records the target so the resulting `Moved` event is
+/// recognized as programmatic.
+fn snap(app: &AppHandle) -> Result<(), String> {
+    let Some(win) = app.get_webview_window(PARTNER_LABEL) else {
+        return Ok(());
+    };
+    if let Some((x, y, _h)) = dock_rect(app) {
+        let scale = win.scale_factor().map_err(|e| e.to_string())?;
+        *PROGRAMMATIC_POS.lock().unwrap() =
+            Some(((x * scale).round() as i32, (y * scale).round() as i32));
+        win.set_position(LogicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Main window moved or resized: drag the locked partner along. Called from
+/// `lib.rs`'s `on_window_event` hook. No-op when unlocked or not open.
+pub fn follow_main(app: &AppHandle) {
+    if locked() {
+        let _ = snap(app);
+    }
+}
+
+/// The partner window reported a move to `pos` (physical px). Our own
+/// programmatic snap → ignore. A user drag while locked → release the lock
+/// and tell the window so its toggle icon updates.
+pub fn on_partner_moved(app: &AppHandle, pos: (i32, i32)) {
+    if !locked() {
+        return;
+    }
+    if let Some((px, py)) = *PROGRAMMATIC_POS.lock().unwrap() {
+        if (pos.0 - px).abs() <= 2 && (pos.1 - py).abs() <= 2 {
+            return;
+        }
+    }
+    LOCKED.store(false, Ordering::SeqCst);
+    let _ = app.emit(events::PARTNER_LOCK, PartnerLockEvent { locked: false });
+}
 
 /// Open the partner window on `payload` — creating it docked to the main
 /// window's right edge, or re-targeting an already-open window via the
@@ -98,18 +167,13 @@ pub fn open(app: &AppHandle, payload: PartnerPayload) -> Result<(), String> {
     Ok(())
 }
 
-/// Snap the (open) partner window back flush to the main window's right edge,
-/// full main-window height. A no-op when the window isn't open.
+/// Snap the (open) partner window back flush to the main window's right
+/// edge, keeping its current size, and focus it. A no-op when not open.
 pub fn redock(app: &AppHandle) -> Result<(), String> {
     let Some(win) = app.get_webview_window(PARTNER_LABEL) else {
         return Ok(());
     };
-    if let Some((x, y, h)) = dock_rect(app) {
-        win.set_position(LogicalPosition::new(x, y))
-            .map_err(|e| e.to_string())?;
-        win.set_size(LogicalSize::new(PARTNER_WIDTH, h))
-            .map_err(|e| e.to_string())?;
-    }
+    snap(app)?;
     win.show().map_err(|e| e.to_string())?;
     let _ = win.set_focus();
     Ok(())

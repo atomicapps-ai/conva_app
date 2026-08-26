@@ -39,6 +39,9 @@ pub mod events {
     pub const AUTH_CHANGED: &str = "conva://auth-changed";
     /// A new term was sent to the (already-open) partner window.
     pub const PARTNER_TERM: &str = "conva://partner-term";
+    /// The partner window's lock-to-app state changed shell-side (e.g. a
+    /// manual drag released it) — the window updates its toggle icon.
+    pub const PARTNER_LOCK: &str = "conva://partner-lock";
 }
 
 /// Re-exported so the IPC module is a one-stop description of the wire.
@@ -135,6 +138,13 @@ pub struct PartnerPayload {
     pub answer: Option<String>,
     /// Already-grouped "file — ¶loc, ¶loc" citation lines for `answer`.
     pub source_lines: Vec<String>,
+}
+
+/// Payload of [`events::PARTNER_LOCK`] — whether the partner window is
+/// locked to (follows) the main window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartnerLockEvent {
+    pub locked: bool,
 }
 
 /// Live Sim Con rehearsal phase (Phase E) — drives the "who's talking" UI
