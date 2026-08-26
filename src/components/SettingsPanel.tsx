@@ -401,6 +401,21 @@ function ResearchSettings() {
  * token) — with running totals. BYO-key desktop = visibility; the hosted future
  * turns the same counts into billable credits (roadmap F8b).
  */
+/** Friendly names for the Rust-side feature labels (metering.rs owns the set). */
+const FEATURE_LABELS: Record<string, string> = {
+  ally_suggest_reply: "Ally · suggest reply",
+  ally_summarize: "Ally · summarize",
+  ally_question: "Ally · question",
+  ally_card_summary: "Ally · card summary",
+  simcon_knowledge: "Sim Con · knowledge",
+  simcon_research_findings: "Sim Con · research findings",
+  simcon_personas: "Sim Con · personas",
+  rehearsal_persona: "Rehearsal · persona",
+  tracker: "Tracker",
+  capture: "FANER capture",
+  faner_replay: "FANER replay (dev)",
+};
+
 function UsageSettings() {
   const backend = useBackend();
   const [usage, setUsage] = useState<UsageSummary | null>(null);
@@ -435,9 +450,10 @@ function UsageSettings() {
   return (
     <div className="flex flex-col gap-2.5">
       <p className="text-[12px] leading-relaxed text-fg-muted">
-        What your keys have handled on this machine — LLM tokens per provider and{" "}
-        <b>Tavily</b> web searches (billed per search, not per token). Everything
-        runs on your own keys, so this is for your visibility.
+        What your keys have handled on this machine — LLM tokens per provider,
+        the same tokens broken down by feature and model, and <b>Tavily</b> web
+        searches (billed per search, not per token). Everything runs on your own
+        keys, so this is for your visibility.
       </p>
 
       {!hasUsage ? (
@@ -500,6 +516,58 @@ function UsageSettings() {
               </tr>
             </tbody>
           </table>
+
+          {/* Token spend by feature × model — the "what was it spent on" cut. */}
+          {(usage.llm_features ?? []).length > 0 && (
+            <table className="w-full border-t border-border text-[12px]">
+              <thead>
+                <tr className="border-b border-border text-left text-[10px] uppercase tracking-wide text-fg-faint">
+                  <th className="py-1.5 pl-3 pr-2 font-medium">Feature</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Input</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Output</th>
+                  <th className="py-1.5 pl-2 pr-3 text-right font-medium">
+                    Requests
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {usage.llm_features.map((b) => (
+                  <tr
+                    key={`${b.feature}|${b.provider}|${b.model}`}
+                    className="border-b border-border/60 last:border-b-0"
+                  >
+                    <td className="py-1.5 pl-3 pr-2">
+                      <span className="text-fg">
+                        {FEATURE_LABELS[b.feature] ?? b.feature}
+                      </span>
+                      <span className="block font-mono text-[10px] text-fg-faint">
+                        {b.model}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono tabular-nums text-fg-muted">
+                      {fmt(b.input_tokens)}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono tabular-nums text-fg-muted">
+                      {fmt(b.output_tokens)}
+                    </td>
+                    <td
+                      className="py-1.5 pl-2 pr-3 text-right font-mono tabular-nums text-fg-muted"
+                      title={
+                        b.failed_requests > 0
+                          ? `${fmt(b.failed_requests)} failed (partial tokens still billed)`
+                          : undefined
+                      }
+                    >
+                      {fmt(b.requests)}
+                      {b.failed_requests > 0 && (
+                        <span className="text-rec"> ·{fmt(b.failed_requests)}✗</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
 
           {/* Tavily searches — a separate meter (per-search billing). */}
           <div className="flex items-center justify-between border-t border-border px-3 py-2 text-[12px]">
