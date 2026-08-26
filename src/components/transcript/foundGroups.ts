@@ -44,6 +44,9 @@ export function buildFoundGroups(args: {
   captures: readonly Capture[];
   liveTerms: readonly string[];
   docTerms: readonly string[];
+  /** term → cached definition (spec 2026-08-26); threaded to buildTermChips
+   *  so a doc term's FoundItem carries it as `detail`. */
+  docDefinitions?: Record<string, string>;
 }): FoundGroups {
   const questions: FoundItem[] = args.radarHistory.map((r) => ({
     id: `q-${r.question.trim().toLowerCase()}`,
@@ -63,12 +66,17 @@ export function buildFoundGroups(args: {
     }),
   );
 
-  const chips = buildTermChips(args.captures, args.liveTerms, args.docTerms);
+  const chips = buildTermChips(
+    args.captures,
+    args.liveTerms,
+    args.docTerms,
+    args.docDefinitions,
+  );
   const terms: FoundItem[] = [...chips.detected, ...chips.docs].map((chip) => ({
     id: `t-${chip.id}`,
     group: "term",
     label: chip.label,
-    detail: null,
+    detail: chip.definition ?? null,
     chip,
   }));
   const termLabels = new Set(terms.map((t) => t.label.toLowerCase()));

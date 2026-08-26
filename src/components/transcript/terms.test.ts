@@ -46,6 +46,16 @@ describe("buildTermChips (Terms tab chips)", () => {
     expect(detected.map((c) => c.source)).toEqual(["capture", "live"]);
     expect(docs.map((c) => c.label)).toEqual(["SLA"]);
   });
+
+  it("attaches a cached definition to a doc chip when one exists", () => {
+    const { docs } = buildTermChips([], [], ["API Gateway", "Undefined Term"], {
+      "API Gateway": "managed API front door.",
+    });
+    const gateway = docs.find((c) => c.label === "API Gateway");
+    expect(gateway?.definition).toBe("managed API front door.");
+    const undefined_ = docs.find((c) => c.label === "Undefined Term");
+    expect(undefined_?.definition).toBeUndefined();
+  });
 });
 
 describe("chipKindTag (per-phrase action tag)", () => {
@@ -59,4 +69,5 @@ describe("chipKindTag (per-phrase action tag)", () => {
     expect(chipKindTag(recall!)).toBe("recall");
     expect(chipKindTag(doc!)).toBe("term");
   });
+
 });

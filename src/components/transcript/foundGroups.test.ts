@@ -72,4 +72,17 @@ describe("buildFoundGroups", () => {
     });
     expect(g.commitments[0]?.detail).toBe("them");
   });
+
+  it("carries a doc term's cached definition into its detail line", () => {
+    const groups = buildFoundGroups({
+      radarHistory: [],
+      tracker: null,
+      captures: [],
+      liveTerms: [],
+      docTerms: ["API Gateway"],
+      docDefinitions: { "API Gateway": "managed API front door." },
+    });
+    const gateway = groups.terms.find((t) => t.label === "API Gateway");
+    expect(gateway?.detail).toBe("managed API front door.");
+  });
 });

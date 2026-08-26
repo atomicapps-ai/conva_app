@@ -2155,10 +2155,12 @@ export function TranscriptView() {
   const activationNonce = useGroundingStore((s) => s.activationNonce);
   const [groundingDocs, setGroundingDocs] = useState<string[]>([]);
   const [docTerms, setDocTerms] = useState<string[]>([]);
+  const [docDefinitions, setDocDefinitions] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!activeId || !isTauri()) {
       setGroundingDocs([]);
       setDocTerms([]);
+      setDocDefinitions({});
       return;
     }
     let alive = true;
@@ -2170,11 +2172,13 @@ export function TranscriptView() {
           .filter((n): n is string => Boolean(n));
         setGroundingDocs(names);
         setDocTerms(buildDocTerms(session.key_terms, session.glossary));
+        setDocDefinitions(session.glossary_definitions ?? {});
       })
       .catch(() => {
         if (!alive) return;
         setGroundingDocs([]);
         setDocTerms([]);
+        setDocDefinitions({});
       });
     return () => {
       alive = false;
@@ -2189,8 +2193,9 @@ export function TranscriptView() {
         captures,
         liveTerms: [...addedTerms, ...spokenTerms],
         docTerms,
+        docDefinitions,
       }),
-    [radarHistory, tracker, captures, addedTerms, spokenTerms, docTerms],
+    [radarHistory, tracker, captures, addedTerms, spokenTerms, docTerms, docDefinitions],
   );
 
   // sourceKey → ALL cards derived from it, oldest-first (cards itself is
@@ -2751,6 +2756,7 @@ export function TranscriptView() {
             }
             onEntryDefine={(e) => {
               ensureViewVisible();
+              if (e.item.chip?.definition) return;
               askTerm("definition", e.item.label);
             }}
             onEntryElaborate={(e) => {

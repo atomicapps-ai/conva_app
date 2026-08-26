@@ -9,6 +9,11 @@ export interface TermChip {
    *  highlight or a user-selected phrase); "doc" = grounded-context term. */
   source: "capture" | "live" | "doc";
   capture?: Capture;
+  /** The cached definition Ally already wrote for this term in its
+   *  generated documents, when one exists — lets Define resolve instantly
+   *  instead of a live Ally call (spec 2026-08-26). Doc-sourced chips
+   *  only; captures/live terms never have one. */
+  definition?: string;
 }
 
 /** The FANER tag shown on a chip's info card ("concept", "fix", "recall", …). */
@@ -31,6 +36,7 @@ export function buildTermChips(
   captures: readonly Capture[],
   liveTerms: readonly string[],
   docTerms: readonly string[],
+  docDefinitions?: Record<string, string>,
 ): { detected: TermChip[]; docs: TermChip[] } {
   const detected: TermChip[] = [];
   const seen = new Set<string>();
@@ -48,7 +54,12 @@ export function buildTermChips(
   }
   const docs = docTerms
     .filter((t) => !seen.has(t.toLowerCase()))
-    .map((t): TermChip => ({ id: `d-${t}`, label: t, source: "doc" }));
+    .map((t): TermChip => ({
+      id: `d-${t}`,
+      label: t,
+      source: "doc",
+      definition: docDefinitions?.[t],
+    }));
   return { detected, docs };
 }
 
