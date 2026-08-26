@@ -242,6 +242,7 @@ export interface Conversation {
   updated_at_unix_ms: number;
   segments: TranscriptSegment[];
   linked_docs: string[];
+  linked_context_id?: string | null;
 }
 
 /** Mirror of the shell's conversations::ConversationSummary. */
@@ -252,6 +253,7 @@ export interface ConversationSummary {
   updated_at_unix_ms: number;
   segment_count: number;
   linked_docs: string[];
+  linked_context_id?: string | null;
   preview: string;
 }
 

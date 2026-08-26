@@ -290,12 +290,14 @@ export function conversationSave(
   title: string | null,
   segments: TranscriptSegment[],
   linkedDocs: string[],
+  contextId?: string | null,
 ): Promise<Conversation> {
   return invoke<Conversation>("conversation_save", {
     id,
     title,
     segments,
     linkedDocs,
+    contextId: contextId ?? null,
   });
 }
 

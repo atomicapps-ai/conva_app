@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { getBackend } from "@/lib/backend";
 import type { Conversation } from "@/lib/ipc";
 import { useAllyStore } from "@/state/ally";
+import { useGroundingStore } from "@/state/grounding";
 import { useLiveTermsStore } from "@/state/liveTerms";
 import { useTranscriptStore, withLiveArchived } from "@/state/transcript";
 
@@ -128,6 +129,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       title?.trim() || get().title,
       segments,
       get().linkedDocs,
+      useGroundingStore.getState().activeId,
     );
     if (get().pendingNew) {
       // "+ New" flow: the save was a farewell — reset for a fresh start.

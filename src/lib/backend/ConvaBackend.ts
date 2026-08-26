@@ -171,6 +171,7 @@ export interface ConvaBackend {
       title: string | null,
       segments: TranscriptSegment[],
       linkedDocs: string[],
+      contextId?: string | null,
     ): Promise<Conversation>;
     list(): Promise<ConversationSummary[]>;
     load(id: string): Promise<Conversation>;

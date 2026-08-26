@@ -785,8 +785,10 @@ fn conversation_save(
     title: Option<String>,
     segments: Vec<TranscriptSegment>,
     linked_docs: Vec<String>,
+    context_id: Option<String>,
 ) -> Result<conversations::Conversation, String> {
-    conversations::save(&app, id, title, segments, linked_docs).map_err(|e| e.to_string())
+    conversations::save(&app, id, title, segments, linked_docs, context_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -32,6 +32,11 @@ pub struct Conversation {
     /// Library document ids attached to this conversation.
     #[serde(default)]
     pub linked_docs: Vec<String>,
+    /// The Sim Con context (if any) active while this conversation was
+    /// recorded — captured at save time from live grounding state (spec
+    /// 2026-08-26 part B). Never backfilled for older conversations.
+    #[serde(default)]
+    pub linked_context_id: Option<String>,
 }
 
 /// Catalog entry for the open/save menu.
@@ -43,6 +48,8 @@ pub struct ConversationSummary {
     pub updated_at_unix_ms: u64,
     pub segment_count: u32,
     pub linked_docs: Vec<String>,
+    #[serde(default)]
+    pub linked_context_id: Option<String>,
     pub preview: String,
 }
 
@@ -92,6 +99,7 @@ pub fn save(
     title: Option<String>,
     segments: Vec<TranscriptSegment>,
     linked_docs: Vec<String>,
+    context_id: Option<String>,
 ) -> Result<Conversation, CoreError> {
     let now = now_unix_ms();
     let finals: Vec<TranscriptSegment> = segments.into_iter().filter(|s| s.is_final).collect();
@@ -107,10 +115,15 @@ pub fn save(
                 title: requested_title
                     .or_else(|| existing.as_ref().map(|c| c.title.clone()))
                     .unwrap_or_else(|| derive_title(&finals)),
-                created_at_unix_ms: existing.map(|c| c.created_at_unix_ms).unwrap_or(now),
+                created_at_unix_ms: existing
+                    .as_ref()
+                    .map(|c| c.created_at_unix_ms)
+                    .unwrap_or(now),
                 updated_at_unix_ms: now,
                 segments: finals,
                 linked_docs,
+                linked_context_id: context_id
+                    .or_else(|| existing.as_ref().and_then(|c| c.linked_context_id.clone())),
                 id,
             }
         }
@@ -121,6 +134,7 @@ pub fn save(
             updated_at_unix_ms: now,
             segments: finals,
             linked_docs,
+            linked_context_id: context_id,
         },
     };
 
@@ -173,6 +187,7 @@ pub fn list(app: &AppHandle) -> Result<Vec<ConversationSummary>, CoreError> {
             updated_at_unix_ms: conv.updated_at_unix_ms,
             segment_count: conv.segments.len() as u32,
             linked_docs: conv.linked_docs,
+            linked_context_id: conv.linked_context_id,
             preview,
         });
     }
