@@ -870,14 +870,15 @@ fn activate_context(
             .as_deref()
             .and_then(|doc_id| state.rag.document_text(doc_id))
         {
-            let glossary = conva_core::highlight::sanitize_mined_terms(
-                conva_core::simcon::extract_glossary(&text),
+            let entries = conva_core::highlight::sanitize_glossary_entries(
+                conva_core::simcon::extract_glossary_entries(&text),
                 &text,
                 session.job_description.as_deref(),
                 1,
             );
-            if !glossary.is_empty() {
-                session.glossary = glossary;
+            if !entries.is_empty() {
+                session.glossary = entries.iter().map(|(t, _)| t.clone()).collect();
+                session.glossary_definitions = entries.into_iter().collect();
                 // Best-effort persist — activation still proceeds with the
                 // in-memory terms if the save fails.
                 let _ = simcon::save(&app, session.clone());
@@ -1079,12 +1080,14 @@ fn simcon_generate_dossier(
     // bolding is already an LLM-curated signal, so the occurrence floor is
     // 1, but the word-cap and stopword rules still apply, and JD presence
     // still counts in the term's favor.
-    session.glossary = conva_core::highlight::sanitize_mined_terms(
-        conva_core::simcon::extract_glossary(&text),
+    let glossary_entries = conva_core::highlight::sanitize_glossary_entries(
+        conva_core::simcon::extract_glossary_entries(&text),
         &text,
         session.job_description.as_deref(),
         1,
     );
+    session.glossary = glossary_entries.iter().map(|(t, _)| t.clone()).collect();
+    session.glossary_definitions = glossary_entries.into_iter().collect();
     // A fresh digest by definition reflects the current inputs.
     session.resources_stale = false;
 
