@@ -997,13 +997,15 @@ fn simcon_load_profile(app: AppHandle, profile_id: String) -> Result<KnowledgePr
     simcon::load_profile(&app, &profile_id).map_err(|e| e.to_string())
 }
 
-/// Generate Ally's grounding documents — the two-stage pipeline (spec
+/// Generate Ally's grounding documents — the staged pipeline (spec
 /// 2026-08-26). Stage 1 synthesizes the Sim Con's documents + role/JD into a
 /// **Context knowledge** briefing; Stage 2 (when research is enabled) runs
 /// vocabulary-seeded web research and writes a cited **Research findings**
-/// document. Both land in the library (viewable + reusable + grounding future
-/// answers) and attach to the knowledge profile. Regenerating replaces the
-/// previous documents. Returns the updated session.
+/// document; Stage 3 (opt-in, Interview only) runs a much broader research
+/// pass and writes an **Interview Q&A** bank (spec 2026-08-26, part A). All
+/// land in the library (viewable + reusable + grounding future answers) and
+/// attach to the knowledge profile. Regenerating replaces the previous
+/// documents. Returns the updated session.
 #[tauri::command]
 fn simcon_generate_dossier(
     app: AppHandle,
@@ -1096,7 +1098,9 @@ fn simcon_generate_dossier(
     // missing key skip the stage cleanly (Stage 1's document stands).
     if session.research_enabled {
         let vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
-        if let Ok((sources, searches)) = simcon::research(&session, &vocab) {
+        let queries =
+            conva_core::simcon::research_queries(&session, &vocab, simcon::RESEARCH_MAX_QUERIES);
+        if let Ok((sources, searches)) = simcon::research(queries, simcon::RESEARCH_MAX_SOURCES) {
             metering::record_tavily_search(&app, searches);
             if !sources.is_empty() {
                 profile.research = sources.clone();
@@ -1133,8 +1137,56 @@ fn simcon_generate_dossier(
         }
     }
 
-    // One profile save covers both stages (Stage 1's document + Stage 2's
-    // research and findings doc, when they ran).
+    // ── Stage 3: deep interview Q&A research (spec 2026-08-26, part A) —
+    // opt-in, Interview only, much broader than Stage 2. Failures/no key
+    // skip cleanly; Stage 1/2's documents stand regardless.
+    if session.deep_qa_enabled
+        && session.research_enabled
+        && session.category == conva_core::simcon::SimConCategory::Interview
+    {
+        let qa_vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
+        let qa_queries =
+            conva_core::simcon::qa_research_queries(&session, &qa_vocab, simcon::QA_MAX_QUERIES);
+        if let Ok((qa_sources, qa_searches)) = simcon::research(qa_queries, simcon::QA_MAX_SOURCES)
+        {
+            metering::record_tavily_search(&app, qa_searches);
+            if !qa_sources.is_empty() {
+                let qa_request = conva_core::simcon::interview_qa_prompt(&session, &qa_sources);
+                let mut qa_buf = String::new();
+                let qa_result = metering::metered_stream(
+                    &app,
+                    "simcon_qa",
+                    &selection,
+                    &key,
+                    &qa_request,
+                    &mut |t| qa_buf.push_str(t),
+                );
+                if qa_result.is_ok() {
+                    let qa_text = qa_buf.trim().to_string();
+                    if !qa_text.is_empty() {
+                        // Replace any previous Q&A doc — no pile-up.
+                        if let Some(old) = session.qa_doc_id.take() {
+                            let _ = state.rag.delete(&old);
+                            profile.doc_ids.retain(|d| d != &old);
+                        }
+                        let qa_name = format!("{} — Interview Q&A", session.title.trim());
+                        if let Ok(qa_report) =
+                            state.rag.ingest_generated(&qa_name, &qa_text, &session.id)
+                        {
+                            let qa_doc_id = qa_report.document.id.clone();
+                            if !profile.doc_ids.contains(&qa_doc_id) {
+                                profile.doc_ids.push(qa_doc_id.clone());
+                            }
+                            session.qa_doc_id = Some(qa_doc_id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // One profile save covers all three stages (Stage 1's document + Stage
+    // 2's research/findings doc + Stage 3's Q&A doc, whichever ran).
     profile.updated_at_unix_ms = session::now_unix_ms();
     simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
