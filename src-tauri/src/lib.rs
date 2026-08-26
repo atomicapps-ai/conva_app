@@ -946,6 +946,18 @@ fn activate_context(
         terms.clear();
         terms.extend(session.key_terms.iter().cloned());
         terms.extend(session.glossary.iter().cloned());
+        // The interviewer's own vocabulary always rides along (spec
+        // 2026-08-26, part 2) — in-memory only, so live highlighting is
+        // never hostage to a stale or truncated digest.
+        if let Some(jd) = session.job_description.as_deref() {
+            let have: std::collections::HashSet<String> =
+                terms.iter().map(|t| t.to_lowercase()).collect();
+            terms.extend(
+                conva_core::highlight::interviewer_terms(jd, 16)
+                    .into_iter()
+                    .filter(|t| !have.contains(&t.to_lowercase())),
+            );
+        }
     }
     *state.active_context_doc_ids.lock().expect("ctx lock") = profile_doc_ids;
 
