@@ -88,4 +88,25 @@ describe("FoundList", () => {
       screen.getByText(/appear here as the conversation runs/),
     ).toBeInTheDocument();
   });
+
+  it("renders only the requested group with no eyebrow headers in only-mode", () => {
+    render(<FoundList groups={groups} onSelect={() => {}} only="questions" />);
+    // question rows present…
+    expect(screen.getByText("What is RRF?")).toBeInTheDocument();
+    // …no group eyebrows, and no other groups' items
+    expect(screen.queryByText("They asked")).toBeNull();
+    expect(screen.queryByText("Commitments")).toBeNull();
+    expect(screen.queryByText("send the deck")).toBeNull();
+    expect(screen.queryByText("Lambda")).toBeNull();
+    expect(screen.queryByText("Kinesis")).toBeNull();
+  });
+
+  it("only=tracking renders commitments and mentions together", () => {
+    render(<FoundList groups={groups} onSelect={() => {}} only="tracking" />);
+    expect(screen.getByText("send the deck")).toBeInTheDocument();
+    expect(screen.getByText("Kinesis")).toBeInTheDocument();
+    expect(screen.queryByText("Commitments")).toBeNull();
+    expect(screen.queryByText("Mentioned")).toBeNull();
+    expect(screen.queryByText("What is RRF?")).toBeNull();
+  });
 });
