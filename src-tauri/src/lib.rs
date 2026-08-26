@@ -497,12 +497,14 @@ fn rag_delete(state: State<AppState>, id: String) -> Result<(), String> {
     state.rag.delete(&id).map_err(|e| e.to_string())
 }
 
-/// Tag a library document as grounding a Conversation Context (drag-attach in
-/// the unified Contexts & Library UI). The caller also folds the id into the
-/// context's own `source_doc_ids` (via `simcon_save`) so the engine grounds on
-/// it — this command only updates the library-side tag/badge.
+/// Tag a document as attached to a Conversation Context AND sync the
+/// context's own `source_doc_ids` (spec 2026-08-26, part 1 — pane/library
+/// attaches previously never reached the context record, so doc counts and
+/// staleness missed them). The context sync is best-effort: the tag
+/// operation succeeds even if the context record can't be loaded.
 #[tauri::command]
 fn rag_attach_context(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     context_id: String,
@@ -510,14 +512,17 @@ fn rag_attach_context(
     state
         .rag
         .attach_context(&id, &context_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    sync_context_doc(&app, &context_id, &id, true);
+    Ok(())
 }
 
-/// Remove a document's tag for a Conversation Context. See
-/// [`rag_attach_context`] — the caller also drops the id from the context's
-/// `source_doc_ids`.
+/// Remove a document's tag for a Conversation Context; see
+/// [`rag_attach_context`] — also drops the id from the context's
+/// `source_doc_ids` (best-effort).
 #[tauri::command]
 fn rag_detach_context(
+    app: AppHandle,
     state: State<AppState>,
     id: String,
     context_id: String,
@@ -525,7 +530,31 @@ fn rag_detach_context(
     state
         .rag
         .detach_context(&id, &context_id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    sync_context_doc(&app, &context_id, &id, false);
+    Ok(())
+}
+
+/// Add/remove `doc_id` in a context's `source_doc_ids` and apply the same
+/// grounding invalidation the wizard save applies (clear derived glossary;
+/// mark generated resources stale). Best-effort by design.
+fn sync_context_doc(app: &AppHandle, context_id: &str, doc_id: &str, attach: bool) {
+    let Ok(mut session) = simcon::load(app, context_id) else {
+        return;
+    };
+    let had = session.source_doc_ids.iter().any(|d| d == doc_id);
+    if attach && !had {
+        session.source_doc_ids.push(doc_id.to_string());
+    } else if !attach && had {
+        session.source_doc_ids.retain(|d| d != doc_id);
+    } else {
+        return; // no change — don't touch staleness
+    }
+    session.glossary.clear();
+    if session.dossier_doc_id.is_some() || session.knowledge_profile_id.is_some() {
+        session.resources_stale = true;
+    }
+    let _ = simcon::save(app, session);
 }
 
 /// Download a library document back to `dest` (chosen via the save dialog):
@@ -1043,6 +1072,8 @@ fn simcon_generate_dossier(
         session.job_description.as_deref(),
         1,
     );
+    // A fresh digest by definition reflects the current inputs.
+    session.resources_stale = false;
     simcon::save(&app, session).map_err(|e| e.to_string())
 }
 

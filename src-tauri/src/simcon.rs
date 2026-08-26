@@ -102,6 +102,7 @@ specific is active."
             chosen_persona_id: None,
             conversation_id: None,
             dossier_doc_id: Some(doc_id),
+            resources_stale: false,
         },
     )?;
     Ok(())
@@ -117,8 +118,20 @@ pub fn save(app: &AppHandle, mut session: SimConSession) -> Result<SimConSession
         session.created_at_unix_ms = now;
     } else {
         validate_id(&session.id)?;
-        if let Ok(existing) = load(app, &session.id) {
-            session.created_at_unix_ms = existing.created_at_unix_ms;
+        if let Ok(old) = load(app, &session.id) {
+            session.created_at_unix_ms = old.created_at_unix_ms;
+            // Grounding edits invalidate derived state (spec 2026-08-26, part 1):
+            // the glossary derives from the OLD inputs, so clear it (the next
+            // activation re-mines JD-first; the next Generate rebuilds it from the
+            // fresh digest), and mark generated resources stale so the UI can say
+            // "regenerate". Internal saves (dossier, personas, activation backfill)
+            // change no grounding fields and pass through untouched.
+            if conva_core::simcon::grounding_changed(&old, &session) {
+                session.glossary.clear();
+                if old.dossier_doc_id.is_some() || old.knowledge_profile_id.is_some() {
+                    session.resources_stale = true;
+                }
+            }
         }
     }
     session.updated_at_unix_ms = now;
@@ -176,6 +189,7 @@ pub fn list(app: &AppHandle) -> Result<Vec<SimConSummary>, CoreError> {
                 .as_deref()
                 .is_some_and(|jd| !jd.trim().is_empty()),
             has_generated_resources: s.dossier_doc_id.is_some(),
+            resources_stale: s.resources_stale,
         });
     }
     out.sort_by_key(|b| std::cmp::Reverse(b.updated_at_unix_ms));
