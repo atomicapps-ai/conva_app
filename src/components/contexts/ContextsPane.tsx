@@ -8,12 +8,12 @@ import { useBackend } from "@/lib/backend";
 import {
   DEFAULT_CONTEXT_ID,
   type RagDocument,
-  type SimConCategory,
-  type SimConSummary,
+  type ContextCategory,
+  type ContextSummary,
 } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
-const CATEGORY_LABEL: Record<SimConCategory, string> = {
+const CATEGORY_LABEL: Record<ContextCategory, string> = {
   interview: "Interview",
   company_meeting: "Company meeting",
   sales_call: "Sales call",
@@ -203,7 +203,7 @@ export function ContextsPane({
   generatingId,
   refreshToken,
 }: {
-  items: SimConSummary[];
+  items: ContextSummary[];
   selectedId: string | null;
   /** Focus this context in the library pane (filter) — does not navigate. */
   onSelect: (id: string) => void;

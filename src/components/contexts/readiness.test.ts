@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { readinessOf } from "@/components/contexts/readiness";
-import type { SimConSummary } from "@/lib/ipc";
+import type { ContextSummary } from "@/lib/ipc";
 
-function summary(overrides: Partial<SimConSummary> = {}): SimConSummary {
+function summary(overrides: Partial<ContextSummary> = {}): ContextSummary {
   return {
     id: "s1",
     title: "Acme interview",
