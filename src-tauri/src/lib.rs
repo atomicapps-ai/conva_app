@@ -1224,7 +1224,8 @@ fn simcon_generate_dossier(
         {
             metering::record_tavily_search(&app, qa_searches);
             if !qa_sources.is_empty() {
-                let qa_request = conva_core::simcon::interview_qa_prompt(&session, &qa_sources);
+                let qa_request =
+                    conva_core::simcon::interview_qa_prompt(&session, &qa_sources, &chunks);
                 let mut qa_buf = String::new();
                 let qa_result = metering::metered_stream(
                     &app,
