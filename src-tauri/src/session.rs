@@ -65,7 +65,7 @@ pub struct SessionManager {
     /// The in-progress call recording, if any. Shared with both frame sinks
     /// so they can tee audio to it while it's armed.
     recording: Arc<Mutex<Option<Recorder>>>,
-    /// For a live Sim Con rehearsal: the flag the "your turn" command sets to
+    /// For a live Context rehearsal: the flag the "your turn" command sets to
     /// end the user's current turn immediately (the worker also auto-ends on a
     /// pause). Present only while a rehearsal is active.
     rehearsal_force: Mutex<Option<Arc<AtomicBool>>>,
@@ -91,9 +91,9 @@ pub struct SessionManager {
 enum Mode {
     /// Normal live assist: mic (you) + WASAPI loopback (them).
     Live,
-    /// Sim Con rehearsal: mic only (the AI is the other party — capturing
+    /// Context rehearsal: mic only (the AI is the other party — capturing
     /// system audio would feed its own TTS back in). Finalized user turns are
-    /// forwarded to the rehearsal worker via this sender; the Sim Con title
+    /// forwarded to the rehearsal worker via this sender; the Context title
     /// tags the session log so it's identifiable as a rehearsal.
     Rehearsal {
         reh_tx: Sender<TranscriptSegment>,
@@ -151,7 +151,7 @@ impl SessionManager {
             .map(|(id, _stop)| id)
     }
 
-    /// Start a Sim Con rehearsal: mic-only capture whose finalized user turns
+    /// Start a Context rehearsal: mic-only capture whose finalized user turns
     /// flow to `reh_tx`. Returns `(session_id, stop_flag, force_end)` — the
     /// caller spawns the rehearsal worker with the first two and keeps the last
     /// for the "your turn" control (also stored here for `rehearsal_your_turn`).
@@ -319,7 +319,7 @@ impl SessionManager {
 
         // Per-session transcript file (U3): meta line, then one JSON
         // segment per line. Shared by both sides' sinks. A rehearsal tags the
-        // meta with its Sim Con title so the session is identifiable as one.
+        // meta with its Context title so the session is identifiable as one.
         let rehearsal_title = match &mode {
             Mode::Rehearsal { simcon_title, .. } => Some(simcon_title.as_str()),
             Mode::Live => None,
@@ -705,7 +705,7 @@ fn open_session_file(
         "id": session_id,
         "started_at_unix_ms": now_unix_ms(),
     });
-    // Tag rehearsals so the Sessions list can mark them as Sim Cons.
+    // Tag rehearsals so the Sessions list can mark them as Context rehearsals.
     if let Some(title) = rehearsal_title {
         meta["kind"] = serde_json::Value::String("rehearsal".into());
         meta["simcon_title"] = serde_json::Value::String(title.to_string());
@@ -722,9 +722,9 @@ pub struct SessionSummary {
     pub segment_count: u32,
     /// First few words of the conversation, for the list.
     pub preview: String,
-    /// True when this session was a Sim Con rehearsal (tagged in its meta).
+    /// True when this session was a Context rehearsal (tagged in its meta).
     pub is_rehearsal: bool,
-    /// The Sim Con title, when this was a rehearsal.
+    /// The Context title, when this was a rehearsal.
     pub simcon_title: Option<String>,
 }
 

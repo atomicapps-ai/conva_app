@@ -153,7 +153,7 @@ pub struct PartnerLockEvent {
     pub locked: bool,
 }
 
-/// Live Sim Con rehearsal phase (Phase E) — drives the "who's talking" UI
+/// Live Context rehearsal phase (Phase E) — drives the "who's talking" UI
 /// (speaking animation + active-speaker indicator).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "phase")]
