@@ -13,9 +13,9 @@ import type {
   Capture,
   Conversation,
   ConversationSummary,
+  ContextSummary,
+  ConversationContext,
   KnowledgeProfile,
-  SimConSession,
-  SimConSummary,
   IngestReport,
   ModelInfo,
   PartnerPayload,
@@ -167,7 +167,7 @@ export function ragDelete(id: string): Promise<void> {
 
 /** Tag a library document as grounding a Conversation Context (drag-attach).
  *  Also fold `contextId` into the context's own `source_doc_ids` via
- *  `simconSave` — this only updates the library-side tag/badge. */
+ *  `contextSave` — this only updates the library-side tag/badge. */
 export function ragAttachContext(id: string, contextId: string): Promise<void> {
   return invoke("rag_attach_context", { id, contextId });
 }
@@ -313,30 +313,30 @@ export function conversationDelete(id: string): Promise<void> {
   return invoke("conversation_delete", { id });
 }
 
-/* ── SimCon (Simulated Conversation) ── */
+/* ── Context (Conversation Context) ── */
 
-/** Create or update a SimCon. An empty `id` mints a new record. */
-export function simconSave(session: SimConSession): Promise<SimConSession> {
-  return invoke<SimConSession>("simcon_save", { session });
+/** Create or update a Context. An empty `id` mints a new record. */
+export function contextSave(context: ConversationContext): Promise<ConversationContext> {
+  return invoke<ConversationContext>("context_save", { session: context });
 }
 
-export function simconList(): Promise<SimConSummary[]> {
-  return invoke<SimConSummary[]>("simcon_list");
+export function contextList(): Promise<ContextSummary[]> {
+  return invoke<ContextSummary[]>("context_list");
 }
 
-export function simconLoad(id: string): Promise<SimConSession> {
-  return invoke<SimConSession>("simcon_load", { id });
+export function contextLoad(id: string): Promise<ConversationContext> {
+  return invoke<ConversationContext>("context_load", { id });
 }
 
-export function simconDelete(id: string): Promise<void> {
-  return invoke("simcon_delete", { id });
+export function contextDelete(id: string): Promise<void> {
+  return invoke("context_delete", { id });
 }
 
 /** Ground the next live session in this context (session grounding): fills
  *  the same highlight-term + retrieval scopes rehearsal already sets. Takes
  *  effect immediately; cleared by `deactivateContext` or stopping a session. */
-export function activateContext(id: string): Promise<SimConSession> {
-  return invoke<SimConSession>("activate_context", { id });
+export function activateContext(id: string): Promise<ConversationContext> {
+  return invoke<ConversationContext>("activate_context", { id });
 }
 
 /** Clear the active conversation context without stopping a session. */
@@ -344,29 +344,29 @@ export function deactivateContext(): Promise<void> {
   return invoke("deactivate_context");
 }
 
-/** Copy documents into a Sim Con's folder (named after its title); returns the
+/** Copy documents into a Context's folder (named after its title); returns the
  *  new in-folder paths to ingest into the RAG library. */
-export function simconStoreDocs(
+export function contextStoreDocs(
   title: string,
   paths: string[],
 ): Promise<string[]> {
-  return invoke<string[]>("simcon_store_docs", { title, paths });
+  return invoke<string[]>("context_store_docs", { title, paths });
 }
 
-/** Build the reusable KnowledgeProfile (docs + research) and mark the Sim Con
- *  ready; returns the updated session. */
-export function simconPrepare(id: string): Promise<SimConSession> {
-  return invoke<SimConSession>("simcon_prepare", { id });
+/** Build the reusable KnowledgeProfile (docs + research) and mark the Context
+ *  ready; returns the updated record. */
+export function contextPrepare(id: string): Promise<ConversationContext> {
+  return invoke<ConversationContext>("context_prepare", { id });
 }
 
-/** Load a Sim Con's knowledge base (attached docs + researched sources). */
-export function simconLoadProfile(profileId: string): Promise<KnowledgeProfile> {
-  return invoke<KnowledgeProfile>("simcon_load_profile", { profileId });
+/** Load a Context's knowledge base (attached docs + researched sources). */
+export function contextLoadProfile(profileId: string): Promise<KnowledgeProfile> {
+  return invoke<KnowledgeProfile>("context_load_profile", { profileId });
 }
 
-/** Generate the Ally prep dossier (saved to the library); returns the session. */
-export function simconGenerateDossier(id: string): Promise<SimConSession> {
-  return invoke<SimConSession>("simcon_generate_dossier", { id });
+/** Generate the Ally prep dossier (saved to the library); returns the record. */
+export function contextGenerateDossier(id: string): Promise<ConversationContext> {
+  return invoke<ConversationContext>("context_generate_dossier", { id });
 }
 
 /** Reconstruct a library document's text (e.g. to show the prep dossier). */
@@ -375,31 +375,31 @@ export function ragDocumentText(id: string): Promise<string | null> {
 }
 
 /** Generate 3 counterparty personas with the configured LLM. */
-export function simconGeneratePersonas(id: string): Promise<SimConSession> {
-  return invoke<SimConSession>("simcon_generate_personas", { id });
+export function contextGeneratePersonas(id: string): Promise<ConversationContext> {
+  return invoke<ConversationContext>("context_generate_personas", { id });
 }
 
 /** Record the chosen persona. */
-export function simconChoosePersona(
+export function contextChoosePersona(
   id: string,
   personaId: string,
-): Promise<SimConSession> {
-  return invoke<SimConSession>("simcon_choose_persona", { id, personaId });
+): Promise<ConversationContext> {
+  return invoke<ConversationContext>("context_choose_persona", { id, personaId });
 }
 
 /** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
-export function simconStartRehearsal(id: string): Promise<string> {
-  return invoke<string>("simcon_start_rehearsal", { id });
+export function contextStartRehearsal(id: string): Promise<string> {
+  return invoke<string>("context_start_rehearsal", { id });
 }
 
 /** End the user's current rehearsal turn now (manual "your turn"). */
-export function simconRehearsalYourTurn(): Promise<void> {
-  return invoke("simcon_rehearsal_your_turn");
+export function contextRehearsalYourTurn(): Promise<void> {
+  return invoke("context_rehearsal_your_turn");
 }
 
 /** Inject a typed turn (e.g. an Ally-suggested answer) as the user's turn. */
-export function simconRehearsalSay(text: string): Promise<void> {
-  return invoke("simcon_rehearsal_say", { text });
+export function contextRehearsalSay(text: string): Promise<void> {
+  return invoke("context_rehearsal_say", { text });
 }
 
 /** Store (empty clears) the Tavily web-research key in the OS vault. */
