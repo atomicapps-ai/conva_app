@@ -3525,6 +3525,152 @@ cargo clippy -p conva-core --all-targets -- -D warnings
 
   All green. Record the `npm test` and `cargo test -p conva-core` pass counts and compare them to Task 1.1's and Phase 3/4's baselines — they must match exactly (same number of tests, all passing; this rename adds and removes zero tests).
 
+> **Added post-write** (found while executing Task 5.1 itself): running the
+> sweep below unfiltered turned up 9 real, never-touched prose sites — 8 in
+> `src-tauri/src/session.rs` and 1 in `crates/conva-core/src/ipc.rs`. None of
+> them are the `simcon_title` field itself (scope decision 2 is untouched);
+> they're descriptive comments *about* the rehearsal/context concept that no
+> earlier phase's file list happened to include (`session.rs` wasn't in
+> Phase 2's original file list at all — only the `is_rehearsal`/`simcon_title`
+> fields it defines were noted as preserved, not the file's *other* prose;
+> `crates/conva-core/src/ipc.rs`'s `RehearsalStateEvent` doc comment is the
+> Rust-side twin of the one Task 3.1 already reworded on the TS mirror
+> (`src/lib/ipc.ts`) — that task fixed the mirror but never the Rust source it
+> mirrors). Folded in as Step 1b below, same precedent as every other
+> never-scoped-file gap this plan has hit (Task 2.6, Task 4.4 Steps 11b/11c).
+
+- [ ] **Step 1b: Reword the 9 leftover prose sites.** These are English prose using "Sim Con" as a concept name — never the literal `simcon_title` field (which stays, scope decision 2) — so each gets the same "Sim Con" → "Context" treatment as every other UI/doc-comment site in this plan.
+
+  `crates/conva-core/src/ipc.rs` — before:
+
+```rust
+/// Live Sim Con rehearsal phase (Phase E) — drives the "who's talking" UI
+/// (speaking animation + active-speaker indicator).
+```
+
+  After:
+
+```rust
+/// Live Context rehearsal phase (Phase E) — drives the "who's talking" UI
+/// (speaking animation + active-speaker indicator).
+```
+
+  `src-tauri/src/session.rs` — before (the `rehearsal_force` field doc comment):
+
+```rust
+    /// For a live Sim Con rehearsal: the flag the "your turn" command sets to
+    /// end the user's current turn immediately (the worker also auto-ends on a
+    /// pause). Present only while a rehearsal is active.
+```
+
+  After:
+
+```rust
+    /// For a live Context rehearsal: the flag the "your turn" command sets to
+    /// end the user's current turn immediately (the worker also auto-ends on a
+    /// pause). Present only while a rehearsal is active.
+```
+
+  Before (the `Mode::Rehearsal` variant doc comment — note `simcon_title:` two lines below this comment is the struct field itself and stays untouched, only the prose changes):
+
+```rust
+    /// Sim Con rehearsal: mic only (the AI is the other party — capturing
+    /// system audio would feed its own TTS back in). Finalized user turns are
+    /// forwarded to the rehearsal worker via this sender; the Sim Con title
+    /// tags the session log so it's identifiable as a rehearsal.
+    Rehearsal {
+        reh_tx: Sender<TranscriptSegment>,
+        simcon_title: String,
+    },
+```
+
+  After:
+
+```rust
+    /// Context rehearsal: mic only (the AI is the other party — capturing
+    /// system audio would feed its own TTS back in). Finalized user turns are
+    /// forwarded to the rehearsal worker via this sender; the Context title
+    /// tags the session log so it's identifiable as a rehearsal.
+    Rehearsal {
+        reh_tx: Sender<TranscriptSegment>,
+        simcon_title: String,
+    },
+```
+
+  Before (the `start_rehearsal` doc comment):
+
+```rust
+    /// Start a Sim Con rehearsal: mic-only capture whose finalized user turns
+    /// flow to `reh_tx`. Returns `(session_id, stop_flag, force_end)` — the
+    /// caller spawns the rehearsal worker with the first two and keeps the last
+    /// for the "your turn" control (also stored here for `rehearsal_your_turn`).
+```
+
+  After:
+
+```rust
+    /// Start a Context rehearsal: mic-only capture whose finalized user turns
+    /// flow to `reh_tx`. Returns `(session_id, stop_flag, force_end)` — the
+    /// caller spawns the rehearsal worker with the first two and keeps the last
+    /// for the "your turn" control (also stored here for `rehearsal_your_turn`).
+```
+
+  Before (the inline comment above `rehearsal_title`):
+
+```rust
+        // Per-session transcript file (U3): meta line, then one JSON
+        // segment per line. Shared by both sides' sinks. A rehearsal tags the
+        // meta with its Sim Con title so the session is identifiable as one.
+```
+
+  After:
+
+```rust
+        // Per-session transcript file (U3): meta line, then one JSON
+        // segment per line. Shared by both sides' sinks. A rehearsal tags the
+        // meta with its Context title so the session is identifiable as one.
+```
+
+  Before (the inline comment above the `meta["simcon_title"]` assignment — note the JSON key literal `"simcon_title"` on the next line stays untouched, it's the on-disk field, scope decision 2):
+
+```rust
+    // Tag rehearsals so the Sessions list can mark them as Sim Cons.
+    if let Some(title) = rehearsal_title {
+        meta["kind"] = serde_json::Value::String("rehearsal".into());
+        meta["simcon_title"] = serde_json::Value::String(title.to_string());
+    }
+```
+
+  After:
+
+```rust
+    // Tag rehearsals so the Sessions list can mark them as Context rehearsals.
+    if let Some(title) = rehearsal_title {
+        meta["kind"] = serde_json::Value::String("rehearsal".into());
+        meta["simcon_title"] = serde_json::Value::String(title.to_string());
+    }
+```
+
+  Before (the `SessionSummary.is_rehearsal`/`.simcon_title` doc comments — the Rust source these TS-mirror comments in `ipc.ts` were already reworded from by Task 3.1; only the Rust originals were missed. Field names stay, only prose changes):
+
+```rust
+    /// True when this session was a Sim Con rehearsal (tagged in its meta).
+    pub is_rehearsal: bool,
+    /// The Sim Con title, when this was a rehearsal.
+    pub simcon_title: Option<String>,
+```
+
+  After:
+
+```rust
+    /// True when this session was a Context rehearsal (tagged in its meta).
+    pub is_rehearsal: bool,
+    /// The Context title, when this was a rehearsal.
+    pub simcon_title: Option<String>,
+```
+
+  Then re-run Step 1's full gate (all 5 checks) to confirm the reword didn't break anything, before moving to Step 2.
+
 - [ ] **Step 2: Final repo-wide grep sweep** (the authoritative one — run from the repo root, across both `crates/`, `src-tauri/`, and `src/`):
 
 ```bash
@@ -3533,6 +3679,7 @@ grep -rinE 'sim ?con' crates/ src-tauri/src/*.rs src/ \
   | grep -v \
     -e 'context\.rs:.*\.join("simcon")' \
     -e 'context\.rs:.*<app-data>/simcon/' \
+    -e 'context\.rs:.*formerly "SimCon"' \
     -e 'session\.rs:.*simcon_title' \
     -e 'ipc\.ts:.*simcon_title' \
     -e 'navItems\.ts:.*lists "Sim Con' \
@@ -3543,7 +3690,7 @@ grep -rinE 'sim ?con' crates/ src-tauri/src/*.rs src/ \
     -e 'row.data.simcon_title\|`simcon_title`'
 ```
 
-  Expected: no output. Every hit this filter doesn't explain is a real miss — go fix it (re-open the relevant Phase's task) before continuing. (**Corrected post-write** — two fixes folded in while resolving Task 4.4's own Step 12 gap: the `navItems\.ts:.*Sim Con rehearsal` alternative never matched anything, since "Sim Con" and "rehearsal" fall on two different source lines there — `grep -n` only ever prints one line at a time — so it's rewritten to match what the actual line 39 contains (`lists "Sim Con`); and a new alternative covers `Icon.tsx`'s `(formerly "Sim Con")` parenthetical from Task 4.4 Step 7, which this filter never accounted for at all.)
+  Expected: no output. Every hit this filter doesn't explain is a real miss — go fix it (re-open the relevant Phase's task) before continuing. (**Corrected post-write** — three fixes folded in: the `navItems\.ts:.*Sim Con rehearsal` alternative never matched anything, since "Sim Con" and "rehearsal" fall on two different source lines there — `grep -n` only ever prints one line at a time — so it's rewritten to match what the actual line 39 contains (`lists "Sim Con`); a new alternative covers `Icon.tsx`'s `(formerly "Sim Con")` parenthetical from Task 4.4 Step 7; and a new alternative covers `context.rs`'s own `(formerly "SimCon")` module-doc parenthetical, the same deliberate historical-aside pattern, which this filter never accounted for either. All three are additive — they don't affect the `simcon_title` field-name exclusions, unchanged.)
 
 - [ ] **Step 3: Manual QA reminder for the owner** (per the design spec's Testing section — not automatable in this sandbox): every screen previously reachable via "Sim Con" wording (setup wizard, detail page, Settings usage table, Conversations panel tags, command palette "Go to Contexts") now reads "Context" and functions identically — create, edit, generate, rehearse, save a conversation. Note this in the PR body (Task 5.3).
 
