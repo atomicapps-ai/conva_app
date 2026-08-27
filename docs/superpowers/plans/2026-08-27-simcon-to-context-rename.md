@@ -443,17 +443,16 @@ pub fn interview_qa_prompt(
     let mut user = format!("Context: {}\nGoal: {}\n\n", context.title, context.purpose);
 ```
 
-- [ ] **Step 5: Fix the 4 test call sites whose call passed `&sample_session()` positionally into these renamed-parameter functions** — no signature mismatch is possible (positional args, not named), so this step is a no-op confirmation, not an edit: run `cargo test -p conva-core --no-run 2>&1 | head -50` and confirm it compiles clean (parameter *names* never affect call-site syntax in Rust — only Step 2's type-token rename and Step 4's exact-text edits matter for compilation).
+> **Reordered post-write** (found during execution): the original Step 5
+> tried to compile-check before Step 7 updated `lib.rs`'s module
+> declaration — but Step 1 already `git mv`'d `simcon.rs` → `context.rs`,
+> so at that point `lib.rs` still declared `pub mod simcon;` pointing at a
+> file that no longer exists, guaranteeing an unrelated `E0583` regardless
+> of whether the actual rename was correct. Steps renumbered below so the
+> module declaration updates first and the compile check that depends on
+> it runs after.
 
-- [ ] **Step 6: Grep-confirm no `SimCon`/`simcon` text remains in the file** (case-insensitive), except none should remain at all in this file (unlike the shell's `simcon_dir`, this core file has no on-disk-compat string to preserve):
-
-```bash
-grep -in 'simcon' crates/conva-core/src/context.rs
-```
-
-  Expected: no output.
-
-- [ ] **Step 7: Update `crates/conva-core/src/lib.rs`'s module declaration.** Find:
+- [ ] **Step 5: Update `crates/conva-core/src/lib.rs`'s module declaration.** Find:
 
 ```rust
 pub mod simcon;
@@ -466,6 +465,16 @@ pub mod context;
 ```
 
   (keep its alphabetical position among the other `pub mod` lines — it was between `rag` and `tracker`; `context` now sorts between `config` and `dsp`, so move the line there too, matching the file's existing alphabetical convention.)
+
+- [ ] **Step 6: Fix the 4 test call sites whose call passed `&sample_session()` positionally into these renamed-parameter functions** — no signature mismatch is possible (positional args, not named), so this step is a no-op confirmation, not an edit: run `cargo test -p conva-core --no-run 2>&1 | head -50` and confirm it compiles clean (parameter *names* never affect call-site syntax in Rust — only Step 2's type-token rename and Step 4's exact-text edits matter for compilation; Step 5 just landed, so this is now a real check of the actual rename, not a check that fails on an unrelated missing-module error).
+
+- [ ] **Step 7: Grep-confirm no `SimCon`/`simcon` text remains in the file** (case-insensitive), except none should remain at all in this file (unlike the shell's `simcon_dir`, this core file has no on-disk-compat string to preserve):
+
+```bash
+grep -in 'simcon' crates/conva-core/src/context.rs
+```
+
+  Expected: no output.
 
 - [ ] **Step 8: Update `crates/conva-core/src/metering.rs`'s doc-comment example** (cosmetic — the string is just an illustrative example in a doc comment, not code). Find:
 
