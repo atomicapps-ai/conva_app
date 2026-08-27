@@ -3092,6 +3092,8 @@ git commit -m "refactor(ui): rename the \"simcon\" view-router key to \"context\
 - Modify: `src/components/studio/ViewShell.tsx`
 - Modify: `src/components/transcript/TranscriptView.tsx`
 - Modify: `src/state/app.ts`
+- Modify: `src/state/rehearsal.ts` (**added post-write** — see Step 11b)
+- Modify: `src/state/conversation.ts` (**added post-write** — see Step 11c)
 
 - [ ] **Step 1: `ConversationsPanel.tsx` — imports + types + the `setView("simcon")` call left over from Task 4.3.** Before:
 
@@ -3432,16 +3434,53 @@ grep -inE 'sim ?con' src/components/ui/Icon.tsx src/components/studio/ViewShell.
   src/components/transcript/TranscriptView.tsx src/state/app.ts
 ```
 
-  Expected: no output (`Icon.tsx`'s `simicon:` registry key stays unchanged, but — same note as Task 4.1's Steps 6/11/13 — the `sim ?con` pattern can't match `simicon` at all, so it was never going to appear in this grep regardless).
+  Expected: **exactly 1 hit** — `Icon.tsx:80`, the `(formerly "Sim Con")` parenthetical Step 7's own "after" block just introduced. (**Corrected post-write** — the plan as first written said "no output," reasoning only about `simicon:` the registry key, which is correct: the `sim ?con` pattern truly can't match `simicon`. But it missed that Step 7's replacement comment text itself deliberately spells out "Sim Con" in full, as a historical aside — same class of thing as Task 4.3's navItems.ts fix: a literal quoted mention that's supposed to stay, not a miss. `ViewShell.tsx`/`TranscriptView.tsx`/`state/app.ts` still produce no output.)
+
+> **Added post-write** (found during execution): the plan's file list for this
+> task never covered `src/state/rehearsal.ts` or `src/state/conversation.ts`
+> — two more files with a single leftover "Sim Con" doc-comment mention each,
+> surfaced by Step 12's full-tree sweep below. Same class of gap as Phase 2's
+> Task 2.6 (files the task's own file list never named); folded in here as
+> new steps rather than deferred, per that precedent.
+
+- [ ] **Step 11b: `state/rehearsal.ts` — the module-doc-comment mention.** Before:
+
+```ts
+/** UI-side state for a live Sim Con rehearsal: whether one is running, who the
+ *  counterparty is, and the current phase (drives the speaking indicator). The
+ *  phase is fed by `conva://rehearsal-state` events via the IPC bridge. */
+```
+
+  After:
+
+```ts
+/** UI-side state for a live Context rehearsal: whether one is running, who the
+ *  counterparty is, and the current phase (drives the speaking indicator). The
+ *  phase is fed by `conva://rehearsal-state` events via the IPC bridge. */
+```
+
+- [ ] **Step 11c: `state/conversation.ts` — the `setTitle` doc-comment mention.** Before:
+
+```ts
+  /** Pre-fill the save-dialog title (e.g. mark a rehearsal as a Sim Con). */
+  setTitle: (title: string | null) => void;
+```
+
+  After:
+
+```ts
+  /** Pre-fill the save-dialog title (e.g. mark a rehearsal as a Context). */
+  setTitle: (title: string | null) => void;
+```
 
 - [ ] **Step 12: Full-tree final sweep.**
 
 ```bash
 grep -rinE 'sim ?con' src/ --include='*.ts' --include='*.tsx' \
-  | grep -v 'FEATURE_LABELS\|simcon_knowledge\|simcon_research_findings\|simcon_qa\|simcon_personas\|icon="simicon"\|simicon:\|row.data.simcon_title\|\`simcon_title\`'
+  | grep -v 'FEATURE_LABELS\|simcon_knowledge\|simcon_research_findings\|simcon_qa\|simcon_personas\|icon="simicon"\|simicon:\|row.data.simcon_title\|\`simcon_title\`\|formerly "Sim Con"\|navItems\.ts:.*lists "Sim Con\|navItems\.ts:.*tagged Sim Con\|ipc\.ts:.*simcon_title'
 ```
 
-  Expected: no output. (The `grep -v` filter excludes the intentionally-preserved hits enumerated across this whole phase: the 4 metering-label backward-compat keys, the icon registry key + its usages, and the 2 untouched `SessionSummary.simcon_title` field reads/docs.) If anything else prints, find and fix it before proceeding to Task 4.5.
+  Expected: no output. (**Corrected post-write** — the filter as first written only covered this task's own files; it never accounted for `navItems.ts` (Task 4.3's accepted "Sim Con" mentions, `crates`/`ipc.ts:.*simcon_title` (Task 3.1's accepted field name), or `Icon.tsx`'s own `formerly "Sim Con"` text added by Step 7 above — all three are legitimate, already-reasoned-about preserved mentions, not misses. `state/rehearsal.ts` and `state/conversation.ts` need no filter entry since Steps 11b/11c above reword them to zero hits.) If anything else prints, find and fix it before proceeding to Task 4.5.
 
 - [ ] **Step 13: Run the full frontend test suite + build.** `npm test` — same total pass count as this plan's very first `npm test` baseline (Task 5.1 records the authoritative before/after numbers, but a quick gut-check here catches a Phase-4 regression early). `npm run build` — clean, zero errors.
 
@@ -3450,7 +3489,8 @@ grep -rinE 'sim ?con' src/ --include='*.ts' --include='*.tsx' \
 ```bash
 git add src/components/ConversationsPanel.tsx src/components/SettingsPanel.tsx \
         src/components/ui/Icon.tsx src/components/studio/ViewShell.tsx \
-        src/components/transcript/TranscriptView.tsx src/state/app.ts
+        src/components/transcript/TranscriptView.tsx src/state/app.ts \
+        src/state/rehearsal.ts src/state/conversation.ts
 git commit -m "refactor(ui): remaining SimCon leftover copy + backend calls -> Context"
 ```
 
@@ -3495,14 +3535,15 @@ grep -rinE 'sim ?con' crates/ src-tauri/src/*.rs src/ \
     -e 'context\.rs:.*<app-data>/simcon/' \
     -e 'session\.rs:.*simcon_title' \
     -e 'ipc\.ts:.*simcon_title' \
-    -e 'navItems\.ts:.*Sim Con rehearsal' \
+    -e 'navItems\.ts:.*lists "Sim Con' \
     -e 'navItems\.ts:.*tagged Sim Con' \
+    -e 'Icon\.tsx:.*formerly "Sim Con"' \
     -e 'FEATURE_LABELS\|simcon_knowledge\|simcon_research_findings\|simcon_qa\|simcon_personas' \
     -e 'icon="simicon"\|simicon:' \
     -e 'row.data.simcon_title\|`simcon_title`'
 ```
 
-  Expected: no output. Every hit this filter doesn't explain is a real miss — go fix it (re-open the relevant Phase's task) before continuing.
+  Expected: no output. Every hit this filter doesn't explain is a real miss — go fix it (re-open the relevant Phase's task) before continuing. (**Corrected post-write** — two fixes folded in while resolving Task 4.4's own Step 12 gap: the `navItems\.ts:.*Sim Con rehearsal` alternative never matched anything, since "Sim Con" and "rehearsal" fall on two different source lines there — `grep -n` only ever prints one line at a time — so it's rewritten to match what the actual line 39 contains (`lists "Sim Con`); and a new alternative covers `Icon.tsx`'s `(formerly "Sim Con")` parenthetical from Task 4.4 Step 7, which this filter never accounted for at all.)
 
 - [ ] **Step 3: Manual QA reminder for the owner** (per the design spec's Testing section — not automatable in this sandbox): every screen previously reachable via "Sim Con" wording (setup wizard, detail page, Settings usage table, Conversations panel tags, command palette "Go to Contexts") now reads "Context" and functions identically — create, edit, generate, rehearse, save a conversation. Note this in the PR body (Task 5.3).
 
