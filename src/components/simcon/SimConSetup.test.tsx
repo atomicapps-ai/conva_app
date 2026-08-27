@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SimConSetup } from "@/components/simcon/SimConSetup";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
+import type { SimConSession } from "@/lib/ipc";
 
 afterEach(cleanup);
 
@@ -53,5 +54,58 @@ describe("SimConSetup wizard", () => {
     expect(
       screen.getByRole("checkbox", { name: /research the web for context/i }),
     ).toBeChecked();
+  });
+
+  it("preserves generated-document ids and derived fields across an edit-save", async () => {
+    const save = vi.fn().mockResolvedValue({ id: "s1" });
+    const prepare = vi.fn().mockResolvedValue({ id: "s1" });
+    const backend = {
+      rag: { list: vi.fn().mockResolvedValue([]) },
+      simcon: { save, prepare },
+    } as unknown as ConvaBackend;
+
+    const initial: SimConSession = {
+      id: "s1",
+      title: "Amazon Interview",
+      purpose: "",
+      job_description: null,
+      category: "interview",
+      status: "ready",
+      created_at_unix_ms: 0,
+      updated_at_unix_ms: 0,
+      source_doc_ids: [],
+      auto_generate_context: true,
+      research_enabled: true,
+      deep_qa_enabled: true,
+      key_terms: [],
+      glossary: [],
+      glossary_definitions: { "API Gateway": "managed API front door." },
+      knowledge_profile_id: "kp-1",
+      personas: [],
+      chosen_persona_id: null,
+      conversation_id: null,
+      dossier_doc_id: "doc-1",
+      research_doc_id: "doc-2",
+      qa_doc_id: "doc-3",
+      resources_stale: true,
+    };
+
+    render(
+      <BackendProvider backend={backend}>
+        <SimConSetup initial={initial} onDone={() => undefined} onCancel={() => undefined} />
+      </BackendProvider>,
+    );
+
+    await screen.findByDisplayValue("Amazon Interview");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    const payload = save.mock.calls[0][0];
+    expect(payload.research_doc_id).toBe("doc-2");
+    expect(payload.qa_doc_id).toBe("doc-3");
+    expect(payload.glossary_definitions).toEqual({ "API Gateway": "managed API front door." });
+    expect(payload.resources_stale).toBe(true);
   });
 });
