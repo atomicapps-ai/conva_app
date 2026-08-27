@@ -9,6 +9,7 @@ mod asr_deepgram;
 mod audio;
 mod auth;
 mod capture;
+mod context;
 mod conversations;
 mod embed;
 mod feedback;
@@ -22,7 +23,6 @@ mod recorder;
 mod rehearsal;
 mod secrets;
 mod session;
-mod simcon;
 mod trace;
 mod tracker;
 mod tts;
@@ -40,12 +40,12 @@ use std::sync::Arc;
 use conva_core::asr::TranscriptSegment;
 use conva_core::audio::AudioDevice;
 use conva_core::config::AppConfig;
+use conva_core::context::{ContextSummary, ConversationContext, KnowledgeProfile};
 use conva_core::ipc::{events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent};
 use conva_core::llm::{provider_registry, LlmRequest, ModelInfo, ProviderId, ProviderInfo};
 use conva_core::metering::{UsageLedger, UsageSummary};
 use conva_core::prompt::{build_ally_request, AllyKind};
 use conva_core::rag::{IngestReport, RagDocument};
-use conva_core::simcon::{KnowledgeProfile, SimConSession, SimConSummary};
 
 use rag::RagStore;
 use session::SessionManager;
@@ -284,12 +284,12 @@ fn analyze_conversation(
     let (category, job_description, glossary) = conversation
         .linked_context_id
         .as_deref()
-        .and_then(|cid| simcon::load(&app, cid).ok())
+        .and_then(|cid| context::load(&app, cid).ok())
         .map(|s| (Some(s.category), s.job_description, s.glossary))
         .unwrap_or((None, None, Vec::new()));
 
     let transcript_text = render_transcript_markdown(&conversation.segments);
-    let request = conva_core::simcon::performance_analysis_prompt(
+    let request = conva_core::context::performance_analysis_prompt(
         category,
         job_description.as_deref(),
         &glossary,
@@ -610,7 +610,7 @@ fn rag_detach_context(
 /// grounding invalidation the wizard save applies (clear derived glossary;
 /// mark generated resources stale). Best-effort by design.
 fn sync_context_doc(app: &AppHandle, context_id: &str, doc_id: &str, attach: bool) {
-    let Ok(mut session) = simcon::load(app, context_id) else {
+    let Ok(mut session) = context::load(app, context_id) else {
         return;
     };
     let had = session.source_doc_ids.iter().any(|d| d == doc_id);
@@ -625,7 +625,7 @@ fn sync_context_doc(app: &AppHandle, context_id: &str, doc_id: &str, attach: boo
     if session.dossier_doc_id.is_some() || session.knowledge_profile_id.is_some() {
         session.resources_stale = true;
     }
-    let _ = simcon::save(app, session);
+    let _ = context::save(app, session);
 }
 
 /// Download a library document back to `dest` (chosen via the save dialog):
@@ -877,29 +877,32 @@ fn conversation_delete(app: AppHandle, id: String) -> Result<(), String> {
     conversations::delete(&app, &id).map_err(|e| e.to_string())
 }
 
-/// Create or update a SimCon (Simulated Conversation). An empty `id` mints a
+/// Create or update a Context. An empty `id` mints a
 /// new record; an existing id updates in place.
 #[tauri::command]
-fn simcon_save(app: AppHandle, session: SimConSession) -> Result<SimConSession, String> {
-    simcon::save(&app, session).map_err(|e| e.to_string())
+fn context_save(
+    app: AppHandle,
+    session: ConversationContext,
+) -> Result<ConversationContext, String> {
+    context::save(&app, session).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn simcon_list(app: AppHandle) -> Result<Vec<SimConSummary>, String> {
-    simcon::list(&app).map_err(|e| e.to_string())
+fn context_list(app: AppHandle) -> Result<Vec<ContextSummary>, String> {
+    context::list(&app).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn simcon_load(app: AppHandle, id: String) -> Result<SimConSession, String> {
-    simcon::load(&app, &id).map_err(|e| e.to_string())
+fn context_load(app: AppHandle, id: String) -> Result<ConversationContext, String> {
+    context::load(&app, &id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn simcon_delete(app: AppHandle, id: String) -> Result<(), String> {
-    if id == conva_core::simcon::DEFAULT_CONTEXT_ID {
+fn context_delete(app: AppHandle, id: String) -> Result<(), String> {
+    if id == conva_core::context::DEFAULT_CONTEXT_ID {
         return Err("The default context can't be deleted.".into());
     }
-    simcon::delete(&app, &id).map_err(|e| e.to_string())
+    context::delete(&app, &id).map_err(|e| e.to_string())
 }
 
 /// Clear both halves of the active-context scope (session grounding). Shared
@@ -927,8 +930,8 @@ fn activate_context(
     app: AppHandle,
     state: State<AppState>,
     id: String,
-) -> Result<SimConSession, String> {
-    let mut session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+) -> Result<ConversationContext, String> {
+    let mut session = context::load(&app, &id).map_err(|e| e.to_string())?;
 
     // Backfill: a context that became "ready" before glossary harvesting
     // existed (or whose digest section didn't parse at the time) carries an
@@ -944,7 +947,7 @@ fn activate_context(
             .and_then(|doc_id| state.rag.document_text(doc_id))
         {
             let entries = conva_core::highlight::sanitize_glossary_entries(
-                conva_core::simcon::extract_glossary_entries(&text),
+                conva_core::context::extract_glossary_entries(&text),
                 &text,
                 session.job_description.as_deref(),
                 1,
@@ -954,7 +957,7 @@ fn activate_context(
                 session.glossary_definitions = entries.into_iter().collect();
                 // Best-effort persist — activation still proceeds with the
                 // in-memory terms if the save fails.
-                let _ = simcon::save(&app, session.clone());
+                let _ = context::save(&app, session.clone());
             }
         }
     }
@@ -1000,7 +1003,7 @@ fn activate_context(
         if !mined.is_empty() {
             mined.truncate(24);
             session.glossary = mined;
-            let _ = simcon::save(&app, session.clone());
+            let _ = context::save(&app, session.clone());
         }
     }
 
@@ -1011,7 +1014,7 @@ fn activate_context(
     let profile_doc_ids = session
         .knowledge_profile_id
         .as_deref()
-        .and_then(|pid| simcon::load_profile(&app, pid).ok())
+        .and_then(|pid| context::load_profile(&app, pid).ok())
         .map(|p| p.doc_ids)
         .unwrap_or_default();
 
@@ -1045,33 +1048,33 @@ fn deactivate_context(state: State<AppState>) {
     clear_active_context(&state);
 }
 
-/// Copy documents into a Sim Con's folder (named after its title); returns the
+/// Copy documents into a Context's folder (named after its title); returns the
 /// new paths for the caller to ingest into the RAG library.
 #[tauri::command]
-fn simcon_store_docs(
+fn context_store_docs(
     app: AppHandle,
     title: String,
     paths: Vec<String>,
 ) -> Result<Vec<String>, String> {
-    simcon::store_docs(&app, &title, paths).map_err(|e| e.to_string())
+    context::store_docs(&app, &title, paths).map_err(|e| e.to_string())
 }
 
 /// Build the reusable KnowledgeProfile (attached docs + web research) and mark
-/// the Sim Con ready.
+/// the Context ready.
 #[tauri::command]
-fn simcon_prepare(app: AppHandle, id: String) -> Result<SimConSession, String> {
-    simcon::prepare(&app, &id).map_err(|e| e.to_string())
+fn context_prepare(app: AppHandle, id: String) -> Result<ConversationContext, String> {
+    context::prepare(&app, &id).map_err(|e| e.to_string())
 }
 
-/// Load a Sim Con's KnowledgeProfile so the UI can show what grounds the
+/// Load a Context's KnowledgeProfile so the UI can show what grounds the
 /// rehearsal — attached documents and the sources Ally researched.
 #[tauri::command]
-fn simcon_load_profile(app: AppHandle, profile_id: String) -> Result<KnowledgeProfile, String> {
-    simcon::load_profile(&app, &profile_id).map_err(|e| e.to_string())
+fn context_load_profile(app: AppHandle, profile_id: String) -> Result<KnowledgeProfile, String> {
+    context::load_profile(&app, &profile_id).map_err(|e| e.to_string())
 }
 
 /// Generate Ally's grounding documents — the staged pipeline (spec
-/// 2026-08-26). Stage 1 synthesizes the Sim Con's documents + role/JD into a
+/// 2026-08-26). Stage 1 synthesizes the Context's documents + role/JD into a
 /// **Context knowledge** briefing; Stage 2 (when research is enabled) runs
 /// vocabulary-seeded web research and writes a cited **Research findings**
 /// document; Stage 3 (opt-in, Interview only) runs a much broader research
@@ -1080,19 +1083,19 @@ fn simcon_load_profile(app: AppHandle, profile_id: String) -> Result<KnowledgePr
 /// attach to the knowledge profile. Regenerating replaces the previous
 /// documents. Returns the updated session.
 #[tauri::command]
-fn simcon_generate_dossier(
+fn context_generate_dossier(
     app: AppHandle,
     state: State<AppState>,
     id: String,
-) -> Result<SimConSession, String> {
-    let mut session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+) -> Result<ConversationContext, String> {
+    let mut session = context::load(&app, &id).map_err(|e| e.to_string())?;
     let profile_id = session
         .knowledge_profile_id
         .clone()
-        .ok_or_else(|| "Prepare this Sim Con before generating a prep document.".to_string())?;
-    let mut profile = simcon::load_profile(&app, &profile_id).map_err(|e| e.to_string())?;
+        .ok_or_else(|| "Prepare this Context before generating a prep document.".to_string())?;
+    let mut profile = context::load_profile(&app, &profile_id).map_err(|e| e.to_string())?;
 
-    // Broad grounding across this Sim Con's own knowledge base.
+    // Broad grounding across this Context's own knowledge base.
     let mut query = format!("{} {}", session.title, session.purpose);
     if let Some(jd) = &session.job_description {
         query.push(' ');
@@ -1113,11 +1116,11 @@ fn simcon_generate_dossier(
         .llm_quality
         .clone();
     let key = resolve_key(selection.provider)?;
-    let request = conva_core::simcon::knowledge_prompt(&session, &profile.research, &chunks, 3000);
+    let request = conva_core::context::knowledge_prompt(&session, &profile.research, &chunks, 3000);
     let mut buf = String::new();
     metering::metered_stream(
         &app,
-        "simcon_knowledge",
+        "context_knowledge",
         &selection,
         &key,
         &request,
@@ -1156,7 +1159,7 @@ fn simcon_generate_dossier(
     // 1, but the word-cap and stopword rules still apply, and JD presence
     // still counts in the term's favor.
     let glossary_entries = conva_core::highlight::sanitize_glossary_entries(
-        conva_core::simcon::extract_glossary_entries(&text),
+        conva_core::context::extract_glossary_entries(&text),
         &text,
         session.job_description.as_deref(),
         1,
@@ -1172,16 +1175,16 @@ fn simcon_generate_dossier(
     if session.research_enabled {
         let vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
         let queries =
-            conva_core::simcon::research_queries(&session, &vocab, simcon::RESEARCH_MAX_QUERIES);
-        if let Ok((sources, searches)) = simcon::research(queries, simcon::RESEARCH_MAX_SOURCES) {
+            conva_core::context::research_queries(&session, &vocab, context::RESEARCH_MAX_QUERIES);
+        if let Ok((sources, searches)) = context::research(queries, context::RESEARCH_MAX_SOURCES) {
             metering::record_tavily_search(&app, searches);
             if !sources.is_empty() {
                 profile.research = sources.clone();
-                let request = conva_core::simcon::research_findings_prompt(&session, &sources);
+                let request = conva_core::context::research_findings_prompt(&session, &sources);
                 let mut fbuf = String::new();
                 let fresult = metering::metered_stream(
                     &app,
-                    "simcon_research_findings",
+                    "context_research_findings",
                     &selection,
                     &key,
                     &request,
@@ -1215,21 +1218,22 @@ fn simcon_generate_dossier(
     // skip cleanly; Stage 1/2's documents stand regardless.
     if session.deep_qa_enabled
         && session.research_enabled
-        && session.category == conva_core::simcon::SimConCategory::Interview
+        && session.category == conva_core::context::ContextCategory::Interview
     {
         let qa_vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
         let qa_queries =
-            conva_core::simcon::qa_research_queries(&session, &qa_vocab, simcon::QA_MAX_QUERIES);
-        if let Ok((qa_sources, qa_searches)) = simcon::research(qa_queries, simcon::QA_MAX_SOURCES)
+            conva_core::context::qa_research_queries(&session, &qa_vocab, context::QA_MAX_QUERIES);
+        if let Ok((qa_sources, qa_searches)) =
+            context::research(qa_queries, context::QA_MAX_SOURCES)
         {
             metering::record_tavily_search(&app, qa_searches);
             if !qa_sources.is_empty() {
                 let qa_request =
-                    conva_core::simcon::interview_qa_prompt(&session, &qa_sources, &chunks);
+                    conva_core::context::interview_qa_prompt(&session, &qa_sources, &chunks);
                 let mut qa_buf = String::new();
                 let qa_result = metering::metered_stream(
                     &app,
-                    "simcon_qa",
+                    "context_qa",
                     &selection,
                     &key,
                     &qa_request,
@@ -1262,9 +1266,9 @@ fn simcon_generate_dossier(
     // One profile save covers all three stages (Stage 1's document + Stage
     // 2's research/findings doc + Stage 3's Q&A doc, whichever ran).
     profile.updated_at_unix_ms = session::now_unix_ms();
-    simcon::save_profile(&app, &profile).map_err(|e| e.to_string())?;
+    context::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
-    simcon::save(&app, session).map_err(|e| e.to_string())
+    context::save(&app, session).map_err(|e| e.to_string())
 }
 
 /// Reconstruct a library document's text (for showing the Ally prep dossier
@@ -1275,15 +1279,15 @@ fn rag_document_text(state: State<AppState>, id: String) -> Option<String> {
 }
 
 /// Generate 3 counterparty personas (Step 3) with the configured LLM, grounded
-/// in the Sim Con's goal / type / job description. Overwrites any existing
+/// in the Context's goal / type / job description. Overwrites any existing
 /// personas and clears the current choice.
 #[tauri::command]
-fn simcon_generate_personas(
+fn context_generate_personas(
     app: AppHandle,
     state: State<AppState>,
     id: String,
-) -> Result<SimConSession, String> {
-    let mut session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+) -> Result<ConversationContext, String> {
+    let mut session = context::load(&app, &id).map_err(|e| e.to_string())?;
     let selection = state
         .config
         .lock()
@@ -1291,7 +1295,7 @@ fn simcon_generate_personas(
         .llm_quality
         .clone();
     let key = resolve_key(selection.provider)?;
-    let (system, user) = conva_core::simcon::persona_prompt(&session);
+    let (system, user) = conva_core::context::persona_prompt(&session);
     let request = LlmRequest {
         system,
         user,
@@ -1300,28 +1304,28 @@ fn simcon_generate_personas(
     let mut buf = String::new();
     metering::metered_stream(
         &app,
-        "simcon_personas",
+        "context_personas",
         &selection,
         &key,
         &request,
         &mut |t| buf.push_str(t),
     )
     .map_err(|e| e.to_string())?;
-    session.personas = conva_core::simcon::parse_personas(&buf);
+    session.personas = conva_core::context::parse_personas(&buf);
     session.chosen_persona_id = None;
-    simcon::save(&app, session).map_err(|e| e.to_string())
+    context::save(&app, session).map_err(|e| e.to_string())
 }
 
 /// Record the persona the user will rehearse against (Step 3).
 #[tauri::command]
-fn simcon_choose_persona(
+fn context_choose_persona(
     app: AppHandle,
     id: String,
     persona_id: String,
-) -> Result<SimConSession, String> {
-    let mut session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+) -> Result<ConversationContext, String> {
+    let mut session = context::load(&app, &id).map_err(|e| e.to_string())?;
     session.chosen_persona_id = Some(persona_id);
-    simcon::save(&app, session).map_err(|e| e.to_string())
+    context::save(&app, session).map_err(|e| e.to_string())
 }
 
 /// Start a live rehearsal (Step 4): mic-only capture, and a worker that plays
@@ -1329,12 +1333,12 @@ fn simcon_choose_persona(
 /// base) → Aura TTS. Requires a chosen persona and a prepared knowledge profile.
 /// Stop it with the normal `stop_session`. Returns the session id.
 #[tauri::command]
-async fn simcon_start_rehearsal(
+async fn context_start_rehearsal(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<String, String> {
-    let session = simcon::load(&app, &id).map_err(|e| e.to_string())?;
+    let session = context::load(&app, &id).map_err(|e| e.to_string())?;
 
     // Preconditions: a chosen persona and a prepared knowledge profile.
     let persona = session
@@ -1345,8 +1349,8 @@ async fn simcon_start_rehearsal(
     let profile_id = session
         .knowledge_profile_id
         .clone()
-        .ok_or_else(|| "Prepare this Sim Con before starting the rehearsal.".to_string())?;
-    let profile = simcon::load_profile(&app, &profile_id).map_err(|e| e.to_string())?;
+        .ok_or_else(|| "Prepare this Context before starting the rehearsal.".to_string())?;
+    let profile = context::load_profile(&app, &profile_id).map_err(|e| e.to_string())?;
 
     let config = state.config.lock().expect("config lock").clone();
     if !config.consent_acknowledged {
@@ -1368,11 +1372,11 @@ async fn simcon_start_rehearsal(
     }
 
     let rag = state.rag.clone();
-    let simcon_title = session.title.clone();
+    let rehearsal_title = session.title.clone();
     let (reh_tx, reh_rx) = std::sync::mpsc::channel();
     let (session_id, stop_flag, force_end) = state
         .session
-        .start_rehearsal(&app, &config, rag.clone(), reh_tx, simcon_title)
+        .start_rehearsal(&app, &config, rag.clone(), reh_tx, rehearsal_title)
         .map_err(|e| e.to_string())?;
 
     let ctx = rehearsal::RehearsalContext {
@@ -1391,7 +1395,7 @@ async fn simcon_start_rehearsal(
 /// End the user's current rehearsal turn immediately (manual "your turn"); the
 /// worker also auto-ends the turn after a pause.
 #[tauri::command]
-fn simcon_rehearsal_your_turn(state: State<AppState>) {
+fn context_rehearsal_your_turn(state: State<AppState>) {
     state.session.rehearsal_your_turn();
 }
 
@@ -1399,7 +1403,7 @@ fn simcon_rehearsal_your_turn(state: State<AppState>) {
 /// as if the user spoke it: show it in the transcript and hand it to the
 /// counterparty, who then responds. Errors if no rehearsal is active.
 #[tauri::command]
-fn simcon_rehearsal_say(
+fn context_rehearsal_say(
     app: AppHandle,
     state: State<AppState>,
     text: String,
@@ -1436,12 +1440,12 @@ fn simcon_rehearsal_say(
 /// Store (empty clears) the Tavily web-research key in the OS vault.
 #[tauri::command]
 fn set_tavily_key(key: String) -> Result<(), String> {
-    simcon::store_tavily_key(&key).map_err(|e| e.to_string())
+    context::store_tavily_key(&key).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn tavily_key_status() -> bool {
-    simcon::load_tavily_key().is_some()
+    context::load_tavily_key().is_some()
 }
 
 /// Usage snapshot for Settings → Usage: LLM tokens per provider + Tavily
@@ -1631,7 +1635,7 @@ fn run_web_tool(app: &AppHandle, name: &str, input: &serde_json::Value) -> Strin
     if query.is_empty() {
         return "No query provided.".into();
     }
-    let Some(key) = simcon::load_tavily_key() else {
+    let Some(key) = context::load_tavily_key() else {
         return "Web search is unavailable: no Tavily key is configured.".into();
     };
     match web::tavily_search(&key, query, 3) {
@@ -1739,7 +1743,7 @@ fn ally(
             // genuinely need fresh/external facts — general knowledge and
             // document questions stay a single request.
             let web_enabled =
-                selection.provider == ProviderId::Anthropic && simcon::load_tavily_key().is_some();
+                selection.provider == ProviderId::Anthropic && context::load_tavily_key().is_some();
 
             // Latency trace: time to first token + total.
             let t0 = std::time::Instant::now();
@@ -1920,7 +1924,7 @@ pub fn run() {
             // install always has the always-present default context to select
             // from. Local-only (no network) — safe to run synchronously here,
             // before anything can call activate_context("default").
-            if let Err(e) = simcon::ensure_default_context(app.handle(), &rag) {
+            if let Err(e) = context::ensure_default_context(app.handle(), &rag) {
                 eprintln!("[conva] couldn't seed the default context: {e}");
             }
 
@@ -2041,22 +2045,22 @@ pub fn run() {
             conversation_list,
             conversation_load,
             conversation_delete,
-            simcon_save,
-            simcon_list,
-            simcon_load,
-            simcon_delete,
+            context_save,
+            context_list,
+            context_load,
+            context_delete,
             activate_context,
             deactivate_context,
-            simcon_store_docs,
-            simcon_prepare,
-            simcon_load_profile,
-            simcon_generate_dossier,
+            context_store_docs,
+            context_prepare,
+            context_load_profile,
+            context_generate_dossier,
             rag_document_text,
-            simcon_generate_personas,
-            simcon_choose_persona,
-            simcon_start_rehearsal,
-            simcon_rehearsal_your_turn,
-            simcon_rehearsal_say,
+            context_generate_personas,
+            context_choose_persona,
+            context_start_rehearsal,
+            context_rehearsal_your_turn,
+            context_rehearsal_say,
             set_tavily_key,
             tavily_key_status,
             usage_summary,

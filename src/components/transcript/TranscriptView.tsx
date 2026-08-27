@@ -2020,7 +2020,7 @@ export function TranscriptView() {
       return;
     }
     let alive = true;
-    void Promise.all([backend.simcon.load(activeId), backend.rag.list()])
+    void Promise.all([backend.context.load(activeId), backend.rag.list()])
       .then(async ([session, docs]) => {
         if (!alive) return;
         const names = session.source_doc_ids

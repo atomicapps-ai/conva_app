@@ -335,9 +335,9 @@ function ConfigFileControls() {
  *  load them on another machine. The passphrase comes from an env var, so the
  *  file is safe to commit and keys never re-typed per launch. */
 /**
- * Web-research key (Sim Con). A Tavily key lets a Sim Con research the web for
- * context during setup; stored in the OS vault, desktop-only. Without it, Sim
- * Cons ground on the user's documents alone.
+ * Web-research key (Context). A Tavily key lets a Context research the web
+ * for context during setup; stored in the OS vault, desktop-only. Without
+ * it, Contexts ground on the user's documents alone.
  */
 function ResearchSettings() {
   const backend = useBackend();
@@ -346,7 +346,7 @@ function ResearchSettings() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    void backend.simcon
+    void backend.context
       .researchKeyStatus()
       .then(setHasKey)
       .catch(() => {});
@@ -355,9 +355,9 @@ function ResearchSettings() {
   const save = async () => {
     setSaving(true);
     try {
-      await backend.simcon.setResearchKey(draft.trim());
+      await backend.context.setResearchKey(draft.trim());
       setDraft("");
-      setHasKey(await backend.simcon.researchKeyStatus());
+      setHasKey(await backend.context.researchKeyStatus());
     } finally {
       setSaving(false);
     }
@@ -366,10 +366,10 @@ function ResearchSettings() {
   return (
     <div className="flex flex-col gap-2">
       <p className="text-[12px] leading-relaxed text-fg-muted">
-        A <b>Tavily</b> key lets a Sim Con research the web for context (standard
+        A <b>Tavily</b> key lets a Context research the web for context (standard
         questions, company background, market rates) when you build one — get a
-        free key at <span className="font-mono">tavily.com</span>. Without it, Sim
-        Cons ground on your documents only.
+        free key at <span className="font-mono">tavily.com</span>. Without it,
+        Contexts ground on your documents only.
       </p>
       <div className="flex items-end gap-2">
         <label className="field flex-1">
@@ -407,9 +407,14 @@ const FEATURE_LABELS: Record<string, string> = {
   ally_summarize: "Ally · summarize",
   ally_question: "Ally · question",
   ally_card_summary: "Ally · card summary",
-  simcon_knowledge: "Sim Con · knowledge",
-  simcon_research_findings: "Sim Con · research findings",
-  simcon_personas: "Sim Con · personas",
+  simcon_knowledge: "Context · knowledge",
+  context_knowledge: "Context · knowledge",
+  simcon_research_findings: "Context · research findings",
+  context_research_findings: "Context · research findings",
+  simcon_qa: "Context · Q&A",
+  context_qa: "Context · Q&A",
+  simcon_personas: "Context · personas",
+  context_personas: "Context · personas",
   rehearsal_persona: "Rehearsal · persona",
   tracker: "Tracker",
   capture: "FANER capture",
@@ -458,7 +463,7 @@ function UsageSettings() {
 
       {!hasUsage ? (
         <p className="text-[11px] text-fg-faint" role="status">
-          No usage recorded yet. Ask Ally something or build a Sim Con to start
+          No usage recorded yet. Ask Ally something or build a Context to start
           the meter.
         </p>
       ) : (
@@ -1149,8 +1154,8 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       </Section>
 
       <Section
-        title="Web research (Sim Con)"
-        description="Optional — a Tavily key so a Sim Con can research context from the web."
+        title="Web research (Context)"
+        description="Optional — a Tavily key so a Context can research context from the web."
       >
         <ResearchSettings />
       </Section>

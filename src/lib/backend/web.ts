@@ -25,8 +25,8 @@ import type {
   Conversation,
   ConversationSummary,
   KnowledgeProfile,
-  SimConSession,
-  SimConSummary,
+  ConversationContext,
+  ContextSummary,
   IngestReport,
   ModelInfo,
   ProviderInfo,
@@ -171,34 +171,34 @@ export class WebBackend implements ConvaBackend {
     delete: (): Promise<void> => todo("DELETE /v1/conversations/:id"),
   };
 
-  simcon = {
-    save: (): Promise<SimConSession> => todo("POST /v1/simcon"),
-    list: (): Promise<SimConSummary[]> => todo("GET /v1/simcon"),
-    load: (): Promise<SimConSession> => todo("GET /v1/simcon/:id"),
-    delete: (): Promise<void> => todo("DELETE /v1/simcon/:id"),
-    activateContext: (): Promise<SimConSession> =>
-      unsupported("simcon.activateContext (desktop session)"),
+  context = {
+    save: (): Promise<ConversationContext> => todo("POST /v1/contexts"),
+    list: (): Promise<ContextSummary[]> => todo("GET /v1/contexts"),
+    load: (): Promise<ConversationContext> => todo("GET /v1/contexts/:id"),
+    delete: (): Promise<void> => todo("DELETE /v1/contexts/:id"),
+    activateContext: (): Promise<ConversationContext> =>
+      unsupported("context.activateContext (desktop session)"),
     deactivateContext: (): Promise<void> =>
-      unsupported("simcon.deactivateContext (desktop session)"),
+      unsupported("context.deactivateContext (desktop session)"),
     storeDocs: (): Promise<string[]> =>
-      unsupported("simcon.storeDocs (local file paths)"),
-    prepare: (): Promise<SimConSession> => todo("POST /v1/simcon/:id/prepare"),
+      unsupported("context.storeDocs (local file paths)"),
+    prepare: (): Promise<ConversationContext> => todo("POST /v1/contexts/:id/prepare"),
     loadProfile: (): Promise<KnowledgeProfile> =>
-      todo("GET /v1/simcon/profiles/:id"),
-    generateDossier: (): Promise<SimConSession> =>
-      todo("POST /v1/simcon/:id/dossier"),
-    generatePersonas: (): Promise<SimConSession> =>
-      todo("POST /v1/simcon/:id/personas"),
-    choosePersona: (): Promise<SimConSession> =>
-      todo("PATCH /v1/simcon/:id/persona"),
+      todo("GET /v1/contexts/profiles/:id"),
+    generateDossier: (): Promise<ConversationContext> =>
+      todo("POST /v1/contexts/:id/dossier"),
+    generatePersonas: (): Promise<ConversationContext> =>
+      todo("POST /v1/contexts/:id/personas"),
+    choosePersona: (): Promise<ConversationContext> =>
+      todo("PATCH /v1/contexts/:id/persona"),
     startRehearsal: (): Promise<string> =>
-      unsupported("simcon.startRehearsal (desktop audio)"),
+      unsupported("context.startRehearsal (desktop audio)"),
     rehearsalYourTurn: (): Promise<void> =>
-      unsupported("simcon.rehearsalYourTurn (desktop audio)"),
+      unsupported("context.rehearsalYourTurn (desktop audio)"),
     rehearsalSay: (): Promise<void> =>
-      unsupported("simcon.rehearsalSay (desktop audio)"),
+      unsupported("context.rehearsalSay (desktop audio)"),
     setResearchKey: (): Promise<void> =>
-      unsupported("simcon.setResearchKey (server-side on web)"),
+      unsupported("context.setResearchKey (server-side on web)"),
     researchKeyStatus: () => Promise.resolve(false),
   };
 

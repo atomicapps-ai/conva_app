@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GroundPicker } from "@/components/contexts/GroundPicker";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
-import { DEFAULT_CONTEXT_ID, type RagDocument, type SimConSession, type SimConSummary } from "@/lib/ipc";
+import { DEFAULT_CONTEXT_ID, type RagDocument, type ConversationContext, type ContextSummary } from "@/lib/ipc";
 import { useGroundingStore } from "@/state/grounding";
 
 afterEach(cleanup);
@@ -12,7 +12,7 @@ beforeEach(() => {
   useGroundingStore.setState({ activeId: null, activeTitle: null, activating: false });
 });
 
-function summary(overrides: Partial<SimConSummary> = {}): SimConSummary {
+function summary(overrides: Partial<ContextSummary> = {}): ContextSummary {
   return {
     id: "ctx-1",
     title: "Acme interview",
@@ -29,7 +29,7 @@ function summary(overrides: Partial<SimConSummary> = {}): SimConSummary {
   };
 }
 
-function session(overrides: Partial<SimConSession> = {}): SimConSession {
+function session(overrides: Partial<ConversationContext> = {}): ConversationContext {
   return {
     id: "ctx-1",
     title: "Acme interview",
@@ -53,7 +53,7 @@ function session(overrides: Partial<SimConSession> = {}): SimConSession {
   };
 }
 
-function defaultSession(): SimConSession {
+function defaultSession(): ConversationContext {
   return session({
     id: DEFAULT_CONTEXT_ID,
     title: "General conversation",
@@ -65,9 +65,9 @@ function defaultSession(): SimConSession {
 // Selection is required — GroundPicker auto-activates the default on mount
 // whenever nothing is active, so the fake must answer per-id like the real
 // backend does, not with one fixed session regardless of the id requested.
-function fakeBackend(overrides: Partial<ConvaBackend["simcon"]> = {}): ConvaBackend {
+function fakeBackend(overrides: Partial<ConvaBackend["context"]> = {}): ConvaBackend {
   return {
-    simcon: {
+    context: {
       list: vi.fn().mockResolvedValue([summary()]),
       load: vi.fn().mockResolvedValue(session()),
       activateContext: vi

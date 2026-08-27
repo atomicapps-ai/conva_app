@@ -5,14 +5,14 @@ import { readinessOf } from "@/components/contexts/readiness";
 import { Icon } from "@/components/ui/Icon";
 import { ResponsiveLabel } from "@/components/ui/ResponsiveLabel";
 import { useBackend } from "@/lib/backend";
-import { DEFAULT_CONTEXT_ID, type RagDocument, type SimConSession, type SimConSummary } from "@/lib/ipc";
+import { DEFAULT_CONTEXT_ID, type RagDocument, type ConversationContext, type ContextSummary } from "@/lib/ipc";
 import { useGroundingStore } from "@/state/grounding";
 
 /** Per-context expansion state: fetched detail (doc ids + key terms) once
  *  expanded, and — only once the user cherry-picks within it — the doc ids
  *  actually kept (absent = "use them all", i.e. the context checked whole). */
 interface ContextState {
-  detail: SimConSession | null;
+  detail: ConversationContext | null;
   loading: boolean;
   override: Set<string> | null;
 }
@@ -46,7 +46,7 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
   // the always-present default rather than blocking Start Listening.
   useEffect(() => {
     if (activeId || disabled) return;
-    void backend.simcon
+    void backend.context
       .activateContext(DEFAULT_CONTEXT_ID)
       .then((session) => setActive(session.id, session.title))
       .catch(() => {
@@ -55,7 +55,7 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
   }, [activeId, disabled, backend, setActive]);
 
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
-  const [contexts, setContexts] = useState<SimConSummary[]>([]);
+  const [contexts, setContexts] = useState<ContextSummary[]>([]);
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [loadingLists, setLoadingLists] = useState(false);
   const [search, setSearch] = useState("");
@@ -99,7 +99,7 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
     setContextState({});
     setCheckedDocs(new Set());
     setLoadingLists(true);
-    void Promise.all([backend.simcon.list(), backend.rag.list()])
+    void Promise.all([backend.context.list(), backend.rag.list()])
       .then(([cs, ds]) => {
         setContexts(cs);
         setDocs(ds);
@@ -113,11 +113,11 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
   const stateFor = (m: Record<string, ContextState>, id: string): ContextState =>
     m[id] ?? { detail: null, loading: false, override: null };
 
-  const ensureDetail = async (id: string): Promise<SimConSession> => {
+  const ensureDetail = async (id: string): Promise<ConversationContext> => {
     const existing = contextState[id]?.detail;
     if (existing) return existing;
     setContextState((m) => ({ ...m, [id]: { ...stateFor(m, id), detail: null, loading: true } }));
-    const full = await backend.simcon.load(id);
+    const full = await backend.context.load(id);
     setContextState((m) => ({ ...m, [id]: { ...stateFor(m, id), detail: full, loading: false } }));
     return full;
   };
@@ -187,7 +187,7 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
     try {
       if (soleContext) {
         if (soleContext.status === "ready") {
-          const session = await backend.simcon.activateContext(soleContext.id);
+          const session = await backend.context.activateContext(soleContext.id);
           setActive(session.id, session.title);
         } else {
           if (!readinessOf(soleContext).canGenerate) {
@@ -195,9 +195,9 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
             setActivating(false);
             return;
           }
-          await backend.simcon.prepare(soleContext.id);
-          await backend.simcon.generateDossier(soleContext.id);
-          const session = await backend.simcon.activateContext(soleContext.id);
+          await backend.context.prepare(soleContext.id);
+          await backend.context.generateDossier(soleContext.id);
+          const session = await backend.context.activateContext(soleContext.id);
           setActive(session.id, session.title);
         }
       } else {
@@ -219,7 +219,7 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
           ...details.map((d) => d.title),
           ...[...checkedDocs].map((id) => docs.find((x) => x.id === id)?.file_name ?? ""),
         ];
-        const saved = await backend.simcon.save({
+        const saved = await backend.context.save({
           id: "",
           title: autoNameGrounding(labels),
           purpose: "",
@@ -239,9 +239,9 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
           conversation_id: null,
           dossier_doc_id: null,
         });
-        await backend.simcon.prepare(saved.id);
-        await backend.simcon.generateDossier(saved.id);
-        const session = await backend.simcon.activateContext(saved.id);
+        await backend.context.prepare(saved.id);
+        await backend.context.generateDossier(saved.id);
+        const session = await backend.context.activateContext(saved.id);
         setActive(session.id, session.title);
       }
       setOpen(null);
@@ -274,7 +274,7 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
               type="button"
               disabled={disabled}
               onClick={() => {
-                void backend.simcon
+                void backend.context
                   .activateContext(DEFAULT_CONTEXT_ID)
                   .then((session) => setActive(session.id, session.title));
               }}

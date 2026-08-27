@@ -16,7 +16,7 @@ interface LibraryQuickAddState {
  * screen from anywhere in the app — owner request: adding a document,
  * pasting text, or starting a context should be easy "at any time", not
  * gated behind first navigating there by hand. `request()` sets the intent
- * and the caller navigates to `"simcon"`; the screen `consume()`s it once
+ * and the caller navigates to `"context"`; the screen `consume()`s it once
  * on mount.
  */
 export const useLibraryQuickAdd = create<LibraryQuickAddState>((set, get) => ({

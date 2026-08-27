@@ -35,7 +35,7 @@ export type NavItem = {
  * Rehearsal is NOT its own rail item either (owner decision, 2026-08-17,
  * final form after two earlier passes this same day got it wrong — see
  * git history on this file if the full back-and-forth ever matters).
- * Rehearsal has never been separate code from Contexts: it's Sim Con
+ * Rehearsal has never been separate code from Contexts: it's Context
  * Phase D, built into it from the start (`roadmap.md` lists "Sim Con
  * rehearsal" under the already-built Conversation Context feature;
  * `conversation-context-ui.md`, owner-approved 2026-08-12, `conva_core`,
@@ -71,7 +71,7 @@ export type NavItem = {
 export const NAV_ITEMS: NavItem[] = [
   { view: "dashboard", icon: "home", label: "Home" },
   { view: "live", icon: "live", label: "Live session" },
-  { view: "simcon", icon: "simicon", label: "Contexts" },
+  { view: "context", icon: "simicon", label: "Contexts" },
   { view: "conversations", icon: "conversations", label: "Conversations" },
   { view: "whatsnew", icon: "lightbulb", label: "What's Coming" },
   { view: "settings", icon: "settings", label: "Settings" },

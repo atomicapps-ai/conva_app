@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import type { RehearsalStateEvent } from "@/lib/ipc";
 
-/** UI-side state for a live Sim Con rehearsal: whether one is running, who the
+/** UI-side state for a live Context rehearsal: whether one is running, who the
  *  counterparty is, and the current phase (drives the speaking indicator). The
  *  phase is fed by `conva://rehearsal-state` events via the IPC bridge. */
 export type RehearsalPhase = RehearsalStateEvent["phase"];

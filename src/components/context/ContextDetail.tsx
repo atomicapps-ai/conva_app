@@ -4,16 +4,16 @@ import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
-import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type SimConSession } from "@/lib/ipc";
+import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type ConversationContext } from "@/lib/ipc";
 import { useNavStore } from "@/state/nav";
 import { useRehearsalStore } from "@/state/rehearsal";
 
 /**
- * Sim Con detail — the persona step (Step 3) and the launch point for the live
+ * Context detail — the persona step (Step 3) and the launch point for the live
  * session (Step 4, next phase). Generate 3 counterparty personas from the
  * knowledge base, pick one, then Start. Edit reopens the setup wizard.
  */
-export function SimConDetail({
+export function ContextDetail({
   id,
   onEdit,
   onBack,
@@ -24,17 +24,17 @@ export function SimConDetail({
 }) {
   const backend = useBackend();
   const caps = useCapabilities();
-  const [session, setSession] = useState<SimConSession | null>(null);
+  const [session, setSession] = useState<ConversationContext | null>(null);
   const [profile, setProfile] = useState<KnowledgeProfile | null>(null);
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    backend.simcon
+    backend.context
       .load(id)
       .then(setSession)
-      .catch(() => setError("Couldn't load this Sim Con."));
+      .catch(() => setError("Couldn't load this Context."));
   }, [backend, id]);
 
   useEffect(() => {
@@ -49,7 +49,7 @@ export function SimConDetail({
       setProfile(null);
       return;
     }
-    void backend.simcon.loadProfile(profileId).then(setProfile).catch(() => {});
+    void backend.context.loadProfile(profileId).then(setProfile).catch(() => {});
     void backend.rag.list().then(setDocs).catch(() => {});
   }, [backend, profileId]);
 
@@ -74,7 +74,7 @@ export function SimConDetail({
     setDossierBusy(true);
     setError(null);
     try {
-      const updated = await backend.simcon.generateDossier(id);
+      const updated = await backend.context.generateDossier(id);
       setSession(updated);
       setShowDossier(true);
       // Load the freshly written document so it shows inline right away.
@@ -104,7 +104,7 @@ export function SimConDetail({
       if (updated.knowledge_profile_id) {
         try {
           setProfile(
-            await backend.simcon.loadProfile(updated.knowledge_profile_id),
+            await backend.context.loadProfile(updated.knowledge_profile_id),
           );
           setDocs(await backend.rag.list());
         } catch {
@@ -148,7 +148,7 @@ export function SimConDetail({
     setBusy(true);
     setError(null);
     try {
-      setSession(await backend.simcon.generatePersonas(id));
+      setSession(await backend.context.generatePersonas(id));
     } catch {
       setError(
         "Couldn't generate personas — check your Ally provider key in Settings.",
@@ -160,7 +160,7 @@ export function SimConDetail({
 
   const choose = async (pid: string) => {
     try {
-      setSession(await backend.simcon.choosePersona(id, pid));
+      setSession(await backend.context.choosePersona(id, pid));
     } catch {
       /* best-effort */
     }
@@ -182,7 +182,7 @@ export function SimConDetail({
     setStarting(true);
     setRehearsalError(null);
     try {
-      await backend.simcon.startRehearsal(id);
+      await backend.context.startRehearsal(id);
       beginRehearsal(chosenPersona?.title ?? "Counterparty");
       setView("live");
     } catch (e) {
@@ -196,7 +196,7 @@ export function SimConDetail({
     <ViewShell
       icon="simicon"
       breadcrumb="Contexts"
-      title={session?.title || "Sim Con"}
+      title={session?.title || "Context"}
       subtitle={session?.purpose || "Rehearse a high-stakes call."}
       onBack={onBack}
       actions={
@@ -216,7 +216,7 @@ export function SimConDetail({
       }
     >
       {error && (
-        <Section title="Sim Con">
+        <Section title="Context">
           <p className="text-sm text-rec">{error}</p>
         </Section>
       )}

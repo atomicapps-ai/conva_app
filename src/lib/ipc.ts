@@ -48,7 +48,7 @@ export type SessionStateEvent =
   | { state: "paused"; session_id: string }
   | { state: "error"; message: string };
 
-/** Live Sim Con rehearsal phase — drives the speaking/active-speaker UI. */
+/** Live Context rehearsal phase — drives the speaking/active-speaker UI. */
 export type RehearsalStateEvent =
   | { phase: "listening" }
   | { phase: "thinking" }
@@ -234,9 +234,9 @@ export interface SessionSummary {
   started_at_unix_ms: number;
   segment_count: number;
   preview: string;
-  /** True when this session was a Sim Con rehearsal. */
+  /** True when this session was a Context rehearsal. */
   is_rehearsal: boolean;
-  /** The Sim Con title, when this was a rehearsal. */
+  /** The context's title, when this was a rehearsal. */
   simcon_title: string | null;
 }
 
@@ -263,35 +263,35 @@ export interface ConversationSummary {
   preview: string;
 }
 
-/* ── SimCon — Simulated Conversation (mirror of conva_core::simcon) ──────────
+/* ── Context — Conversation Context (mirror of conva_core::context) ──────────
    A rehearsal of a high-stakes call: setup → knowledge profile (docs + bounded
    web research) → generated personas → real-time run. Persistence + pipeline
    land in the shell (Phase A.2). Keep these in lockstep with
-   `crates/conva-core/src/simcon.rs`. */
+   `crates/conva-core/src/context.rs`. */
 
-/** Mirror of conva_core::simcon::DEFAULT_CONTEXT_ID — the reserved id of the
+/** Mirror of conva_core::context::DEFAULT_CONTEXT_ID — the reserved id of the
  * always-present "General conversation" default context (session-grounding's
  * "required selection" invariant). Not user-deletable. */
 export const DEFAULT_CONTEXT_ID = "default";
 
 /** The kind of conversation this context is for. Launch set (fixed but
  * extensible later); drives the setup template + web-research default. */
-export type SimConCategory =
+export type ContextCategory =
   | "interview"
   | "company_meeting"
   | "sales_call"
   | "other";
 
-/** Lifecycle of a SimCon, start to finish. */
-export type SimConStatus =
+/** Lifecycle of a Context, start to finish. */
+export type ContextStatus =
   | "draft"
   | "ingesting"
   | "ready"
   | "running"
   | "ended";
 
-/** One generated counterparty persona/strategy option (3 per session). */
-export interface SimConPersona {
+/** One generated counterparty persona/strategy option (3 per context). */
+export interface ContextPersona {
   id: string;
   title: string;
   summary: string;
@@ -307,8 +307,8 @@ export interface ResearchSource {
   fetched_at_unix_ms: number;
 }
 
-/** The reusable, indexed knowledge base for a SimCon (library docs + web
- *  research). Reusable across future SimCons and live calls, by id. */
+/** The reusable, indexed knowledge base for a Context (library docs + web
+ *  research). Reusable across future Contexts and live calls, by id. */
 export interface KnowledgeProfile {
   id: string;
   title: string;
@@ -319,15 +319,15 @@ export interface KnowledgeProfile {
   ready: boolean;
 }
 
-/** One simulated-conversation record: Step 1 setup through Step 4 run. */
-export interface SimConSession {
+/** One Conversation Context record: Step 1 setup through Step 4 run. */
+export interface ConversationContext {
   id: string;
   title: string;
   purpose: string;
   /** For interviews: the target role's job description (Step 1). */
   job_description: string | null;
-  category: SimConCategory;
-  status: SimConStatus;
+  category: ContextCategory;
+  status: ContextStatus;
   created_at_unix_ms: number;
   updated_at_unix_ms: number;
   /** Library docs attached at setup (Path A) — RagDocument ids. */
@@ -346,7 +346,7 @@ export interface SimConSession {
    * terms mined without a written definition. */
   glossary_definitions?: Record<string, string>;
   knowledge_profile_id: string | null;
-  personas: SimConPersona[];
+  personas: ContextPersona[];
   chosen_persona_id: string | null;
   conversation_id: string | null;
   /** RagDocument id of the Ally-generated prep briefing, once generated. */
@@ -366,14 +366,13 @@ export interface SimConSession {
   resources_stale?: boolean;
 }
 
-/** Catalog entry for the SimCon list view. */
 /** Catalog entry for the Contexts list — carries enough to render the
  * readiness checklist without loading the full session per row. */
-export interface SimConSummary {
+export interface ContextSummary {
   id: string;
   title: string;
-  category: SimConCategory;
-  status: SimConStatus;
+  category: ContextCategory;
+  status: ContextStatus;
   created_at_unix_ms: number;
   updated_at_unix_ms: number;
   source_doc_count: number;
@@ -381,7 +380,7 @@ export interface SimConSummary {
   research_enabled: boolean;
   has_job_description: boolean;
   has_generated_resources: boolean;
-  /** Mirrors SimConSession.resources_stale for the list row's pill. */
+  /** Mirrors ConversationContext.resources_stale for the list row's pill. */
   resources_stale?: boolean;
 }
 

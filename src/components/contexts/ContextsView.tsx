@@ -2,17 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ContextsPane } from "@/components/contexts/ContextsPane";
 import { LibraryPane } from "@/components/contexts/LibraryPane";
-import { SimConDetail } from "@/components/simcon/SimConDetail";
-import { SimConSetup } from "@/components/simcon/SimConSetup";
+import { ContextDetail } from "@/components/context/ContextDetail";
+import { ContextSetup } from "@/components/context/ContextSetup";
 import { ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
-import { DEFAULT_CONTEXT_ID, type SimConSession, type SimConSummary } from "@/lib/ipc";
+import { DEFAULT_CONTEXT_ID, type ConversationContext, type ContextSummary } from "@/lib/ipc";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useLibraryQuickAdd } from "@/state/libraryQuickAdd";
 
 type Mode =
   | { k: "list" }
-  | { k: "setup"; initial: SimConSession | null }
+  | { k: "setup"; initial: ConversationContext | null }
   | { k: "detail"; id: string };
 
 /**
@@ -37,7 +37,7 @@ type Mode =
  */
 export function ContextsView() {
   const backend = useBackend();
-  const [items, setItems] = useState<SimConSummary[]>([]);
+  const [items, setItems] = useState<ContextSummary[]>([]);
   const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
   const [quickAction] = useState(() => useLibraryQuickAdd.getState().consume());
   const [quickOpenId] = useState(() => useContextsQuickOpen.getState().consume());
@@ -59,7 +59,7 @@ export function ContextsView() {
   );
 
   const refresh = useCallback(() => {
-    backend.simcon
+    backend.context
       .list()
       .then((list) => {
         // Pin the always-present default to the top regardless of recency —
@@ -81,7 +81,7 @@ export function ContextsView() {
 
   const edit = async (id: string) => {
     try {
-      setMode({ k: "setup", initial: await backend.simcon.load(id) });
+      setMode({ k: "setup", initial: await backend.context.load(id) });
     } catch {
       setError("Couldn't open that context.");
     }
@@ -89,7 +89,7 @@ export function ContextsView() {
 
   const remove = async (id: string) => {
     try {
-      await backend.simcon.delete(id);
+      await backend.context.delete(id);
       if (selectedId === id) setSelectedId(null);
       refresh();
     } catch {
@@ -107,8 +107,8 @@ export function ContextsView() {
       setGeneratingId(id);
       setError(null);
       try {
-        await backend.simcon.prepare(id);
-        await backend.simcon.generateDossier(id);
+        await backend.context.prepare(id);
+        await backend.context.generateDossier(id);
       } catch (e) {
         setError(String(e));
       } finally {
@@ -139,7 +139,7 @@ export function ContextsView() {
 
   if (mode.k === "setup") {
     return (
-      <SimConSetup
+      <ContextSetup
         initial={mode.initial ?? undefined}
         onDone={backToList}
         onCancel={() => setMode({ k: "list" })}
@@ -149,7 +149,7 @@ export function ContextsView() {
 
   if (mode.k === "detail") {
     return (
-      <SimConDetail
+      <ContextDetail
         id={mode.id}
         onEdit={() => void edit(mode.id)}
         onBack={backToList}

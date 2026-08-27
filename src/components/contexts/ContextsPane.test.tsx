@@ -5,11 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ContextsPane } from "@/components/contexts/ContextsPane";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
-import type { SimConSummary } from "@/lib/ipc";
+import type { ContextSummary } from "@/lib/ipc";
 
 afterEach(cleanup);
 
-function summary(overrides: Partial<SimConSummary> = {}): SimConSummary {
+function summary(overrides: Partial<ContextSummary> = {}): ContextSummary {
   return {
     id: "s1",
     title: "Acme interview",
@@ -92,7 +92,7 @@ describe("ContextsPane", () => {
     expect(onGenerate).toHaveBeenCalledWith("s1");
   });
 
-  it("hides the New Context button off-desktop (web has no Sim Con folder to write to)", () => {
+  it("hides the New Context button off-desktop (web has no Context folder to write to)", () => {
     renderPane(
       <ContextsPane
         items={[]}

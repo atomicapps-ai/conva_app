@@ -1,4 +1,4 @@
-import type { SimConStatus, SimConSummary } from "@/lib/ipc";
+import type { ContextStatus, ContextSummary } from "@/lib/ipc";
 
 /** The row's status pill: label + shared `.pill-*` tone (globals.css). */
 export interface RowStatus {
@@ -6,7 +6,7 @@ export interface RowStatus {
   tone: string;
 }
 
-const STATUS_LABEL: Record<SimConStatus, string> = {
+const STATUS_LABEL: Record<ContextStatus, string> = {
   draft: "Draft",
   ingesting: "Preparing…",
   ready: "Ready",
@@ -14,7 +14,7 @@ const STATUS_LABEL: Record<SimConStatus, string> = {
   ended: "Ended",
 };
 
-const STATUS_TONE: Record<SimConStatus, string> = {
+const STATUS_TONE: Record<ContextStatus, string> = {
   draft: "pill-idle",
   ingesting: "pill-accent",
   ready: "pill-ready",
@@ -29,7 +29,7 @@ const STATUS_TONE: Record<SimConStatus, string> = {
  * advisory gold tone — never mid-flight states, never contexts that have
  * nothing generated yet.
  */
-export function rowStatus(s: SimConSummary): RowStatus {
+export function rowStatus(s: ContextSummary): RowStatus {
   const settled = s.status === "ready" || s.status === "ended";
   if (settled && s.has_generated_resources && s.resources_stale) {
     return { label: "Stale", tone: "pill-ally" };

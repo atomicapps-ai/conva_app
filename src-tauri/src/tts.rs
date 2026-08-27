@@ -1,5 +1,5 @@
 //! Text-to-speech — Deepgram Aura (`/v1/speak`) synthesized to PCM and played
-//! on the default output device via cpal. Used by the live Sim Con rehearsal
+//! on the default output device via cpal. Used by the live Context rehearsal
 //! so the AI counterparty speaks its turns. Reuses the saved Deepgram key
 //! (same vault entry as cloud STT). Blocking — always driven from the rehearsal
 //! worker thread, never the UI or audio-capture path.

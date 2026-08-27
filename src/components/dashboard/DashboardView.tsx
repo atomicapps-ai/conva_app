@@ -166,7 +166,7 @@ export function DashboardView() {
             icon="simicon"
             title="Contexts & Library"
             desc="Brief Ally for the call ahead, add documents it answers from"
-            onClick={go("simcon")}
+            onClick={go("context")}
           />
           <QuickLink
             icon="book"

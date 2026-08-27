@@ -24,9 +24,9 @@ import type {
   AuthStatus,
   Conversation,
   ConversationSummary,
+  ContextSummary,
+  ConversationContext,
   KnowledgeProfile,
-  SimConSession,
-  SimConSummary,
   IngestReport,
   ModelInfo,
   PartnerPayload,
@@ -178,30 +178,30 @@ export interface ConvaBackend {
     delete(id: string): Promise<void>;
   };
 
-  /** SimCon — Simulated Conversation records. Local on desktop; cloud on web. */
-  simcon: {
+  /** Context — Conversation Context records. Local on desktop; cloud on web. */
+  context: {
     /** Create or update; an empty `id` mints a new record. */
-    save(session: SimConSession): Promise<SimConSession>;
-    list(): Promise<SimConSummary[]>;
-    load(id: string): Promise<SimConSession>;
+    save(context: ConversationContext): Promise<ConversationContext>;
+    list(): Promise<ContextSummary[]>;
+    load(id: string): Promise<ConversationContext>;
     delete(id: string): Promise<void>;
     /** Ground the next live session in this context (highlight terms +
      *  retrieval scope). Takes effect immediately. */
-    activateContext(id: string): Promise<SimConSession>;
+    activateContext(id: string): Promise<ConversationContext>;
     /** Clear the active context without stopping a session. */
     deactivateContext(): Promise<void>;
-    /** Copy documents into this Sim Con's folder; returns paths to ingest. */
+    /** Copy documents into this Context's folder; returns paths to ingest. */
     storeDocs(title: string, paths: string[]): Promise<string[]>;
     /** Build the reusable knowledge profile (docs + research) and mark ready. */
-    prepare(id: string): Promise<SimConSession>;
+    prepare(id: string): Promise<ConversationContext>;
     /** Load a knowledge profile (attached docs + researched sources) by id. */
     loadProfile(profileId: string): Promise<KnowledgeProfile>;
     /** Generate the Ally prep dossier (saved to the library). */
-    generateDossier(id: string): Promise<SimConSession>;
+    generateDossier(id: string): Promise<ConversationContext>;
     /** Generate 3 counterparty personas with the LLM. */
-    generatePersonas(id: string): Promise<SimConSession>;
+    generatePersonas(id: string): Promise<ConversationContext>;
     /** Record the persona the user will rehearse against. */
-    choosePersona(id: string, personaId: string): Promise<SimConSession>;
+    choosePersona(id: string, personaId: string): Promise<ConversationContext>;
     /** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
     startRehearsal(id: string): Promise<string>;
     /** End the user's current rehearsal turn now (manual "your turn"). */

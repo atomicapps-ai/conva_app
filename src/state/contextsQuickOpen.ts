@@ -14,8 +14,8 @@ interface ContextsQuickOpenState {
  * One-shot cross-navigation intent, same pattern as `libraryQuickAdd.ts`:
  * Conversations' "Rehearse" tab lists contexts and needs to jump straight
  * into one's detail page (Step 3/4 — personas, start rehearsal) on click,
- * without duplicating `SimConDetail` or exposing ContextsView's internal
- * `mode` state globally. `request(id)` + `setView("simcon")`, consumed once
+ * without duplicating `ContextDetail` or exposing ContextsView's internal
+ * `mode` state globally. `request(id)` + `setView("context")`, consumed once
  * in `ContextsView`'s mode initializer.
  */
 export const useContextsQuickOpen = create<ContextsQuickOpenState>((set, get) => ({

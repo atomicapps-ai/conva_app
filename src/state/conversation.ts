@@ -40,7 +40,7 @@ interface ConversationState {
    */
   discard: () => void;
   setNotice: (notice: string | null) => void;
-  /** Pre-fill the save-dialog title (e.g. mark a rehearsal as a Sim Con). */
+  /** Pre-fill the save-dialog title (e.g. mark a rehearsal as a Context). */
   setTitle: (title: string | null) => void;
   /** Show a loaded conversation and make it the open one. */
   openConversation: (conversation: Conversation) => void;

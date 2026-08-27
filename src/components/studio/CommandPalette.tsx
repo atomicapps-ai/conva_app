@@ -52,7 +52,7 @@ export function CommandPalette() {
     });
     const nav: Command[] = [
       go("live", "Go to Live", "live"),
-      go("simcon", "Go to Contexts", "simicon"),
+      go("context", "Go to Contexts", "simicon"),
       go("conversations", "Go to Conversations", "conversations"),
       go("whatsnew", "Go to What's Coming", "lightbulb"),
       go("settings", "Go to Settings", "settings"),
@@ -112,7 +112,7 @@ export function CommandPalette() {
         icon: "upload",
         run: () => {
           requestQuickAdd("upload");
-          setView("simcon");
+          setView("context");
         },
       },
       {
@@ -122,7 +122,7 @@ export function CommandPalette() {
         icon: "clipboard",
         run: () => {
           requestQuickAdd("paste");
-          setView("simcon");
+          setView("context");
         },
       },
       {
@@ -132,7 +132,7 @@ export function CommandPalette() {
         icon: "simicon",
         run: () => {
           requestQuickAdd("new_context");
-          setView("simcon");
+          setView("context");
         },
       },
     ];

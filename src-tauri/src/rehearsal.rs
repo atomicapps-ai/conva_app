@@ -1,9 +1,9 @@
-//! Live Sim Con rehearsal (Phase E) — the turn-taking engine.
+//! Live Context rehearsal (Phase E) — the turn-taking engine.
 //!
 //! The session layer runs mic-only capture + STT and feeds each finalized user
 //! utterance here. This worker detects end-of-turn (a pause after the user
 //! stops, or a manual "your turn"), asks the LLM to reply **in character** as
-//! the chosen persona (grounded in the Sim Con's knowledge base), streams that
+//! the chosen persona (grounded in the Context's knowledge base), streams that
 //! reply to the UI as inbound ("THEM") transcript segments, and speaks it with
 //! Deepgram Aura. Then it listens again.
 //!
@@ -22,9 +22,11 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use conva_core::asr::TranscriptSegment;
 use conva_core::audio::StreamSide;
+use conva_core::context::{
+    persona_live_prompt, ContextPersona, ConversationContext, KnowledgeProfile,
+};
 use conva_core::ipc::{events, RehearsalStateEvent};
 use conva_core::llm::{LlmRequest, ModelSelection};
-use conva_core::simcon::{persona_live_prompt, KnowledgeProfile, SimConPersona, SimConSession};
 
 use crate::rag::RagStore;
 use crate::session::now_unix_ms;
@@ -42,9 +44,9 @@ pub struct RehearsalContext {
     pub llm_key: String,
     /// Deepgram key for Aura TTS; `None` → text-only rehearsal (no voice).
     pub tts_key: Option<String>,
-    pub session: SimConSession,
+    pub session: ConversationContext,
     pub profile: KnowledgeProfile,
-    pub persona: SimConPersona,
+    pub persona: ContextPersona,
     /// Epoch-ms the session started — base for the transcript timeline so
     /// persona turns interleave correctly with the user's spoken turns.
     pub session_start_ms: u64,
@@ -153,7 +155,7 @@ fn respond(
     transcript: &mut Vec<TranscriptSegment>,
     inbound_seq: &mut u64,
 ) {
-    // Ground on the user's latest turn (fall back to the Sim Con's purpose so
+    // Ground on the user's latest turn (fall back to the Context's purpose so
     // the opening line still has context).
     let query = transcript
         .iter()
@@ -165,7 +167,7 @@ fn respond(
     let chunks = if query.trim().is_empty() {
         Vec::new()
     } else {
-        // Ground the persona on this Sim Con's own knowledge base.
+        // Ground the persona on this Context's own knowledge base.
         rag.retrieve_scoped(&query, 6, &ctx.profile.doc_ids)
     };
 
