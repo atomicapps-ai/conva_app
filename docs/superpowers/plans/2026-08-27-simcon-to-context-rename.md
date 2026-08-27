@@ -471,7 +471,7 @@ pub mod context;
 - [ ] **Step 7: Grep-confirm no `SimCon`/`simcon` text remains in the file** (case-insensitive), except none should remain at all in this file (unlike the shell's `simcon_dir`, this core file has no on-disk-compat string to preserve):
 
 ```bash
-grep -in 'simcon' crates/conva-core/src/context.rs
+grep -inE 'sim ?con' crates/conva-core/src/context.rs
 ```
 
   Expected: no output.
@@ -666,7 +666,7 @@ fn validate_id(id: &str) -> Result<(), CoreError> {
 - [ ] **Step 8: Grep-confirm only the expected on-disk-compat string remains.**
 
 ```bash
-grep -in 'simcon' src-tauri/src/context.rs
+grep -inE 'sim ?con' src-tauri/src/context.rs
 ```
 
   Expected: exactly 2 hits — the `.join("simcon")` literal inside `context_dir` and the doc-comment line documenting that decision from Step 2 (`` `<app-data>/simcon/` `` appears twice: once in the module doc, once in `doc_folder`'s doc comment — both intentional). Every other line must be `SimCon`-free (this includes confirming Step 4's fix landed — no `conva_core::simcon::` should remain).
@@ -875,7 +875,7 @@ sed -i \
     .map_err(|e| e.to_string())?;
 ```
 
-- [ ] **Step 7: Reword the 4 remaining "Sim Con"/"SimCon" doc-comment/string-literal prose mentions** left in the file (not already covered by Steps 1–6's mechanical passes):
+- [ ] **Step 7: Reword the remaining "Sim Con"/"SimCon" doc-comment/string-literal/comment prose mentions** left in the file (not already covered by Steps 1–6's mechanical passes; count in the original heading here was imprecise — treat the table below as the authoritative, complete list, not the number):
 
   | Before | After |
   |---|---|
@@ -887,10 +887,13 @@ sed -i \
   | `/// Load a Sim Con's KnowledgeProfile so the UI can show what grounds the` | `/// Load a Context's KnowledgeProfile so the UI can show what grounds the` |
   | `/// Generate Ally's grounding documents — the staged pipeline (spec` | *(unchanged)* |
   | `/// 2026-08-26). Stage 1 synthesizes the Sim Con's documents + role/JD into a` | `/// 2026-08-26). Stage 1 synthesizes the Context's documents + role/JD into a` |
+  | `    // Broad grounding across this Sim Con's own knowledge base.` | `    // Broad grounding across this Context's own knowledge base.` |
   | `        .ok_or_else(\|\| "Prepare this Sim Con before generating a prep document.".to_string())?;` | `        .ok_or_else(\|\| "Prepare this Context before generating a prep document.".to_string())?;` |
   | `/// Generate 3 counterparty personas (Step 3) with the configured LLM, grounded` | *(unchanged)* |
   | `/// in the Sim Con's goal / type / job description. Overwrites any existing` | `/// in the Context's goal / type / job description. Overwrites any existing` |
   | `        .ok_or_else(\|\| "Prepare this Sim Con before starting the rehearsal.".to_string())?;` | `        .ok_or_else(\|\| "Prepare this Context before starting the rehearsal.".to_string())?;` |
+
+  (The `// Broad grounding...` row is a plain `//` line comment, not a `///` doc comment like the rest — added post-write, found during execution; it sits between the two lines just above/below it in the table. The plan's own Step 9 grep-confirm below only checks the one-word `simcon`/`SimCon` spelling, not "Sim Con" with a space, so it can't catch a miss in this table on its own — the table itself must be exhaustive, which is why it's now marked authoritative above.)
 
   Apply each Edit individually — every "Before" cell is unique in the file.
 
@@ -923,7 +926,7 @@ sed -i \
 - [ ] **Step 9: Grep-confirm the file is clean.**
 
 ```bash
-grep -in 'simcon' src-tauri/src/lib.rs
+grep -inE 'sim ?con' src-tauri/src/lib.rs
 ```
 
   Expected: no output.
@@ -1014,7 +1017,7 @@ pub struct RehearsalContext {
 - [ ] **Step 4: Grep-confirm clean.**
 
 ```bash
-grep -in 'simcon' src-tauri/src/rehearsal.rs
+grep -inE 'sim ?con' src-tauri/src/rehearsal.rs
 ```
 
   Expected: no output. (`persona_live_prompt`'s own internal `session`/`context` parameter naming was already handled in Phase 1, Task 1.2 Step 4b — this file only calls it positionally via `ctx.session`, so no further change is needed here beyond the import and struct field types above.)
@@ -1067,7 +1070,7 @@ use conva_core::context::ResearchSource;
 - [ ] **Step 3: Grep-confirm clean.**
 
 ```bash
-grep -in 'simcon' src-tauri/src/web.rs
+grep -inE 'sim ?con' src-tauri/src/web.rs
 ```
 
   Expected: no output.
@@ -1153,7 +1156,7 @@ done
 - [ ] **Step 3: Full-tree grep for stragglers.**
 
 ```bash
-grep -rin 'simcon' src-tauri/src/*.rs
+grep -rinE 'sim ?con' src-tauri/src/*.rs
 ```
 
   Expected: exactly the on-disk-compat lines confirmed in Task 2.1 Step 8 (`context.rs`'s `.join("simcon")` + its 2 doc-comment mentions) — nothing else, in no other file.
@@ -1429,7 +1432,7 @@ export interface ContextSummary {
 - [ ] **Step 3: Grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/lib/ipc.ts
+grep -inE 'sim ?con' src/lib/ipc.ts
 ```
 
   Expected: no output.
@@ -1682,7 +1685,7 @@ export function contextRehearsalSay(text: string): Promise<void> {
 - [ ] **Step 4: Grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/lib/commands.ts
+grep -inE 'sim ?con' src/lib/commands.ts
 ```
 
   Expected: no output.
@@ -1951,7 +1954,7 @@ import type {
 - [ ] **Step 6: Grep-confirm all three files.**
 
 ```bash
-grep -in 'simcon' src/lib/backend/ConvaBackend.ts src/lib/backend/tauri.ts src/lib/backend/web.ts
+grep -inE 'sim ?con' src/lib/backend/ConvaBackend.ts src/lib/backend/tauri.ts src/lib/backend/web.ts
 ```
 
   Expected: no output.
@@ -2155,7 +2158,7 @@ sed -i 's/backend\.simcon\./backend.context./g' src/components/context/ContextSe
 - [ ] **Step 7: `ContextSetup.tsx` — grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/components/context/ContextSetup.tsx
+grep -inE 'sim ?con' src/components/context/ContextSetup.tsx
 ```
 
   Expected: exactly 1 hit — the `icon="simicon"` prop value (2 occurrences of that literal, both intentional and unchanged per the decision above). Anything else is a miss.
@@ -2250,7 +2253,7 @@ sed -i 's/backend\.simcon\./backend.context./g' src/components/context/ContextDe
 - [ ] **Step 11: `ContextDetail.tsx` — grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/components/context/ContextDetail.tsx
+grep -inE 'sim ?con' src/components/context/ContextDetail.tsx
 ```
 
   Expected: exactly 2 hits — the two `icon="simicon"` prop values (`ViewShell`'s icon and the "Context knowledge" row's `<Icon name="simicon" ...>`), both intentionally unchanged.
@@ -2293,7 +2296,7 @@ sed -i 's/backend\.simcon\./backend.context./g' src/components/context/Rehearsal
 - [ ] **Step 13: `RehearsalBar.tsx` — grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/components/context/RehearsalBar.tsx
+grep -inE 'sim ?con' src/components/context/RehearsalBar.tsx
 ```
 
   Expected: exactly 1 hit — the `Icon name="simicon"` prop, unchanged.
@@ -2384,7 +2387,7 @@ sed -i \
 - [ ] **Step 16: `ContextSetup.test.tsx` — grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/components/context/ContextSetup.test.tsx
+grep -inE 'sim ?con' src/components/context/ContextSetup.test.tsx
 ```
 
   Expected: no output.
@@ -2456,7 +2459,7 @@ sed -i \
 - [ ] **Step 3: `ContextsView.tsx` — grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/components/contexts/ContextsView.tsx
+grep -inE 'sim ?con' src/components/contexts/ContextsView.tsx
 ```
 
   Expected: no output.
@@ -2475,7 +2478,7 @@ sed -i \
 - [ ] **Step 5: `ContextsPane.tsx` — grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/components/contexts/ContextsPane.tsx
+grep -inE 'sim ?con' src/components/contexts/ContextsPane.tsx
 ```
 
   Expected: no output.
@@ -2499,7 +2502,7 @@ sed -i \
 - [ ] **Step 8: `GroundPicker.tsx` — grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/components/contexts/GroundPicker.tsx
+grep -inE 'sim ?con' src/components/contexts/GroundPicker.tsx
 ```
 
   Expected: no output.
@@ -2551,7 +2554,7 @@ sed -i \
 
 ```bash
 sed -i 's/backend\.simcon\./backend.context./g' src/components/contexts/GroundPicker.test.tsx
-grep -in 'simcon' src/components/contexts/GroundPicker.test.tsx
+grep -inE 'sim ?con' src/components/contexts/GroundPicker.test.tsx
 ```
 
   Expected: no output.
@@ -2561,7 +2564,7 @@ grep -in 'simcon' src/components/contexts/GroundPicker.test.tsx
 ```bash
 sed -i 's/\bSimConSummary\b/ContextSummary/g' src/components/contexts/readiness.ts
 sed -i 's/\bSimConSummary\b/ContextSummary/g' src/components/contexts/readiness.test.ts
-grep -in 'simcon' src/components/contexts/readiness.ts src/components/contexts/readiness.test.ts
+grep -inE 'sim ?con' src/components/contexts/readiness.ts src/components/contexts/readiness.test.ts
 ```
 
   Expected: no output.
@@ -2574,7 +2577,7 @@ sed -i \
   -e 's/\bSimConSummary\b/ContextSummary/g' \
   src/components/contexts/rowStatus.ts
 sed -i 's/\bSimConSummary\b/ContextSummary/g' src/components/contexts/rowStatus.test.ts
-grep -in 'simcon' src/components/contexts/rowStatus.ts src/components/contexts/rowStatus.test.ts
+grep -inE 'sim ?con' src/components/contexts/rowStatus.ts src/components/contexts/rowStatus.test.ts
 ```
 
   Expected: no output.
@@ -2754,7 +2757,7 @@ sed -i 's/setView("simcon")/setView("context")/g' src/components/studio/CommandP
 - [ ] **Step 9: Grep-confirm the whole set.**
 
 ```bash
-grep -in 'simcon' src/components/studio/StudioShell.tsx src/components/studio/ViewRouter.tsx \
+grep -inE 'sim ?con' src/components/studio/StudioShell.tsx src/components/studio/ViewRouter.tsx \
   src/components/studio/CommandPalette.tsx src/components/dashboard/DashboardView.tsx \
   src/components/studio/navItems.ts src/state/nav.ts src/state/contextsQuickOpen.ts \
   src/state/libraryQuickAdd.ts
@@ -2886,7 +2889,7 @@ sed -i \
 - [ ] **Step 3: `ConversationsPanel.tsx` — grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/components/ConversationsPanel.tsx
+grep -inE 'sim ?con' src/components/ConversationsPanel.tsx
 ```
 
   Expected: exactly 2 hits — the two `row.data.simcon_title` field reads (line ~701 and ~711–712), both intentionally unchanged (scope decision 2). Everything else must be gone.
@@ -2941,7 +2944,7 @@ const FEATURE_LABELS: Record<string, string> = {
 - [ ] **Step 6: `SettingsPanel.tsx` — grep-confirm.**
 
 ```bash
-grep -in 'simcon' src/components/SettingsPanel.tsx
+grep -inE 'sim ?con' src/components/SettingsPanel.tsx
 ```
 
   Expected: exactly 4 hits — the 4 `simcon_*` keys deliberately kept in `FEATURE_LABELS` for historical-data display (scope: metering-key backward compatibility, per the design spec). Nothing else.
@@ -3023,7 +3026,7 @@ grep -in 'simcon' src/components/SettingsPanel.tsx
 - [ ] **Step 11: Grep-confirm the remaining 4 files.**
 
 ```bash
-grep -in 'simcon' src/components/ui/Icon.tsx src/components/studio/ViewShell.tsx \
+grep -inE 'sim ?con' src/components/ui/Icon.tsx src/components/studio/ViewShell.tsx \
   src/components/transcript/TranscriptView.tsx src/state/app.ts
 ```
 
@@ -3032,7 +3035,7 @@ grep -in 'simcon' src/components/ui/Icon.tsx src/components/studio/ViewShell.tsx
 - [ ] **Step 12: Full-tree final sweep.**
 
 ```bash
-grep -rin 'simcon' src/ --include='*.ts' --include='*.tsx' \
+grep -rinE 'sim ?con' src/ --include='*.ts' --include='*.tsx' \
   | grep -v 'FEATURE_LABELS\|simcon_knowledge\|simcon_research_findings\|simcon_qa\|simcon_personas\|icon="simicon"\|simicon:\|row.data.simcon_title\|\`simcon_title\`'
 ```
 
@@ -3083,7 +3086,7 @@ cargo clippy -p conva-core --all-targets -- -D warnings
 - [ ] **Step 2: Final repo-wide grep sweep** (the authoritative one — run from the repo root, across both `crates/`, `src-tauri/`, and `src/`):
 
 ```bash
-grep -rin 'simcon' crates/ src-tauri/src/*.rs src/ \
+grep -rinE 'sim ?con' crates/ src-tauri/src/*.rs src/ \
   --include='*.rs' --include='*.ts' --include='*.tsx' \
   | grep -v \
     -e 'context\.rs:.*\.join("simcon")' \
