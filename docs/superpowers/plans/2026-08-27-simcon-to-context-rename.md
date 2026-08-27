@@ -577,7 +577,17 @@ sed -i \
 
   (`SimConPersona` does not appear in this file — confirmed by the investigation grep — so it's not in this pattern list; `sed` on a pattern with zero matches is a safe no-op regardless.)
 
-- [ ] **Step 4: Rename the private `simcon_dir` helper to `context_dir`** — the Rust **symbol** only; the directory string it builds stays literally `"simcon"` (scope decision 1, Architecture section). Before:
+> **Added post-write** (found during execution, before any Task 2.1 edits landed): Step 3 above only rewrites the `use` import block and the 4 bare type tokens — it misses 3 further live, fully-qualified `conva_core::simcon::` references elsewhere in the file (2 real function calls, 1 doc-comment reference), which would otherwise leave unresolved-path compile errors once Phase 1 renamed the core module. New Step 4 below closes this; every step after it is renumbered up by one from the plan as first written (old Step 4 → new Step 5, ... old Step 8 → new Step 9).
+
+- [ ] **Step 4: Rename the 3 remaining fully-qualified `conva_core::simcon::` references Step 3 doesn't reach** — two live calls and one doc-comment reference, all with a trailing `::` (unlike line 2's bare `` `conva_core::simcon` `` prose mention, already rewritten whole by Step 2):
+
+```bash
+sed -i 's/conva_core::simcon::/conva_core::context::/g' src-tauri/src/context.rs
+```
+
+  This rewrites: `if conva_core::simcon::grounding_changed(&old, &session) {` (the grounding-changed check inside `save`) → `conva_core::context::grounding_changed(...)`; `conva_core::simcon::research_queries(&session, &[], RESEARCH_MAX_QUERIES),` (inside `prepare`) → `conva_core::context::research_queries(...)`; and the doc-comment reference `` /// via [`conva_core::simcon::research_queries`] `` → `` /// via [`conva_core::context::research_queries`] ``. Running this after Step 3 is safe even though Step 3's literal `use`-block edit already covers line 14 — the pattern simply won't match there anymore (idempotent no-op on that line), and will only touch the 3 sites Step 3 left behind.
+
+- [ ] **Step 5: Rename the private `simcon_dir` helper to `context_dir`** — the Rust **symbol** only; the directory string it builds stays literally `"simcon"` (scope decision 1, Architecture section). Before:
 
 ```rust
 fn simcon_dir(app: &AppHandle) -> Result<PathBuf, CoreError> {
@@ -613,7 +623,7 @@ sed -i 's/\bsimcon_dir(/context_dir(/g' src-tauri/src/context.rs
 
   (this rewrites the 1 definition + 6 call sites — inside `save`, `load`, `delete`, `list`, `doc_folder`, and `profiles_dir` — to the same new name in one pass.)
 
-- [ ] **Step 5: Reword the `validate_id` error string** (cosmetic — internal validation message, not persisted anywhere). Before:
+- [ ] **Step 6: Reword the `validate_id` error string** (cosmetic — internal validation message, not persisted anywhere). Before:
 
 ```rust
 fn validate_id(id: &str) -> Result<(), CoreError> {
@@ -637,7 +647,7 @@ fn validate_id(id: &str) -> Result<(), CoreError> {
 }
 ```
 
-- [ ] **Step 6: Reword the remaining 7 prose "Sim Con"/"SimCon" doc-comment mentions.** Each is unique in the file — find-and-replace exactly:
+- [ ] **Step 7: Reword the remaining 7 prose "Sim Con"/"SimCon" doc-comment mentions.** Each is unique in the file — find-and-replace exactly:
 
   | Before | After |
   |---|---|
@@ -653,15 +663,15 @@ fn validate_id(id: &str) -> Result<(), CoreError> {
 
   (Only 5 of the lines listed actually need a text change — `doc_folder`'s and `prepare`'s surrounding lines are shown for context so the edit locations are unambiguous; apply Edit only to the 5 "After" cells that differ from "Before".)
 
-- [ ] **Step 7: Grep-confirm only the expected on-disk-compat string remains.**
+- [ ] **Step 8: Grep-confirm only the expected on-disk-compat string remains.**
 
 ```bash
 grep -in 'simcon' src-tauri/src/context.rs
 ```
 
-  Expected: exactly 2 hits — the `.join("simcon")` literal inside `context_dir` and the doc-comment line documenting that decision from Step 2 (`` `<app-data>/simcon/` `` appears twice: once in the module doc, once in `doc_folder`'s doc comment — both intentional). Every other line must be `SimCon`-free.
+  Expected: exactly 2 hits — the `.join("simcon")` literal inside `context_dir` and the doc-comment line documenting that decision from Step 2 (`` `<app-data>/simcon/` `` appears twice: once in the module doc, once in `doc_folder`'s doc comment — both intentional). Every other line must be `SimCon`-free (this includes confirming Step 4's fix landed — no `conva_core::simcon::` should remain).
 
-- [ ] **Step 8: `cargo fmt --check`** on this file (or `cargo fmt` if the `sed` passes left minor spacing) — clean. No commit yet; Task 2.2 commits Phase 2 as one commit per the design spec's phasing.
+- [ ] **Step 9: `cargo fmt --check`** on this file (or `cargo fmt` if the `sed` passes left minor spacing) — clean. No commit yet; Task 2.2 commits Phase 2 as one commit per the design spec's phasing.
 
 ### Task 2.2: `src-tauri/src/lib.rs` — module decl, imports, 13 commands + `generate_handler!`, metering keys, call sites
 
@@ -1146,7 +1156,7 @@ done
 grep -rin 'simcon' src-tauri/src/*.rs
 ```
 
-  Expected: exactly the on-disk-compat lines confirmed in Task 2.1 Step 7 (`context.rs`'s `.join("simcon")` + its 2 doc-comment mentions) — nothing else, in no other file.
+  Expected: exactly the on-disk-compat lines confirmed in Task 2.1 Step 8 (`context.rs`'s `.join("simcon")` + its 2 doc-comment mentions) — nothing else, in no other file.
 
 - [ ] **Step 4: `cargo fmt --check`** across the whole shell crate — clean (`cargo fmt` if any file needs reformatting from the `sed` passes).
 
