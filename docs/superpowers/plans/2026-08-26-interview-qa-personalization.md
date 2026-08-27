@@ -72,14 +72,21 @@ Claude-Session: https://claude.ai/code/session_01GiKzMingp6q12HJcuxRSZp
 
     #[test]
     fn interview_qa_prompt_caps_personal_background_at_budget() {
+        // Ten ~1,000-char chunks (realistic RAG-chunk sizing — never one
+        // giant blob) so the budget actually caps something mid-list,
+        // instead of the single-chunk-exceeds-budget edge case (which,
+        // like knowledge_prompt's identical reference-budget loop, drops
+        // that one oversized block whole rather than truncating it).
         let s = sample_session();
-        let chunks = vec![ScoredChunk {
-            document_id: "d1".into(),
-            file_name: "resume.pdf".into(),
-            location: "p1".into(),
-            text: "x".repeat(20_000),
-            score: 0.9,
-        }];
+        let chunks: Vec<ScoredChunk> = (0..10)
+            .map(|i| ScoredChunk {
+                document_id: "d1".into(),
+                file_name: "resume.pdf".into(),
+                location: format!("p{i}"),
+                text: "x".repeat(1_000),
+                score: 0.9,
+            })
+            .collect();
         let req = interview_qa_prompt(&s, &[], &chunks);
         let background_start = req
             .user
@@ -90,6 +97,11 @@ Claude-Session: https://claude.ai/code/session_01GiKzMingp6q12HJcuxRSZp
         assert!(
             background_len <= QA_PERSONAL_CHAR_BUDGET + 200,
             "background section grew unbounded: {background_len} chars"
+        );
+        // Not every chunk fit — the budget actually capped something.
+        assert!(
+            background_len < 10 * 1_017,
+            "budget did not cap anything: {background_len}"
         );
     }
 ```
