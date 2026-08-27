@@ -77,11 +77,11 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M8 12h6M8 15h6" />
     </>
   ),
-  // Simicon — the icon for Conversation Contexts / Sim Con: a knowledge hub
-  // (a network of connected nodes) briefed for a person, per the mockup's
-  // `i-contexts` glyph verbatim (`conva_core/brand/UI/AppUI_V4.0`) — was a
-  // two-speech-bubbles glyph that didn't match the reference (owner
-  // feedback 2026-08-17).
+  // Simicon — the icon for Conversation Contexts (formerly "Sim Con"): a
+  // knowledge hub (a network of connected nodes) briefed for a person, per
+  // the mockup's `i-contexts` glyph verbatim
+  // (`conva_core/brand/UI/AppUI_V4.0`) — was a two-speech-bubbles glyph that
+  // didn't match the reference (owner feedback 2026-08-17).
   simicon: (
     <>
       <g fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">

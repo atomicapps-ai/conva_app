@@ -165,7 +165,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // *different* next call never silently inherits a stale, specific
       // context (e.g. still grounded on "Acme interview").
       try {
-        const session = await getBackend().simcon.activateContext(DEFAULT_CONTEXT_ID);
+        const session = await getBackend().context.activateContext(DEFAULT_CONTEXT_ID);
         useGroundingStore.getState().setActive(session.id, session.title);
       } catch {
         useGroundingStore.getState().clear();

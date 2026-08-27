@@ -14,7 +14,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
  * only place the user learns where they are, so every routed view built on
  * ViewShell gets one even when it's flat: with no `breadcrumb` parent, the
  * trail is just the view's own title, small and muted above the real
- * headline. Pass `breadcrumb` for genuine sub-views (Sim Con setup/detail,
+ * headline. Pass `breadcrumb` for genuine sub-views (Context setup/detail,
  * reached from Contexts) to get a real two-level trail instead.
  *
  * One deliberate exception: Live (`TranscriptView`) doesn't compose
@@ -41,7 +41,7 @@ export function ViewShell({
   subtitle?: ReactNode;
   badge?: ReactNode;
   actions?: ReactNode;
-  /** A sub-view reached from somewhere (Sim Con setup/detail, Settings,
+  /** A sub-view reached from somewhere (Context setup/detail, Settings,
    *  Sessions, Conversations) gets a back control HERE — top-left, next to
    *  the icon chip — never in `actions` (top-right). Navigation controls and
    *  page-specific actions are different zones; don't mix them. */

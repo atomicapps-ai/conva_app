@@ -9,7 +9,7 @@ import {
   type ConversationSummary,
   type RagDocument,
   type SessionSummary,
-  type SimConSummary,
+  type ContextSummary,
   type TranscriptSegment,
 } from "@/lib/ipc";
 import { groupTurns } from "@/lib/turns";
@@ -24,7 +24,7 @@ function formatDate(unixMs: number): string {
   return new Date(unixMs).toLocaleString();
 }
 
-const STATUS_LABEL: Record<SimConSummary["status"], string> = {
+const STATUS_LABEL: Record<ContextSummary["status"], string> = {
   draft: "Draft",
   ingesting: "Preparing…",
   ready: "Ready",
@@ -32,7 +32,7 @@ const STATUS_LABEL: Record<SimConSummary["status"], string> = {
   ended: "Ended",
 };
 
-const STATUS_TONE: Record<SimConSummary["status"], string> = {
+const STATUS_TONE: Record<ContextSummary["status"], string> = {
   draft: "pill-idle",
   ingesting: "pill-accent",
   ready: "pill-ready",
@@ -160,7 +160,7 @@ function findMatches(
  * one jumps straight to its detail page (personas → start rehearsal) via
  * `state/contextsQuickOpen.ts`'s one-shot intent. Grouped here rather than
  * given its own rail item because rehearsing IS a kind of conversation (it
- * saves as one, tagged Sim Con, and shows up right there in "All
+ * saves as one, tagged Context rehearsal, and shows up right there in "All
  * activity") — Contexts is the prep material, this tab is the act of
  * using it. The always-present default context is excluded; there's
  * nothing to rehearse against without a real context's personas.
@@ -186,7 +186,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const backend = useBackend();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [contexts, setContexts] = useState<SimConSummary[]>([]);
+  const [contexts, setContexts] = useState<ContextSummary[]>([]);
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [analyzing, setAnalyzing] = useState(false);
@@ -222,7 +222,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
       const [c, s, x, d] = await Promise.all([
         backend.conversations.list(),
         backend.sessions.list(),
-        backend.simcon.list(),
+        backend.context.list(),
         backend.rag.list(),
       ]);
       setConversations(c);
@@ -374,7 +374,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
 
   const rehearse = (id: string) => {
     useContextsQuickOpen.getState().request(id);
-    setView("simcon");
+    setView("context");
     onClose();
   };
 
@@ -699,12 +699,12 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
                     <span
                       title={
                         row.data.simcon_title
-                          ? `Sim Con rehearsal: ${row.data.simcon_title}`
-                          : "Sim Con rehearsal"
+                          ? `Context rehearsal: ${row.data.simcon_title}`
+                          : "Context rehearsal"
                       }
                       className="pill pill-sm pill-ally shrink-0"
                     >
-                      Sim Con
+                      Context
                     </span>
                   )}
                   <span className="truncate text-xs text-fg">
