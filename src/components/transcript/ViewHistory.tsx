@@ -5,11 +5,13 @@ import { Icon } from "@/components/ui/Icon";
 
 /**
  * The View half (spec §3.3): ONLY what the user chose — selected Found
- * items (rendered as known-content cards below) interleaved with the Ally
- * answer cards the parent renders via `renderAnswerCards` (asks are choices
- * too). Every card is height-capped with a More/Less toggle; ✕ removes;
- * re-selecting an item focuses (scroll + ring) instead of duplicating —
- * the parent passes `focusKey` to drive that.
+ * items (rendered as known-content cards below, newest selection first —
+ * owner, 2026-08-27: a fresh pick pushes the rest down and lands in view
+ * without scrolling) interleaved with the Ally answer cards the parent
+ * renders via `renderAnswerCards` (asks are choices too). Every card is
+ * height-capped with a More/Less toggle; ✕ removes; re-selecting an item
+ * focuses (scroll + ring) instead of duplicating — the parent passes
+ * `focusKey` to drive that.
  */
 export function ViewHistory({
   entries,

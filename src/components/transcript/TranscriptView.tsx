@@ -35,7 +35,7 @@ import {
   type FoundItem,
 } from "@/components/transcript/foundGroups";
 import {
-  appendOrFocus,
+  prependOrFocus,
   removeEntry,
   toggleExpanded,
   type ViewEntry,
@@ -1951,9 +1951,11 @@ export function TranscriptView() {
     if (drawer) setDrawerOpen(true);
   }, [panelState, applyPanelState, drawer]);
 
-  // The View half's chosen entries (spec §3.3). One monotone counter
-  // sequences selections against future needs; focusKey drives the
-  // scroll+ring focus of an already-present card.
+  // The View half's chosen entries (spec §3.3), newest first (owner,
+  // 2026-08-27) — a fresh pick pushes the rest down and lands in view
+  // without scrolling. One monotone counter sequences selections against
+  // future needs; focusKey drives the scroll+ring focus of an
+  // already-present card.
   const [viewEntries, setViewEntries] = useState<ViewEntry[]>([]);
   const [viewFocusKey, setViewFocusKey] = useState<string | null>(null);
   const viewSeq = useRef(0);
@@ -1961,7 +1963,7 @@ export function TranscriptView() {
     (item: FoundItem) => {
       viewSeq.current += 1;
       setViewEntries((prev) => {
-        const r = appendOrFocus(prev, item, viewSeq.current);
+        const r = prependOrFocus(prev, item, viewSeq.current);
         setViewFocusKey(r.focusKey);
         return r.entries;
       });
