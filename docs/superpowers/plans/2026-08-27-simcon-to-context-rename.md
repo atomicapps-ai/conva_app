@@ -1194,15 +1194,72 @@ done
 grep -rinE 'sim ?con' src-tauri/src/*.rs
 ```
 
-  Expected: exactly the on-disk-compat lines confirmed in Task 2.1 Step 8 (`context.rs`'s `.join("simcon")` + its 2 doc-comment mentions) — nothing else, in no other file.
+  Expected: the on-disk-compat lines confirmed in Task 2.1 Step 8 (`context.rs`'s `.join("simcon")` + its 2 doc-comment mentions), `session.rs`'s deliberately-untouched `simcon_title`/`is_rehearsal` lines (scope decision 2 — leave these), and — **found during execution, not in the plan as first written** — 4 more pure-prose doc-comment lines in 3 files nowhere else in this plan's scope: `conversations.rs`, `rag.rs`, `tts.rs`. None of the three import anything from `conva_core::context`/`conva_core::simcon` (zero compile risk), but they're real "Sim Con" mentions the plan's own Goal covers. Fixed in the next step rather than deferred, since Phase 2 is already touching `src-tauri` and this is the cheapest point to catch it.
+
+- [ ] **Step 3b: Reword the 3 straggler files.**
+
+  `src-tauri/src/conversations.rs` — before:
+
+```rust
+    /// The Sim Con context (if any) active while this conversation was
+    /// recorded — captured at save time from live grounding state (spec
+    /// 2026-08-26 part B). Never backfilled for older conversations.
+```
+
+  after:
+
+```rust
+    /// The Context (if any) active while this conversation was recorded —
+    /// captured at save time from live grounding state (spec 2026-08-26
+    /// part B). Never backfilled for older conversations.
+```
+
+  `src-tauri/src/rag.rs` — before:
+
+```rust
+    /// Like [`retrieve`], but restricted to a set of document ids (a Sim Con's
+    /// KnowledgeProfile). An empty scope means "whole library" — so a Sim Con
+    /// with no attached docs still grounds on everything available.
+```
+
+  after:
+
+```rust
+    /// Like [`retrieve`], but restricted to a set of document ids (a
+    /// Context's KnowledgeProfile). An empty scope means "whole library" —
+    /// so a Context with no attached docs still grounds on everything available.
+```
+
+  `src-tauri/src/tts.rs` — before:
+
+```rust
+//! Text-to-speech — Deepgram Aura (`/v1/speak`) synthesized to PCM and played
+//! on the default output device via cpal. Used by the live Sim Con rehearsal
+//! so the AI counterparty speaks its turns. Reuses the saved Deepgram key
+```
+
+  after:
+
+```rust
+//! Text-to-speech — Deepgram Aura (`/v1/speak`) synthesized to PCM and played
+//! on the default output device via cpal. Used by the live Context rehearsal
+//! so the AI counterparty speaks its turns. Reuses the saved Deepgram key
+```
+
+- [ ] **Step 3c: Re-run Step 3's grep — confirm now only the expected on-disk-compat + `session.rs` lines remain.**
+
+```bash
+grep -rinE 'sim ?con' src-tauri/src/*.rs
+```
 
 - [ ] **Step 4: `cargo fmt --check`** across the whole shell crate — clean (`cargo fmt` if any file needs reformatting from the `sed` passes).
 
-- [ ] **Step 5: Commit all of Phase 2 together** (per the design spec's phasing — module rename + all 13 commands + `generate_handler!` + metering keys + the two unlisted-but-required sites, one commit):
+- [ ] **Step 5: Commit all of Phase 2 together** (per the design spec's phasing — module rename + all 13 commands + `generate_handler!` + metering keys + the five unlisted-but-required sites, one commit):
 
 ```bash
 git add src-tauri/src/context.rs src-tauri/src/lib.rs src-tauri/src/rehearsal.rs \
-        src-tauri/src/web.rs src-tauri/src/session.rs src-tauri/src/metering.rs
+        src-tauri/src/web.rs src-tauri/src/session.rs src-tauri/src/metering.rs \
+        src-tauri/src/conversations.rs src-tauri/src/rag.rs src-tauri/src/tts.rs
 git commit -m "refactor(shell): rename SimCon commands/module to Context (src-tauri)"
 ```
 
