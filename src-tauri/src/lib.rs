@@ -1520,7 +1520,10 @@ fn hud_is_open(app: AppHandle) -> bool {
 /// window's right edge on first open. `answer`/`source_lines` set = an
 /// already-answered card ("Open in viewer" — owner, 2026-08-22: the viewer
 /// IS this window, shown directly, no re-research); unset = a fresh term
-/// from the Terms tab, which the window researches itself.
+/// from the Terms tab, which the window researches itself. `doc_id` set =
+/// a library document opened directly (e.g. "view" on a Library/Context
+/// row) — the window opens it as a document tab instead, ignoring
+/// `kind`/`preview`/`answer`/`source_lines`.
 #[tauri::command]
 async fn open_partner(
     app: AppHandle,
@@ -1529,6 +1532,7 @@ async fn open_partner(
     preview: Option<String>,
     answer: Option<String>,
     source_lines: Vec<String>,
+    doc_id: Option<String>,
 ) -> Result<(), String> {
     partner::open(
         &app,
@@ -1538,6 +1542,7 @@ async fn open_partner(
             preview,
             answer,
             source_lines,
+            doc_id,
         },
     )
 }

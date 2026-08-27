@@ -8,6 +8,7 @@ import * as webAuth from "@/lib/backend/webAuth";
 import { isEmbedded, isWeb } from "@/lib/platform";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAppStore } from "@/state/app";
+import { useDevMode } from "@/state/devMode";
 
 /** Shown for the instant before the web app bounces to the website login. */
 function AuthRedirect() {
@@ -24,6 +25,7 @@ function AuthRedirect() {
 export default function App() {
   useIpcBridge();
   const init = useAppStore((s) => s.init);
+  const debugChromeVisible = useDevMode((s) => s.debugChromeVisible);
 
   // On the WEB, login is the website's job — this app has no sign-in of its own.
   // No session → bounce to the website login and come back signed in. When
@@ -55,8 +57,10 @@ export default function App() {
   return (
     <div className="h-full">
       {isWeb ? <WebShell /> : <StudioShell />}
-      {/* Dev-only FANER capture validator (F11); stripped from prod builds. */}
-      {import.meta.env.DEV && !isWeb && <FanerReplayPanel />}
+      {/* Dev-only FANER capture validator (F11); stripped from prod builds.
+          Also hidden by the status bar's debug-chrome toggle, so a dev
+          build can preview production chrome without a release build. */}
+      {import.meta.env.DEV && !isWeb && debugChromeVisible && <FanerReplayPanel />}
     </div>
   );
 }

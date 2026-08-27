@@ -5,6 +5,7 @@ import {
   closeTab,
   documentTab,
   itemTab,
+  tabFromPayload,
   tabLabel,
   type PartnerTab,
 } from "@/components/partner/partnerTabs";
@@ -17,6 +18,7 @@ function payload(overrides: Partial<PartnerPayload> = {}): PartnerPayload {
     preview: null,
     answer: null,
     source_lines: [],
+    doc_id: null,
     ...overrides,
   };
 }
@@ -50,6 +52,32 @@ describe("addOrFocus", () => {
     const r = addOrFocus(addOrFocus([], d).tabs, documentTab("doc-1", "aws.pdf"));
     expect(r.tabs).toHaveLength(1);
     expect(r.activeKey).toBe(d.key);
+  });
+});
+
+describe("tabFromPayload", () => {
+  it("becomes a document tab when doc_id is set, term as the file name", () => {
+    const t = tabFromPayload(payload({ term: "aws.pdf", doc_id: "doc-1" }));
+    expect(t).toEqual(documentTab("doc-1", "aws.pdf"));
+  });
+
+  it("ignores kind/preview/answer/source_lines on a document open", () => {
+    const t = tabFromPayload(
+      payload({
+        term: "aws.pdf",
+        doc_id: "doc-1",
+        kind: "concept",
+        preview: "should be ignored",
+        answer: "should be ignored too",
+        source_lines: ["ignored.pdf — ¶1"],
+      }),
+    );
+    expect(t).toEqual(documentTab("doc-1", "aws.pdf"));
+  });
+
+  it("becomes an item tab when doc_id is absent", () => {
+    const p = payload({ term: "API Gateway" });
+    expect(tabFromPayload(p)).toEqual(itemTab(p));
   });
 });
 

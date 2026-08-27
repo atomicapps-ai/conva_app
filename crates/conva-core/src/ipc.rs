@@ -138,6 +138,12 @@ pub struct PartnerPayload {
     pub answer: Option<String>,
     /// Already-grouped "file — ¶loc, ¶loc" citation lines for `answer`.
     pub source_lines: Vec<String>,
+    /// Set when this open targets a library document directly (e.g. "view"
+    /// on a Library/Context row) rather than a term or answer — the window
+    /// opens it as a document tab (`term` doubles as the file name) and
+    /// fetches its full text itself via `documentText`, same as clicking a
+    /// "FROM YOUR DOCUMENTS" citation line. `None` for every other open.
+    pub doc_id: Option<String>,
 }
 
 /// Payload of [`events::PARTNER_LOCK`] — whether the partner window is

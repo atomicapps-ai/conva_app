@@ -215,6 +215,12 @@ export interface PartnerPayload {
   answer: string | null;
   /** Already-grouped "file — ¶loc, ¶loc" citation lines for `answer`. */
   source_lines: string[];
+  /** Set when this open targets a library document directly (e.g. "view" on
+   *  a Library/Context row) rather than a term or answer — `term` doubles
+   *  as the file name and the window fetches the full text itself via
+   *  `documentText`, same as clicking a "FROM YOUR DOCUMENTS" citation
+   *  line. `null` for every other open. */
+  doc_id: string | null;
 }
 
 /** Mirror of `ipc.rs::PartnerLockEvent` — sent when the shell changes the

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
+import { useCapabilities } from "@/lib/backend/context";
 import type { RagDocument } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
@@ -175,6 +176,7 @@ export function LibraryPane({
   quickAction?: "upload" | "paste" | null;
 }) {
   const backend = useBackend();
+  const caps = useCapabilities();
   const [documents, setDocuments] = useState<RagDocument[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -568,6 +570,26 @@ export function LibraryPane({
                     ].join(" ")}
                   >
                     <Icon name="link" size={12} />
+                  </button>
+                )}
+                {caps?.system.partnerWindow && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void backend.partner.open(
+                        doc.file_name,
+                        null,
+                        null,
+                        null,
+                        [],
+                        doc.id,
+                      )
+                    }
+                    aria-label={`View ${doc.file_name}`}
+                    title="View"
+                    className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                  >
+                    <Icon name="expand" size={12} />
                   </button>
                 )}
                 {isTauri() && (

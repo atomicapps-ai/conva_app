@@ -480,13 +480,15 @@ export function hudIsOpen(): Promise<boolean> {
 
 // --- Partner window (src-tauri/src/partner.rs) -------------------------------
 
-/** Open (or re-target) the partner window on a term. */
+/** Open (or re-target) the partner window on a term — or, with `docId` set,
+ *  a library document directly (e.g. "view" on a Library/Context row). */
 export function openPartner(
   term: string,
   kind: string | null,
   preview: string | null,
   answer: string | null = null,
   sourceLines: string[] = [],
+  docId: string | null = null,
 ): Promise<void> {
   return invoke("open_partner", {
     term,
@@ -494,6 +496,7 @@ export function openPartner(
     preview,
     answer,
     sourceLines,
+    docId,
   });
 }
 
