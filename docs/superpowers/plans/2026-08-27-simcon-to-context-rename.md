@@ -2632,6 +2632,28 @@ sed -i \
 
   This covers: the `Mode` union's `{ k: "setup"; initial: SimConSession | null }`, `[items, setItems] = useState<SimConSummary[]>([])`, the 4 `backend.simcon.*` calls (`list`, `load`, `delete`, `prepare`+`generateDossier`), and the two JSX usages `<SimConSetup .../>`/`<SimConDetail .../>`.
 
+> **Added post-write** (found during execution): the `sed` above requires
+> `backend.simcon.` (dot included) on one line, but one of the 4
+> `backend.simcon.*` calls is a multi-line method chain — `.list()` sits
+> on the next line — so it's left as a bare, now-broken `backend.simcon`.
+> Fix it explicitly.
+
+- [ ] **Step 2b: Fix the multi-line `refresh` chain.** Before:
+
+```tsx
+  const refresh = useCallback(() => {
+    backend.simcon
+      .list()
+```
+
+  After:
+
+```tsx
+  const refresh = useCallback(() => {
+    backend.context
+      .list()
+```
+
 - [ ] **Step 3: `ContextsView.tsx` — grep-confirm.**
 
 ```bash
@@ -2665,6 +2687,31 @@ grep -inE 'sim ?con' src/components/contexts/ContextsPane.tsx
 sed -i 's/\bSimConSummary\b/ContextSummary/g' src/components/contexts/ContextsPane.test.tsx
 ```
 
+> **Added post-write** (found during execution): this `sed` doesn't reach
+> a "Sim Con" mention in a test description string, and — unlike every
+> other file in this task — Step 6 never had its own grep-confirm. Both
+> added below.
+
+- [ ] **Step 6b: Reword the test description.** Before:
+
+```tsx
+  it("hides the New Context button off-desktop (web has no Sim Con folder to write to)", () => {
+```
+
+  After:
+
+```tsx
+  it("hides the New Context button off-desktop (web has no Context folder to write to)", () => {
+```
+
+- [ ] **Step 6c: `ContextsPane.test.tsx` — grep-confirm.**
+
+```bash
+grep -inE 'sim ?con' src/components/contexts/ContextsPane.test.tsx
+```
+
+  Expected: no output.
+
 - [ ] **Step 7: `GroundPicker.tsx` — types + every `backend.simcon.*` call (11 occurrences).**
 
 ```bash
@@ -2673,6 +2720,50 @@ sed -i \
   -e 's/\bSimConSummary\b/ContextSummary/g' \
   -e 's/backend\.simcon\./backend.context./g' \
   src/components/contexts/GroundPicker.tsx
+```
+
+> **Added post-write** (found during execution): 2 of the 11
+> `backend.simcon.*` calls are multi-line chains (`.activateContext(...)`
+> on the next line) the `sed` above can't reach — both are the same
+> call site shape, in two different places in the file. Fix both
+> explicitly.
+
+- [ ] **Step 7b: Fix the mount auto-activate effect's chain.** Before:
+
+```tsx
+    void backend.simcon
+      .activateContext(DEFAULT_CONTEXT_ID)
+      .then((session) => setActive(session.id, session.title))
+      .catch(() => {
+```
+
+  After:
+
+```tsx
+    void backend.context
+      .activateContext(DEFAULT_CONTEXT_ID)
+      .then((session) => setActive(session.id, session.title))
+      .catch(() => {
+```
+
+- [ ] **Step 7c: Fix the Reset button handler's chain.** Before:
+
+```tsx
+              onClick={() => {
+                void backend.simcon
+                  .activateContext(DEFAULT_CONTEXT_ID)
+                  .then((session) => setActive(session.id, session.title));
+              }}
+```
+
+  After:
+
+```tsx
+              onClick={() => {
+                void backend.context
+                  .activateContext(DEFAULT_CONTEXT_ID)
+                  .then((session) => setActive(session.id, session.title));
+              }}
 ```
 
 - [ ] **Step 8: `GroundPicker.tsx` — grep-confirm.**
