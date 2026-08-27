@@ -2270,6 +2270,18 @@ export function ContextSetup({
 sed -i 's/backend\.simcon\./backend.context./g' src/components/context/ContextSetup.tsx
 ```
 
+> **Added post-write** (found during execution): the table below was short
+> one row (the header said "5 remaining" but only listed 4) — a
+> `// Path A — add files directly...` comment Steps 3–5 don't reach. Also,
+> Step 7's grep expectation was factually wrong throughout this whole
+> task (Steps 7/11/13/16): it claimed `icon="simicon"` would show up as
+> an "expected hit" in the `grep -inE 'sim ?con'` check, but that regex
+> structurally cannot match `simicon` (no space, and there's an `i`
+> between "sim" and "con" that the pattern doesn't allow) — so
+> `icon="simicon"` was never going to appear in any of these grep results
+> at all, correctly unchanged or not. All 4 grep-confirm steps in this
+> task are corrected below to expect genuinely **no output**.
+
 - [ ] **Step 6: `ContextSetup.tsx` — the 5 remaining leftover-copy strings.**
 
   | Before | After |
@@ -2278,8 +2290,9 @@ sed -i 's/backend\.simcon\./backend.context./g' src/components/context/ContextSe
   | `      title={initial ? "Edit Sim Con" : "New Sim Con"}` | `      title={initial ? "Edit Context" : "New Context"}` |
   | `description="conva grounds the counterparty and its questions in these. Add files directly (they're kept in a folder named after this Sim Con) or pick from your library."` | `description="conva grounds the counterparty and its questions in these. Add files directly (they're kept in a folder named after this Context) or pick from your library."` |
   | `            Finishing saves this Sim Con. Building the knowledge base, generating` | `            Finishing saves this Context. Building the knowledge base, generating` |
+  | `  // Path A — add files directly: copy them into this Sim Con's folder, then` | `  // Path A — add files directly: copy them into this Context's folder, then` |
 
-  (`icon="simicon"` on the `<ViewShell>` element is **unchanged** — that's the `Icon.tsx` registry key, not renamed per this plan; see Task 4.4 for its comment-only fix.)
+  (`icon="simicon"` on the `<ViewShell>` element is **unchanged** — that's the `Icon.tsx` registry key, not renamed per this plan; see Task 4.4 for its comment-only fix. It does not appear in Step 7's grep either way — see the note above.)
 
 - [ ] **Step 7: `ContextSetup.tsx` — grep-confirm.**
 
@@ -2287,7 +2300,7 @@ sed -i 's/backend\.simcon\./backend.context./g' src/components/context/ContextSe
 grep -inE 'sim ?con' src/components/context/ContextSetup.tsx
 ```
 
-  Expected: exactly 1 hit — the `icon="simicon"` prop value (2 occurrences of that literal, both intentional and unchanged per the decision above). Anything else is a miss.
+  Expected: no output.
 
 - [ ] **Step 8: `ContextDetail.tsx` (formerly `SimConDetail.tsx`) — imports, types, copy.** Before:
 
@@ -2382,7 +2395,7 @@ sed -i 's/backend\.simcon\./backend.context./g' src/components/context/ContextDe
 grep -inE 'sim ?con' src/components/context/ContextDetail.tsx
 ```
 
-  Expected: exactly 2 hits — the two `icon="simicon"` prop values (`ViewShell`'s icon and the "Context knowledge" row's `<Icon name="simicon" ...>`), both intentionally unchanged.
+  Expected: no output (see the note above Step 6 — the two `icon="simicon"`/`Icon name="simicon"` occurrences in this file are intentionally unchanged, but the grep pattern can't match `simicon` in the first place, so they were never going to show up here regardless).
 
 - [ ] **Step 12: `RehearsalBar.tsx` — the 2 `backend.simcon.*` calls + copy.** Before:
 
@@ -2425,7 +2438,7 @@ sed -i 's/backend\.simcon\./backend.context./g' src/components/context/Rehearsal
 grep -inE 'sim ?con' src/components/context/RehearsalBar.tsx
 ```
 
-  Expected: exactly 1 hit — the `Icon name="simicon"` prop, unchanged.
+  Expected: no output (same note as Step 6/11 — `Icon name="simicon"` is unchanged but can't match this grep pattern anyway).
 
 - [ ] **Step 14: `ContextSetup.test.tsx` (formerly `SimConSetup.test.tsx`) — imports + component references.** Before:
 
@@ -2508,6 +2521,31 @@ sed -i \
   -e 's/simcon: { save, prepare }/context: { save, prepare }/' \
   -e 's/simcon: { save: vi\.fn(), prepare: vi\.fn() }/context: { save: vi.fn(), prepare: vi.fn() }/g' \
   src/components/context/ContextSetup.test.tsx
+```
+
+> **Added post-write** (found during execution): the `sed` above doesn't
+> reach a stale filename reference inside a comment — the file's own
+> tests were written referring to the *old* name of a file this same
+> plan renames in Task 4.1 Step 1.
+
+- [ ] **Step 15b: Fix the stale `SimConDetail.tsx` filename reference.** Before:
+
+```tsx
+    // capabilities() resolves asynchronously (useCapabilities effect) — findBy
+    // waits for the View button to appear once it does. The button's
+    // accessible name is `View ${file_name}` (aria-label, matching the
+    // icon-only View button's pattern in LibraryPane.tsx/SimConDetail.tsx),
+    // not bare "View" — match on the prefix.
+```
+
+  After:
+
+```tsx
+    // capabilities() resolves asynchronously (useCapabilities effect) — findBy
+    // waits for the View button to appear once it does. The button's
+    // accessible name is `View ${file_name}` (aria-label, matching the
+    // icon-only View button's pattern in LibraryPane.tsx/ContextDetail.tsx),
+    // not bare "View" — match on the prefix.
 ```
 
 - [ ] **Step 16: `ContextSetup.test.tsx` — grep-confirm.**
@@ -3156,7 +3194,7 @@ grep -inE 'sim ?con' src/components/ui/Icon.tsx src/components/studio/ViewShell.
   src/components/transcript/TranscriptView.tsx src/state/app.ts
 ```
 
-  Expected: exactly 1 hit total — `Icon.tsx`'s unchanged `simicon:` registry key. Nothing in the other 3 files.
+  Expected: no output (`Icon.tsx`'s `simicon:` registry key stays unchanged, but — same note as Task 4.1's Steps 6/11/13 — the `sim ?con` pattern can't match `simicon` at all, so it was never going to appear in this grep regardless).
 
 - [ ] **Step 12: Full-tree final sweep.**
 
