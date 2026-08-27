@@ -2370,17 +2370,29 @@ export function ContextDetail({
 sed -i 's/backend\.simcon\./backend.context./g' src/components/context/ContextDetail.tsx
 ```
 
-  Then fix the one copy string `sed` won't touch (it doesn't contain `backend.simcon`). Before:
+  This `sed` requires the literal `backend.simcon.` (dot included) on one line, so it only reaches 6 of the 7 occurrences — **added post-write, found during execution:** the 7th is a multi-line method chain where `backend.simcon` and its `.load(id)` call sit on separate lines, which `sed` can't match. Fix it explicitly. Before:
 
 ```tsx
+  const load = useCallback(() => {
+    backend.simcon
+      .load(id)
+      .then(setSession)
       .catch(() => setError("Couldn't load this Sim Con."));
+  }, [backend, id]);
 ```
 
-  After:
+  After (also folds in the load-error copy fix below, same block):
 
 ```tsx
+  const load = useCallback(() => {
+    backend.context
+      .load(id)
+      .then(setSession)
       .catch(() => setError("Couldn't load this Context."));
+  }, [backend, id]);
 ```
+
+  (The load-error copy string is shown inline above rather than as a separate before/after — it's the same 4-line block as the `backend.simcon` fix, no need to edit it twice.)
 
 - [ ] **Step 10: `ContextDetail.tsx` — the remaining 2 leftover-copy strings (title fallback + section header).**
 
