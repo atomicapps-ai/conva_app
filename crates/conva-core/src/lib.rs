@@ -15,6 +15,7 @@ pub mod bm25;
 pub mod capture;
 pub mod chunk;
 pub mod config;
+pub mod context;
 pub mod dsp;
 pub mod error;
 pub mod fuse;
@@ -25,7 +26,6 @@ pub mod metering;
 pub mod prompt;
 pub mod radar;
 pub mod rag;
-pub mod simcon;
 pub mod tracker;
 pub mod vad;
 

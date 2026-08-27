@@ -1,19 +1,19 @@
-//! SimCon — Simulated Conversation: the data model.
+//! Context — a Conversation Context: the data model.
 //!
-//! A **SimCon** is a rehearsal of a high-stakes call (interview, company
+//! A **Context** is a rehearsal of a high-stakes call (interview, company
 //! meeting, sales call). The user sets a name + purpose + type and attaches
 //! library documents (or asks Ally to generate context); an async pipeline
 //! builds a reusable [`KnowledgeProfile`] (library docs + bounded web research,
-//! embedded into the RAG store); the AI generates [`SimConPersona`] options and
+//! embedded into the RAG store); the AI generates [`ContextPersona`] options and
 //! the user picks one; then a real-time session runs the chosen counterparty.
 //!
 //! Distinct from `conversations` (saved real transcripts) and `session`
-//! (per-listen JSONL) — a finished SimCon **saves as** a `Conversation`, and a
-//! [`KnowledgeProfile`] can be reattached to a future SimCon *or* a live call.
+//! (per-listen JSONL) — a finished Context **saves as** a `Conversation`, and a
+//! [`KnowledgeProfile`] can be reattached to a future Context *or* a live call.
 //!
 //! These are pure data types (no OS/storage deps), mirrored to TypeScript in
 //! `src/lib/ipc.ts`. Persistence + the async pipeline live in the shell
-//! (`src-tauri/src/simcon.rs`, Phase A.2).
+//! (`src-tauri/src/context.rs`, Phase A.2).
 
 use serde::{Deserialize, Serialize};
 
@@ -37,7 +37,7 @@ pub const DEFAULT_CONTEXT_ID: &str = "default";
 /// `conva_core/docs/technical/conversation-context.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SimConCategory {
+pub enum ContextCategory {
     Interview,
     CompanyMeeting,
     SalesCall,
@@ -57,7 +57,7 @@ pub struct FileSlot {
 
 /// The per-type setup + generation template: which documents to collect, what
 /// the Context Digest should contain, and whether web research is on by
-/// default. Static and derived from [`SimConCategory`] — the single source of
+/// default. Static and derived from [`ContextCategory`] — the single source of
 /// truth for both the setup UI and the generation pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConversationTemplate {
@@ -72,10 +72,10 @@ pub struct ConversationTemplate {
     pub default_research_enabled: bool,
 }
 
-/// Lifecycle of a SimCon, start to finish.
+/// Lifecycle of a Context, start to finish.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SimConStatus {
+pub enum ContextStatus {
     /// Being set up (Step 1).
     Draft,
     /// Building the knowledge profile — ingest + web research (Step 2).
@@ -91,7 +91,7 @@ pub enum SimConStatus {
 /// One generated counterparty persona/strategy option (three per session,
 /// Step 3), one of which the AI flags [`recommended`](Self::recommended).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SimConPersona {
+pub struct ContextPersona {
     pub id: String,
     /// e.g. "Highly technical & skeptical CFO".
     pub title: String,
@@ -117,9 +117,9 @@ pub struct ResearchSource {
     pub fetched_at_unix_ms: u64,
 }
 
-/// The reusable, indexed knowledge base for a SimCon — attached library
+/// The reusable, indexed knowledge base for a Context — attached library
 /// documents + bounded web research, embedded into the RAG store. **Reusable**:
-/// attach the same profile to a later SimCon or to a live call by id.
+/// attach the same profile to a later Context or to a live call by id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KnowledgeProfile {
     pub id: String,
@@ -137,9 +137,9 @@ pub struct KnowledgeProfile {
     pub ready: bool,
 }
 
-/// One simulated-conversation record: Step 1 setup through Step 4 run.
+/// One Conversation Context record: Step 1 setup through Step 4 run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SimConSession {
+pub struct ConversationContext {
     pub id: String,
     /// e.g. "Senior Accountant Interview with CFO".
     pub title: String,
@@ -150,8 +150,8 @@ pub struct SimConSession {
     /// (Step 1). Grounds the counterparty's questions.
     #[serde(default)]
     pub job_description: Option<String>,
-    pub category: SimConCategory,
-    pub status: SimConStatus,
+    pub category: ContextCategory,
+    pub status: ContextStatus,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
     /// Library documents attached at setup (Step 1, Path A) — `RagDocument` ids
@@ -162,7 +162,7 @@ pub struct SimConSession {
     #[serde(default)]
     pub auto_generate_context: bool,
     /// Whether autonomous web research runs during preparation. Defaults from
-    /// the type template ([`SimConCategory::default_research_enabled`]) at
+    /// the type template ([`ContextCategory::default_research_enabled`]) at
     /// setup and is user-overridable (decision 2 — research gated by type).
     #[serde(default)]
     pub research_enabled: bool,
@@ -189,7 +189,7 @@ pub struct SimConSession {
     pub knowledge_profile_id: Option<String>,
     /// The generated persona options (Step 3).
     #[serde(default)]
-    pub personas: Vec<SimConPersona>,
+    pub personas: Vec<ContextPersona>,
     /// The persona the user chose to run against.
     #[serde(default)]
     pub chosen_persona_id: Option<String>,
@@ -224,16 +224,16 @@ pub struct SimConSession {
     pub resources_stale: bool,
 }
 
-/// Catalog entry for the SimCon list view (cheap to list without loading the
+/// Catalog entry for the Context list view (cheap to list without loading the
 /// full record + personas). Carries just enough to render the Conversation
 /// Context list row's readiness checklist without an extra load per row (the
 /// "at least one grounding source" gate — Conversation Context UI design).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SimConSummary {
+pub struct ContextSummary {
     pub id: String,
     pub title: String,
-    pub category: SimConCategory,
-    pub status: SimConStatus,
+    pub category: ContextCategory,
+    pub status: ContextStatus,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
     /// Number of library documents attached at setup.
@@ -251,12 +251,12 @@ pub struct SimConSummary {
     /// Whether the Context Digest has been generated at least once.
     #[serde(default)]
     pub has_generated_resources: bool,
-    /// Mirrors [`SimConSession::resources_stale`] for the list row's pill.
+    /// Mirrors [`ConversationContext::resources_stale`] for the list row's pill.
     #[serde(default)]
     pub resources_stale: bool,
 }
 
-impl SimConCategory {
+impl ContextCategory {
     /// Human phrase for prompts (e.g. "job interview").
     pub fn label(self) -> &'static str {
         self.template().label
@@ -272,7 +272,7 @@ impl SimConCategory {
     /// the web-research default.
     pub fn template(self) -> ConversationTemplate {
         match self {
-            SimConCategory::Interview => ConversationTemplate {
+            ContextCategory::Interview => ConversationTemplate {
                 label: "job interview",
                 file_slots: &[
                     FileSlot {
@@ -299,7 +299,7 @@ impl SimConCategory {
                 ],
                 default_research_enabled: true,
             },
-            SimConCategory::CompanyMeeting => ConversationTemplate {
+            ContextCategory::CompanyMeeting => ConversationTemplate {
                 label: "company meeting",
                 file_slots: &[
                     FileSlot {
@@ -321,7 +321,7 @@ impl SimConCategory {
                 digest_sections: &["Key figures", "Core vocabulary", "Likely discussion points"],
                 default_research_enabled: false,
             },
-            SimConCategory::SalesCall => ConversationTemplate {
+            ContextCategory::SalesCall => ConversationTemplate {
                 label: "sales call",
                 file_slots: &[FileSlot {
                     key: "account",
@@ -338,7 +338,7 @@ impl SimConCategory {
                 ],
                 default_research_enabled: true,
             },
-            SimConCategory::Other => ConversationTemplate {
+            ContextCategory::Other => ConversationTemplate {
                 label: "high-stakes conversation",
                 file_slots: &[FileSlot {
                     key: "files",
@@ -355,7 +355,7 @@ impl SimConCategory {
 // ── Persona generation (Step 3) — pure prompt + parser ──────────────────────
 
 /// Build the `(system, user)` prompt for generating 3 counterparty personas.
-pub fn persona_prompt(session: &SimConSession) -> (String, String) {
+pub fn persona_prompt(context: &ConversationContext) -> (String, String) {
     let system = "You generate realistic counterparty personas for rehearsing a \
 high-stakes conversation. Return ONLY a JSON array of exactly 3 objects, each with \
 keys: \"title\" (a short label), \"summary\" (2–3 sentences on how this person \
@@ -366,11 +366,11 @@ context). No prose, no markdown, no code fences."
 
     let mut user = format!(
         "Rehearsal type: {}\nName: {}\nGoal: {}\n",
-        session.category.label(),
-        session.title,
-        session.purpose,
+        context.category.label(),
+        context.title,
+        context.purpose,
     );
-    if let Some(jd) = &session.job_description {
+    if let Some(jd) = &context.job_description {
         if !jd.trim().is_empty() {
             user.push_str(&format!("Job description:\n{}\n", jd.trim()));
         }
@@ -382,11 +382,11 @@ to face, spanning different styles/difficulties.",
     (system, user)
 }
 
-/// Parse the LLM's persona JSON into [`SimConPersona`]s, assigning ids. Tolerant:
+/// Parse the LLM's persona JSON into [`ContextPersona`]s, assigning ids. Tolerant:
 /// extracts the first JSON array from the text (models sometimes wrap it in
 /// prose/fences) and returns empty on malformed output. Ensures exactly one
 /// persona is flagged recommended.
-pub fn parse_personas(text: &str) -> Vec<SimConPersona> {
+pub fn parse_personas(text: &str) -> Vec<ContextPersona> {
     #[derive(Deserialize)]
     struct Gen {
         title: String,
@@ -404,11 +404,11 @@ pub fn parse_personas(text: &str) -> Vec<SimConPersona> {
     };
     let gens: Vec<Gen> = serde_json::from_str(slice).unwrap_or_default();
 
-    let mut out: Vec<SimConPersona> = gens
+    let mut out: Vec<ContextPersona> = gens
         .into_iter()
         .filter(|g| !g.title.trim().is_empty())
         .enumerate()
-        .map(|(i, g)| SimConPersona {
+        .map(|(i, g)| ContextPersona {
             id: format!("p{}", i + 1),
             title: g.title,
             summary: g.summary,
@@ -440,8 +440,8 @@ const LIVE_REFERENCE_CHAR_BUDGET: usize = 4_000;
 /// prior turns (inbound) are `You:`. Output is spoken aloud, so the system
 /// prompt asks for short, natural speech — no markdown, no stage directions.
 pub fn persona_live_prompt(
-    session: &SimConSession,
-    persona: &SimConPersona,
+    context: &ConversationContext,
+    persona: &ContextPersona,
     research: &[ResearchSource],
     segments: &[TranscriptSegment],
     chunks: &[ScoredChunk],
@@ -462,12 +462,12 @@ short and natural (1–4 sentences), no markdown, no lists, no stage directions,
 no narration — just what your character says out loud. Stay realistic and \
 specific using the background material. Never break character and never say you \
 are an AI or that this is a simulation.",
-        category = session.category.label(),
+        category = context.category.label(),
         title = persona.title,
         summary = persona.summary,
         style = style,
     );
-    if let Some(jd) = session.job_description.as_deref() {
+    if let Some(jd) = context.job_description.as_deref() {
         let jd = jd.trim();
         if !jd.is_empty() {
             system.push_str(&format!(
@@ -562,12 +562,12 @@ const DOSSIER_REFERENCE_CHAR_BUDGET: usize = 10_000;
 /// from retrieval — this is synthesis (see
 /// `conva_core/docs/technical/conversation-context.md`).
 pub fn knowledge_prompt(
-    session: &SimConSession,
+    context: &ConversationContext,
     research: &[ResearchSource],
     chunks: &[ScoredChunk],
     max_tokens: u32,
 ) -> LlmRequest {
-    let template = session.category.template();
+    let template = context.category.template();
     // Required sections, in order: a short overview, the type's own sections,
     // then watch-outs. Each becomes a `## ` Markdown heading.
     let mut sections: Vec<&str> = Vec::with_capacity(template.digest_sections.len() + 2);
@@ -610,8 +610,8 @@ invent facts or figures. Output only the Markdown document — no preamble.",
         reference.push_str(&block);
     }
 
-    let mut user = format!("Context: {}\nGoal: {}\n", session.title, session.purpose);
-    if let Some(jd) = session.job_description.as_deref() {
+    let mut user = format!("Context: {}\nGoal: {}\n", context.title, context.purpose);
+    if let Some(jd) = context.job_description.as_deref() {
         let jd = jd.trim();
         if !jd.is_empty() {
             user.push_str(&format!(
@@ -642,20 +642,24 @@ clearly general.",
 /// topic/type/goal/JD, plus up to 2 queries seeded from Stage 1's mined
 /// vocabulary (spec 2026-08-26 stage 2: "smarter queries"). Pure; the
 /// shell passes its budget as `cap` and issues the searches.
-pub fn research_queries(session: &SimConSession, vocabulary: &[String], cap: usize) -> Vec<String> {
-    let topic = if session.title.trim().is_empty() {
-        session.category.label().to_string()
+pub fn research_queries(
+    context: &ConversationContext,
+    vocabulary: &[String],
+    cap: usize,
+) -> Vec<String> {
+    let topic = if context.title.trim().is_empty() {
+        context.category.label().to_string()
     } else {
-        session.title.trim().to_string()
+        context.title.trim().to_string()
     };
     let mut q = vec![
         format!("{topic} common questions"),
-        format!("how to prepare for a {}", session.category.label()),
+        format!("how to prepare for a {}", context.category.label()),
     ];
-    if !session.purpose.trim().is_empty() {
-        q.push(session.purpose.trim().chars().take(120).collect());
+    if !context.purpose.trim().is_empty() {
+        q.push(context.purpose.trim().chars().take(120).collect());
     }
-    if let Some(jd) = &session.job_description {
+    if let Some(jd) = &context.job_description {
         let jd = jd.trim();
         if !jd.is_empty() {
             q.push(format!(
@@ -671,7 +675,7 @@ pub fn research_queries(session: &SimConSession, vocabulary: &[String], cap: usi
         q.push(format!(
             "{topic} {} {}",
             chunk.join(" "),
-            session.category.label()
+            context.category.label()
         ));
     }
     q.truncate(cap);
@@ -681,8 +685,11 @@ pub fn research_queries(session: &SimConSession, vocabulary: &[String], cap: usi
 /// Prompt for the Stage-2 **Research findings** document: synthesize the
 /// collected web sources into a human-readable, cited brief the user can
 /// inspect (and RAG can chunk by its `##` sections).
-pub fn research_findings_prompt(session: &SimConSession, sources: &[ResearchSource]) -> LlmRequest {
-    let template = session.category.template();
+pub fn research_findings_prompt(
+    context: &ConversationContext,
+    sources: &[ResearchSource],
+) -> LlmRequest {
+    let template = context.category.template();
     let system = format!(
         "You are Ally, writing a Research Findings document from web \
 sources gathered for a {label}. Organize the findings into themed `##` \
@@ -697,7 +704,7 @@ preamble.",
 
     let mut user = format!(
         "Context: {}\nGoal: {}\n\nSources:\n\n",
-        session.title, session.purpose
+        context.title, context.purpose
     );
     for src in sources {
         user.push_str(&format!(
@@ -721,16 +728,16 @@ preamble.",
 /// and the synthesis prompt decides how many distinct pairs the material
 /// actually supports.
 pub fn qa_research_queries(
-    session: &SimConSession,
+    context: &ConversationContext,
     vocabulary: &[String],
     cap: usize,
 ) -> Vec<String> {
-    let topic = if session.title.trim().is_empty() {
-        session.category.label().to_string()
+    let topic = if context.title.trim().is_empty() {
+        context.category.label().to_string()
     } else {
-        session.title.trim().to_string()
+        context.title.trim().to_string()
     };
-    let role = session
+    let role = context
         .job_description
         .as_deref()
         .map(|jd| jd.trim())
@@ -770,11 +777,11 @@ const QA_PERSONAL_CHAR_BUDGET: usize = 6_000;
 /// (spec 2026-08-26, interview Q&A personalization); the background
 /// block is omitted entirely when `chunks` is empty.
 pub fn interview_qa_prompt(
-    session: &SimConSession,
+    context: &ConversationContext,
     sources: &[ResearchSource],
     chunks: &[ScoredChunk],
 ) -> LlmRequest {
-    let template = session.category.template();
+    let template = context.category.template();
     let system = format!(
         "You are Ally, building an Interview Q&A bank from web sources \
 gathered for a {label}. Organize into themed `##` sections (e.g. \
@@ -794,7 +801,7 @@ support as their own. Output only the Markdown document — no preamble.",
         label = template.label,
     );
 
-    let mut user = format!("Context: {}\nGoal: {}\n\n", session.title, session.purpose);
+    let mut user = format!("Context: {}\nGoal: {}\n\n", context.title, context.purpose);
     if !chunks.is_empty() {
         let mut background = String::new();
         for chunk in chunks {
@@ -831,30 +838,30 @@ support as their own. Output only the Markdown document — no preamble.",
 /// context (or one whose context was since deleted) — never an error,
 /// always a valid, useful prompt.
 pub fn performance_analysis_prompt(
-    category: Option<SimConCategory>,
+    category: Option<ContextCategory>,
     job_description: Option<&str>,
     glossary: &[String],
     transcript_text: &str,
 ) -> LlmRequest {
     let task = match category {
-        Some(SimConCategory::Interview) => {
+        Some(ContextCategory::Interview) => {
             "Analyze how well the user performed as the CANDIDATE in this \
 interview — strengths, gaps versus the job description and the \
 vocabulary an interviewer would expect, clarity and structure of \
 answers, and concrete, specific suggestions for improvement. Cite \
 specific moments from the transcript."
         }
-        Some(SimConCategory::SalesCall) => {
+        Some(ContextCategory::SalesCall) => {
             "Analyze how well the user handled this sales call — objection \
 handling, rapport, and any close attempts. Cite specific moments from \
 the transcript and give concrete suggestions for improvement."
         }
-        Some(SimConCategory::CompanyMeeting) => {
+        Some(ContextCategory::CompanyMeeting) => {
             "Analyze this meeting's structure — decisions reached, action \
 items and who owns them, and how clearly the user communicated. Cite \
 specific moments from the transcript."
         }
-        Some(SimConCategory::Other) | None => {
+        Some(ContextCategory::Other) | None => {
             "Analyze this conversation's clarity and structure — what \
 went well, what was unclear, and concrete suggestions for improvement. \
 Cite specific moments from the transcript."
@@ -993,7 +1000,7 @@ pub fn extract_glossary_entries(digest_md: &str) -> Vec<(String, String)> {
 
 /// Extract just the glossary TERMS (see [`extract_glossary_entries`] for the
 /// full term+definition pairs). Pure; the shell stores the result on the
-/// context (`SimConSession::glossary`) to drive context-aware highlighting
+/// context (`ConversationContext::glossary`) to drive context-aware highlighting
 /// (see `docs/technical/highlighting-relevance.md`).
 pub fn extract_glossary(digest_md: &str) -> Vec<String> {
     extract_glossary_entries(digest_md)
@@ -1008,7 +1015,7 @@ pub fn extract_glossary(digest_md: &str) -> Vec<String> {
 /// and source docs compare as order-insensitive sets; research toggle
 /// compares directly. Non-grounding edits (title, purpose, personas, status)
 /// never count.
-pub fn grounding_changed(old: &SimConSession, new: &SimConSession) -> bool {
+pub fn grounding_changed(old: &ConversationContext, new: &ConversationContext) -> bool {
     fn norm_jd(jd: Option<&str>) -> &str {
         jd.map(str::trim).unwrap_or("")
     }
@@ -1047,10 +1054,10 @@ mod tests {
     #[test]
     fn every_type_has_a_nonempty_template() {
         for cat in [
-            SimConCategory::Interview,
-            SimConCategory::CompanyMeeting,
-            SimConCategory::SalesCall,
-            SimConCategory::Other,
+            ContextCategory::Interview,
+            ContextCategory::CompanyMeeting,
+            ContextCategory::SalesCall,
+            ContextCategory::Other,
         ] {
             let t = cat.template();
             assert!(!t.label.is_empty());
@@ -1071,20 +1078,20 @@ mod tests {
     #[test]
     fn research_defaults_match_decision_two() {
         // Interview + sales: on (public info helps). Internal meeting: off.
-        assert!(SimConCategory::Interview.default_research_enabled());
-        assert!(SimConCategory::SalesCall.default_research_enabled());
-        assert!(!SimConCategory::CompanyMeeting.default_research_enabled());
-        assert!(!SimConCategory::Other.default_research_enabled());
+        assert!(ContextCategory::Interview.default_research_enabled());
+        assert!(ContextCategory::SalesCall.default_research_enabled());
+        assert!(!ContextCategory::CompanyMeeting.default_research_enabled());
+        assert!(!ContextCategory::Other.default_research_enabled());
     }
 
-    fn sample_session() -> SimConSession {
-        SimConSession {
+    fn sample_context() -> ConversationContext {
+        ConversationContext {
             id: "s1".into(),
             title: "Senior Accountant Interview".into(),
             purpose: "Prep for GAAP questions".into(),
             job_description: Some("Own the monthly close.".into()),
-            category: SimConCategory::Interview,
-            status: SimConStatus::Ready,
+            category: ContextCategory::Interview,
+            status: ContextStatus::Ready,
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,
             source_doc_ids: vec![],
@@ -1105,8 +1112,8 @@ mod tests {
         }
     }
 
-    fn persona() -> SimConPersona {
-        SimConPersona {
+    fn persona() -> ContextPersona {
+        ContextPersona {
             id: "p1".into(),
             title: "Skeptical CFO".into(),
             summary: "Direct, numbers-first.".into(),
@@ -1135,7 +1142,7 @@ mod tests {
             seg(StreamSide::Inbound, 1, "Let's get into the numbers."),
             seg(StreamSide::Outbound, 2, "Sure, ask away."),
         ];
-        let req = persona_live_prompt(&sample_session(), &persona(), &[], &segments, &[], 300);
+        let req = persona_live_prompt(&sample_context(), &persona(), &[], &segments, &[], 300);
 
         assert!(req.system.contains("Skeptical CFO"));
         assert!(req.system.contains("job interview"));
@@ -1148,7 +1155,7 @@ mod tests {
 
     #[test]
     fn live_prompt_opens_when_no_turns_yet() {
-        let req = persona_live_prompt(&sample_session(), &persona(), &[], &[], &[], 300);
+        let req = persona_live_prompt(&sample_context(), &persona(), &[], &[], &[], 300);
         assert!(req.user.contains("Open the conversation"));
     }
 
@@ -1161,7 +1168,7 @@ mod tests {
             text: "Led the monthly close for 3 years.".into(),
             score: 0.9,
         }];
-        let req = knowledge_prompt(&sample_session(), &[], &chunks, 1200);
+        let req = knowledge_prompt(&sample_context(), &[], &chunks, 1200);
         // Interview digest carries the interview template's sections + label.
         assert!(req.system.contains("job interview"));
         assert!(req.system.contains("Overview"));
@@ -1173,7 +1180,7 @@ mod tests {
 
     #[test]
     fn knowledge_prompt_has_fixed_interview_sections_and_vocab_contract() {
-        let mut s = sample_session();
+        let mut s = sample_context();
         // A JD longer than the old 2,000-char slice, with the key service
         // name appearing only past that point.
         let mut jd = "Senior DevOps Engineer. ".repeat(100); // ~2,400 chars
@@ -1260,8 +1267,8 @@ mod tests {
     #[test]
     fn dossier_sections_are_type_specific() {
         // A company meeting gets its own sections, not the interview's.
-        let mut session = sample_session();
-        session.category = SimConCategory::CompanyMeeting;
+        let mut session = sample_context();
+        session.category = ContextCategory::CompanyMeeting;
         let req = knowledge_prompt(&session, &[], &[], 1200);
         assert!(req.system.contains("company meeting"));
         assert!(req.system.contains("Key figures"));
@@ -1269,14 +1276,14 @@ mod tests {
         assert!(!req.system.contains("Your talking points"));
     }
 
-    fn grounding_base() -> SimConSession {
-        SimConSession {
+    fn grounding_base() -> ConversationContext {
+        ConversationContext {
             id: "sim-1".into(),
             title: "Acme interview".into(),
             purpose: "Prep".into(),
             job_description: Some("Build on AWS.".into()),
-            category: SimConCategory::Interview,
-            status: SimConStatus::Ready,
+            category: ContextCategory::Interview,
+            status: ContextStatus::Ready,
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,
             source_doc_ids: vec!["doc-a".into(), "doc-b".into()],
@@ -1328,7 +1335,7 @@ mod tests {
         same.purpose = "New purpose".into();
         same.source_doc_ids = vec!["doc-b".into(), "doc-a".into()];
         same.glossary = vec!["different".into()];
-        same.status = SimConStatus::Ended;
+        same.status = ContextStatus::Ended;
         assert!(!grounding_changed(&old, &same));
 
         // None vs empty/whitespace JD is not a change.
@@ -1341,7 +1348,7 @@ mod tests {
 
     #[test]
     fn research_queries_seed_from_vocabulary_and_cap() {
-        let s = sample_session();
+        let s = sample_context();
         let vocab: Vec<String> = vec!["API Gateway".into(), "Terraform".into(), "EKS".into()];
         let q = research_queries(&s, &vocab, 6);
         assert!(q.len() <= 6, "{q:?}");
@@ -1355,7 +1362,7 @@ mod tests {
 
     #[test]
     fn research_queries_without_vocabulary_are_base_only() {
-        let s = sample_session();
+        let s = sample_context();
         let q = research_queries(&s, &[], 6);
         assert!(!q.is_empty());
         assert!(q.iter().all(|x| !x.is_empty()));
@@ -1363,7 +1370,7 @@ mod tests {
 
     #[test]
     fn research_findings_prompt_embeds_sources_and_demands_citations() {
-        let s = sample_session();
+        let s = sample_context();
         let sources = vec![ResearchSource {
             title: "Top SRE interview questions".into(),
             url: "https://example.com/sre".into(),
@@ -1426,7 +1433,7 @@ mod tests {
 
     #[test]
     fn qa_research_queries_are_broader_than_general_research() {
-        let s = sample_session();
+        let s = sample_context();
         let vocab: Vec<String> = vec!["API Gateway".into(), "Terraform".into()];
         let q = qa_research_queries(&s, &vocab, 18);
         assert!(q.len() <= 18);
@@ -1450,14 +1457,14 @@ mod tests {
 
     #[test]
     fn qa_research_queries_without_vocabulary_still_yields_base_queries() {
-        let s = sample_session();
+        let s = sample_context();
         let q = qa_research_queries(&s, &[], 18);
         assert!(!q.is_empty());
     }
 
     #[test]
     fn interview_qa_prompt_demands_themed_broad_coverage() {
-        let s = sample_session();
+        let s = sample_context();
         let sources = vec![ResearchSource {
             title: "Top 50 accounting interview questions".into(),
             url: "https://example.com/q".into(),
@@ -1480,7 +1487,7 @@ mod tests {
 
     #[test]
     fn interview_qa_prompt_grounds_personal_material_when_provided() {
-        let s = sample_session();
+        let s = sample_context();
         let sources = vec![ResearchSource {
             title: "Top 50 accounting interview questions".into(),
             url: "https://example.com/q".into(),
@@ -1511,7 +1518,7 @@ mod tests {
 
     #[test]
     fn interview_qa_prompt_omits_background_section_when_no_chunks() {
-        let s = sample_session();
+        let s = sample_context();
         let sources = vec![ResearchSource {
             title: "Top 50 accounting interview questions".into(),
             url: "https://example.com/q".into(),
@@ -1530,7 +1537,7 @@ mod tests {
         // instead of the single-chunk-exceeds-budget edge case (which,
         // like knowledge_prompt's identical reference-budget loop, drops
         // that one oversized block whole rather than truncating it).
-        let s = sample_session();
+        let s = sample_context();
         let chunks: Vec<ScoredChunk> = (0..10)
             .map(|i| ScoredChunk {
                 document_id: "d1".into(),
@@ -1559,7 +1566,7 @@ mod tests {
     #[test]
     fn performance_analysis_prompt_interview_framing_with_grounding() {
         let req = performance_analysis_prompt(
-            Some(SimConCategory::Interview),
+            Some(ContextCategory::Interview),
             Some("Senior DevOps role requiring Terraform and EKS."),
             &["Terraform".to_string(), "EKS".to_string()],
             "Them: Tell me about your Terraform experience.\nYou: I've used it for three years.",
@@ -1584,8 +1591,8 @@ mod tests {
     #[test]
     fn performance_analysis_prompt_sales_framing_differs_from_interview() {
         let interview =
-            performance_analysis_prompt(Some(SimConCategory::Interview), None, &[], "x");
-        let sales = performance_analysis_prompt(Some(SimConCategory::SalesCall), None, &[], "x");
+            performance_analysis_prompt(Some(ContextCategory::Interview), None, &[], "x");
+        let sales = performance_analysis_prompt(Some(ContextCategory::SalesCall), None, &[], "x");
         assert_ne!(interview.system, sales.system);
         assert!(sales.system.to_lowercase().contains("objection"));
     }

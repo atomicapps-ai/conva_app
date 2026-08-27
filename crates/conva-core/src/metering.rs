@@ -42,7 +42,7 @@ impl ProviderUsage {
 /// Running LLM usage for one **feature × provider × model** bucket — the
 /// "what was this spent on" axis of the ledger. `feature` is a stable
 /// snake_case label owned by the call site (e.g. `ally_question`, `tracker`,
-/// `simcon_knowledge`); the full set lives with the shell's recorder.
+/// `context_knowledge`); the full set lives with the shell's recorder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LlmFeatureUsage {
     pub feature: String,
