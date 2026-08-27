@@ -752,6 +752,11 @@ pub fn qa_research_queries(
     q
 }
 
+/// Budget (chars) for the candidate's own material embedded in
+/// [`interview_qa_prompt`] — kept modest since the prompt's (unbudgeted)
+/// web-sources block already carries the bulk of the reference material.
+const QA_PERSONAL_CHAR_BUDGET: usize = 6_000;
+
 /// Prompt for the deep interview Q&A pass's document: synthesize the
 /// gathered sources into a standalone bank of real, distinct question +
 /// strong-answer pairs — spec 2026-08-26 part A. Themed `##` sections
@@ -759,7 +764,16 @@ pub fn qa_research_queries(
 /// entry `**Q: ...** A: ...` so it reads well AND is harvestable by
 /// `extract_glossary_entries` incidentally. At least 20 pairs, up to 100
 /// — driven by how much the material supports, not a fixed target.
-pub fn interview_qa_prompt(session: &SimConSession, sources: &[ResearchSource]) -> LlmRequest {
+/// `chunks` — the candidate's own document material (résumé, etc.), the
+/// same retrieval [`knowledge_prompt`] already receives — lets each
+/// answer draw on the candidate's real experience where it applies
+/// (spec 2026-08-26, interview Q&A personalization); the background
+/// block is omitted entirely when `chunks` is empty.
+pub fn interview_qa_prompt(
+    session: &SimConSession,
+    sources: &[ResearchSource],
+    chunks: &[ScoredChunk],
+) -> LlmRequest {
     let template = session.category.template();
     let system = format!(
         "You are Ally, building an Interview Q&A bank from web sources \
@@ -770,15 +784,32 @@ what the sources actually support). Each entry: a bullet in the form \
 the sources — never invent a question or fact the sources don't support. \
 Produce as many DISTINCT, well-supported pairs as the material justifies \
 — at least 20, up to 100; do not pad with near-duplicates to hit a \
-number, and do not stop early if the sources clearly support more. \
-Output only the Markdown document — no preamble.",
+number, and do not stop early if the sources clearly support more. When \
+the candidate's own background below supports a strong, specific answer \
+to a question — their real projects, technologies, outcomes — write that \
+answer from their own experience, concretely; when their background \
+doesn't cover a question, give a strong, correct, role-appropriate \
+answer instead. Never claim something the candidate's background doesn't \
+support as their own. Output only the Markdown document — no preamble.",
         label = template.label,
     );
 
-    let mut user = format!(
-        "Context: {}\nGoal: {}\n\nSources:\n\n",
-        session.title, session.purpose
-    );
+    let mut user = format!("Context: {}\nGoal: {}\n\n", session.title, session.purpose);
+    if !chunks.is_empty() {
+        let mut background = String::new();
+        for chunk in chunks {
+            let block = format!("[{}]\n{}\n\n", chunk.file_name, chunk.text);
+            if background.len() + block.len() > QA_PERSONAL_CHAR_BUDGET {
+                break;
+            }
+            background.push_str(&block);
+        }
+        if !background.is_empty() {
+            user.push_str("Candidate's own background:\n\n");
+            user.push_str(&background);
+        }
+    }
+    user.push_str("Sources:\n\n");
     for src in sources {
         user.push_str(&format!(
             "[{}]({})\n{}\n\n",
@@ -1433,7 +1464,7 @@ mod tests {
             snippet: "Tell me about a time you found an error in a close.".into(),
             fetched_at_unix_ms: 0,
         }];
-        let req = interview_qa_prompt(&s, &sources);
+        let req = interview_qa_prompt(&s, &sources, &[]);
         assert!(req.user.contains("Top 50 accounting interview questions"));
         assert!(req.user.contains("https://example.com/q"));
         let sys = req.system.to_lowercase();
@@ -1445,6 +1476,84 @@ mod tests {
             req.system
         );
         assert_eq!(req.max_tokens, 6000);
+    }
+
+    #[test]
+    fn interview_qa_prompt_grounds_personal_material_when_provided() {
+        let s = sample_session();
+        let sources = vec![ResearchSource {
+            title: "Top 50 accounting interview questions".into(),
+            url: "https://example.com/q".into(),
+            snippet: "Tell me about a time you found an error in a close.".into(),
+            fetched_at_unix_ms: 0,
+        }];
+        let chunks = vec![ScoredChunk {
+            document_id: "d1".into(),
+            file_name: "resume.pdf".into(),
+            location: "p1".into(),
+            text: "Led the monthly close for 3 years at Acme Corp.".into(),
+            score: 0.9,
+        }];
+        let req = interview_qa_prompt(&s, &sources, &chunks);
+        assert!(req
+            .user
+            .contains("Led the monthly close for 3 years at Acme Corp."));
+        assert!(req.user.contains("Candidate's own background"));
+        // Sources still present alongside the new background block.
+        assert!(req.user.contains("Top 50 accounting interview questions"));
+        let sys = req.system.to_lowercase();
+        assert!(
+            sys.contains("own experience") || sys.contains("own background"),
+            "{}",
+            req.system
+        );
+    }
+
+    #[test]
+    fn interview_qa_prompt_omits_background_section_when_no_chunks() {
+        let s = sample_session();
+        let sources = vec![ResearchSource {
+            title: "Top 50 accounting interview questions".into(),
+            url: "https://example.com/q".into(),
+            snippet: "Tell me about a time you found an error in a close.".into(),
+            fetched_at_unix_ms: 0,
+        }];
+        let req = interview_qa_prompt(&s, &sources, &[]);
+        assert!(!req.user.contains("Candidate's own background"));
+        assert!(req.user.contains("Top 50 accounting interview questions"));
+    }
+
+    #[test]
+    fn interview_qa_prompt_caps_personal_background_at_budget() {
+        // Ten ~1,000-char chunks (realistic RAG-chunk sizing — never one
+        // giant blob) so the budget actually caps something mid-list,
+        // instead of the single-chunk-exceeds-budget edge case (which,
+        // like knowledge_prompt's identical reference-budget loop, drops
+        // that one oversized block whole rather than truncating it).
+        let s = sample_session();
+        let chunks: Vec<ScoredChunk> = (0..10)
+            .map(|i| ScoredChunk {
+                document_id: "d1".into(),
+                file_name: "resume.pdf".into(),
+                location: format!("p{i}"),
+                text: "x".repeat(1_000),
+                score: 0.9,
+            })
+            .collect();
+        let req = interview_qa_prompt(&s, &[], &chunks);
+        let background_start = req
+            .user
+            .find("Candidate's own background")
+            .expect("background section missing");
+        let sources_start = req
+            .user
+            .find("Sources:\n\n")
+            .expect("sources section missing");
+        let background_len = sources_start - background_start;
+        assert!(
+            background_len <= QA_PERSONAL_CHAR_BUDGET + 200,
+            "background section grew unbounded: {background_len} chars"
+        );
     }
 
     #[test]
