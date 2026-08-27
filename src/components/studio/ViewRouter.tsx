@@ -31,7 +31,7 @@ export function ViewRouter() {
       {view === "settings" && <SettingsPanel onClose={backToLive} />}
       {view === "profile" && <ProfileView />}
       {view === "conversations" && <ConversationsPanel onClose={backToLive} />}
-      {view === "simcon" && <ContextsView />}
+      {view === "context" && <ContextsView />}
       {view === "about" && <AboutMoreView />}
     </>
   );

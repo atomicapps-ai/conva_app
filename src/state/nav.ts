@@ -10,7 +10,7 @@ export type View =
   | "dashboard"
   | "live"
   | "conversations"
-  | "simcon"
+  | "context"
   | "features"
   | "whatsnew"
   | "releases"

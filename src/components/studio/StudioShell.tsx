@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ConsentGate } from "@/components/ConsentGate";
 import { PreparingOverlay } from "@/components/PreparingOverlay";
-import { RehearsalBar } from "@/components/simcon/RehearsalBar";
+import { RehearsalBar } from "@/components/context/RehearsalBar";
 import { SaveConversationDialog } from "@/components/SaveConversationDialog";
 import { CommandPalette } from "@/components/studio/CommandPalette";
 import { NavRail } from "@/components/studio/NavRail";
