@@ -1109,7 +1109,7 @@ function AllyAnswerCard({
       ref={(el) => registerEl(card.id, el)}
       onContextMenu={onContextMenu}
       style={{ clipPath: "polygon(0 10px, 10px 0, 100% 0, 100% 100%, 0 100%)" }}
-      className="relative w-[96%] border border-ai/34 bg-ai/[0.06] py-2.5 pl-4 pr-3"
+      className="relative w-[96%] border border-ai/34 bg-ai/[0.06] py-2 pl-3 pr-2.5"
     >
       {flashToken !== null && (
         <span
@@ -1120,7 +1120,7 @@ function AllyAnswerCard({
       )}
       {/* Gold left spine — Ally's identity colour, never borrowed by chrome. */}
       <span
-        className="absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-full bg-ai"
+        className="absolute bottom-2 left-0 top-2 w-[3px] rounded-full bg-ai"
         aria-hidden
       />
       <div
@@ -1163,7 +1163,7 @@ function AllyAnswerCard({
 
       {!collapsed && (
         <div
-          className="mt-2 flex flex-col gap-2 text-fg leading-relaxed"
+          className="mt-1.5 flex flex-col gap-1.5 text-fg leading-relaxed"
           style={{ fontSize: `${fontPx}px` }}
         >
           {/* Collapsible Summary — sits at the TOP of the card once the
@@ -1174,7 +1174,7 @@ function AllyAnswerCard({
                 type="button"
                 onClick={() => setSummaryOpen((o) => !o)}
                 aria-expanded={summaryOpen}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5"
+                className="flex w-full items-center gap-2 px-2 py-1"
               >
                 <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-ai">
                   Summary
@@ -1186,7 +1186,7 @@ function AllyAnswerCard({
                 />
               </button>
               {summaryOpen && (
-                <p className="whitespace-pre-line px-2.5 pb-2 text-[0.92em] leading-relaxed text-fg">
+                <p className="whitespace-pre-line px-2 pb-1.5 text-[0.92em] leading-relaxed text-fg">
                   {card.summary || "Summarizing…"}
                 </p>
               )}
@@ -1477,7 +1477,7 @@ function AllyPanel({
         }}
         className="absolute inset-y-0 left-0 z-30 w-[5px] cursor-col-resize hover:bg-panel-raised"
       />
-      <div className="relative flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
+      <div className="relative flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
         <Icon name="ally" size={15} className="text-ai" />
         <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
           Ally

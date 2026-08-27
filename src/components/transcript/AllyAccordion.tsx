@@ -63,7 +63,7 @@ export function AllyAccordion({
           title={meta.label}
           onClick={() => select(id)}
           className={[
-            "absolute left-0 top-1.5 z-40 grid h-[26px] w-[26px] -translate-x-1/2 place-items-center rounded-full border shadow-sm transition",
+            "absolute left-0 top-1 z-40 grid h-[26px] w-[26px] -translate-x-1/2 place-items-center rounded-full border shadow-sm transition",
             lit
               ? meta.tone === "ai"
                 ? "border-ai/60 bg-bg-2 text-ai"
@@ -78,7 +78,7 @@ export function AllyAccordion({
           onClick={() => select(id)}
           aria-expanded={open}
           className={[
-            "flex h-9 shrink-0 items-center gap-2 pl-6 pr-3 text-left",
+            "flex h-8 shrink-0 items-center gap-2 pl-5 pr-2.5 text-left",
             open ? "text-fg" : "text-fg-muted hover:text-fg",
           ].join(" ")}
         >
@@ -116,7 +116,7 @@ export function AllyAccordion({
           )}
         </button>
         {open && (
-          <div className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-3">
+          <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
             {renderSection(id)}
           </div>
         )}
@@ -166,11 +166,11 @@ export function AllyAccordion({
                 <>
                   <span
                     aria-hidden
-                    className="absolute left-0 top-1.5 z-40 grid h-[26px] w-[26px] -translate-x-1/2 place-items-center rounded-full border border-ai/60 bg-bg-2 text-ai shadow-sm"
+                    className="absolute left-0 top-1 z-40 grid h-[26px] w-[26px] -translate-x-1/2 place-items-center rounded-full border border-ai/60 bg-bg-2 text-ai shadow-sm"
                   >
                     <Icon name={meta.icon} size={14} />
                   </span>
-                  <div className="flex h-9 shrink-0 items-center gap-2 pl-6 pr-3">
+                  <div className="flex h-8 shrink-0 items-center gap-2 pl-5 pr-2.5">
                     <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-fg">
                       {meta.label}
                     </span>
@@ -190,7 +190,7 @@ export function AllyAccordion({
                       <Icon name="pin" size={13} />
                     </button>
                   </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-3">
+                  <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
                     {renderSection("answers")}
                   </div>
                 </>

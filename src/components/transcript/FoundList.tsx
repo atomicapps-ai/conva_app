@@ -48,7 +48,7 @@ export function FoundList({
       key={item.id}
       type="button"
       onClick={() => onSelect(item)}
-      className="flex w-full items-baseline gap-2 rounded-[var(--radius)] border border-border bg-panel px-2.5 py-1.5 text-left transition hover:border-ai/40"
+      className="flex w-full items-baseline gap-2 rounded-[var(--radius)] border border-border bg-panel px-2 py-1 text-left transition hover:border-ai/40"
     >
       <span className="min-w-0 flex-1 truncate text-[0.9em] text-fg">
         {item.label}
@@ -66,7 +66,7 @@ export function FoundList({
       key={item.id}
       type="button"
       onClick={() => onSelect(item)}
-      className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-panel px-2.5 py-[3px] text-[0.86em] font-semibold text-fg-muted transition hover:text-fg"
+      className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-panel px-2 py-[2px] text-[0.86em] font-semibold text-fg-muted transition hover:text-fg"
     >
       <span
         className={`h-[5px] w-[5px] shrink-0 rounded-full ${
@@ -89,7 +89,7 @@ export function FoundList({
     if (only === "questions") {
       if (groups.questions.length === 0) return emptyLine;
       return (
-        <div className="flex flex-col gap-1.5">{groups.questions.map(row)}</div>
+        <div className="flex flex-col gap-1">{groups.questions.map(row)}</div>
       );
     }
     if (only === "tracking") {
@@ -98,12 +98,12 @@ export function FoundList({
       return (
         <div className="flex flex-col gap-3">
           {groups.commitments.length > 0 && (
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1">
               {groups.commitments.map(row)}
             </div>
           )}
           {groups.mentions.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1">
               {groups.mentions.map(chipButton)}
             </div>
           )}
@@ -112,7 +112,7 @@ export function FoundList({
     }
     if (groups.terms.length === 0) return emptyLine;
     return (
-      <div className="flex flex-wrap gap-1.5">{groups.terms.map(chipButton)}</div>
+      <div className="flex flex-wrap gap-1">{groups.terms.map(chipButton)}</div>
     );
   }
 
@@ -128,29 +128,29 @@ export function FoundList({
   return (
     <div className="flex flex-col gap-3">
       {groups.questions.length > 0 && (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           {header("They asked")}
           {groups.questions.map(row)}
         </div>
       )}
       {groups.commitments.length > 0 && (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           {header("Commitments")}
           {groups.commitments.map(row)}
         </div>
       )}
       {groups.terms.length > 0 && (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           {header("Terms")}
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1">
             {groups.terms.map(chipButton)}
           </div>
         </div>
       )}
       {groups.mentions.length > 0 && (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-1">
           {header("Mentioned")}
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1">
             {groups.mentions.map(chipButton)}
           </div>
         </div>
