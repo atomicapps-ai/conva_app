@@ -19,6 +19,7 @@ const PANEL_SPLIT_KEY = "conva.panel.splitRatio";
 const PANEL_WIDTH_KEY = "conva.panel.widthPx";
 const ANSWERS_PINNED_KEY = "conva.panel.answersPinned";
 const PANEL_OPEN_SECTION_KEY = "conva.panel.openSection";
+const QUESTIONS_MODE_KEY = "conva.panel.questionsMode";
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 560;
 const PANEL_WIDTH_DEFAULT = 340;
@@ -55,6 +56,10 @@ interface UiPrefs {
    *  of the three content sections (load coerces a stored "answers"). */
   panelOpenSection: PanelSectionId;
   setPanelOpenSection: (id: PanelSectionId) => void;
+  /** Questions section's sub-mode (split-source spec 2026-08-27): "live" =
+   *  the radar feed, "prep" = the prepared Q&A bank. Persisted. */
+  questionsMode: "live" | "prep";
+  setQuestionsMode: (m: "live" | "prep") => void;
   /** Right Ally panel width, px — drives BOTH the panel and the control
    *  bar's tab zone so they stay aligned (spec A.2). */
   panelWidthPx: number;
@@ -94,6 +99,7 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
     const pinned = localStorage.getItem(ANSWERS_PINNED_KEY) !== "false";
     return pinned && v === "answers" ? "terms" : v;
   })(),
+  questionsMode: localStorage.getItem(QUESTIONS_MODE_KEY) === "prep" ? "prep" : "live",
 
   setPanelSplitRatio: (r) => {
     const clamped = Math.max(0.25, Math.min(0.75, r));
@@ -108,6 +114,10 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
     if (!SECTION_ORDER.includes(id)) return; // invalid → keep current
     localStorage.setItem(PANEL_OPEN_SECTION_KEY, id);
     set({ panelOpenSection: id });
+  },
+  setQuestionsMode: (m) => {
+    localStorage.setItem(QUESTIONS_MODE_KEY, m);
+    set({ questionsMode: m });
   },
   setPanelWidthPx: (px) => {
     const clamped = Math.max(

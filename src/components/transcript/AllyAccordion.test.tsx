@@ -66,3 +66,51 @@ describe("AllyAccordion", () => {
     expect(screen.getByTestId("content-answers")).toBeInTheDocument();
   });
 });
+
+describe("AllyAccordion — Questions mode chips (split-source spec 2026-08-27)", () => {
+  function setupChips(over: {
+    questionsMode?: "live" | "prep";
+    liveUnseen?: boolean;
+    onQuestionsMode?: (m: "live" | "prep") => void;
+    onState?: (s: PanelState) => void;
+  } = {}) {
+    render(
+      <AllyAccordion
+        state={{ open: "terms", answersPinned: true }}
+        onState={over.onState ?? (() => {})}
+        counts={{ questions: 2, tracking: 1, terms: 3, answers: 1 }}
+        questionsMode={over.questionsMode ?? "live"}
+        onQuestionsMode={over.onQuestionsMode ?? (() => {})}
+        prepCount={24}
+        liveUnseen={over.liveUnseen ?? false}
+        splitRatio={0.5}
+        onSplitRatio={() => {}}
+        renderSection={(id) => <div data-testid={`content-${id}`} />}
+      />,
+    );
+  }
+
+  it("renders both chips with their own counts, active one pressed", () => {
+    setupChips({ questionsMode: "prep" });
+    const live = screen.getByRole("button", { name: "Live questions (2)" });
+    const prep = screen.getByRole("button", { name: "Prepared Q&A (24)" });
+    expect(live).toHaveAttribute("aria-pressed", "false");
+    expect(prep).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("clicking a chip switches the mode AND opens Questions, without toggling the section itself", () => {
+    const onQuestionsMode = vi.fn();
+    const onState = vi.fn();
+    setupChips({ onQuestionsMode, onState });
+    fireEvent.click(screen.getByRole("button", { name: "Prepared Q&A (24)" }));
+    expect(onQuestionsMode).toHaveBeenCalledWith("prep");
+    expect(onState).toHaveBeenCalledWith({ open: "questions", answersPinned: true });
+  });
+
+  it("no chips on other sections' headers", () => {
+    setupChips({});
+    expect(screen.queryByRole("button", { name: /Prepared Q&A/ })).toBeInTheDocument();
+    // Terms keeps its plain count badge (3), Questions' own numeric badge is gone.
+    expect(screen.getByText("3")).toBeInTheDocument();
+  });
+});

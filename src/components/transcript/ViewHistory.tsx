@@ -77,7 +77,7 @@ export function ViewHistory({
               {e.item.group}
             </span>
             <span className="flex shrink-0 gap-1">
-              {e.item.group === "question" ? (
+              {e.item.group === "question" || e.item.group === "prep" ? (
                 <button
                   type="button"
                   title="Elaborate — Ally answers this properly"
@@ -135,7 +135,23 @@ export function ViewHistory({
               e.expanded ? "mt-1.5" : "mt-1.5 max-h-[180px] overflow-hidden"
             }
           >
-            {e.item.group === "question" && e.item.radar ? (
+            {e.item.group === "prep" && e.item.prep ? (
+              // A prepared pair: the answer is already written — show it
+              // directly, tagged with where it came from. No re-research
+              // (Elaborate above is the explicit deeper dig).
+              <div className="flex flex-col gap-1">
+                <p className="whitespace-pre-line text-[0.86em] leading-relaxed text-fg">
+                  {e.item.prep.answer}
+                </p>
+                <p className="font-mono text-[9px] text-fg-faint">
+                  From{" "}
+                  {e.item.prep.source === "ally"
+                    ? "Ally's Q&A research"
+                    : e.item.prep.source}
+                  {e.item.prep.theme ? ` — ${e.item.prep.theme}` : ""}
+                </p>
+              </div>
+            ) : e.item.group === "question" && e.item.radar ? (
               <div className="flex flex-col gap-1">
                 {e.item.radar.sources.length === 0 ? (
                   <p className="text-[0.86em] text-fg-faint">
