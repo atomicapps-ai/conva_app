@@ -5,6 +5,7 @@ import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
 import { splitDocuments } from "@/components/simcon/documentSplit";
+import { buildQaMarkdown, parseQaImport } from "@/components/transcript/qaPairs";
 import type { RagDocument, SimConCategory, SimConSession } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
@@ -88,6 +89,49 @@ export function SimConSetup({
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Import Q&A (owner, 2026-08-27): paste one "question|answer" per line;
+  // Import stores them as an attached library document in the canonical
+  // Q&A form, so the live cockpit's Questions → Prep mode (and RAG) pick
+  // them up like any other prep source.
+  const [qaImport, setQaImport] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+  const importQa = async () => {
+    const { pairs, skipped } = parseQaImport(qaImport);
+    if (pairs.length === 0) {
+      setImportNotice(
+        'No valid lines — one pair per line as "question|answer".',
+      );
+      return;
+    }
+    setImporting(true);
+    setError(null);
+    try {
+      const name = `${title.trim() || "Context"} QA import`;
+      const report = await backend.rag.ingestText(name, buildQaMarkdown(pairs));
+      setDocs(await backend.rag.list());
+      setSelected((s) => Array.from(new Set([...s, report.document.id])));
+      setQaImport("");
+      setImportNotice(
+        `Imported ${pairs.length} pair${pairs.length === 1 ? "" : "s"}` +
+          (skipped ? ` (${skipped} line${skipped === 1 ? "" : "s"} skipped)` : "") +
+          ` — attached as "${report.document.file_name}".`,
+      );
+    } catch {
+      setError("Couldn't import Q&A.");
+    } finally {
+      setImporting(false);
+    }
+  };
+  const pasteQa = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) setQaImport((cur) => (cur ? `${cur}\n${text}` : text));
+    } catch {
+      setImportNotice("Couldn't read the clipboard — paste into the box instead.");
+    }
+  };
 
   useEffect(() => {
     backend.rag
@@ -346,6 +390,42 @@ export function SimConSetup({
               placeholder={"pensive theory\ndeferred revenue\nSOC 2"}
             />
           </Section>
+          {isDesktop && (
+            <Section
+              title="Import Q&A"
+              description='Questions you expect, with your answers — one per line as "question|answer". Import attaches them as a document; they show in the live session under Questions → Prep and ground Ally like any other doc.'
+            >
+              <textarea
+                className="input font-mono text-[12px]"
+                rows={4}
+                value={qaImport}
+                onChange={(e) => setQaImport(e.target.value)}
+                placeholder={
+                  "Why do you want this role?|Mission fit — I've built exactly this kind of platform.\nBiggest weakness?|Over-engineering early drafts; I timebox design now."
+                }
+              />
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => void pasteQa()}
+                >
+                  Paste from clipboard
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={importing || !qaImport.trim()}
+                  onClick={() => void importQa()}
+                >
+                  {importing ? "Importing…" : "Import"}
+                </button>
+              </div>
+              {importNotice && (
+                <p className="mt-1.5 text-[12px] text-fg-muted">{importNotice}</p>
+              )}
+            </Section>
+          )}
           <Section
             title="Let Ally research"
             description="Ally searches the web for relevant background — standard questions, company profile, market rates — and indexes it alongside your docs."
