@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { splitDocuments } from "@/components/simcon/documentSplit";
+import { splitDocuments } from "@/components/context/documentSplit";
 import type { RagDocument } from "@/lib/ipc";
 
 function doc(overrides: Partial<RagDocument> = {}): RagDocument {

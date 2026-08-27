@@ -4,14 +4,14 @@ import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
-import { splitDocuments } from "@/components/simcon/documentSplit";
-import type { RagDocument, SimConCategory, SimConSession } from "@/lib/ipc";
+import { splitDocuments } from "@/components/context/documentSplit";
+import type { RagDocument, ContextCategory, ConversationContext } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
-// Mirrors conva_core::simcon templates. `research` = the web-research default
+// Mirrors conva_core::context templates. `research` = the web-research default
 // for the type (decision 2 — on for interview/sales, off for internal meetings).
 const CATEGORIES: {
-  value: SimConCategory;
+  value: ContextCategory;
   label: string;
   hint: string;
   research: boolean;
@@ -27,25 +27,25 @@ const CATEGORIES: {
   { value: "other", label: "Other", hint: "Anything high-stakes", research: false },
 ];
 
-const researchDefault = (c: SimConCategory): boolean =>
+const researchDefault = (c: ContextCategory): boolean =>
   CATEGORIES.find((x) => x.value === c)?.research ?? false;
 
 const DOC_EXTENSIONS = ["pdf", "docx", "md", "txt", "html"];
 const STEP_LABEL = ["the basics", "context & documents", "review"];
 
 /**
- * Sim Con setup wizard (Step 1). Collects name, goal, type (and, for interviews,
+ * Context setup wizard (Step 1). Collects name, goal, type (and, for interviews,
  * the job description), plus context: Path A attaches library documents — you can
- * add new files directly, which land in a folder named after the Sim Con — and
+ * add new files directly, which land in a folder named after the Context — and
  * Path B asks Ally to auto-generate context. Finishing saves a draft
- * SimConSession; the ingestion + research phase (C) consumes it.
+ * ConversationContext; the ingestion + research phase (C) consumes it.
  */
-export function SimConSetup({
+export function ContextSetup({
   initial,
   onDone,
   onCancel,
 }: {
-  initial?: SimConSession;
+  initial?: ConversationContext;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -55,7 +55,7 @@ export function SimConSetup({
   const [step, setStep] = useState(1);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [purpose, setPurpose] = useState(initial?.purpose ?? "");
-  const [category, setCategory] = useState<SimConCategory>(
+  const [category, setCategory] = useState<ContextCategory>(
     initial?.category ?? "interview",
   );
   const [jobDescription, setJobDescription] = useState(
@@ -74,7 +74,7 @@ export function SimConSetup({
   const [deepQa, setDeepQa] = useState(initial?.deep_qa_enabled ?? false);
 
   // Picking a type resets research to that type's default (user-overridable).
-  const pickCategory = (c: SimConCategory) => {
+  const pickCategory = (c: ContextCategory) => {
     setCategory(c);
     setResearch(researchDefault(c));
     setDeepQa(false);
@@ -106,7 +106,7 @@ export function SimConSetup({
     setRegenerating(true);
     setError(null);
     try {
-      await backend.simcon.generateDossier(initial.id);
+      await backend.context.generateDossier(initial.id);
       setDocs(await backend.rag.list());
     } catch {
       setError("Couldn't regenerate.");
@@ -115,7 +115,7 @@ export function SimConSetup({
     }
   };
 
-  // Path A — add files directly: copy them into this Sim Con's folder, then
+  // Path A — add files directly: copy them into this Context's folder, then
   // ingest into the RAG library so the counterparty is grounded in them.
   const addDocuments = async () => {
     setAdding(true);
@@ -128,7 +128,7 @@ export function SimConSetup({
       });
       const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
       if (paths.length === 0) return;
-      const stored = await backend.simcon.storeDocs(title.trim() || "untitled", paths);
+      const stored = await backend.context.storeDocs(title.trim() || "untitled", paths);
       const reports = await backend.rag.ingest(stored);
       const newIds = reports.map((r) => r.document.id);
       setDocs(await backend.rag.list());
@@ -146,7 +146,7 @@ export function SimConSetup({
     setSaving(true);
     setError(null);
     try {
-      const saved = await backend.simcon.save({
+      const saved = await backend.context.save({
         id: initial?.id ?? "",
         title: title.trim(),
         purpose: purpose.trim(),
@@ -176,10 +176,10 @@ export function SimConSetup({
         resources_stale: initial?.resources_stale ?? false,
       });
       // Build the knowledge base (attached docs + research) and mark it ready.
-      await backend.simcon.prepare(saved.id);
+      await backend.context.prepare(saved.id);
       onDone();
     } catch {
-      setError("Couldn't save — Sim Con runs on the desktop app.");
+      setError("Couldn't save — Context runs on the desktop app.");
       setSaving(false);
     }
   };
@@ -188,7 +188,7 @@ export function SimConSetup({
     <ViewShell
       icon="simicon"
       breadcrumb="Contexts"
-      title={initial ? "Edit Sim Con" : "New Sim Con"}
+      title={initial ? "Edit Context" : "New Context"}
       subtitle={`Step ${step} of 3 — ${STEP_LABEL[step - 1]}`}
       onBack={onCancel}
     >
@@ -250,7 +250,7 @@ export function SimConSetup({
         <>
           <Section
             title="Attached documents"
-            description="conva grounds the counterparty and its questions in these. Add files directly (they're kept in a folder named after this Sim Con) or pick from your library."
+            description="conva grounds the counterparty and its questions in these. Add files directly (they're kept in a folder named after this Context) or pick from your library."
           >
             {isDesktop && (
               <div className="mb-3">
@@ -417,7 +417,7 @@ export function SimConSetup({
             )}
           </dl>
           <p className="mt-3 text-[12px] leading-relaxed text-fg-faint">
-            Finishing saves this Sim Con. Building the knowledge base, generating
+            Finishing saves this Context. Building the knowledge base, generating
             personas, and the live session come next.
           </p>
           {error && <p className="mt-2 text-sm text-rec">{error}</p>}
