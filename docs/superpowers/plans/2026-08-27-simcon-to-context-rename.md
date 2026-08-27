@@ -3204,6 +3204,32 @@ grep -inE 'sim ?con' src/components/ConversationsPanel.tsx
 sed -i 's/backend\.simcon\./backend.context./g' src/components/SettingsPanel.tsx
 ```
 
+> **Added post-write** (found during execution): same recurring class as
+> Task 4.2's fix (`1198bc8`) — one of the 3 sites is a multi-line chain
+> the sed above can't reach.
+
+- [ ] **Step 4b: Fix the multi-line `useEffect` chain.** Before:
+
+```tsx
+  useEffect(() => {
+    void backend.simcon
+      .researchKeyStatus()
+      .then(setHasKey)
+      .catch(() => {});
+  }, [backend]);
+```
+
+  After:
+
+```tsx
+  useEffect(() => {
+    void backend.context
+      .researchKeyStatus()
+      .then(setHasKey)
+      .catch(() => {});
+  }, [backend]);
+```
+
 - [ ] **Step 5: `SettingsPanel.tsx` — the `USAGE_LABELS` map.** Before:
 
 ```tsx
