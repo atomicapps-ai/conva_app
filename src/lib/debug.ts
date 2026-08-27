@@ -44,9 +44,13 @@ export function collectDebugReport(): string {
     `platform:   ${navigator.platform}`,
     `ua:         ${navigator.userAgent}`,
     `window:     ${window.innerWidth} × ${window.innerHeight} (dpr ${window.devicePixelRatio})`,
+    // Only columns that still exist get probes — a probe for a retired
+    // column reads "(not mounted)" forever and sends debugging down the
+    // wrong path (the "spine" column died with the 2026-08-26 accordion;
+    // "ally" reporting not-mounted is REAL below the 640px drawer
+    // breakpoint, where the panel only exists while the drawer is open).
     "columns (live measured):",
     `  ${colRect("transcript")}`,
-    `  ${colRect("spine")}`,
     `  ${colRect("ally")}`,
     `compact:    ${app.compact}`,
     `session:    ${t.session.state}`,

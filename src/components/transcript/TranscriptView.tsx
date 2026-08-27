@@ -1462,6 +1462,7 @@ function AllyPanel({
 
   return (
     <aside
+      data-col="ally"
       style={{ width: widthPx }}
       className={`relative flex h-full max-w-full shrink-0 flex-col border-l border-border bg-bg-2${barPad}`}
     >
