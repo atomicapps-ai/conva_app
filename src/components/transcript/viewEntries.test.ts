@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  appendOrFocus,
+  prependOrFocus,
   removeEntry,
   toggleExpanded,
   type ViewEntry,
@@ -12,35 +12,42 @@ function item(id: string): FoundItem {
   return { id, group: "term", label: id, detail: null };
 }
 
-describe("appendOrFocus", () => {
-  it("appends a new entry with an increasing seq and reports appended", () => {
-    const r1 = appendOrFocus([], item("a"), 1);
-    const r2 = appendOrFocus(r1.entries, item("b"), 2);
-    expect(r2.entries.map((e) => e.key)).toEqual(["a", "b"]);
-    expect(r2.entries[1]?.seq).toBe(2);
+describe("prependOrFocus", () => {
+  it("prepends a new entry with an increasing seq and reports appended — newest first, so it pushes the rest down", () => {
+    const r1 = prependOrFocus([], item("a"), 1);
+    const r2 = prependOrFocus(r1.entries, item("b"), 2);
+    expect(r2.entries.map((e) => e.key)).toEqual(["b", "a"]);
+    expect(r2.entries[0]?.seq).toBe(2);
     expect(r2.appended).toBe(true);
     expect(r2.focusKey).toBe("b");
   });
 
   it("focuses an existing entry instead of duplicating", () => {
-    const r1 = appendOrFocus([], item("a"), 1);
-    const r2 = appendOrFocus(r1.entries, item("a"), 2);
+    const r1 = prependOrFocus([], item("a"), 1);
+    const r2 = prependOrFocus(r1.entries, item("a"), 2);
     expect(r2.entries).toHaveLength(1);
     expect(r2.appended).toBe(false);
     expect(r2.focusKey).toBe("a");
+  });
+
+  it("a third selection lands at the very top, ahead of both prior picks", () => {
+    let entries: ViewEntry[] = prependOrFocus([], item("a"), 1).entries;
+    entries = prependOrFocus(entries, item("b"), 2).entries;
+    entries = prependOrFocus(entries, item("c"), 3).entries;
+    expect(entries.map((e) => e.key)).toEqual(["c", "b", "a"]);
   });
 });
 
 describe("removeEntry / toggleExpanded", () => {
   it("removes by key", () => {
-    const { entries } = appendOrFocus([], item("a"), 1);
+    const { entries } = prependOrFocus([], item("a"), 1);
     expect(removeEntry(entries, "a")).toEqual([]);
     expect(removeEntry(entries, "zz")).toHaveLength(1);
   });
 
   it("toggles expanded on one entry only", () => {
-    let entries: ViewEntry[] = appendOrFocus([], item("a"), 1).entries;
-    entries = appendOrFocus(entries, item("b"), 2).entries;
+    let entries: ViewEntry[] = prependOrFocus([], item("a"), 1).entries;
+    entries = prependOrFocus(entries, item("b"), 2).entries;
     const toggled = toggleExpanded(entries, "a");
     expect(toggled.find((e) => e.key === "a")?.expanded).toBe(true);
     expect(toggled.find((e) => e.key === "b")?.expanded).toBe(false);

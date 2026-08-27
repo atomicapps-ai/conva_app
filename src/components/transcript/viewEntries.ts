@@ -2,9 +2,12 @@ import type { FoundItem } from "@/components/transcript/foundGroups";
 
 /**
  * Pure list ops for the View half (spec §3.3): only the items the user
- * selected, in selection order. `seq` orders entries against the answer
- * cards they interleave with (the panel assigns one monotone counter to
- * both). Cards default collapsed (height-capped); `expanded` is the
+ * selected, most recent first (owner, 2026-08-27 — the latest pick must
+ * push the rest down and land in view without scrolling, not get buried at
+ * the bottom). `seq` orders entries against the answer cards they
+ * interleave with (the panel assigns one monotone counter to both) — it
+ * still counts up with each selection even though array order is now
+ * newest-first. Cards default collapsed (height-capped); `expanded` is the
  * per-card more/less state.
  */
 export interface ViewEntry {
@@ -15,7 +18,7 @@ export interface ViewEntry {
   expanded: boolean;
 }
 
-export function appendOrFocus(
+export function prependOrFocus(
   entries: ViewEntry[],
   item: FoundItem,
   seq: number,
@@ -24,7 +27,7 @@ export function appendOrFocus(
     return { entries, focusKey: item.id, appended: false };
   }
   return {
-    entries: [...entries, { key: item.id, item, seq, expanded: false }],
+    entries: [{ key: item.id, item, seq, expanded: false }, ...entries],
     focusKey: item.id,
     appended: true,
   };
