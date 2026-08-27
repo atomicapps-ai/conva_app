@@ -1014,15 +1014,50 @@ pub struct RehearsalContext {
 }
 ```
 
-- [ ] **Step 4: Grep-confirm clean.**
+> **Added post-write** (found during execution): Steps 1–3 above (module
+> doc, import, struct fields) don't cover two plain `//` inline comments
+> elsewhere in the file — same class of miss as Task 2.2's, since the
+> original investigation scoped this file around what's needed for
+> compilation, not an exhaustive prose sweep. New Step 4 below closes
+> this; the old Step 4 (grep-confirm) is renumbered to Step 5.
+
+- [ ] **Step 4: Reword the 2 remaining inline comments** in `ground_persona_response` (or whichever fn currently holds this — confirm by reading the file, it's the one building the query/chunks ahead of the `persona_live_prompt` call Step 3 already touches):
+
+  Before:
+
+```rust
+    // Ground on the user's latest turn (fall back to the Sim Con's purpose so
+    // the opening line still has context).
+```
+
+  After:
+
+```rust
+    // Ground on the user's latest turn (fall back to the Context's purpose so
+    // the opening line still has context).
+```
+
+  Before:
+
+```rust
+        // Ground the persona on this Sim Con's own knowledge base.
+```
+
+  After:
+
+```rust
+        // Ground the persona on this Context's own knowledge base.
+```
+
+- [ ] **Step 5: Grep-confirm clean.**
 
 ```bash
 grep -inE 'sim ?con' src-tauri/src/rehearsal.rs
 ```
 
-  Expected: no output. (`persona_live_prompt`'s own internal `session`/`context` parameter naming was already handled in Phase 1, Task 1.2 Step 4b — this file only calls it positionally via `ctx.session`, so no further change is needed here beyond the import and struct field types above.)
+  Expected: no output. (`persona_live_prompt`'s own internal `session`/`context` parameter naming was already handled in Phase 1, Task 1.2 Step 4b — this file only calls it positionally via `ctx.session`, so no further change is needed here beyond the import, struct field types, and the two comments above.)
 
-- [ ] **Step 5: `cargo fmt --check`** — clean. No commit yet.
+- [ ] **Step 6: `cargo fmt --check`** — clean. No commit yet.
 
 ### Task 2.4: `src-tauri/src/web.rs` — import path + doc-comment prose
 
