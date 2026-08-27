@@ -262,12 +262,15 @@ export interface ConvaBackend {
    *  for one term/answer, docked to the app's right edge by default.
    *  Desktop-only (Layer 4); gate on `capabilities().system.partnerWindow`. */
   partner: {
+    /** `docId` set = open a library document directly (its full text is
+     *  fetched by the window itself); omitted = a term/answer open. */
     open(
       term: string,
       kind: string | null,
       preview: string | null,
       answer?: string | null,
       sourceLines?: string[],
+      docId?: string | null,
     ): Promise<void>;
     close(): Promise<void>;
     redock(): Promise<void>;

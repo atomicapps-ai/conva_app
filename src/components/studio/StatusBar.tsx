@@ -1,8 +1,10 @@
+import { Icon } from "@/components/ui/Icon";
 import { useBackend, type ConvaBackend } from "@/lib/backend";
 import { BUILD, collectDebugReport } from "@/lib/debug";
 import { isTauri } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 import { useConversationStore } from "@/state/conversation";
+import { useDevMode } from "@/state/devMode";
 
 /**
  * Thin ambient status strip (~26px) along the window foot. Read-only signals
@@ -41,6 +43,8 @@ export function StatusBar() {
   const config = useAppStore((s) => s.config);
   const title = useConversationStore((s) => s.title);
   const cloud = config?.asr_engine === "deepgram_cloud";
+  const debugChromeVisible = useDevMode((s) => s.debugChromeVisible);
+  const toggleDebugChrome = useDevMode((s) => s.toggleDebugChrome);
 
   return (
     <footer
@@ -90,6 +94,26 @@ export function StatusBar() {
       {/* Right side: build stamp + one-click diagnostics. */}
       <span className="ml-auto" />
       {!isTauri() && <span className="text-fg-faint">preview</span>}
+      {import.meta.env.DEV && (
+        <button
+          type="button"
+          onClick={toggleDebugChrome}
+          aria-pressed={debugChromeVisible}
+          title={
+            debugChromeVisible
+              ? "Debug chrome visible — click to preview production (hides dev-only tools)"
+              : "Debug chrome hidden (previewing production) — click to show dev-only tools"
+          }
+          aria-label={
+            debugChromeVisible ? "Hide debug chrome" : "Show debug chrome"
+          }
+          className={`rounded px-1 py-0.5 transition hover:bg-white/[0.06] ${
+            debugChromeVisible ? "text-fg-faint hover:text-fg" : "text-ai"
+          }`}
+        >
+          <Icon name={debugChromeVisible ? "eye" : "eyeOff"} size={12} />
+        </button>
+      )}
       <button
         type="button"
         onClick={() => void dumpDebug(backend)}

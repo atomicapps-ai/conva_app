@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
+import { useCapabilities } from "@/lib/backend/context";
 import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type SimConSession } from "@/lib/ipc";
 import { useNavStore } from "@/state/nav";
 import { useRehearsalStore } from "@/state/rehearsal";
@@ -22,6 +23,7 @@ export function SimConDetail({
   onBack: () => void;
 }) {
   const backend = useBackend();
+  const caps = useCapabilities();
   const [session, setSession] = useState<SimConSession | null>(null);
   const [profile, setProfile] = useState<KnowledgeProfile | null>(null);
   const [docs, setDocs] = useState<RagDocument[]>([]);
@@ -454,19 +456,47 @@ export function SimConDetail({
                     </p>
                   ) : (
                     <ul className="flex flex-col gap-0.5">
-                      {attached.map((docId) => (
-                        <li
-                          key={docId}
-                          className="flex items-center gap-1.5 text-[12px] text-fg-muted"
-                        >
-                          <Icon
-                            name="book"
-                            size={13}
-                            className="shrink-0 text-fg-faint"
-                          />
-                          <span className="truncate">{docName(docId)}</span>
-                        </li>
-                      ))}
+                      {attached.map((docId) =>
+                        caps?.system.partnerWindow ? (
+                          <li key={docId}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void backend.partner.open(
+                                  docName(docId),
+                                  null,
+                                  null,
+                                  null,
+                                  [],
+                                  docId,
+                                )
+                              }
+                              title={`View "${docName(docId)}"`}
+                              aria-label={`View "${docName(docId)}"`}
+                              className="flex w-full items-center gap-1.5 rounded-sm text-left text-[12px] text-fg-muted transition hover:text-ai"
+                            >
+                              <Icon
+                                name="book"
+                                size={13}
+                                className="shrink-0 text-fg-faint"
+                              />
+                              <span className="truncate">{docName(docId)}</span>
+                            </button>
+                          </li>
+                        ) : (
+                          <li
+                            key={docId}
+                            className="flex items-center gap-1.5 text-[12px] text-fg-muted"
+                          >
+                            <Icon
+                              name="book"
+                              size={13}
+                              className="shrink-0 text-fg-faint"
+                            />
+                            <span className="truncate">{docName(docId)}</span>
+                          </li>
+                        ),
+                      )}
                     </ul>
                   )}
                 </div>

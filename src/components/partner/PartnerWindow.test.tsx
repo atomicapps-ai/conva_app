@@ -39,6 +39,7 @@ function payload(overrides: Partial<PartnerPayload> = {}): PartnerPayload {
     preview: null,
     answer: "It fronts your APIs.",
     source_lines: [],
+    doc_id: null,
     ...overrides,
   };
 }
@@ -228,6 +229,33 @@ describe("PartnerWindow document tabs", () => {
     expect(
       await screen.findByText("This document's text isn't available."),
     ).toBeInTheDocument();
+  });
+
+  it("a delivered payload with doc_id opens straight to a document tab (e.g. 'view' on a Library row)", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    await deliver(payload({ term: "aws.pdf", doc_id: "doc-1", answer: null }));
+    expect(
+      screen.getByRole("tab", { name: /aws\.pdf/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText("full document body")).toBeInTheDocument();
+    expect(backend.rag.documentText).toHaveBeenCalledWith("doc-1");
+    // Not researched as a term — it's a document, no "ANSWER" heading path.
+    expect(useAllyStore.getState().cards).toHaveLength(0);
+  });
+
+  it("the same doc_id delivered twice focuses the one tab instead of duplicating", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    await deliver(payload({ term: "aws.pdf", doc_id: "doc-1" }));
+    await deliver(payload({ term: "Lambda" }));
+    await deliver(payload({ term: "aws.pdf", doc_id: "doc-1" }));
+    expect(screen.getAllByRole("tab", { name: /aws\.pdf/ })).toHaveLength(1);
+    expect(
+      screen.getByRole("tab", { name: /aws\.pdf/ }),
+    ).toHaveAttribute("aria-selected", "true");
   });
 });
 

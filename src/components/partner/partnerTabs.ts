@@ -31,6 +31,13 @@ export function documentTab(docId: string, fileName: string): PartnerTab {
   return { key: documentKey(docId), kind: "document", docId, fileName };
 }
 
+/** The tab a delivered payload becomes: a document tab when `doc_id` is set
+ *  (e.g. "view" on a Library/Context row — `term` doubles as the file
+ *  name), an item tab otherwise (a term or an already-answered card). */
+export function tabFromPayload(p: PartnerPayload): PartnerTab {
+  return p.doc_id ? documentTab(p.doc_id, p.term) : itemTab(p);
+}
+
 export function tabLabel(tab: PartnerTab): string {
   return tab.kind === "item" ? tab.payload.term : tab.fileName;
 }
