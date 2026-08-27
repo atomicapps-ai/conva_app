@@ -58,7 +58,9 @@ export type IconName =
   | "home"
   | "ally"
   | "rehearsal"
-  | "pause";
+  | "pause"
+  | "eye"
+  | "eyeOff";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -420,6 +422,21 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M4 12a8 8 0 0 1 8-8 8 8 0 0 1 6.5 3.3" />
       <path d="M20 12a8 8 0 0 1-8 8 8 8 0 0 1-6.5-3.3" />
       <path d="M18.5 3.5v4h-4M5.5 20.5v-4h4" />
+    </>
+  ),
+  // Eye — visible/preview state (e.g. the dev-chrome toggle, "on").
+  eye: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  // Eye-off — hidden state (the same eye, struck through).
+  eyeOff: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M4 4l16 16" />
     </>
   ),
 };

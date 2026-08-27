@@ -5,7 +5,7 @@ import {
   addOrFocus,
   closeTab,
   documentTab,
-  itemTab,
+  tabFromPayload,
   tabLabel,
   type PartnerTab,
 } from "@/components/partner/partnerTabs";
@@ -118,11 +118,11 @@ export function PartnerWindow() {
   useEffect(() => {
     let alive = true;
     void backend.partner.payload().then((p) => {
-      if (alive && p) openTab(itemTab(p));
+      if (alive && p) openTab(tabFromPayload(p));
     });
     let unsub: (() => void) | undefined;
     void backend
-      .subscribe("partnerTerm", (p) => openTab(itemTab(p)))
+      .subscribe("partnerTerm", (p) => openTab(tabFromPayload(p)))
       .then((un) => {
         if (alive) unsub = un;
         else un();

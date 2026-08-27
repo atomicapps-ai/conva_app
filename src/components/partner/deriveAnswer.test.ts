@@ -11,6 +11,7 @@ function payload(answer: string | null, sourceLines: string[] = []): PartnerPayl
     preview: "a preview",
     answer,
     source_lines: sourceLines,
+    doc_id: null,
   };
 }
 
