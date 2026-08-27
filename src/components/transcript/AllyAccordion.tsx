@@ -26,6 +26,10 @@ export function AllyAccordion({
   splitRatio,
   onSplitRatio,
   renderSection,
+  questionsMode = "live",
+  onQuestionsMode = () => {},
+  prepCount = 0,
+  liveUnseen = false,
 }: {
   state: PanelState;
   onState: (next: PanelState) => void;
@@ -33,6 +37,17 @@ export function AllyAccordion({
   splitRatio: number;
   onSplitRatio: (r: number) => void;
   renderSection: (id: PanelSectionId) => ReactNode;
+  /** Questions sub-mode (split-source spec 2026-08-27): "live" = the radar
+   *  feed (counts.questions), "prep" = the prepared Q&A bank (prepCount).
+   *  The two chips live in the Questions header — the same in-header
+   *  control slot Answers' pin uses; sections still switch ONLY via the
+   *  spine icons. */
+  questionsMode?: "live" | "prep";
+  onQuestionsMode?: (m: "live" | "prep") => void;
+  prepCount?: number;
+  /** Live questions arrived while in prep mode — a dot on the ◉ chip;
+   *  never auto-switches. */
+  liveUnseen?: boolean;
 }) {
   const select = (id: PanelSectionId) => {
     const next = selectSection(state, id);
@@ -85,9 +100,69 @@ export function AllyAccordion({
           <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em]">
             {meta.label}
           </span>
-          {count > 0 && (
+          {id !== "questions" && count > 0 && (
             <span className="rounded-full border border-border px-1.5 text-[10px] text-fg-faint">
               {count}
+            </span>
+          )}
+          {/* Questions mode chips (split-source spec 2026-08-27): ◉ Live
+              (azure, the radar feed) · ◈ Prep (gold, the prepared bank).
+              In-header controls like Answers' pin — they switch what this
+              ONE section shows, never which section is open (though
+              picking a mode does open Questions if it wasn't). */}
+          {id === "questions" && (
+            <span className="ml-auto flex items-center gap-1">
+              {(["live", "prep"] as const).map((m) => {
+                const active = questionsMode === m;
+                const n = m === "live" ? count : prepCount;
+                return (
+                  <span
+                    key={m}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={active}
+                    aria-label={
+                      m === "live"
+                        ? `Live questions (${n})`
+                        : `Prepared Q&A (${n})`
+                    }
+                    title={
+                      m === "live"
+                        ? "Live — questions the other side asks"
+                        : "Prep — researched & imported Q&A"
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onQuestionsMode(m);
+                      select(id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.stopPropagation();
+                        onQuestionsMode(m);
+                        select(id);
+                      }
+                    }}
+                    className={[
+                      "relative flex h-5 items-center gap-1 rounded-full border px-1.5 font-mono text-[9.5px] font-bold",
+                      active
+                        ? m === "live"
+                          ? "border-primary/60 bg-primary/10 text-primary"
+                          : "border-ai/60 bg-ai/10 text-ai"
+                        : "border-border text-fg-faint hover:text-fg",
+                    ].join(" ")}
+                  >
+                    <Icon name={m === "live" ? "live" : "howto"} size={10} />
+                    {n}
+                    {m === "live" && liveUnseen && !active && (
+                      <span
+                        aria-hidden
+                        className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-primary"
+                      />
+                    )}
+                  </span>
+                );
+              })}
             </span>
           )}
           {id === "answers" && (

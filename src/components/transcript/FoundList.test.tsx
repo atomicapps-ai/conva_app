@@ -43,6 +43,32 @@ const groups: FoundGroups = {
       entity: { label: "Kinesis", detail: "AWS streaming service" },
     },
   ],
+  prepQa: [
+    {
+      id: "p-why this company?",
+      group: "prep",
+      label: "Why this company?",
+      detail: "Mission fit.",
+      prep: {
+        question: "Why this company?",
+        answer: "Mission fit.",
+        theme: "Behavioral",
+        source: "ally",
+      },
+    },
+    {
+      id: "p-salary expectations?",
+      group: "prep",
+      label: "Salary expectations?",
+      detail: "Market rate.",
+      prep: {
+        question: "Salary expectations?",
+        answer: "Market rate.",
+        theme: null,
+        source: "my-prep.md",
+      },
+    },
+  ],
 };
 
 describe("FoundList", () => {
@@ -80,7 +106,7 @@ describe("FoundList", () => {
   it("shows the all-empty placeholder when nothing has been found yet", () => {
     render(
       <FoundList
-        groups={{ questions: [], commitments: [], terms: [], mentions: [] }}
+        groups={{ questions: [], commitments: [], terms: [], mentions: [], prepQa: [] }}
         onSelect={() => {}}
       />,
     );
@@ -108,5 +134,60 @@ describe("FoundList", () => {
     expect(screen.queryByText("Commitments")).toBeNull();
     expect(screen.queryByText("Mentioned")).toBeNull();
     expect(screen.queryByText("What is RRF?")).toBeNull();
+  });
+});
+
+describe("FoundList — Questions prep mode (split-source spec 2026-08-27)", () => {
+  it("prep mode renders themed prep rows, never the live feed", () => {
+    render(
+      <FoundList
+        groups={groups}
+        onSelect={() => {}}
+        only="questions"
+        questionsMode="prep"
+      />,
+    );
+    expect(screen.getByText("Behavioral")).toBeInTheDocument();
+    expect(screen.getByText("Why this company?")).toBeInTheDocument();
+    // Null theme falls under the "Prepared" group.
+    expect(screen.getByText("Prepared")).toBeInTheDocument();
+    expect(screen.getByText("Salary expectations?")).toBeInTheDocument();
+    // Source tags: "ally" for the generated doc, file name otherwise.
+    expect(screen.getByText("ally")).toBeInTheDocument();
+    expect(screen.getByText("my-prep.md")).toBeInTheDocument();
+    // The live feed stays out of prep mode.
+    expect(screen.queryByText("What is RRF?")).toBeNull();
+  });
+
+  it("selecting a prep row calls onSelect with the prep item", () => {
+    const onSelect = vi.fn();
+    render(
+      <FoundList
+        groups={groups}
+        onSelect={onSelect}
+        only="questions"
+        questionsMode="prep"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Why this company\?/ }));
+    expect(onSelect).toHaveBeenCalledWith(groups.prepQa[0]);
+  });
+
+  it("empty prep mode explains how to get pairs", () => {
+    render(
+      <FoundList
+        groups={{ ...groups, prepQa: [] }}
+        onSelect={() => {}}
+        only="questions"
+        questionsMode="prep"
+      />,
+    );
+    expect(screen.getByText(/No prepared Q&A yet/)).toBeInTheDocument();
+  });
+
+  it("live mode (the default) still renders the radar feed", () => {
+    render(<FoundList groups={groups} onSelect={() => {}} only="questions" />);
+    expect(screen.getByText("What is RRF?")).toBeInTheDocument();
+    expect(screen.queryByText("Why this company?")).toBeNull();
   });
 });

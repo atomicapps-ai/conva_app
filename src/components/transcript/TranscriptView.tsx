@@ -28,6 +28,7 @@ import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
 import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
 import { groupTurns, segmentKey } from "@/lib/turns";
+import { parseQaPairs, type PrepQaPair } from "@/components/transcript/qaPairs";
 import { buildDocTerms } from "@/components/transcript/terms";
 import {
   buildFoundGroups,
@@ -1400,6 +1401,9 @@ function AllyPanel({
   onPanelState,
   groups,
   groundingDocs,
+  questionsMode,
+  onQuestionsMode,
+  liveUnseen,
   viewEntries,
   viewFocusKey,
   onSelectFound,
@@ -1435,6 +1439,10 @@ function AllyPanel({
   /** File names of the grounded context's docs — the header count + the
    *  3-dot grounding line (loaded by the cockpit's grounding effect). */
   groundingDocs: string[];
+  /** Questions sub-mode + unseen-live dot (split-source spec 2026-08-27). */
+  questionsMode: "live" | "prep";
+  onQuestionsMode: (m: "live" | "prep") => void;
+  liveUnseen: boolean;
   viewEntries: ViewEntry[];
   viewFocusKey: string | null;
   onSelectFound: (item: FoundItem) => void;
@@ -1602,6 +1610,10 @@ function AllyPanel({
             terms: groups.terms.length,
             answers: viewEntries.length,
           }}
+          questionsMode={questionsMode}
+          onQuestionsMode={onQuestionsMode}
+          prepCount={groups.prepQa.length}
+          liveUnseen={liveUnseen}
           splitRatio={splitRatio}
           onSplitRatio={onSplitRatio}
           renderSection={(id) =>
@@ -1628,7 +1640,12 @@ function AllyPanel({
                 />
               </div>
             ) : (
-              <FoundList groups={groups} onSelect={onSelectFound} only={id} />
+              <FoundList
+                groups={groups}
+                onSelect={onSelectFound}
+                only={id}
+                questionsMode={questionsMode}
+              />
             )
           }
         />
@@ -1989,16 +2006,22 @@ export function TranscriptView() {
   const [groundingDocs, setGroundingDocs] = useState<string[]>([]);
   const [docTerms, setDocTerms] = useState<string[]>([]);
   const [docDefinitions, setDocDefinitions] = useState<Record<string, string>>({});
+  // Prepared Q&A (split-source spec 2026-08-27): pairs parsed from the
+  // context's generated Q&A document + any attached doc written in Q/A
+  // form — the Questions section's PREP mode. Loaded once per activation,
+  // off the audio path.
+  const [prepQa, setPrepQa] = useState<PrepQaPair[]>([]);
   useEffect(() => {
     if (!activeId || !isTauri()) {
       setGroundingDocs([]);
       setDocTerms([]);
       setDocDefinitions({});
+      setPrepQa([]);
       return;
     }
     let alive = true;
     void Promise.all([backend.context.load(activeId), backend.rag.list()])
-      .then(([session, docs]) => {
+      .then(async ([session, docs]) => {
         if (!alive) return;
         const names = session.source_doc_ids
           .map((id) => docs.find((d) => d.id === id)?.file_name)
@@ -2006,12 +2029,41 @@ export function TranscriptView() {
         setGroundingDocs(names);
         setDocTerms(buildDocTerms(session.key_terms, session.glossary));
         setDocDefinitions(session.glossary_definitions ?? {});
+
+        // Ally's generated Q&A doc first ("ally"), then the attached docs
+        // by file name — parseQaPairs returns [] for anything that isn't
+        // Q/A-shaped (a resume, a spec), so fetching all of them is safe.
+        const sources: { id: string; tag: string }[] = [];
+        if (session.qa_doc_id) sources.push({ id: session.qa_doc_id, tag: "ally" });
+        for (const id of session.source_doc_ids) {
+          if (id === session.qa_doc_id) continue;
+          const name = docs.find((d) => d.id === id)?.file_name ?? id;
+          sources.push({ id, tag: name });
+        }
+        const parsed = await Promise.all(
+          sources.map(async (s) => {
+            const text = await backend.rag.documentText(s.id).catch(() => null);
+            return text ? parseQaPairs(text, s.tag) : [];
+          }),
+        );
+        if (!alive) return;
+        // Flatten with cross-document question de-dupe — the Q&A doc wins.
+        const seen = new Set<string>();
+        const all: PrepQaPair[] = [];
+        for (const p of parsed.flat()) {
+          const key = p.question.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          all.push(p);
+        }
+        setPrepQa(all);
       })
       .catch(() => {
         if (!alive) return;
         setGroundingDocs([]);
         setDocTerms([]);
         setDocDefinitions({});
+        setPrepQa([]);
       });
     return () => {
       alive = false;
@@ -2027,9 +2079,22 @@ export function TranscriptView() {
         liveTerms: [...addedTerms, ...spokenTerms],
         docTerms,
         docDefinitions,
+        prepQa,
       }),
-    [radarHistory, tracker, captures, addedTerms, spokenTerms, docTerms, docDefinitions],
+    [radarHistory, tracker, captures, addedTerms, spokenTerms, docTerms, docDefinitions, prepQa],
   );
+
+  // Questions sub-mode + the "live questions arrived while reading prep"
+  // dot (split-source spec 2026-08-27). Seen-count baselines on every
+  // switch to Live; never auto-switches the mode.
+  const questionsMode = useUiPrefs((s) => s.questionsMode);
+  const setQuestionsMode = useUiPrefs((s) => s.setQuestionsMode);
+  const [seenLiveCount, setSeenLiveCount] = useState(0);
+  const liveCount = foundGroups.questions.length;
+  useEffect(() => {
+    if (questionsMode === "live") setSeenLiveCount(liveCount);
+  }, [questionsMode, liveCount]);
+  const liveUnseen = questionsMode === "prep" && liveCount > seenLiveCount;
 
   // sourceKey → ALL cards derived from it, oldest-first (cards itself is
   // newest-first — reverse while grouping). Drives both the turn's thread
@@ -2573,6 +2638,9 @@ export function TranscriptView() {
             onPanelState={applyPanelState}
             groups={foundGroups}
             groundingDocs={groundingDocs}
+            questionsMode={questionsMode}
+            onQuestionsMode={setQuestionsMode}
+            liveUnseen={liveUnseen}
             viewEntries={viewEntries}
             viewFocusKey={viewFocusKey}
             onSelectFound={selectFound}

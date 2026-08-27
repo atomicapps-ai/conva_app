@@ -86,3 +86,38 @@ describe("buildFoundGroups", () => {
     expect(gateway?.detail).toBe("managed API front door.");
   });
 });
+
+describe("buildFoundGroups — prepQa (split-source spec 2026-08-27)", () => {
+  it("maps prepared pairs into prep items carrying the pair", () => {
+    const g = buildFoundGroups({
+      radarHistory: [],
+      tracker: null,
+      captures: [],
+      liveTerms: [],
+      docTerms: [],
+      prepQa: [
+        { question: "Why us?", answer: "Mission fit.", theme: "Behavioral", source: "ally" },
+      ],
+    });
+    expect(g.prepQa).toEqual([
+      {
+        id: "p-why us?",
+        group: "prep",
+        label: "Why us?",
+        detail: "Mission fit.",
+        prep: { question: "Why us?", answer: "Mission fit.", theme: "Behavioral", source: "ally" },
+      },
+    ]);
+  });
+
+  it("omitted prepQa yields an empty group", () => {
+    const g = buildFoundGroups({
+      radarHistory: [],
+      tracker: null,
+      captures: [],
+      liveTerms: [],
+      docTerms: [],
+    });
+    expect(g.prepQa).toEqual([]);
+  });
+});

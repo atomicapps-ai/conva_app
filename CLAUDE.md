@@ -133,7 +133,16 @@ swap a layer without asking the owner.**
     Ally answers never render in the transcript stream (V4.0's inline-cards
     layout was explicitly reversed). The right `AllyPanel`
     (`TranscriptView.tsx`) stacks FOUR sections in a FIXED order —
-    **Questions** (`question` icon; radar history) · **Tracking** (`target`;
+    **Questions** (`question` icon; TWO SOURCES behind in-header mode chips,
+    owner 2026-08-27: ◉ Live = the radar feed, azure — exactly the old
+    behavior; ◈ Prep = the prepared Q&A bank, gold — pairs parsed by
+    `qaPairs.ts` from the context's generated Q&A doc + any attached doc
+    with Q/A lines + the setup wizard's "Import Q&A" paste (`question|answer`
+    per line, stored as an attached doc). The chips are an in-header control
+    like Answers' pin, NOT a panel switching pattern; a live question while
+    in Prep lights a dot, never auto-switches. Tapping a prep pair shows its
+    written answer in Answers instantly — Elaborate is the deeper dig.) ·
+    **Tracking** (`target`;
     commitments + mentions) · **Terms** (`book`; live + doc term chips,
     azure dot = detected live, gold = doc) · **Answers** (`ally`, gold; the
     cards the user selected or asked for, in click order, height-capped

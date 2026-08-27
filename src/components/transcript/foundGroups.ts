@@ -2,6 +2,7 @@ import {
   buildTermChips,
   type TermChip,
 } from "@/components/transcript/terms";
+import type { PrepQaPair } from "@/components/transcript/qaPairs";
 import type {
   Capture,
   RadarEvent,
@@ -17,11 +18,12 @@ import type {
  * entities). Pure; the panel selects items from here into the View half.
  */
 export interface FoundItem {
-  /** Stable select/dedupe key ("q-…", "c-…", "t-…", "m-…"). */
+  /** Stable select/dedupe key ("q-…", "c-…", "t-…", "m-…", "p-…"). */
   id: string;
-  group: "question" | "commitment" | "term" | "mention";
+  group: "question" | "commitment" | "term" | "mention" | "prep";
   label: string;
-  /** Secondary line — commitment "who · due …", mention detail. */
+  /** Secondary line — commitment "who · due …", mention detail; for a prep
+   *  pair this is the FULL prepared answer (the View card shows it). */
   detail: string | null;
   /** Term items only — the underlying chip (carries the FANER capture). */
   chip?: TermChip;
@@ -29,6 +31,8 @@ export interface FoundItem {
   radar?: RadarEvent;
   commitment?: TrackedCommitment;
   entity?: TrackedEntity;
+  /** Prep items only — the prepared pair (theme + source doc). */
+  prep?: PrepQaPair;
 }
 
 export interface FoundGroups {
@@ -36,6 +40,9 @@ export interface FoundGroups {
   commitments: FoundItem[];
   terms: FoundItem[];
   mentions: FoundItem[];
+  /** Prep Q&A pairs (Questions split-source spec, 2026-08-27) — the
+   *  Questions section's PREP mode; never mixed into the live feed. */
+  prepQa: FoundItem[];
 }
 
 export function buildFoundGroups(args: {
@@ -47,6 +54,9 @@ export function buildFoundGroups(args: {
   /** term → cached definition (spec 2026-08-26); threaded to buildTermChips
    *  so a doc term's FoundItem carries it as `detail`. */
   docDefinitions?: Record<string, string>;
+  /** Prepared Q&A pairs from the grounded context's documents (split-source
+   *  spec 2026-08-27); omitted → empty PREP mode. */
+  prepQa?: readonly PrepQaPair[];
 }): FoundGroups {
   const questions: FoundItem[] = args.radarHistory.map((r) => ({
     id: `q-${r.question.trim().toLowerCase()}`,
@@ -91,5 +101,13 @@ export function buildFoundGroups(args: {
       entity: e,
     }));
 
-  return { questions, commitments, terms, mentions };
+  const prepQa: FoundItem[] = (args.prepQa ?? []).map((p) => ({
+    id: `p-${p.question.trim().toLowerCase()}`,
+    group: "prep",
+    label: p.question,
+    detail: p.answer,
+    prep: p,
+  }));
+
+  return { questions, commitments, terms, mentions, prepQa };
 }
