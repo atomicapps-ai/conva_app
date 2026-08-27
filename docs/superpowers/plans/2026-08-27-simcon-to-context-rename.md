@@ -3034,7 +3034,16 @@ git commit -m "refactor(ui): remaining SimCon leftover copy + backend calls -> C
 
 ---
 
-## Phase 5: Full verification + push + update PR #95
+## Phase 5: Full verification + push + new issue + draft PR
+
+> **Updated post-write:** PR #95 merged (squash, as `ce421e8` on `main`) while
+> this plan was being written, and the branch `claude/conva-app-ui-modernization-igllsd`
+> was restarted from the new `main` (this plan's own commit cherry-picked
+> forward) before execution began — per this repo's branch-restart
+> convention, a merged PR can't track further work. Task 5.3 below
+> originally targeted updating PR #95's body; it now opens a **new** issue +
+> draft PR instead, same pattern as every other plan in this session used
+> the first time on a given branch state.
 
 ### Task 5.1: Full gate
 
@@ -3082,19 +3091,21 @@ git push -u origin claude/conva-app-ui-modernization-igllsd
 
   Retry ×4 with 2/4/8/16s backoff on network errors only — do not retry on a rejected/non-fast-forward push (that means the branch diverged; stop and reconcile instead of forcing).
 
-### Task 5.3: Update PR #95's body — same open branch/PR this session has used throughout
+### Task 5.3: New issue + draft PR (PR #95 already merged — this is fresh follow-up work)
 
-**Files:** none (GitHub PR body update only — do NOT open a new PR).
+**Files:** none (GitHub issue + PR creation only).
 
-- [ ] **Step 1: Update PR #95's body** (same branch `claude/conva-app-ui-modernization-igllsd`, same PR the two prior plans in this directory targeted — append a new dated section rather than replacing the existing content, matching how a multi-part PR body accumulates across this session's plans):
+- [ ] **Step 1: Create a new issue** — "Finish the SimCon → Context terminology rename" — body: spec link, plan link, one-paragraph summary (the same "Finishes the terminology migration..." paragraph below, trimmed to the issue).
 
-  Append a section to the existing PR #95 body:
+- [ ] **Step 2: Open a new draft PR** from `claude/conva-app-ui-modernization-igllsd` against `main`, `Closes #<issue from Step 1>`:
 
 ```markdown
-## 3. SimCon → Context rename
+Closes #<issue>
 
 Spec: `docs/superpowers/specs/2026-08-27-simcon-to-context-rename-design.md`
 Plan: `docs/superpowers/plans/2026-08-27-simcon-to-context-rename.md`
+
+## SimCon → Context rename
 
 Finishes the terminology migration that was already ~80% done in the UI
 ("Conversation Contexts" page, `ContextsPane`/`ContextsView` components,
@@ -3157,15 +3168,15 @@ Pure rename, no behavior change:
       real label, not a raw key string.
 ```
 
-  Use `mcp__github__pull_request_read` (method `get`) first to fetch PR #95's current body, then use the GitHub `update_pull_request` tool to append the section above to the end of the existing body (keep the existing 2 sections intact — this becomes the 3rd).
+  Use `mcp__github__issue_write` (method `create`) for Step 1, then `mcp__github__create_pull_request` (`draft: true`, `head: "claude/conva-app-ui-modernization-igllsd"`, `base: "main"`) for Step 2, filling in the real issue number and Task 5.1's real test counts into the template above before submitting either call — no `<fill in>`/`<issue>` placeholders in what actually gets posted.
 
-- [ ] **Step 2: Confirm the update.** Re-fetch PR #95 (`pull_request_read`, method `get`) and confirm the new "## 3. SimCon → Context rename" section is present at the end of the body.
+- [ ] **Step 3: Confirm.** Fetch the new PR (`pull_request_read`, method `get`) and confirm the body matches what was submitted.
 
 ### Task 5.4: Watch CI
 
 **Files:** none.
 
-- [ ] **Step 1: Subscribe to PR activity** on #95 (if not already subscribed this session) so CI results and any review comments arrive as events.
+- [ ] **Step 1: Subscribe to PR activity** on the new PR from Task 5.3 (`mcp__github__subscribe_pr_activity`) so CI results and any review comments arrive as events.
 - [ ] **Step 2: Wait for the Windows shell-clippy job specifically** — it's the only real compile gate for Phase 2's changes in this plan. On failure, the most likely causes, in order of likelihood given this plan's risk profile: (a) a missed `generate_handler!`/`fn` name pairing (re-run Task 2.6 Step 2's cross-check loop), (b) a missed `conva_core::simcon::` import path in a file outside the 5 shell files this plan touched (re-run a repo-wide `grep -rn 'conva_core::simcon' src-tauri/`), (c) a stray bare `SimConSession`/`SimConPersona`/etc. token Step 2's `sed` patterns didn't reach because it wasn't whole-word-bounded correctly (re-run the file's grep-confirm step from whichever task owns it).
 
 ---
@@ -3179,7 +3190,7 @@ Pure rename, no behavior change:
 - Spec §"TypeScript — `src/components`" (folder + file renames, all listed importers, the view-router key, leftover copy) → Phase 4, Tasks 4.1–4.4. Every file the spec explicitly named (`ContextsView.tsx`, `ContextsPane.tsx`, `ConversationsPanel.tsx`, `ViewRouter.tsx`, `CommandPalette.tsx`, `DashboardView.tsx`, `GroundPicker.tsx` + test, `SettingsPanel.tsx`, `Icon.tsx`'s comment, `ViewShell.tsx`'s comment, `ContextsPane.test.tsx`) has a task; investigation additionally found `readiness.ts`/`.test.ts`, `rowStatus.ts`/`.test.ts`, `StudioShell.tsx`, `nav.ts`, `navItems.ts`, `contextsQuickOpen.ts`, `libraryQuickAdd.ts`, `TranscriptView.tsx`, and `state/app.ts` — all covered (Tasks 4.2–4.4).
 - Spec §"Out of scope" (Conversation/`conversations.rs`, `HighlightContext`, historical usage-data file migration, no behavior change) → respected throughout: `conversations.rs` is never modified by this plan (only `ConversationsPanel.tsx`'s **display text**, built from data `Conversation`/`SessionSummary` already expose, is touched); `highlight.rs` confirmed untouched; metering keys keep historical data readable via the permanent dual-key label map (Task 4.4 Step 5) rather than migrating anything; the 3 explicit scope decisions in the Architecture section (on-disk directory/id-prefix untouched, `SessionSummary` fields untouched, shell-side `session` locals untouched) each document a place this plan deliberately did *less* than a maximal token-for-token rename would, specifically to keep it a true zero-behavior-change rename.
 - Spec §"Testing" → Task 1.1 (baseline), and a post-phase gate after every phase (Tasks 1.2 Step 9, 2.6 Step 4, 3.4 Step 1, 4.4 Step 13, 5.1 Step 1) plus Phase 5's manual-QA checklist verbatim from the spec's Testing section, carried into the PR body.
-- Spec §"Phasing" (5 phases, specific gates per phase) → matched exactly: Phase 1 one commit + `cargo test -p conva-core` gate; Phase 2 one commit + fmt/manual-cross-check gate (no local compile); Phase 3 one commit + `npm run build` gate; Phase 4 three commits by area (component files; contexts/ importers + routing — split into two tasks, 4.2 and 4.3, since routing turned out substantial enough to warrant its own commit and gate — plus leftover copy) + `npm test`/`npm run build` gate after each; Phase 5 full verification + push + update PR #95 (not a new PR, per this plan's explicit instruction).
+- Spec §"Phasing" (5 phases, specific gates per phase) → matched exactly: Phase 1 one commit + `cargo test -p conva-core` gate; Phase 2 one commit + fmt/manual-cross-check gate (no local compile); Phase 3 one commit + `npm run build` gate; Phase 4 three commits by area (component files; contexts/ importers + routing — split into two tasks, 4.2 and 4.3, since routing turned out substantial enough to warrant its own commit and gate — plus leftover copy) + `npm test`/`npm run build` gate after each; Phase 5 full verification + push + a new issue + draft PR (updated post-write, per the Phase 5 header note — PR #95 merged while this plan was being written, so the branch was restarted and this is now fresh follow-up work, not an update to a still-open PR).
 
 **Placeholder scan:** Searched this plan for "TBD"/"TODO"/"handle appropriately"/"similar to above"/"write tests for the above" — none found. Every step that changes code shows the actual current text (verified against the real files read during investigation) and the actual new text. The `sed`-based steps are the one deliberate departure from literal before/after blocks for every single line — used only for genuinely mechanical, exhaustively-enumerated whole-word token substitutions (never for anything requiring judgment), each with an explicit list of exactly which occurrences it covers and a grep-confirm step immediately after to prove nothing was missed and nothing extra was hit. This is not a placeholder — every substitution is a complete, unambiguous, closed specification, not a vague instruction.
 
