@@ -1521,15 +1521,49 @@ export interface ContextSummary {
 
   (the duplicate `/** Catalog entry for the SimCon list view. */` line directly above the real doc comment was dead leftover in the original file — dropped as part of this edit, not carried forward.)
 
-- [ ] **Step 3: Grep-confirm.**
+> **Added post-write** (found during execution): two more sites in this file need prose fixes, neither covered by Steps 1–2 above or by any other task in this plan. New Step 3 below closes both; the old Step 3 (grep-confirm) is renumbered to Step 4, and its "expected: no output" is corrected — it was factually wrong even before this fix, since `SessionSummary.simcon_title`'s **field name** is deliberately kept (scope decision 2, mirroring the Rust struct's on-disk-compat field) and was always going to make that grep non-empty.
+
+- [ ] **Step 3: Reword the `RehearsalStateEvent` doc comment and the `SessionSummary` mirror's two prose lines — keep `simcon_title`'s field name.** Before:
+
+```ts
+/** Live Sim Con rehearsal phase — drives the speaking/active-speaker UI. */
+export type RehearsalStateEvent =
+```
+
+  After:
+
+```ts
+/** Live Context rehearsal phase — drives the speaking/active-speaker UI. */
+export type RehearsalStateEvent =
+```
+
+  Before:
+
+```ts
+  /** True when this session was a Sim Con rehearsal. */
+  is_rehearsal: boolean;
+  /** The Sim Con title, when this was a rehearsal. */
+  simcon_title: string | null;
+```
+
+  After (only the two doc comments change — `simcon_title`'s name is untouched, mirroring `session.rs`'s `SessionSummary.simcon_title` field kept for on-disk JSONL compat, scope decision 2):
+
+```ts
+  /** True when this session was a Context rehearsal. */
+  is_rehearsal: boolean;
+  /** The context's title, when this was a rehearsal. */
+  simcon_title: string | null;
+```
+
+- [ ] **Step 4: Grep-confirm.**
 
 ```bash
 grep -inE 'sim ?con' src/lib/ipc.ts
 ```
 
-  Expected: no output.
+  Expected: exactly 1 hit — `simcon_title: string | null;` (the deliberately-preserved field name, scope decision 2). Nothing else.
 
-- [ ] **Step 4: `npx tsc --noEmit`** (or `npm run build`, but that also builds the rest of the app which isn't done until Task 3.3 — a plain typecheck is faster here and will show every downstream file this task's rename breaks, which Tasks 3.2–3.3 then fix): expect many errors (every file importing `SimConSession`/`SimConCategory`/etc. now fails) — this is expected mid-phase; Task 3.4 is the real green gate.
+- [ ] **Step 5: `npx tsc --noEmit`** (or `npm run build`, but that also builds the rest of the app which isn't done until Task 3.3 — a plain typecheck is faster here and will show every downstream file this task's rename breaks, which Tasks 3.2–3.3 then fix): expect many errors (every file importing `SimConSession`/`SimConCategory`/etc. now fails) — this is expected mid-phase; Task 3.4 is the real green gate.
 
 ### Task 3.2: `src/lib/commands.ts` — wrapped command functions + `invoke` strings
 
@@ -3184,6 +3218,7 @@ grep -rinE 'sim ?con' crates/ src-tauri/src/*.rs src/ \
     -e 'context\.rs:.*\.join("simcon")' \
     -e 'context\.rs:.*<app-data>/simcon/' \
     -e 'session\.rs:.*simcon_title' \
+    -e 'ipc\.ts:.*simcon_title' \
     -e 'FEATURE_LABELS\|simcon_knowledge\|simcon_research_findings\|simcon_qa\|simcon_personas' \
     -e 'icon="simicon"\|simicon:' \
     -e 'row.data.simcon_title\|`simcon_title`'
