@@ -505,7 +505,7 @@ impl SessionManager {
         )
         .map_err(|e| CoreError::Audio(e.to_string()))?;
 
-        // Clone before the move below — `rehearsal.rs`/`simcon_rehearsal_say`
+        // Clone before the move below — `rehearsal.rs`/`context_rehearsal_say`
         // use this to forward bypass segments (see `forward_to_capture`).
         *self.capture_forward.lock().expect("capture lock") = capture_tx.clone();
 

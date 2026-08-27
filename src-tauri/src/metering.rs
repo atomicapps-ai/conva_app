@@ -18,9 +18,10 @@
 //!
 //! Feature labels in use (stable snake_case, owned by the call sites):
 //! `ally_suggest_reply` · `ally_summarize` · `ally_question` ·
-//! `ally_card_summary` · `simcon_knowledge` · `simcon_research_findings` ·
-//! `simcon_personas` · `rehearsal_persona` · `tracker` · `capture` ·
-//! `faner_replay`. The Settings key "Test" ping is deliberately unmetered.
+//! `ally_card_summary` · `context_knowledge` · `context_research_findings` ·
+//! `context_qa` · `context_personas` · `rehearsal_persona` · `tracker` ·
+//! `capture` · `faner_replay`. The Settings key "Test" ping is deliberately
+//! unmetered.
 
 use std::fs;
 use std::io::Write;

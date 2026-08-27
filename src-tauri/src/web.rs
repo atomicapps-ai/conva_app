@@ -2,13 +2,13 @@
 //! model calls it only when it decides fresh/external info is needed). The
 //! caller owns the key lookup and usage metering; this is just the HTTP call.
 //!
-//! NOTE: `simcon::research` still has its own bounded Tavily loop for Sim Con
-//! knowledge-profile building; unifying the two onto this helper is a safe
-//! follow-up once the Sim Con research path is confirmed on-device.
+//! NOTE: `context::research` still has its own bounded Tavily loop for
+//! Context knowledge-profile building; unifying the two onto this helper is a
+//! safe follow-up once the Context research path is confirmed on-device.
 
 use std::time::Duration;
 
-use conva_core::simcon::ResearchSource;
+use conva_core::context::ResearchSource;
 use conva_core::CoreError;
 
 use crate::session::now_unix_ms;

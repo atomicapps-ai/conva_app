@@ -515,9 +515,9 @@ impl RagStore {
         inner.index.as_ref().map_or(0.0, |i| i.token_idf(term))
     }
 
-    /// Like [`retrieve`], but restricted to a set of document ids (a Sim Con's
-    /// KnowledgeProfile). An empty scope means "whole library" — so a Sim Con
-    /// with no attached docs still grounds on everything available.
+    /// Like [`retrieve`], but restricted to a set of document ids (a
+    /// Context's KnowledgeProfile). An empty scope means "whole library" —
+    /// so a Context with no attached docs still grounds on everything available.
     pub fn retrieve_scoped(&self, query: &str, k: usize, doc_ids: &[String]) -> Vec<ScoredChunk> {
         if doc_ids.is_empty() {
             self.retrieve_filtered(query, k, None)

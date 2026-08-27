@@ -32,9 +32,9 @@ pub struct Conversation {
     /// Library document ids attached to this conversation.
     #[serde(default)]
     pub linked_docs: Vec<String>,
-    /// The Sim Con context (if any) active while this conversation was
-    /// recorded — captured at save time from live grounding state (spec
-    /// 2026-08-26 part B). Never backfilled for older conversations.
+    /// The Context (if any) active while this conversation was recorded —
+    /// captured at save time from live grounding state (spec 2026-08-26
+    /// part B). Never backfilled for older conversations.
     #[serde(default)]
     pub linked_context_id: Option<String>,
 }
