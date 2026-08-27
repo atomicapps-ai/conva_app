@@ -2941,6 +2941,40 @@ export type View =
   { view: "context", icon: "simicon", label: "Contexts" },
 ```
 
+> **Added post-write** (found during execution): an earlier doc-comment
+> block in this same file (above `NAV_ITEMS`) mentions "Sim Con" 3 times,
+> not touched by Step 3's single-line edit. On inspection these are NOT
+> uniform — one is reword-able prose, one is a literal quote of
+> `roadmap.md` (a different repo, `conva_core`, out of this plan's
+> scope — its own text isn't being renamed, so quoting it verbatim stays
+> accurate), and one describes the deliberately-preserved
+> `simcon_title`/`is_rehearsal` persisted-tag mechanism (scope decision
+> 2) — describing that real, unrenamed mechanism as "Sim Con" is
+> *correct*, not stale. Only the first gets reworded.
+
+- [ ] **Step 3b: Reword the one prose mention that isn't a quote or a reference to preserved on-disk data.** Before:
+
+```ts
+ * Rehearsal has never been separate code from Contexts: it's Sim Con
+ * Phase D, built into it from the start (`roadmap.md` lists "Sim Con
+ * rehearsal" under the already-built Conversation Context feature;
+```
+
+  After (only "it's Sim Con" → "it's Context" changes; the quoted
+  `"Sim Con rehearsal"` — `roadmap.md`'s own literal wording — is left
+  exactly as-is):
+
+```ts
+ * Rehearsal has never been separate code from Contexts: it's Context
+ * Phase D, built into it from the start (`roadmap.md` lists "Sim Con
+ * rehearsal" under the already-built Conversation Context feature;
+```
+
+  Further down in the same comment block, leave `"...tagged Sim Con) —
+  Contexts is the prep material..."` **untouched** — it correctly
+  describes the real `simcon_title` tag that scope decision 2 keeps
+  unrenamed on disk, not stale documentation.
+
 - [ ] **Step 4: `ViewRouter.tsx` — the routed view check.** Before:
 
 ```tsx
@@ -3030,7 +3064,10 @@ grep -inE 'sim ?con' src/components/studio/StudioShell.tsx src/components/studio
   src/state/libraryQuickAdd.ts
 ```
 
-  Expected: no output.
+  Expected: exactly 2 hits, both in `navItems.ts` — the literal
+  `roadmap.md` quote (`"Sim Con rehearsal"`, split across two lines) and
+  the `simcon_title` tag reference (`tagged Sim Con`), both intentionally
+  preserved per Step 3b above. Nothing else, in no other file.
 
 - [ ] **Step 10: Run the touched tests + typecheck.** `npm run build` — the `View` union rename means every remaining `setView("simcon")`/`view === "simcon"` anywhere else in the tree would now be a **type error**, which is a useful cross-check: if the build errors on a `"simcon"` string literal assigned to `View` anywhere outside the files this task touched, that's a missed site — go find and fix it before continuing (expected: zero such errors, since Task 4.2 didn't touch any `View`-typed code and Task 4.4 hasn't run yet, but Task 4.4's `rehearse` function in `ConversationsPanel.tsx` also calls `setView("simcon")` — confirm the build error surfaces there specifically, which Task 4.4 Step 1 then fixes).
 
@@ -3360,6 +3397,8 @@ grep -rinE 'sim ?con' crates/ src-tauri/src/*.rs src/ \
     -e 'context\.rs:.*<app-data>/simcon/' \
     -e 'session\.rs:.*simcon_title' \
     -e 'ipc\.ts:.*simcon_title' \
+    -e 'navItems\.ts:.*Sim Con rehearsal' \
+    -e 'navItems\.ts:.*tagged Sim Con' \
     -e 'FEATURE_LABELS\|simcon_knowledge\|simcon_research_findings\|simcon_qa\|simcon_personas' \
     -e 'icon="simicon"\|simicon:' \
     -e 'row.data.simcon_title\|`simcon_title`'
