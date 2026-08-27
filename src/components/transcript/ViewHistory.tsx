@@ -45,7 +45,7 @@ export function ViewHistory({
   }, [focusKey]);
 
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex flex-col gap-2">
       {entries.length === 0 && (
         <p className="px-1 py-3 text-[0.86em] text-fg-faint">
           Select anything above — or ask Ally below — and it shows here, in
@@ -61,7 +61,7 @@ export function ViewHistory({
           }}
           aria-label={e.item.label}
           className={[
-            "relative rounded-[var(--radius)] border bg-panel p-2.5",
+            "relative rounded-[var(--radius)] border bg-panel p-2",
             focusKey === e.key
               ? "border-primary/60 ring-1 ring-primary/40"
               : "border-border",
