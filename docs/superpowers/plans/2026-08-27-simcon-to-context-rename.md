@@ -3196,7 +3196,7 @@ sed -i \
 grep -inE 'sim ?con' src/components/ConversationsPanel.tsx
 ```
 
-  Expected: exactly 2 hits — the two `row.data.simcon_title` field reads (line ~701 and ~711–712), both intentionally unchanged (scope decision 2). Everything else must be gone.
+  Expected: exactly 6 hits — all legitimate, untouched `simcon_title` references (scope decision 2): the doc-comment mention Step 2 already flags as "no change" (`~line 181`, "qualifies by its `simcon_title` matching..."), a functional filter-condition read (`~line 273`, `row.data.simcon_title !== contextScopeTitle`) not otherwise mentioned in this task, and the pill/tooltip's two field reads (`~lines 701-702, 711-712`). (**Corrected post-write** — the plan as first written said "exactly 2 hits" and only listed the pill/tooltip pair; the other two are equally legitimate and were simply undercounted, not a content gap.) Nothing else may appear.
 
 - [ ] **Step 4: `SettingsPanel.tsx` — the 3 `backend.simcon.*` calls.**
 
@@ -3243,6 +3243,78 @@ const FEATURE_LABELS: Record<string, string> = {
   capture: "FANER capture",
   faner_replay: "FANER replay (dev)",
 };
+```
+
+> **Added post-write** (found during execution): this file has 5 more
+> "Sim Con" mentions that are real, user-facing UI copy — squarely this
+> task's own subject ("remaining leftover UI copy") — that Steps 4–5
+> don't reach and Step 6 (as first written) didn't account for. Reworded
+> below, before the grep-confirm.
+
+- [ ] **Step 5b: Reword the 5 leftover UI-copy mentions.** Before:
+
+```tsx
+/**
+ * Web-research key (Sim Con). A Tavily key lets a Sim Con research the web for
+ * context during setup; stored in the OS vault, desktop-only. Without it, Sim
+ * Cons ground on the user's documents alone.
+ */
+```
+
+  After:
+
+```tsx
+/**
+ * Web-research key (Context). A Tavily key lets a Context research the web
+ * for context during setup; stored in the OS vault, desktop-only. Without
+ * it, Contexts ground on the user's documents alone.
+ */
+```
+
+  Before:
+
+```tsx
+        A <b>Tavily</b> key lets a Sim Con research the web for context (standard
+        questions, company background, market rates) when you build one — get a
+        free key at <span className="font-mono">tavily.com</span>. Without it, Sim
+        Cons ground on your documents only.
+```
+
+  After:
+
+```tsx
+        A <b>Tavily</b> key lets a Context research the web for context (standard
+        questions, company background, market rates) when you build one — get a
+        free key at <span className="font-mono">tavily.com</span>. Without it,
+        Contexts ground on your documents only.
+```
+
+  Before:
+
+```tsx
+          No usage recorded yet. Ask Ally something or build a Sim Con to start
+          the meter.
+```
+
+  After:
+
+```tsx
+          No usage recorded yet. Ask Ally something or build a Context to start
+          the meter.
+```
+
+  Before:
+
+```tsx
+        title="Web research (Sim Con)"
+        description="Optional — a Tavily key so a Sim Con can research context from the web."
+```
+
+  After:
+
+```tsx
+        title="Web research (Context)"
+        description="Optional — a Tavily key so a Context can research context from the web."
 ```
 
 - [ ] **Step 6: `SettingsPanel.tsx` — grep-confirm.**
