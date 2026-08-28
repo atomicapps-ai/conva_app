@@ -202,6 +202,8 @@ export function ContextsPane({
   onDocsChanged,
   generatingId,
   refreshToken,
+  widthPx,
+  onResize,
 }: {
   items: ContextSummary[];
   selectedId: string | null;
@@ -221,6 +223,10 @@ export function ContextsPane({
   generatingId: string | null;
   /** Bump this to re-fetch the child-doc list (e.g. after an attach). */
   refreshToken?: number;
+  /** This pane's current width, px — Library fills the rest. Only takes
+   *  visual effect at the `lg` breakpoint; see ContextsView.tsx. */
+  widthPx: number;
+  onResize: (px: number) => void;
 }) {
   const backend = useBackend();
   const [docs, setDocs] = useState<RagDocument[]>([]);
@@ -252,7 +258,27 @@ export function ContextsPane({
   };
 
   return (
-    <div className="card flex min-h-0 flex-col p-3">
+    <div className="card relative flex min-h-0 flex-col p-3">
+      {/* Right-edge width handle (mirrors TranscriptView.tsx's AllyPanel
+          left-edge handle) — dragging right widens this pane. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize panes"
+        onPointerDown={(e) => {
+          const startX = e.clientX;
+          const startW = widthPx;
+          const move = (ev: PointerEvent) =>
+            onResize(startW + (ev.clientX - startX));
+          const up = () => {
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", up);
+          };
+          window.addEventListener("pointermove", move);
+          window.addEventListener("pointerup", up);
+        }}
+        className="absolute inset-y-0 right-0 z-30 hidden w-[5px] cursor-col-resize hover:bg-panel-raised lg:block"
+      />
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-fg-muted">
           Conversation contexts

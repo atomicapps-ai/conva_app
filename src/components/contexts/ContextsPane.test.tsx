@@ -58,6 +58,8 @@ describe("ContextsPane", () => {
         onGenerate={noop}
         onAttach={noop}
         generatingId={null}
+        widthPx={400}
+        onResize={noop}
       />,
     );
     expect(
@@ -82,6 +84,8 @@ describe("ContextsPane", () => {
         onGenerate={onGenerate}
         onAttach={noop}
         generatingId={null}
+        widthPx={400}
+        onResize={noop}
       />,
     );
     const btn = screen.getByRole("button", {
@@ -105,6 +109,8 @@ describe("ContextsPane", () => {
         onGenerate={noop}
         onAttach={noop}
         generatingId={null}
+        widthPx={400}
+        onResize={noop}
       />,
     );
     // jsdom has no __TAURI__ global -> isDesktop is false -> button absent.
@@ -126,6 +132,8 @@ describe("ContextsPane", () => {
         onGenerate={noop}
         onAttach={noop}
         generatingId={null}
+        widthPx={400}
+        onResize={noop}
       />,
     );
     // Edit/Delete aren't inline row buttons — only behind the menu.
@@ -154,6 +162,8 @@ describe("ContextsPane", () => {
         onGenerate={noop}
         onAttach={noop}
         generatingId={null}
+        widthPx={400}
+        onResize={noop}
       />,
     );
     expect(screen.queryByText(/at least one grounding source/i)).toBeNull();
