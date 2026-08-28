@@ -1394,6 +1394,7 @@ mod tests {
             ingested_at_unix_ms: 0,
             source: DocSource::Generated,
             context_ids,
+            size_bytes: 1024,
         }
     }
 
@@ -1422,6 +1423,7 @@ mod tests {
                 ingested_at_unix_ms: 0,
                 source: DocSource::File,
                 context_ids: vec!["s1".into()],
+                size_bytes: 51200,
             },
             // No context_ids at all — out of scope, left alone.
             generated_doc("doc-untagged", vec![]),

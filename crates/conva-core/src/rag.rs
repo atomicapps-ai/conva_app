@@ -42,6 +42,16 @@ pub struct RagDocument {
     /// attached to any context. Drives the library's "In this context" filter.
     #[serde(default)]
     pub context_ids: Vec<String>,
+    /// Content size in bytes (Contexts-screen-redesign spec, requirement 6)
+    /// — the real on-disk file size for a file-sourced document, or the
+    /// ingested text's byte length for pasted/generated content (see
+    /// `store_text_document` in `src-tauri/src/rag.rs` for exactly which,
+    /// per source). `#[serde(default)]` gives `0` for documents ingested
+    /// before this field existed — same backward-compat pattern `source`
+    /// above already uses. UI formats this with `formatBytes()`
+    /// (`src/lib/formatBytes.ts`), never displays the raw number.
+    #[serde(default)]
+    pub size_bytes: u64,
 }
 
 /// Ingestion outcome reported to the UI (R1/R2).
