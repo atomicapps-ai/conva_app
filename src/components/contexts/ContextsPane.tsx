@@ -244,42 +244,48 @@ export function ContextsPane({
                     <Icon name="chevron" size={13} className="-rotate-90" />
                   </button>
                   {!isDefault && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => onEdit(s.id)}
-                        aria-label={`Edit setup for ${s.title}`}
-                        title="Edit setup"
-                        className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-                      >
-                        <Icon name="edit" size={13} />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!readiness.canGenerate || isGenerating}
-                        onClick={() => onGenerate(s.id)}
-                        aria-label={`Generate resources for ${s.title}`}
-                        title={
-                          readiness.canGenerate
-                            ? regenerateTooltip(s)
-                            : "Add a document, key terms, or enable research first"
-                        }
-                        className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
-                      >
-                        <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
-                          <Icon name="sparkle" size={13} />
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDelete(s.id)}
-                        aria-label={`Delete ${s.title}`}
-                        title="Delete"
-                        className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
-                      >
-                        <Icon name="trash" size={13} />
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      onClick={() => onEdit(s.id)}
+                      aria-label={`Edit setup for ${s.title}`}
+                      title="Edit setup"
+                      className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                    >
+                      <Icon name="edit" size={13} />
+                    </button>
+                  )}
+                  {/* Unlike Edit/Delete, Regenerate applies to the Default
+                      context too — it still generates/refreshes resources
+                      just like any other context (owner, 2026-08-28: it's
+                      the one context most people actually have at first,
+                      so hiding Regenerate here read as "the icons are
+                      missing" rather than "not applicable"). */}
+                  <button
+                    type="button"
+                    disabled={!readiness.canGenerate || isGenerating}
+                    onClick={() => onGenerate(s.id)}
+                    aria-label={`Generate resources for ${s.title}`}
+                    title={
+                      readiness.canGenerate
+                        ? regenerateTooltip(s)
+                        : "Add a document, key terms, or enable research first"
+                    }
+                    className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
+                  >
+                    <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
+                      <Icon name="sparkle" size={13} />
+                    </span>
+                  </button>
+                  {!isDefault && (
+                    <button
+                      type="button"
+                      onClick={() => onDelete(s.id)}
+                      aria-label={`Delete ${s.title}`}
+                      title="Delete"
+                      className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
                   )}
                 </div>
 

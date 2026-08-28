@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ContextsPane } from "@/components/contexts/ContextsPane";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
-import type { ContextSummary, RagDocument } from "@/lib/ipc";
+import { DEFAULT_CONTEXT_ID, type ContextSummary, type RagDocument } from "@/lib/ipc";
 
 afterEach(cleanup);
 
@@ -146,6 +146,20 @@ describe("ContextsPane", () => {
     expect(
       screen.getByRole("button", { name: /generate resources for acme interview/i }),
     ).toHaveAttribute("title", expect.stringContaining("Last regenerated"));
+  });
+
+  it("the Default context shows Regenerate but hides Edit and Delete", () => {
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        items={[summary({ id: DEFAULT_CONTEXT_ID, title: "General conversation", has_key_terms: true })]}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /generate resources for general conversation/i }),
+    ).not.toBeDisabled();
+    expect(screen.queryByRole("button", { name: /edit setup for general conversation/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /delete general conversation/i })).toBeNull();
   });
 
   it("the title's hover tooltip totals size across every document tagged to this context", async () => {
