@@ -1268,6 +1268,10 @@ fn context_generate_dossier(
     profile.updated_at_unix_ms = session::now_unix_ms();
     context::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
+    // Contexts-screen-redesign spec, requirement 5 — records when the
+    // dossier pipeline actually ran, distinct from `updated_at_unix_ms`
+    // (which also bumps on a plain title/purpose edit).
+    session.resources_generated_at_unix_ms = Some(session::now_unix_ms());
     context::save(&app, session).map_err(|e| e.to_string())
 }
 

@@ -111,6 +111,7 @@ specific is active."
             dossier_doc_id: Some(doc_id),
             research_doc_id: None,
             resources_stale: false,
+            resources_generated_at_unix_ms: None,
         },
     )?;
     Ok(())
@@ -249,6 +250,7 @@ pub fn list(app: &AppHandle) -> Result<Vec<ContextSummary>, CoreError> {
                 .is_some_and(|jd| !jd.trim().is_empty()),
             has_generated_resources: s.dossier_doc_id.is_some(),
             resources_stale: s.resources_stale,
+            resources_generated_at_unix_ms: s.resources_generated_at_unix_ms,
         });
     }
     out.sort_by_key(|b| std::cmp::Reverse(b.updated_at_unix_ms));
