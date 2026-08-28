@@ -3138,7 +3138,8 @@ npm run build
 ```
 
 Expected: build clean; running total is now baseline 185 + Phase 4's 13 +
-Task 6.2's net +3 + this task's 3 = **204 passed**.
+Task 6.2's net +2 (corrected — see Task 6.2's note) + this task's 3 =
+**203 passed**.
 
 - [ ] **Step 4: Commit.**
 
@@ -3165,7 +3166,7 @@ cargo fmt --check
 cargo clippy -p conva-core --all-targets -- -D warnings
 ```
 
-Expected: all green. `npm test` reports **204 passed**; `cargo test -p conva-core` reports **128 passed** (Phase 1's two tasks changed struct
+Expected: all green. `npm test` reports **203 passed**; `cargo test -p conva-core` reports **128 passed** (Phase 1's two tasks changed struct
 literals and one test file gained a size-bytes-per-source test in Phase 2
 — re-derive the exact expected count from Phase 1/2's own step outputs
 rather than trusting this number blindly, since Task 2.1 Step 4 added one
