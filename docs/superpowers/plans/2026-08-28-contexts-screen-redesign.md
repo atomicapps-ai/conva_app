@@ -938,7 +938,7 @@ describe("formatBytes", () => {
   });
 
   it("caps at GB rather than continuing to TB", () => {
-    expect(formatBytes(5_000_000_000_000)).toBe("4547 GB");
+    expect(formatBytes(5_000_000_000_000)).toBe("4657 GB");
   });
 });
 ```
