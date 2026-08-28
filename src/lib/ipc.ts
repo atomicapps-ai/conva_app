@@ -106,6 +106,10 @@ export interface RagDocument {
   source: DocSource;
   /** Conversation Context ids this document is attached to. */
   context_ids: string[];
+  /** Content size in bytes — real file size for a file-sourced document,
+   *  ingested text length for pasted/generated. Format with
+   *  `formatBytes()` (`@/lib/formatBytes`), never display the raw number. */
+  size_bytes: number;
 }
 
 export interface IngestReport {
@@ -364,6 +368,11 @@ export interface ConversationContext {
    * the digest/glossary no longer reflect the inputs (cleared by a
    * successful regeneration). Optional: older records omit it. */
   resources_stale?: boolean;
+  /** When Stage 1-3 (generateDossier) last actually ran, if ever. Distinct
+   *  from updated_at_unix_ms (which also bumps on a plain edit) — this is
+   *  what the row's Regenerate-icon tooltip reads. null until the first
+   *  regenerate. */
+  resources_generated_at_unix_ms?: number | null;
 }
 
 /** Catalog entry for the Contexts list — carries enough to render the
@@ -382,6 +391,9 @@ export interface ContextSummary {
   has_generated_resources: boolean;
   /** Mirrors ConversationContext.resources_stale for the list row's pill. */
   resources_stale?: boolean;
+  /** Mirrors ConversationContext.resources_generated_at_unix_ms for the
+   *  list row's Regenerate-icon tooltip. */
+  resources_generated_at_unix_ms?: number | null;
 }
 
 export type ModelStatusEvent =

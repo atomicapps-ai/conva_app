@@ -12,6 +12,7 @@ function doc(overrides: Partial<RagDocument> = {}): RagDocument {
     ingested_at_unix_ms: 0,
     source: "file",
     context_ids: [],
+    size_bytes: 0,
     ...overrides,
   };
 }

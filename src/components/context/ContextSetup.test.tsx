@@ -212,6 +212,7 @@ describe("ContextSetup wizard", () => {
       ingested_at_unix_ms: 0,
       source: "generated" as const,
       context_ids: ["s1"],
+      size_bytes: 2048,
     };
     const open = vi.fn().mockResolvedValue(undefined);
     const backend = {
@@ -255,6 +256,7 @@ describe("ContextSetup wizard", () => {
       ingested_at_unix_ms: 0,
       source: "generated" as const,
       context_ids: ["s1"],
+      size_bytes: 2048,
     };
     const backend = {
       rag: { list: vi.fn().mockResolvedValue([genDoc]) },
