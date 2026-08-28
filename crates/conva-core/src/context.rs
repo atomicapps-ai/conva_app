@@ -222,6 +222,13 @@ pub struct ConversationContext {
     /// cleared by a successful dossier regeneration.
     #[serde(default)]
     pub resources_stale: bool,
+    /// When Stage 1-3 (`generateDossier`) last actually ran, if ever
+    /// (Contexts-screen-redesign spec, requirement 5). Deliberately
+    /// separate from `updated_at_unix_ms`, which also bumps on a plain
+    /// title/purpose edit — reusing it would make a "last regenerated"
+    /// tooltip lie. `None` until the first regenerate.
+    #[serde(default)]
+    pub resources_generated_at_unix_ms: Option<u64>,
 }
 
 /// Catalog entry for the Context list view (cheap to list without loading the
@@ -254,6 +261,10 @@ pub struct ContextSummary {
     /// Mirrors [`ConversationContext::resources_stale`] for the list row's pill.
     #[serde(default)]
     pub resources_stale: bool,
+    /// Mirrors [`ConversationContext::resources_generated_at_unix_ms`] for
+    /// the list row's Regenerate-icon tooltip.
+    #[serde(default)]
+    pub resources_generated_at_unix_ms: Option<u64>,
 }
 
 impl ContextCategory {
@@ -1148,6 +1159,7 @@ mod tests {
             deep_qa_enabled: false,
             qa_doc_id: None,
             resources_stale: false,
+            resources_generated_at_unix_ms: None,
         }
     }
 
@@ -1340,6 +1352,7 @@ mod tests {
             deep_qa_enabled: false,
             qa_doc_id: None,
             resources_stale: false,
+            resources_generated_at_unix_ms: None,
         }
     }
 
