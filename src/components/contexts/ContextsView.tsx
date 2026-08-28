@@ -191,7 +191,6 @@ export function ContextsView() {
             onDelete={(id) => void remove(id)}
             onGenerate={(id) => void generate(id)}
             onAttach={(contextId, docId) => void attach(docId, contextId)}
-            onDocsChanged={bumpDocs}
             generatingId={generatingId}
             refreshToken={libraryRefreshToken}
             widthPx={leftWidthPx}
