@@ -73,6 +73,22 @@ export function ContextSetup({
       researchDefault(initial?.category ?? "interview"),
   );
   const [deepQa, setDeepQa] = useState(initial?.deep_qa_enabled ?? false);
+  // Fields Stage 1-3 (generateDossier) derives and owns — seeded from
+  // `initial`, refreshed after each successful regenerate. Kept separate
+  // from `initial` (a prop, frozen at mount) so a second regenerate/save in
+  // the same wizard session builds its save payload from the LATEST
+  // generated docs rather than reusing a stale snapshot — reusing `initial`
+  // directly here would silently revert a just-regenerated dossier/Q&A doc
+  // id back to the old one on the next save, re-creating the duplicate/
+  // orphaned-doc bug the generated-docs-display fix closed.
+  const [generatedFields, setGeneratedFields] = useState({
+    dossier_doc_id: initial?.dossier_doc_id ?? null,
+    research_doc_id: initial?.research_doc_id ?? null,
+    qa_doc_id: initial?.qa_doc_id ?? null,
+    glossary: initial?.glossary ?? [],
+    glossary_definitions: initial?.glossary_definitions ?? {},
+    resources_stale: initial?.resources_stale ?? false,
+  });
 
   // Picking a type resets research to that type's default (user-overridable).
   const pickCategory = (c: ContextCategory) => {
@@ -150,7 +166,22 @@ export function ContextSetup({
     setRegenerating(true);
     setError(null);
     try {
-      await backend.context.generateDossier(initial.id);
+      // Persist pending wizard edits first (e.g. a just-checked deep-QA
+      // box) — generateDossier reads the SAVED session from disk, so
+      // regenerating against unsaved form state silently used the old
+      // values (this was the "checked deep Q&A, regenerated, still no
+      // questions" bug: the checkbox never made it to disk before the
+      // dossier pipeline read `deep_qa_enabled` back off it).
+      await backend.context.save(buildSavePayload());
+      const updated = await backend.context.generateDossier(initial.id);
+      setGeneratedFields({
+        dossier_doc_id: updated.dossier_doc_id,
+        research_doc_id: updated.research_doc_id ?? null,
+        qa_doc_id: updated.qa_doc_id ?? null,
+        glossary: updated.glossary ?? [],
+        glossary_definitions: updated.glossary_definitions ?? {},
+        resources_stale: updated.resources_stale ?? false,
+      });
       setDocs(await backend.rag.list());
     } catch {
       setError("Couldn't regenerate.");
@@ -186,39 +217,46 @@ export function ContextSetup({
 
   const canNext = step === 1 ? title.trim().length > 0 : true;
 
+  // Shared by `finish` and `regenerate` — the latter needs this to persist
+  // pending edits (e.g. the deep-QA checkbox) before the dossier pipeline
+  // reads the session back off disk.
+  const buildSavePayload = () => ({
+    id: initial?.id ?? "",
+    title: title.trim(),
+    purpose: purpose.trim(),
+    job_description: jobDescription.trim() ? jobDescription.trim() : null,
+    category,
+    status: initial?.status ?? "draft",
+    created_at_unix_ms: initial?.created_at_unix_ms ?? 0,
+    updated_at_unix_ms: 0,
+    source_doc_ids: selected,
+    auto_generate_context: research,
+    research_enabled: research,
+    deep_qa_enabled: deepQa,
+    key_terms: keyTerms
+      .split(/[\n,]/)
+      .map((t) => t.trim())
+      .filter(Boolean),
+    knowledge_profile_id: initial?.knowledge_profile_id ?? null,
+    personas: initial?.personas ?? [],
+    chosen_persona_id: initial?.chosen_persona_id ?? null,
+    conversation_id: initial?.conversation_id ?? null,
+    // Stage 1-3 derived fields — from `generatedFields`, not `initial`
+    // directly, so this stays correct across a regenerate in the same
+    // wizard session (see the `generatedFields` state's doc comment).
+    glossary: generatedFields.glossary,
+    dossier_doc_id: generatedFields.dossier_doc_id,
+    research_doc_id: generatedFields.research_doc_id,
+    qa_doc_id: generatedFields.qa_doc_id,
+    glossary_definitions: generatedFields.glossary_definitions,
+    resources_stale: generatedFields.resources_stale,
+  });
+
   const finish = async () => {
     setSaving(true);
     setError(null);
     try {
-      const saved = await backend.context.save({
-        id: initial?.id ?? "",
-        title: title.trim(),
-        purpose: purpose.trim(),
-        job_description: jobDescription.trim() ? jobDescription.trim() : null,
-        category,
-        status: initial?.status ?? "draft",
-        created_at_unix_ms: initial?.created_at_unix_ms ?? 0,
-        updated_at_unix_ms: 0,
-        source_doc_ids: selected,
-        auto_generate_context: research,
-        research_enabled: research,
-        deep_qa_enabled: deepQa,
-        key_terms: keyTerms
-          .split(/[\n,]/)
-          .map((t) => t.trim())
-          .filter(Boolean),
-        // Backend-derived (extracted from the digest) — preserve on re-save.
-        glossary: initial?.glossary ?? [],
-        knowledge_profile_id: initial?.knowledge_profile_id ?? null,
-        personas: initial?.personas ?? [],
-        chosen_persona_id: initial?.chosen_persona_id ?? null,
-        conversation_id: initial?.conversation_id ?? null,
-        dossier_doc_id: initial?.dossier_doc_id ?? null,
-        research_doc_id: initial?.research_doc_id ?? null,
-        qa_doc_id: initial?.qa_doc_id ?? null,
-        glossary_definitions: initial?.glossary_definitions ?? {},
-        resources_stale: initial?.resources_stale ?? false,
-      });
+      const saved = await backend.context.save(buildSavePayload());
       // Build the knowledge base (attached docs + research) and mark it ready.
       await backend.context.prepare(saved.id);
       onDone();

@@ -309,11 +309,19 @@ impl RagStore {
             .to_string();
 
         let (text, warnings) = extract_text(source)?;
+        // The real on-disk file size, not the extracted text's byte length
+        // — a PDF/DOCX's formatting/images make those meaningfully
+        // different. Falls back to the extracted text's length only if the
+        // metadata read itself fails (rare — the file was just read).
+        let size_bytes = fs::metadata(source)
+            .map(|m| m.len())
+            .unwrap_or(text.len() as u64);
         self.store_text_document(
             file_name,
             text,
             Original::File(source),
             DocSource::File,
+            size_bytes,
             warnings,
         )
     }
@@ -325,11 +333,15 @@ impl RagStore {
         if text.trim().is_empty() {
             return Err(CoreError::Rag("no text to add".into()));
         }
+        // No original file for pasted text — the text itself IS the content,
+        // so its byte length is the real size.
+        let size_bytes = text.len() as u64;
         self.store_text_document(
             normalize_txt_name(name),
             text.to_string(),
             Original::PastedText,
             DocSource::Pasted,
+            size_bytes,
             Vec::new(),
         )
     }
@@ -347,11 +359,15 @@ impl RagStore {
         if text.trim().is_empty() {
             return Err(CoreError::Rag("no text to add".into()));
         }
+        // Same reasoning as ingest_text — generated content has no
+        // separate "original file", the text is the content.
+        let size_bytes = text.len() as u64;
         let mut report = self.store_text_document(
             normalize_txt_name(name),
             text.to_string(),
             Original::PastedText,
             DocSource::Generated,
+            size_bytes,
             Vec::new(),
         )?;
         self.attach_context(&report.document.id, context_id)?;
@@ -361,13 +377,17 @@ impl RagStore {
 
     /// Shared tail for file, pasted-text, and generated ingestion: chunk,
     /// embed (best-effort), retain the original, persist, and rebuild the
-    /// index.
+    /// index. `size_bytes` is the caller's job to compute correctly — a
+    /// file's real on-disk size differs from its extracted text length
+    /// (PDF/DOCX strip formatting/images), so this shared tail can't derive
+    /// it uniformly from `text` alone.
     fn store_text_document(
         &self,
         file_name: String,
         text: String,
         original: Original,
         source: DocSource,
+        size_bytes: u64,
         mut warnings: Vec<String>,
     ) -> Result<IngestReport, CoreError> {
         let chunks = chunk_text(&text);
@@ -409,6 +429,7 @@ impl RagStore {
                 ingested_at_unix_ms: crate::session::now_unix_ms(),
                 source,
                 context_ids: Vec::new(),
+                size_bytes,
             },
             chunks: chunks
                 .into_iter()
@@ -874,6 +895,31 @@ mod tests {
 
         // Empty paste is rejected, not stored.
         assert!(store.ingest_text("blank", "   \n  ").is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ingest_captures_size_bytes_per_source() {
+        let dir = std::env::temp_dir().join(format!("conva-size-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let store = RagStore::open(&dir).unwrap();
+
+        // Pasted text — size_bytes is the text's own byte length.
+        let text = "All parts carry a 5 year warranty.";
+        let pasted = store.ingest_text("Warranty terms", text).unwrap();
+        assert_eq!(pasted.document.size_bytes, text.len() as u64);
+
+        // A real file — size_bytes is the file's on-disk size, which for a
+        // plain .txt equals its content length (proving the metadata path
+        // works, not just falling through to the text-length fallback).
+        let file_path = dir.join("notes.txt");
+        let content = "Some notes about the meeting agenda and attendees.";
+        fs::write(&file_path, content).unwrap();
+        let filed = store.ingest(file_path.to_str().unwrap()).unwrap();
+        assert_eq!(filed.document.size_bytes, content.len() as u64);
 
         let _ = fs::remove_dir_all(&dir);
     }

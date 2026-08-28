@@ -5,6 +5,8 @@ import { readinessOf } from "@/components/contexts/readiness";
 import { rowStatus } from "@/components/contexts/rowStatus";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
+import { formatBytes } from "@/lib/formatBytes";
+import { formatRelativeTime } from "@/lib/relativeTime";
 import {
   DEFAULT_CONTEXT_ID,
   type RagDocument,
@@ -20,156 +22,41 @@ const CATEGORY_LABEL: Record<ContextCategory, string> = {
   other: "Other",
 };
 
-/** One checklist line — a check, or an advisory warning (never blocks). */
-function ChecklistLine({ ok, label, advisory }: { ok: boolean; label: string; advisory?: boolean }) {
-  return (
-    <p className="flex items-center gap-1.5 text-[11px] text-fg-muted">
-      <Icon
-        name={ok ? "check" : advisory ? "lightbulb" : "close"}
-        size={12}
-        className={ok ? "text-ok" : advisory ? "text-fg-faint" : "text-rec"}
-      />
-      {label}
-    </p>
-  );
+function formatDate(unixMs: number): string {
+  return new Date(unixMs).toLocaleString();
 }
 
-/** A row's overflow actions (Edit, Delete, …) behind one ⋮ button — the same
- *  fixed-position, close-on-outside-action popover pattern as the transcript's
- *  term menu, so row actions read consistently across the app. Keeps only
- *  Open + Generate inline on the row itself; this is where future per-context
- *  actions land as the feature grows. */
-function RowMenu({
-  title,
-  onEdit,
-  onRegenerate,
-  onDelete,
-}: {
-  title: string;
-  onEdit: () => void;
-  /** null = hide the item (e.g. while readiness blocks generation). */
-  onRegenerate: (() => void) | null;
-  onDelete: () => void;
-}) {
-  const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(null);
-    window.addEventListener("click", close);
-    window.addEventListener("resize", close);
-    window.addEventListener("scroll", close, true);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("resize", close);
-      window.removeEventListener("scroll", close, true);
-    };
-  }, [open]);
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          const r = e.currentTarget.getBoundingClientRect();
-          setOpen((o) => (o ? null : { x: r.right, y: r.bottom }));
-        }}
-        aria-label={`More actions for ${title}`}
-        aria-expanded={open !== null}
-        title="More actions"
-        className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-      >
-        <Icon name="more" size={13} />
-      </button>
-      {open && (
-        <div
-          role="menu"
-          aria-label={`Actions for ${title}`}
-          onClick={(e) => e.stopPropagation()}
-          style={{ left: Math.min(open.x, window.innerWidth - 148) - 132, top: open.y + 4 }}
-          className="glass-raised fixed z-50 w-[132px] rounded-lg p-1"
-        >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(null);
-              onEdit();
-            }}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-panel-raised/70"
-          >
-            <Icon name="edit" size={13} className="text-fg-muted" />
-            Edit setup
-          </button>
-          {onRegenerate && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(null);
-                onRegenerate();
-              }}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-panel-raised/70"
-            >
-              <Icon name="sparkle" size={13} className="text-fg-muted" />
-              Regenerate resources
-            </button>
-          )}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(null);
-              onDelete();
-            }}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-rec transition hover:bg-rec/10"
-          >
-            <Icon name="trash" size={13} />
-            Delete
-          </button>
-        </div>
-      )}
-    </>
-  );
+/** Tooltip text for the title hover (requirement 6): full title, created +
+ *  updated date-times, total size of everything tagged to this context
+ *  (attached documents AND anything Ally generated for it — both are
+ *  already tagged via RagDocument.context_ids, so no separate summing of
+ *  source_doc_ids vs. dossier/research/qa_doc_id is needed). */
+function titleTooltip(s: ContextSummary, totalBytes: number): string {
+  return [
+    s.title,
+    `Created ${formatDate(s.created_at_unix_ms)}`,
+    `Updated ${formatDate(s.updated_at_unix_ms)}`,
+    `${formatBytes(totalBytes)} total`,
+  ].join("\n");
 }
 
-/** One document nested under an expanded context — read-only aside from the
- *  detach action. Ally-generated docs (the prep dossier, etc.) get a small
- *  "conva" tag, same treatment as their Library row. */
-function ChildDocRow({
-  doc,
-  onDetach,
-}: {
-  doc: RagDocument;
-  onDetach: () => void;
-}) {
-  return (
-    <li className="group flex items-center gap-1.5 py-1 pl-1 text-[11.5px]">
-      <Icon
-        name={doc.source === "generated" ? "sparkle" : "file"}
-        size={12}
-        className={doc.source === "generated" ? "shrink-0 text-ai" : "shrink-0 text-fg-faint"}
-      />
-      <span className="min-w-0 flex-1 truncate text-fg-muted" title={doc.file_name}>
-        {doc.file_name}
-      </span>
-      {doc.source === "generated" && (
-        <span className="shrink-0 rounded-full bg-ai/10 px-1.5 py-0.5 text-[9px] font-semibold text-ai">
-          conva
-        </span>
-      )}
-      <button
-        type="button"
-        onClick={onDetach}
-        title={`Remove ${doc.file_name} from this context`}
-        aria-label={`Remove ${doc.file_name} from this context`}
-        className="shrink-0 rounded p-0.5 text-fg-faint opacity-0 transition hover:bg-rec/10 hover:text-rec group-hover:opacity-100"
-      >
-        <Icon name="close" size={11} />
-      </button>
-    </li>
-  );
+/** Tooltip text for the Regenerate icon hover (requirement 5). */
+function regenerateTooltip(s: ContextSummary): string {
+  return s.resources_generated_at_unix_ms
+    ? `Last regenerated ${formatRelativeTime(s.resources_generated_at_unix_ms)}`
+    : "Never regenerated";
+}
+
+/** Tooltip text for the status pill, draft only (requirement 3-4's
+ *  readiness-checklist relocation — rows no longer expand to show it
+ *  inline, so it moves here). `undefined` when there's nothing to show
+ *  (non-draft contexts never carried this checklist either). */
+function readinessTooltip(s: ContextSummary): string | undefined {
+  if (s.status !== "draft") return undefined;
+  const { checks } = readinessOf(s);
+  return checks
+    .map((c) => `${c.ok ? "✓" : c.advisory ? "💡" : "✗"} ${c.label}`)
+    .join("\n");
 }
 
 /**
@@ -199,9 +86,10 @@ export function ContextsPane({
   onDelete,
   onGenerate,
   onAttach,
-  onDocsChanged,
   generatingId,
   refreshToken,
+  widthPx,
+  onResize,
 }: {
   items: ContextSummary[];
   selectedId: string | null;
@@ -215,16 +103,16 @@ export function ContextsPane({
   onGenerate: (contextId: string) => void;
   /** Attach `docId` to `contextId` — dropped from the Library pane. */
   onAttach: (contextId: string, docId: string) => void;
-  /** A detach here changed the doc's context tags — let the caller refresh
-   *  the Library pane too (it holds its own, separate copy of the list). */
-  onDocsChanged?: () => void;
   generatingId: string | null;
   /** Bump this to re-fetch the child-doc list (e.g. after an attach). */
   refreshToken?: number;
+  /** This pane's current width, px — Library fills the rest. Only takes
+   *  visual effect at the `lg` breakpoint; see ContextsView.tsx. */
+  widthPx: number;
+  onResize: (px: number) => void;
 }) {
   const backend = useBackend();
   const [docs, setDocs] = useState<RagDocument[]>([]);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const refreshDocs = useCallback(() => {
@@ -235,24 +123,28 @@ export function ContextsPane({
     refreshDocs();
   }, [refreshDocs, refreshToken]);
 
-  const toggleExpand = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const detach = (docId: string, contextId: string) => {
-    void backend.rag.detachContext(docId, contextId).then(() => {
-      refreshDocs();
-      onDocsChanged?.();
-    });
-  };
-
   return (
-    <div className="card flex min-h-0 flex-col p-3">
+    <div className="card relative flex min-h-0 flex-col p-3">
+      {/* Right-edge width handle (mirrors TranscriptView.tsx's AllyPanel
+          left-edge handle) — dragging right widens this pane. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize panes"
+        onPointerDown={(e) => {
+          const startX = e.clientX;
+          const startW = widthPx;
+          const move = (ev: PointerEvent) =>
+            onResize(startW + (ev.clientX - startX));
+          const up = () => {
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", up);
+          };
+          window.addEventListener("pointermove", move);
+          window.addEventListener("pointerup", up);
+        }}
+        className="absolute inset-y-0 right-0 z-30 hidden w-[5px] cursor-col-resize hover:bg-panel-raised lg:block"
+      />
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-fg-muted">
           Conversation contexts
@@ -292,9 +184,15 @@ export function ContextsPane({
             // The always-present default: not editable or deletable —
             // system-managed until the community/LLM evolution owns it.
             const isDefault = s.id === DEFAULT_CONTEXT_ID;
-            const isOpen = expanded.has(s.id);
             const dragOver = dragOverId === s.id;
-            const children = docs.filter((d) => d.context_ids.includes(s.id));
+            // Every document tagged to this context — attached AND
+            // anything Ally generated for it (both already carry this
+            // context's id in context_ids at ingest time), so summing
+            // size_bytes here covers requirement 6's "total size" without
+            // needing to separately track source_doc_ids vs. the
+            // dossier/research/qa doc ids.
+            const contextDocs = docs.filter((d) => d.context_ids.includes(s.id));
+            const totalBytes = contextDocs.reduce((sum, d) => sum + d.size_bytes, 0);
             return (
               <li
                 key={s.id}
@@ -312,10 +210,7 @@ export function ContextsPane({
                   e.preventDefault();
                   setDragOverId(null);
                   const docId = e.dataTransfer.getData(DOC_DRAG_MIME);
-                  if (docId) {
-                    onAttach(s.id, docId);
-                    setExpanded((prev) => new Set(prev).add(s.id));
-                  }
+                  if (docId) onAttach(s.id, docId);
                 }}
                 className={[
                   "mb-1.5 rounded-md border p-2 transition last:mb-0",
@@ -329,26 +224,16 @@ export function ContextsPane({
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => toggleExpand(s.id)}
-                    aria-expanded={isOpen}
-                    aria-label={isOpen ? `Collapse ${s.title}` : `Expand ${s.title}`}
-                    title={isOpen ? "Hide documents" : "Show documents"}
-                    className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-                  >
-                    <Icon
-                      name="chevron"
-                      size={13}
-                      className={isOpen ? "" : "-rotate-90"}
-                    />
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => onSelect(s.id)}
-                    title="Focus this context in the library"
+                    title={titleTooltip(s, totalBytes)}
                     className="min-w-0 flex-1 text-left"
                   >
                     <p className="truncate text-[13px] font-semibold text-fg">{s.title}</p>
                   </button>
+                  <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-fg-faint">
+                    <Icon name="file" size={11} />
+                    {s.source_doc_count}
+                  </span>
                   <button
                     type="button"
                     onClick={() => onOpen(s.id)}
@@ -358,6 +243,47 @@ export function ContextsPane({
                   >
                     <Icon name="chevron" size={13} className="-rotate-90" />
                   </button>
+                  {!isDefault && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onEdit(s.id)}
+                        aria-label={`Edit setup for ${s.title}`}
+                        title="Edit setup"
+                        className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                      >
+                        <Icon name="edit" size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!readiness.canGenerate || isGenerating}
+                        onClick={() => onGenerate(s.id)}
+                        aria-label={`Generate resources for ${s.title}`}
+                        title={
+                          readiness.canGenerate
+                            ? regenerateTooltip(s)
+                            : "Add a document, key terms, or enable research first"
+                        }
+                        className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
+                      >
+                        <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
+                          <Icon name="sparkle" size={13} />
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(s.id)}
+                        aria-label={`Delete ${s.title}`}
+                        title="Delete"
+                        className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
+                      >
+                        <Icon name="trash" size={13} />
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <div className="mt-1 flex items-center gap-2 pl-0">
                   {isDefault ? (
                     <span className="pill pill-sm pill-accent shrink-0">Default</span>
                   ) : (
@@ -370,73 +296,18 @@ export function ContextsPane({
                     title={
                       status.label === "Stale"
                         ? "Inputs changed since resources were generated — regenerate"
-                        : undefined
+                        : readinessTooltip(s)
                     }
                   >
                     {isGenerating ? "Generating…" : status.label}
                   </span>
-                </div>
-
-                <div className="mt-1.5 flex items-center gap-2 pl-5">
                   <span className="text-[11px] text-fg-faint">
-                    {s.source_doc_count} doc{s.source_doc_count === 1 ? "" : "s"}
-                    {s.has_generated_resources ? " · generated" : ""}
+                    Updated {formatRelativeTime(s.updated_at_unix_ms)}
                   </span>
-                  <span className="flex-1" />
-                  {!isDefault && (
-                    <>
-                      <button
-                        type="button"
-                        disabled={!readiness.canGenerate || isGenerating}
-                        onClick={() => onGenerate(s.id)}
-                        title={
-                          readiness.canGenerate
-                            ? "Generate resources"
-                            : "Add a document, key terms, or enable research first"
-                        }
-                        aria-label={`Generate resources for ${s.title}`}
-                        className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
-                      >
-                        <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
-                          <Icon name="sparkle" size={14} />
-                        </span>
-                      </button>
-                      <RowMenu
-                        title={s.title}
-                        onEdit={() => onEdit(s.id)}
-                        onRegenerate={
-                          readiness.canGenerate && !isGenerating
-                            ? () => onGenerate(s.id)
-                            : null
-                        }
-                        onDelete={() => onDelete(s.id)}
-                      />
-                    </>
-                  )}
                 </div>
 
-                {isOpen && (
-                  <ul className="ml-5 mt-1 flex flex-col divide-y divide-border border-l border-border pl-2">
-                    {children.length === 0 ? (
-                      <li className="py-1 pl-1 text-[11px] text-fg-faint">
-                        {dragOver
-                          ? "Drop to attach"
-                          : "No documents yet — drag one from the library, or use its Attach button."}
-                      </li>
-                    ) : (
-                      children.map((d) => (
-                        <ChildDocRow key={d.id} doc={d} onDetach={() => detach(d.id, s.id)} />
-                      ))
-                    )}
-                  </ul>
-                )}
-
-                {s.status === "draft" && (
-                  <div className="mt-1.5 flex flex-col gap-0.5 border-t border-border pt-1.5">
-                    {readiness.checks.map((c) => (
-                      <ChecklistLine key={c.label} {...c} />
-                    ))}
-                  </div>
+                {dragOver && contextDocs.length === 0 && (
+                  <p className="mt-1 pl-0 text-[11px] text-fg-faint">Drop to attach</p>
                 )}
               </li>
             );

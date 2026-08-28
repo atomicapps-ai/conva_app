@@ -9,6 +9,7 @@ import { useBackend } from "@/lib/backend";
 import { DEFAULT_CONTEXT_ID, type ConversationContext, type ContextSummary } from "@/lib/ipc";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useLibraryQuickAdd } from "@/state/libraryQuickAdd";
+import { useUiPrefs } from "@/state/uiPrefs";
 
 type Mode =
   | { k: "list" }
@@ -49,6 +50,8 @@ export function ContextsView() {
         : { k: "list" },
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const leftWidthPx = useUiPrefs((s) => s.contextsLeftWidthPx);
+  const setLeftWidthPx = useUiPrefs((s) => s.setContextsLeftWidthPx);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -174,7 +177,10 @@ export function ContextsView() {
       {error && <p className="text-sm text-fg-muted">{error}</p>}
 
       {!error && (
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+        <div
+          className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[var(--contexts-left-w)_minmax(0,1fr)]"
+          style={{ "--contexts-left-w": `${leftWidthPx}px` } as React.CSSProperties}
+        >
           <ContextsPane
             items={items}
             selectedId={selectedId}
@@ -185,9 +191,10 @@ export function ContextsView() {
             onDelete={(id) => void remove(id)}
             onGenerate={(id) => void generate(id)}
             onAttach={(contextId, docId) => void attach(docId, contextId)}
-            onDocsChanged={bumpDocs}
             generatingId={generatingId}
             refreshToken={libraryRefreshToken}
+            widthPx={leftWidthPx}
+            onResize={setLeftWidthPx}
           />
           <LibraryPane
             contextTitles={contextTitles}

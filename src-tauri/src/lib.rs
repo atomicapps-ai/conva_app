@@ -1268,6 +1268,10 @@ fn context_generate_dossier(
     profile.updated_at_unix_ms = session::now_unix_ms();
     context::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
+    // Contexts-screen-redesign spec, requirement 5 — records when the
+    // dossier pipeline actually ran, distinct from `updated_at_unix_ms`
+    // (which also bumps on a plain title/purpose edit).
+    session.resources_generated_at_unix_ms = Some(session::now_unix_ms());
     context::save(&app, session).map_err(|e| e.to_string())
 }
 
@@ -1926,6 +1930,14 @@ pub fn run() {
             // before anything can call activate_context("default").
             if let Err(e) = context::ensure_default_context(app.handle(), &rag) {
                 eprintln!("[conva] couldn't seed the default context: {e}");
+            }
+
+            // One-time retroactive cleanup for generated documents an old bug
+            // orphaned (regenerate's delete-old-then-create-new step used to
+            // silently no-op — see `context::cleanup_orphaned_generated_docs`
+            // for the full story). Idempotent, local-only — safe every launch.
+            if let Err(e) = context::cleanup_orphaned_generated_docs(app.handle(), &rag) {
+                eprintln!("[conva] couldn't clean up orphaned generated docs: {e}");
             }
 
             // Performance tracing → <app-data>/perf.jsonl (+ [perf] stderr lines).
