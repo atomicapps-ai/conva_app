@@ -2433,8 +2433,10 @@ npm test -- --run
 npm run build
 ```
 
-Expected: build clean; test count reflects this file going from 4 tests
-to 7 (net `+3` on top of Phase 4's running total).
+Expected: build clean; test count reflects this file going from 5 tests
+to 7 (net `+2` on top of Phase 4's running total of 198 — landing at 200,
+not 201; caught during Task 6.2 execution — the old file actually had 5
+`it(...)` blocks, not 4).
 
 - [ ] **Step 4: Commit.**
 
