@@ -23,6 +23,15 @@ const QUESTIONS_MODE_KEY = "conva.panel.questionsMode";
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 560;
 const PANEL_WIDTH_DEFAULT = 340;
+// Contexts screen's Contexts-pane width — the resizable centerline
+// (Contexts-screen-redesign spec, requirement 7). Same width-px pattern as
+// panelWidthPx above (Library flexes to fill the rest), not a 0-1 ratio —
+// mirrors TranscriptView's AllyPanel resize handle exactly. Default ~430px
+// approximates today's fixed 1fr:1.3fr grid split at a typical window width.
+const CONTEXTS_LEFT_WIDTH_KEY = "conva.contexts.leftWidthPx";
+const CONTEXTS_LEFT_WIDTH_MIN = 320;
+const CONTEXTS_LEFT_WIDTH_MAX = 640;
+const CONTEXTS_LEFT_WIDTH_DEFAULT = 430;
 const FONT_MIN = 11;
 const FONT_MAX = 20;
 const FONT_DEFAULT = 14;
@@ -64,6 +73,9 @@ interface UiPrefs {
    *  bar's tab zone so they stay aligned (spec A.2). */
   panelWidthPx: number;
   setPanelWidthPx: (px: number) => void;
+  /** Contexts screen's Contexts-pane width, px — Library fills the rest. */
+  contextsLeftWidthPx: number;
+  setContextsLeftWidthPx: (px: number) => void;
   setAllyFontPx: (px: number) => void;
   bumpAllyFont: (delta: number) => void;
   bumpTranscriptFont: (delta: number) => void;
@@ -88,6 +100,12 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
     return v >= PANEL_WIDTH_MIN && v <= PANEL_WIDTH_MAX
       ? v
       : PANEL_WIDTH_DEFAULT;
+  })(),
+  contextsLeftWidthPx: (() => {
+    const v = Number(localStorage.getItem(CONTEXTS_LEFT_WIDTH_KEY));
+    return v >= CONTEXTS_LEFT_WIDTH_MIN && v <= CONTEXTS_LEFT_WIDTH_MAX
+      ? v
+      : CONTEXTS_LEFT_WIDTH_DEFAULT;
   })(),
   // Default pinned — the Answers dock stays visible unless turned off.
   answersPinned: localStorage.getItem(ANSWERS_PINNED_KEY) !== "false",
@@ -126,6 +144,14 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
     );
     localStorage.setItem(PANEL_WIDTH_KEY, String(clamped));
     set({ panelWidthPx: clamped });
+  },
+  setContextsLeftWidthPx: (px) => {
+    const clamped = Math.max(
+      CONTEXTS_LEFT_WIDTH_MIN,
+      Math.min(CONTEXTS_LEFT_WIDTH_MAX, Math.round(px)),
+    );
+    localStorage.setItem(CONTEXTS_LEFT_WIDTH_KEY, String(clamped));
+    set({ contextsLeftWidthPx: clamped });
   },
   setAllyFontPx: (px) => {
     const clamped = Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(px)));
