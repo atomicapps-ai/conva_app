@@ -82,11 +82,11 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
     if (disabled) return;
     e.stopPropagation();
     const r = e.currentTarget.getBoundingClientRect();
-    // Clamp to the viewport (same pattern as ContextsPane's RowMenu and
-    // TranscriptView's TermMenu) — anchoring purely off the trigger's left
-    // edge pushed this 300px panel off-screen whenever the trigger sat far
-    // enough right (e.g. GroundPicker's own default position in TopBar),
-    // which is exactly the "menu opens too far right, can't see it" bug.
+    // Clamp to the viewport (same pattern as TranscriptView's TermMenu) —
+    // anchoring purely off the trigger's left edge pushed this 300px panel
+    // off-screen whenever the trigger sat far enough right (e.g.
+    // GroundPicker's own default position in TopBar), which is exactly the
+    // "menu opens too far right, can't see it" bug.
     const MARGIN = 8;
     const PANEL_W = 300;
     const PANEL_H = 420; // matches max-h-[420px] below
