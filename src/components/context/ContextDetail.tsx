@@ -1,12 +1,62 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
+import { formatRelativeTime } from "@/lib/relativeTime";
 import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type ConversationContext } from "@/lib/ipc";
 import { useNavStore } from "@/state/nav";
 import { useRehearsalStore } from "@/state/rehearsal";
+
+/** One accordion section (Contexts-screen-redesign spec, requirement 8) —
+ *  collapsed to a one-line summary by default, tap to expand. Local to
+ *  this file rather than a change to the shared `Section` in
+ *  `ViewShell.tsx`, which many unrelated views also use. Mirrors
+ *  `Section`'s own card/title styling so it reads as the same visual
+ *  family, just with a toggle. */
+function CollapsibleSection({
+  id,
+  open,
+  onToggle,
+  title,
+  summary,
+  children,
+}: {
+  id: DetailSectionId;
+  open: boolean;
+  onToggle: (id: DetailSectionId) => void;
+  title: string;
+  summary: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="card p-4">
+      <button
+        type="button"
+        onClick={() => onToggle(id)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
+            {title}
+          </span>
+          {!open && (
+            <span className="ml-2 truncate text-[11px] text-fg-faint">{summary}</span>
+          )}
+        </span>
+        <Icon
+          name="chevron"
+          size={13}
+          className={`shrink-0 text-fg-faint transition ${open ? "" : "-rotate-90"}`}
+        />
+      </button>
+      {open && <div className="mt-3">{children}</div>}
+    </div>
+  );
+}
 
 /**
  * Context detail — the persona step (Step 3) and the launch point for the live
@@ -24,6 +74,7 @@ export function ContextDetail({
 }) {
   const backend = useBackend();
   const caps = useCapabilities();
+  const [openSection, setOpenSection] = useState<DetailSectionId | null>(null);
   const [session, setSession] = useState<ConversationContext | null>(null);
   const [profile, setProfile] = useState<KnowledgeProfile | null>(null);
   const [docs, setDocs] = useState<RagDocument[]>([]);
@@ -221,9 +272,18 @@ export function ContextDetail({
         </Section>
       )}
 
-      <Section
+      <CollapsibleSection
+        id="counterparty"
+        open={openSection === "counterparty"}
+        onToggle={(id) => setOpenSection((cur) => toggleDetailSection(cur, id))}
         title="Counterparty"
-        description="Choose who you'll rehearse against — the AI plays this persona, grounded in your knowledge base."
+        summary={
+          personas.length === 0
+            ? "No personas generated yet"
+            : chosenPersona
+              ? `${personas.length} persona${personas.length === 1 ? "" : "s"} — ${chosenPersona.title} chosen`
+              : `${personas.length} persona${personas.length === 1 ? "" : "s"} — none chosen`
+        }
       >
         {personas.length === 0 ? (
           <div className="flex flex-col gap-2">
@@ -299,11 +359,18 @@ export function ContextDetail({
             </button>
           </div>
         )}
-      </Section>
+      </CollapsibleSection>
 
-      <Section
+      <CollapsibleSection
+        id="knowledge"
+        open={openSection === "knowledge"}
+        onToggle={(id) => setOpenSection((cur) => toggleDetailSection(cur, id))}
         title="Knowledge base"
-        description="What grounds this rehearsal — your attached documents plus anything Ally researched. The AI persona draws on all of it."
+        summary={
+          profile
+            ? `${profile.doc_ids.length} document${profile.doc_ids.length === 1 ? "" : "s"}, updated ${formatRelativeTime(profile.updated_at_unix_ms)}`
+            : "Not prepared yet"
+        }
       >
         {!profile ? (
           <p className="text-[12px] text-fg-faint">
@@ -536,11 +603,14 @@ export function ContextDetail({
             </div>
           </div>
         )}
-      </Section>
+      </CollapsibleSection>
 
-      <Section
+      <CollapsibleSection
+        id="rehearse"
+        open={openSection === "rehearse"}
+        onToggle={(id) => setOpenSection((cur) => toggleDetailSection(cur, id))}
         title="Rehearse"
-        description="Opens the live cockpit — transcript, spine, and Ally. Speak your side out loud; pause and the persona replies in character and speaks back. Use a headset so it doesn't hear its own voice."
+        summary={chosen ? "Ready to start" : "Choose a persona first"}
       >
         <div className="flex flex-col gap-2">
           <button
@@ -562,7 +632,7 @@ export function ContextDetail({
             </p>
           )}
         </div>
-      </Section>
+      </CollapsibleSection>
     </ViewShell>
   );
 }
