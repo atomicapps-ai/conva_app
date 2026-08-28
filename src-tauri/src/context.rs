@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 use conva_core::context::{
-    extract_glossary, ContextCategory, ContextStatus, ContextSummary, ConversationContext,
-    KnowledgeProfile, ResearchSource, DEFAULT_CONTEXT_ID,
+    extract_glossary, orphaned_generated_doc_ids, ContextCategory, ContextStatus, ContextSummary,
+    ConversationContext, KnowledgeProfile, ResearchSource, DEFAULT_CONTEXT_ID,
 };
 use conva_core::CoreError;
 
@@ -114,6 +114,54 @@ specific is active."
         },
     )?;
     Ok(())
+}
+
+/// Retroactive cleanup for generated documents an old bug orphaned (see
+/// [`conva_core::context::orphaned_generated_doc_ids`] for the full story +
+/// the exact keep/delete rule). Run once at startup, right after
+/// [`ensure_default_context`] — local-only (no network), idempotent, safe to
+/// call on every launch. Logs and continues past a single failed delete
+/// rather than aborting the pass (one bad id shouldn't block cleaning up the
+/// rest, and startup must never hang or fail here).
+pub fn cleanup_orphaned_generated_docs(
+    app: &AppHandle,
+    rag: &RagStore,
+) -> Result<usize, CoreError> {
+    let dir = context_dir(app)?;
+    let mut contexts = Vec::new();
+    for entry in fs::read_dir(&dir)
+        .map_err(|e| CoreError::Audio(e.to_string()))?
+        .flatten()
+    {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(c) = serde_json::from_str::<ConversationContext>(&content) else {
+            continue;
+        };
+        contexts.push(c);
+    }
+
+    let docs = rag.list();
+    let orphans = orphaned_generated_doc_ids(&contexts, &docs);
+    let mut cleaned = 0usize;
+    for id in &orphans {
+        match rag.delete(id) {
+            Ok(()) => cleaned += 1,
+            Err(e) => eprintln!("[conva] couldn't delete orphaned generated doc {id}: {e}"),
+        }
+    }
+    if cleaned > 0 {
+        eprintln!(
+            "[conva] cleaned up {cleaned} orphaned generated document(s) from before the \
+             duplicate-doc fix"
+        );
+    }
+    Ok(cleaned)
 }
 
 /// Create or update a Context. An **empty `id`** mints a new record (assigns an

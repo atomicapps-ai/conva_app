@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::asr::TranscriptSegment;
 use crate::audio::StreamSide;
 use crate::llm::LlmRequest;
-use crate::rag::ScoredChunk;
+use crate::rag::{DocSource, RagDocument, ScoredChunk};
 
 /// Reserved id of the always-present default context ("General conversation")
 /// — a baseline briefing Ally grounds in when nothing more specific has been
@@ -1028,6 +1028,45 @@ pub fn grounding_changed(old: &ConversationContext, new: &ConversationContext) -
         || old.research_enabled != new.research_enabled
 }
 
+/// Generated documents (Stage 1-3 dossier/research findings/interview Q&A)
+/// an old bug could orphan: the setup wizard's save payload used to silently
+/// null out a context's `dossier_doc_id`/`research_doc_id`/`qa_doc_id` on
+/// every edit-save, so `generateDossier`'s "delete the old doc, then create
+/// the new one" step never found an "old" doc to delete — regenerating left
+/// the previous doc behind, forever, instead of replacing it. Fixed going
+/// forward; this is the retroactive cleanup for libraries that already
+/// accumulated orphans before the fix (run once at startup, idempotent).
+///
+/// A generated doc survives if any context it's tagged to (`context_ids`)
+/// currently claims it as ITS dossier/research/qa doc id right now.
+/// Everything else — a doc tagged to a context that's since been deleted, or
+/// belonging to a context that has since regenerated onto a different doc
+/// id — is an orphan: nothing in the app can reach it, and regenerating
+/// again would delete it anyway if it were still wired up, so it's safe to
+/// delete now. Generated docs with no `context_ids` at all are left alone —
+/// out of scope for this cleanup, not a state this always tags into
+/// existence today, but not this function's call to second-guess.
+pub fn orphaned_generated_doc_ids(
+    contexts: &[ConversationContext],
+    docs: &[RagDocument],
+) -> Vec<String> {
+    let mut keep: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for c in contexts {
+        for id in [&c.dossier_doc_id, &c.research_doc_id, &c.qa_doc_id]
+            .into_iter()
+            .flatten()
+        {
+            keep.insert(id.as_str());
+        }
+    }
+    docs.iter()
+        .filter(|d| d.source == DocSource::Generated)
+        .filter(|d| !d.context_ids.is_empty())
+        .filter(|d| !keep.contains(d.id.as_str()))
+        .map(|d| d.id.clone())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1344,6 +1383,61 @@ mod tests {
         let mut new_blank_jd = grounding_base();
         new_blank_jd.job_description = Some("   ".into());
         assert!(!grounding_changed(&old_no_jd, &new_blank_jd));
+    }
+
+    fn generated_doc(id: &str, context_ids: Vec<String>) -> RagDocument {
+        RagDocument {
+            id: id.into(),
+            file_name: format!("{id}.md"),
+            enabled: true,
+            chunk_count: 3,
+            ingested_at_unix_ms: 0,
+            source: DocSource::Generated,
+            context_ids,
+        }
+    }
+
+    #[test]
+    fn orphaned_generated_doc_ids_keeps_only_currently_claimed_docs() {
+        let mut ctx = sample_context();
+        ctx.dossier_doc_id = Some("doc-current-dossier".into());
+        ctx.research_doc_id = Some("doc-current-research".into());
+        ctx.qa_doc_id = None;
+
+        let docs = vec![
+            // Claimed right now — survives.
+            generated_doc("doc-current-dossier", vec!["s1".into()]),
+            generated_doc("doc-current-research", vec!["s1".into()]),
+            // Tagged to the context but not claimed by any of its three
+            // doc-id fields (the exact shape of the historical bug) — orphan.
+            generated_doc("doc-stale-dossier", vec!["s1".into()]),
+            // Tagged to a context id that no longer exists — orphan.
+            generated_doc("doc-deleted-context", vec!["gone".into()]),
+            // Not a generated doc — never a candidate, even if unclaimed.
+            RagDocument {
+                id: "doc-user-file".into(),
+                file_name: "resume.pdf".into(),
+                enabled: true,
+                chunk_count: 5,
+                ingested_at_unix_ms: 0,
+                source: DocSource::File,
+                context_ids: vec!["s1".into()],
+            },
+            // No context_ids at all — out of scope, left alone.
+            generated_doc("doc-untagged", vec![]),
+        ];
+
+        let mut orphans = orphaned_generated_doc_ids(&[ctx], &docs);
+        orphans.sort();
+        assert_eq!(orphans, vec!["doc-deleted-context", "doc-stale-dossier"]);
+    }
+
+    #[test]
+    fn orphaned_generated_doc_ids_empty_when_nothing_to_clean() {
+        let mut ctx = sample_context();
+        ctx.dossier_doc_id = Some("doc-1".into());
+        let docs = vec![generated_doc("doc-1", vec!["s1".into()])];
+        assert!(orphaned_generated_doc_ids(&[ctx], &docs).is_empty());
     }
 
     #[test]

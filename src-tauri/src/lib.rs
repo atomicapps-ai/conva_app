@@ -1928,6 +1928,14 @@ pub fn run() {
                 eprintln!("[conva] couldn't seed the default context: {e}");
             }
 
+            // One-time retroactive cleanup for generated documents an old bug
+            // orphaned (regenerate's delete-old-then-create-new step used to
+            // silently no-op — see `context::cleanup_orphaned_generated_docs`
+            // for the full story). Idempotent, local-only — safe every launch.
+            if let Err(e) = context::cleanup_orphaned_generated_docs(app.handle(), &rag) {
+                eprintln!("[conva] couldn't clean up orphaned generated docs: {e}");
+            }
+
             // Performance tracing → <app-data>/perf.jsonl (+ [perf] stderr lines).
             trace::init(data_dir.join("perf.jsonl"));
 
