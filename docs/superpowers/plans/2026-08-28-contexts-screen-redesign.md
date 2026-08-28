@@ -2482,20 +2482,35 @@ import { useRehearsalStore } from "@/state/rehearsal";
 import { useCallback, useEffect, useState } from "react";
 
 import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
-import { ViewShell } from "@/components/studio/ViewShell";
+import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
-import { formatBytes } from "@/lib/formatBytes";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type ConversationContext } from "@/lib/ipc";
 import { useNavStore } from "@/state/nav";
 import { useRehearsalStore } from "@/state/rehearsal";
+```
 
-function formatDate(unixMs: number): string {
-  return new Date(unixMs).toLocaleString();
-}
+  **Correction, caught during Task 7.1 execution:** the original draft of
+  this block also removed the `Section` import (keeping only `ViewShell`)
+  and added `formatBytes` + a `formatDate` helper here. Both were wrong:
+  Task 7.1 Step 3 explicitly keeps one bare `<Section title="Context">`
+  for the error state, so dropping the `Section` import is a hard
+  `tsc` failure (`noUnusedLocals`); and neither `formatBytes` nor
+  `formatDate` is actually called anywhere in Task 7.1's own edits — they
+  exist to serve Task 7.2's `docMeta()` helper, which is a separate,
+  later commit, so adding them here is *also* a `noUnusedLocals` failure
+  in the other direction. Both are deferred into Task 7.2's own Step 1
+  below, alongside `docMeta()`, where they're actually used. `Section`
+  stays imported the whole time — it's simply no longer imported
+  *alongside* `ViewShell` on the same line once `CollapsibleSection`
+  takes over most of its call sites; keeping the same-line grouping above
+  is fine since exactly one `<Section>` call site remains.
 
+- [ ] **Step 1½: Add the local `CollapsibleSection` component.**
+
+```tsx
 /** One accordion section (Contexts-screen-redesign spec, requirement 8) —
  *  collapsed to a one-line summary by default, tap to expand. Local to
  *  this file rather than a change to the shared `Section` in
@@ -2696,6 +2711,43 @@ git commit -m "feat(context): ContextDetail's three sections collapse to a one-l
 
 **Files:**
 - Modify: `src/components/context/ContextDetail.tsx`
+
+- [ ] **Step 0: Add the `formatBytes` import + `formatDate` helper**
+  (deferred here from Task 7.1 — see that task's Step 1 correction note;
+  they're unused until this task's `docMeta()` in Step 2 below). Before
+  (the top of the file, after Task 7.1 landed):
+
+```tsx
+import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
+import { Section, ViewShell } from "@/components/studio/ViewShell";
+import { Icon } from "@/components/ui/Icon";
+import { useBackend } from "@/lib/backend";
+import { useCapabilities } from "@/lib/backend/context";
+import { formatRelativeTime } from "@/lib/relativeTime";
+import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type ConversationContext } from "@/lib/ipc";
+```
+
+  After:
+
+```tsx
+import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
+import { Section, ViewShell } from "@/components/studio/ViewShell";
+import { Icon } from "@/components/ui/Icon";
+import { useBackend } from "@/lib/backend";
+import { useCapabilities } from "@/lib/backend/context";
+import { formatBytes } from "@/lib/formatBytes";
+import { formatRelativeTime } from "@/lib/relativeTime";
+import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type ConversationContext } from "@/lib/ipc";
+```
+
+  And add the helper next to `CollapsibleSection` (Task 7.1's component),
+  anywhere before its first use in this task's `docMeta()`:
+
+```tsx
+function formatDate(unixMs: number): string {
+  return new Date(unixMs).toLocaleString();
+}
+```
 
 - [ ] **Step 1: Move the three Knowledge-base stage explainer paragraphs into tooltips on each stage's icon.** Before (Stage 1 — Context knowledge):
 
