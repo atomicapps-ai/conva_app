@@ -26,12 +26,14 @@ const PANEL_WIDTH_DEFAULT = 340;
 // Contexts screen's Contexts-pane width — the resizable centerline
 // (Contexts-screen-redesign spec, requirement 7). Same width-px pattern as
 // panelWidthPx above (Library flexes to fill the rest), not a 0-1 ratio —
-// mirrors TranscriptView's AllyPanel resize handle exactly. Default ~430px
-// approximates today's fixed 1fr:1.3fr grid split at a typical window width.
+// mirrors TranscriptView's AllyPanel resize handle exactly. Trimmed down
+// (owner, 2026-08-28 — the 430px default read as too wide once the app's
+// default window width dropped back to 700px) so the two-pane layout is
+// comfortable at the app's actual default size, not just a maximized window.
 const CONTEXTS_LEFT_WIDTH_KEY = "conva.contexts.leftWidthPx";
-const CONTEXTS_LEFT_WIDTH_MIN = 320;
-const CONTEXTS_LEFT_WIDTH_MAX = 640;
-const CONTEXTS_LEFT_WIDTH_DEFAULT = 430;
+const CONTEXTS_LEFT_WIDTH_MIN = 220;
+const CONTEXTS_LEFT_WIDTH_MAX = 420;
+const CONTEXTS_LEFT_WIDTH_DEFAULT = 260;
 const FONT_MIN = 11;
 const FONT_MAX = 20;
 const FONT_DEFAULT = 14;

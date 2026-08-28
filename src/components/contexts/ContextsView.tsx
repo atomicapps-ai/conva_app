@@ -178,7 +178,7 @@ export function ContextsView() {
 
       {!error && (
         <div
-          className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[var(--contexts-left-w)_minmax(0,1fr)]"
+          className="grid min-h-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-[var(--contexts-left-w)_minmax(0,1fr)]"
           style={{ "--contexts-left-w": `${leftWidthPx}px` } as React.CSSProperties}
         >
           <ContextsPane

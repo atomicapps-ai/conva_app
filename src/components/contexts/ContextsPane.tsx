@@ -107,7 +107,7 @@ export function ContextsPane({
   /** Bump this to re-fetch the child-doc list (e.g. after an attach). */
   refreshToken?: number;
   /** This pane's current width, px — Library fills the rest. Only takes
-   *  visual effect at the `lg` breakpoint; see ContextsView.tsx. */
+   *  visual effect at the `sm` breakpoint; see ContextsView.tsx. */
   widthPx: number;
   onResize: (px: number) => void;
 }) {
@@ -143,7 +143,7 @@ export function ContextsPane({
           window.addEventListener("pointermove", move);
           window.addEventListener("pointerup", up);
         }}
-        className="absolute inset-y-0 right-0 z-30 hidden w-[5px] cursor-col-resize hover:bg-panel-raised lg:block"
+        className="absolute inset-y-0 right-0 z-30 hidden w-[5px] cursor-col-resize hover:bg-panel-raised sm:block"
       />
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-fg-muted">
