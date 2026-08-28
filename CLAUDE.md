@@ -322,3 +322,11 @@ mobile target. Full conventions + how to add iOS/Android targets:
   overwrite uncommitted work — detect a dirty tree, stop and list the blocking
   files, then apply and print a per-repo summary. Every command block names its
   branch + path.
+- **PowerShell commands you hand the owner: flat and paste-compatible, not a
+  file.** (Owner, 2026-08-28 — their terminal can't paste a multi-line script
+  block; written down so it doesn't have to be re-derived.) Send a short,
+  literal sequence of standalone commands, one per line, directly in the
+  chat reply — no `function`/`param()` blocks, no `#` comments, no blank
+  lines, no here-strings. Chain with `;` only if collapsing onto one line;
+  otherwise plain sequential lines are fine. Never attach it as a file — the
+  owner runs these by pasting straight into PowerShell.
