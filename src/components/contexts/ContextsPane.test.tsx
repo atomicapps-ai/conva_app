@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ContextsPane } from "@/components/contexts/ContextsPane";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
-import type { ContextSummary } from "@/lib/ipc";
+import type { ContextSummary, RagDocument } from "@/lib/ipc";
 
 afterEach(cleanup);
 
@@ -28,64 +28,57 @@ function summary(overrides: Partial<ContextSummary> = {}): ContextSummary {
 
 const noop = () => undefined;
 
-// ContextsPane fetches the document list itself (to render each context's
-// expanded child-doc tree) — a bare-bones fake is enough for these tests,
-// none of which expand a row.
-function fakeBackend(): ConvaBackend {
+// ContextsPane fetches the document list itself (to sum each context's
+// total size, and for the drag-and-drop drop target) — a bare-bones fake
+// is enough for these tests.
+function fakeBackend(docs: RagDocument[] = []): ConvaBackend {
   return {
     rag: {
-      list: vi.fn().mockResolvedValue([]),
+      list: vi.fn().mockResolvedValue(docs),
       detachContext: vi.fn().mockResolvedValue(undefined),
     },
   } as unknown as ConvaBackend;
 }
 
-function renderPane(ui: ReactElement) {
-  return render(<BackendProvider backend={fakeBackend()}>{ui}</BackendProvider>);
+function renderPane(ui: ReactElement, docs: RagDocument[] = []) {
+  return render(<BackendProvider backend={fakeBackend(docs)}>{ui}</BackendProvider>);
 }
 
+const defaultProps = {
+  selectedId: null,
+  onSelect: noop,
+  onOpen: noop,
+  onNew: noop,
+  onEdit: noop,
+  onDelete: noop,
+  onGenerate: noop,
+  onAttach: noop,
+  generatingId: null,
+  widthPx: 400,
+  onResize: noop,
+};
+
 describe("ContextsPane", () => {
-  it("disables Generate until the context has a grounding source, and shows why", () => {
-    renderPane(
-      <ContextsPane
-        items={[summary()]}
-        selectedId={null}
-        onSelect={noop}
-        onOpen={noop}
-        onNew={noop}
-        onEdit={noop}
-        onDelete={noop}
-        onGenerate={noop}
-        onAttach={noop}
-        generatingId={null}
-        widthPx={400}
-        onResize={noop}
-      />,
-    );
+  it("disables Generate until the context has a grounding source, and the status pill explains why", () => {
+    renderPane(<ContextsPane {...defaultProps} items={[summary()]} />);
     expect(
       screen.getByRole("button", { name: /generate resources for acme interview/i }),
     ).toBeDisabled();
-    expect(
-      screen.getByText(/at least one grounding source/i),
-    ).toBeInTheDocument();
+    // The readiness checklist now lives in the status pill's hover tooltip,
+    // not always-visible text.
+    expect(screen.getByText("Draft")).toHaveAttribute(
+      "title",
+      expect.stringContaining("At least one grounding source"),
+    );
   });
 
   it("enables Generate once key terms are declared, and calls onGenerate", () => {
     const onGenerate = vi.fn();
     renderPane(
       <ContextsPane
+        {...defaultProps}
         items={[summary({ has_key_terms: true })]}
-        selectedId={null}
-        onSelect={noop}
-        onOpen={noop}
-        onNew={noop}
-        onEdit={noop}
-        onDelete={noop}
         onGenerate={onGenerate}
-        onAttach={noop}
-        generatingId={null}
-        widthPx={400}
-        onResize={noop}
       />,
     );
     const btn = screen.getByRole("button", {
@@ -97,75 +90,91 @@ describe("ContextsPane", () => {
   });
 
   it("hides the New Context button off-desktop (web has no Context folder to write to)", () => {
-    renderPane(
-      <ContextsPane
-        items={[]}
-        selectedId={null}
-        onSelect={noop}
-        onOpen={noop}
-        onNew={noop}
-        onEdit={noop}
-        onDelete={noop}
-        onGenerate={noop}
-        onAttach={noop}
-        generatingId={null}
-        widthPx={400}
-        onResize={noop}
-      />,
-    );
+    renderPane(<ContextsPane {...defaultProps} items={[]} />);
     // jsdom has no __TAURI__ global -> isDesktop is false -> button absent.
     expect(screen.queryByRole("button", { name: "Add a New Context" })).toBeNull();
   });
 
-  it("keeps Open + Generate inline and tucks Edit/Delete behind the ⋮ menu", () => {
+  it("shows Open, Edit, Regenerate, and Delete as direct icon buttons — no overflow menu", () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
+    const onOpen = vi.fn();
     renderPane(
       <ContextsPane
+        {...defaultProps}
         items={[summary({ has_key_terms: true })]}
-        selectedId={null}
-        onSelect={noop}
-        onOpen={noop}
-        onNew={noop}
         onEdit={onEdit}
         onDelete={onDelete}
-        onGenerate={noop}
-        onAttach={noop}
-        generatingId={null}
-        widthPx={400}
-        onResize={noop}
+        onOpen={onOpen}
       />,
     );
-    // Edit/Delete aren't inline row buttons — only behind the menu.
-    expect(screen.queryByRole("button", { name: "Edit setup" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    // No overflow menu of any kind.
+    expect(screen.queryByRole("button", { name: /more actions/i })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /more actions for acme interview/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /edit setup/i }));
+    fireEvent.click(screen.getByRole("button", { name: /open acme interview/i }));
+    expect(onOpen).toHaveBeenCalledWith("s1");
+
+    fireEvent.click(screen.getByRole("button", { name: /edit setup for acme interview/i }));
     expect(onEdit).toHaveBeenCalledWith("s1");
 
-    fireEvent.click(screen.getByRole("button", { name: /more actions for acme interview/i }));
-    fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
+    fireEvent.click(screen.getByRole("button", { name: /delete acme interview/i }));
     expect(onDelete).toHaveBeenCalledWith("s1");
   });
 
-  it("Ready contexts don't show the checklist", () => {
+  it("Ready contexts' status pill carries no readiness tooltip", () => {
     renderPane(
       <ContextsPane
+        {...defaultProps}
         items={[summary({ status: "ready", has_key_terms: true })]}
-        selectedId={null}
-        onSelect={noop}
-        onOpen={noop}
-        onNew={noop}
-        onEdit={noop}
-        onDelete={noop}
-        onGenerate={noop}
-        onAttach={noop}
-        generatingId={null}
-        widthPx={400}
-        onResize={noop}
       />,
     );
-    expect(screen.queryByText(/at least one grounding source/i)).toBeNull();
+    expect(screen.getByText("Ready")).not.toHaveAttribute("title");
+  });
+
+  it("Regenerate's tooltip reads 'Never regenerated' until the context has one, then the relative time", () => {
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        items={[
+          summary({
+            has_key_terms: true,
+            resources_generated_at_unix_ms: Date.now() - 2 * 3_600_000,
+          }),
+        ]}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /generate resources for acme interview/i }),
+    ).toHaveAttribute("title", expect.stringContaining("Last regenerated"));
+  });
+
+  it("the title's hover tooltip totals size across every document tagged to this context", async () => {
+    const docs: RagDocument[] = [
+      {
+        id: "d1",
+        file_name: "resume.pdf",
+        enabled: true,
+        chunk_count: 2,
+        ingested_at_unix_ms: 0,
+        source: "file",
+        context_ids: ["s1"],
+        size_bytes: 1000,
+      },
+      {
+        id: "d2",
+        file_name: "Acme — Context knowledge",
+        enabled: true,
+        chunk_count: 3,
+        ingested_at_unix_ms: 0,
+        source: "generated",
+        context_ids: ["s1"],
+        size_bytes: 500,
+      },
+    ];
+    renderPane(<ContextsPane {...defaultProps} items={[summary({ source_doc_count: 1 })]} />, docs);
+    // The doc list loads asynchronously (backend.rag.list()) — findBy
+    // flushes it.
+    const titleBtn = await screen.findByTitle(/1500 B total|1\.5 KB total/i);
+    expect(titleBtn).toHaveTextContent("Acme interview");
   });
 });
