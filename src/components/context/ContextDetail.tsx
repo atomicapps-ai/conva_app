@@ -5,6 +5,7 @@ import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
+import { formatBytes } from "@/lib/formatBytes";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type ConversationContext } from "@/lib/ipc";
 import { useNavStore } from "@/state/nav";
@@ -56,6 +57,10 @@ function CollapsibleSection({
       {open && <div className="mt-3">{children}</div>}
     </div>
   );
+}
+
+function formatDate(unixMs: number): string {
+  return new Date(unixMs).toLocaleString();
 }
 
 /**
@@ -384,7 +389,12 @@ export function ContextDetail({
             <div className="rounded-lg border border-ai/30 bg-ai/[0.06] p-3">
               {/* Row 1 — Context knowledge (Stage 1) */}
               <div className="flex items-center gap-2">
-                <Icon name="simicon" size={15} className="shrink-0 text-ai" />
+                <span
+                  title="Stage 1 — Ally reads the role, job description, and your documents together and writes a structured knowledge document (role profile, core vocabulary, likely Q&A). Saved to your Library and indexed for grounding."
+                  className="shrink-0"
+                >
+                  <Icon name="simicon" size={15} className="text-ai" />
+                </span>
                 <span className="text-[12px] font-semibold text-fg">
                   Context knowledge
                 </span>
@@ -411,12 +421,6 @@ export function ContextDetail({
                       : "Generate"}
                 </button>
               </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-fg-faint">
-                Stage 1 — Ally reads the role, job description, and your
-                documents together and writes a structured knowledge document
-                (role profile, core vocabulary, likely Q&A). Saved to your
-                Library and indexed for grounding.
-              </p>
               {session?.resources_stale && (
                 <p className="mt-1 text-[11px] font-semibold text-ai">
                   Inputs changed since this was generated — Regenerate to
@@ -435,7 +439,18 @@ export function ContextDetail({
 
               {/* Row 2 — Research findings (Stage 2) */}
               <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
-                <Icon name="search" size={15} className="shrink-0 text-ai" />
+                <span
+                  title={
+                    session?.research_enabled
+                      ? researchDocId
+                        ? "Stage 2 — what Ally found on the web for this context, with sources cited. Regenerating resources refreshes it."
+                        : "Stage 2 — runs with Generate when web research is enabled (needs a search key in Settings)."
+                      : "Web research is off for this context — enable it in Edit setup to generate findings."
+                  }
+                  className="shrink-0"
+                >
+                  <Icon name="search" size={15} className="text-ai" />
+                </span>
                 <span className="text-[12px] font-semibold text-fg">
                   Research findings
                 </span>
@@ -450,13 +465,6 @@ export function ContextDetail({
                   </button>
                 )}
               </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-fg-faint">
-                {session?.research_enabled
-                  ? researchDocId
-                    ? "Stage 2 — what Ally found on the web for this context, with sources cited. Regenerating resources refreshes it."
-                    : "Stage 2 — runs with Generate when web research is enabled (needs a search key in Settings)."
-                  : "Web research is off for this context — enable it in Edit setup to generate findings."}
-              </p>
               {researchDocId && showResearch && (
                 <pre className="mt-2 max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg/50 p-2.5 text-[12px] leading-relaxed text-fg-muted">
                   {researchText === null
@@ -471,7 +479,18 @@ export function ContextDetail({
               {session?.category === "interview" && (
                 <>
                   <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
-                    <Icon name="question" size={15} className="shrink-0 text-ai" />
+                    <span
+                      title={
+                        qaDocId
+                          ? "Common interview questions Ally found online, with strong answers."
+                          : session?.deep_qa_enabled
+                            ? "Runs with Generate — deep Q&A research is on for this context."
+                            : 'Turn on "Deep interview Q&A research" in Edit setup to generate this.'
+                      }
+                      className="shrink-0"
+                    >
+                      <Icon name="question" size={15} className="text-ai" />
+                    </span>
                     <span className="text-[12px] font-semibold text-fg">
                       Interview Q&A
                     </span>
@@ -486,13 +505,6 @@ export function ContextDetail({
                       </button>
                     )}
                   </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-fg-faint">
-                    {qaDocId
-                      ? "Common interview questions Ally found online, with strong answers."
-                      : session?.deep_qa_enabled
-                        ? "Runs with Generate — deep Q&A research is on for this context."
-                        : 'Turn on "Deep interview Q&A research" in Edit setup to generate this.'}
-                  </p>
                   {qaDocId && showQa && (
                     <pre className="mt-2 max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg/50 p-2.5 text-[12px] leading-relaxed text-fg-muted">
                       {qaText === null
@@ -512,6 +524,21 @@ export function ContextDetail({
               const attached = profile.doc_ids.filter(
                 (d) => d !== dossierId && d !== researchDocId && d !== qaDocId,
               );
+              const docMeta = (docId: string): string => {
+                const d = docs.find((x) => x.id === docId);
+                if (!d) return docName(docId);
+                const kind =
+                  d.source === "generated"
+                    ? "By conva"
+                    : d.source === "pasted"
+                      ? "Pasted note"
+                      : "File";
+                return [
+                  docName(docId),
+                  `${kind} · ${d.chunk_count} chunk${d.chunk_count === 1 ? "" : "s"} · ${formatBytes(d.size_bytes)}`,
+                  `Added ${formatDate(d.ingested_at_unix_ms)}`,
+                ].join("\n");
+              };
               return (
                 <div>
                   <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">
@@ -538,7 +565,7 @@ export function ContextDetail({
                                   docId,
                                 )
                               }
-                              title={`View "${docName(docId)}"`}
+                              title={docMeta(docId)}
                               aria-label={`View "${docName(docId)}"`}
                               className="flex w-full items-center gap-1.5 rounded-sm text-left text-[12px] text-fg-muted transition hover:text-ai"
                             >
@@ -553,6 +580,7 @@ export function ContextDetail({
                         ) : (
                           <li
                             key={docId}
+                            title={docMeta(docId)}
                             className="flex items-center gap-1.5 text-[12px] text-fg-muted"
                           >
                             <Icon
