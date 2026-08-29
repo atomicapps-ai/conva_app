@@ -27,13 +27,17 @@ const noop = () => undefined;
 
 function fakeBackend(
   docs: RagDocument[],
-  overrides: Partial<{ capabilities: unknown; partnerOpen: ReturnType<typeof vi.fn> }> = {},
+  overrides: Partial<{
+    capabilities: unknown;
+    partnerOpen: ReturnType<typeof vi.fn>;
+    deleteDoc: ReturnType<typeof vi.fn>;
+  }> = {},
 ): ConvaBackend {
   return {
     rag: {
       list: vi.fn().mockResolvedValue(docs),
       setEnabled: vi.fn().mockResolvedValue(undefined),
-      delete: vi.fn().mockResolvedValue(undefined),
+      delete: overrides.deleteDoc ?? vi.fn().mockResolvedValue(undefined),
     },
     partner: {
       open: overrides.partnerOpen ?? vi.fn().mockResolvedValue(undefined),
@@ -73,10 +77,13 @@ describe("LibraryPane row", () => {
     expect(screen.queryByTitle("Acme interview")).toBeNull();
   });
 
-  it("has no overflow menu when nothing applies (no contexts, no partner window, no open conversation)", async () => {
+  it("the overflow menu shows only Delete when nothing else applies (no contexts, no partner window, no open conversation)", async () => {
     renderPane([doc()]);
     await screen.findByText("resume.pdf");
-    expect(screen.queryByRole("button", { name: /more actions/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /more actions for resume\.pdf/i }));
+    expect(screen.getByRole("menuitem", { name: /delete/i })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /attach to a context/i })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /^view$/i })).toBeNull();
   });
 });
 
@@ -102,6 +109,16 @@ describe("LibraryRowMenu", () => {
     fireEvent.click(await screen.findByRole("button", { name: /more actions for resume\.pdf/i }));
     fireEvent.click(screen.getByRole("menuitem", { name: /^view$/i }));
     expect(partnerOpen).toHaveBeenCalledWith("resume.pdf", null, null, null, [], "d1");
+  });
+
+  it("Delete is always present and calls backend.rag.delete for this document", async () => {
+    const deleteDoc = vi.fn().mockResolvedValue(undefined);
+    renderPane([doc()], {}, { deleteDoc });
+    await screen.findByText("resume.pdf");
+
+    fireEvent.click(screen.getByRole("button", { name: /more actions for resume\.pdf/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
+    expect(deleteDoc).toHaveBeenCalledWith("d1");
   });
 
   it("shows Link to the open conversation, toggling on click", async () => {

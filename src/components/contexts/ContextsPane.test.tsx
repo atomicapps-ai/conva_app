@@ -95,10 +95,11 @@ describe("ContextsPane", () => {
     expect(screen.queryByRole("button", { name: "Add a New Context" })).toBeNull();
   });
 
-  it("shows Open, Edit, Regenerate, and Delete as direct icon buttons — no overflow menu", () => {
+  it("the title opens the context directly; the doc-count control selects it (focuses Library) — no overflow menu, no separate chevron", () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
     const onOpen = vi.fn();
+    const onSelect = vi.fn();
     renderPane(
       <ContextsPane
         {...defaultProps}
@@ -106,6 +107,7 @@ describe("ContextsPane", () => {
         onEdit={onEdit}
         onDelete={onDelete}
         onOpen={onOpen}
+        onSelect={onSelect}
       />,
     );
     // No overflow menu of any kind.
@@ -114,11 +116,28 @@ describe("ContextsPane", () => {
     fireEvent.click(screen.getByRole("button", { name: /open acme interview/i }));
     expect(onOpen).toHaveBeenCalledWith("s1");
 
+    fireEvent.click(
+      screen.getByRole("button", { name: /show documents for acme interview in library/i }),
+    );
+    expect(onSelect).toHaveBeenCalledWith("s1");
+
     fireEvent.click(screen.getByRole("button", { name: /edit setup for acme interview/i }));
     expect(onEdit).toHaveBeenCalledWith("s1");
 
     fireEvent.click(screen.getByRole("button", { name: /delete acme interview/i }));
     expect(onDelete).toHaveBeenCalledWith("s1");
+  });
+
+  it("the Default context's row carries a distinct border — it's a template, not an owner-made context", () => {
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        items={[summary({ id: DEFAULT_CONTEXT_ID, title: "General conversation" })]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /open general conversation/i }).closest("li")).toHaveClass(
+      "border-notice/40",
+    );
   });
 
   it("Ready contexts' info popover shows Type/Status/Updated and no readiness checklist", () => {
@@ -201,5 +220,38 @@ describe("ContextsPane", () => {
     // flushes it.
     const titleBtn = await screen.findByTitle(/1500 B total|1\.5 KB total/i);
     expect(titleBtn).toHaveTextContent("Acme interview");
+  });
+
+  it("the search box filters rows by title", () => {
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        items={[summary({ id: "s1", title: "Acme interview" }), summary({ id: "s2", title: "Weekly sync" })]}
+      />,
+    );
+    expect(screen.getByText("Acme interview")).toBeInTheDocument();
+    expect(screen.getByText("Weekly sync")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: /search contexts/i }), {
+      target: { value: "weekly" },
+    });
+    expect(screen.queryByText("Acme interview")).toBeNull();
+    expect(screen.getByText("Weekly sync")).toBeInTheDocument();
+  });
+
+  it("the Category filter narrows rows to the selected category", () => {
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        items={[
+          summary({ id: "s1", title: "Acme interview", category: "interview" }),
+          summary({ id: "s2", title: "Beta sales call", category: "sales_call" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^filter$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Sales call" }));
+    expect(screen.queryByText("Acme interview")).toBeNull();
+    expect(screen.getByText("Beta sales call")).toBeInTheDocument();
   });
 });
