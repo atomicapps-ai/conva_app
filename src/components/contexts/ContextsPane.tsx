@@ -345,15 +345,19 @@ export function ContextsPane({
                   "mb-1 rounded-md border px-2 py-1 transition last:mb-0",
                   dragOver
                     ? "border-ai/60 bg-ai/[0.06]"
-                    : selectedId === s.id
-                      ? "border-primary/40 bg-primary/[0.06]"
-                      : // The Default context is a template, not a context the
-                        // owner made — a distinct border says so at a glance
-                        // (owner, 2026-08-29), without claiming the "selected"
-                        // (primary) or "dragging onto" (ai) colors above.
-                        isDefault
-                        ? "border-notice/40"
-                        : "border-border",
+                    : // The Default context is a template, not a context the
+                      // owner made — a distinct border says so at a glance
+                      // (owner, 2026-08-29), without claiming the
+                      // "dragging onto" (ai) color above. The row body
+                      // itself has no click handler, so — unlike this and
+                      // the drag state — "focused in Library" (below) is
+                      // never expressed as a whole-row highlight (owner,
+                      // 2026-08-29: "there should only be a click affect on
+                      // the title and icons not the general body of the
+                      // card that has no event tied to it").
+                      isDefault
+                      ? "border-notice/40"
+                      : "border-border",
                 ].join(" ")}
               >
                 <div className="flex items-center gap-1.5">
@@ -386,8 +390,17 @@ export function ContextsPane({
                     type="button"
                     onClick={() => onSelect(s.id)}
                     aria-label={`Show documents for ${s.title} in Library`}
+                    aria-pressed={selectedId === s.id}
                     title="Show this context's documents in Library"
-                    className="flex shrink-0 items-center gap-0.5 rounded-sm p-0.5 text-[11px] text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                    className={[
+                      "flex shrink-0 items-center gap-0.5 rounded-sm p-0.5 text-[11px] transition hover:bg-panel-raised/60",
+                      // The click effect lives on this icon, not the row
+                      // (see the row's className comment above) — a light
+                      // fill/tint says "Library is filtered to this one".
+                      selectedId === s.id
+                        ? "bg-primary/10 text-primary hover:text-primary"
+                        : "text-fg-faint hover:text-fg",
+                    ].join(" ")}
                   >
                     <Icon name="file" size={11} />
                     {s.source_doc_count}

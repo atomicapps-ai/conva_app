@@ -424,7 +424,12 @@ impl RagStore {
             document: RagDocument {
                 id: id.clone(),
                 file_name,
-                enabled: true,
+                // A freshly-ingested document starts unchecked (owner,
+                // 2026-08-29: "by default the library documents shouldn't
+                // be auto checked") — the user opts a document into
+                // retrieval explicitly, rather than every add silently
+                // widening what grounds every conversation.
+                enabled: false,
                 chunk_count: chunks.len() as u32,
                 ingested_at_unix_ms: crate::session::now_unix_ms(),
                 source,
@@ -889,7 +894,14 @@ mod tests {
         assert_eq!(report.document.file_name, "Warranty terms.txt");
         assert!(report.document.chunk_count >= 1);
 
-        // Retrievable like any other document.
+        // Unchecked by default — not part of retrieval yet.
+        assert!(!report.document.enabled);
+        assert!(store
+            .retrieve("how long is the parts warranty", 3)
+            .is_empty());
+
+        // Enabling it makes it retrievable like any other document.
+        store.set_enabled(&report.document.id, true).unwrap();
         let hits = store.retrieve("how long is the parts warranty", 3);
         assert!(hits.iter().any(|h| h.text.contains("5 year warranty")));
 
@@ -992,7 +1004,9 @@ mod tests {
 
         let docs = store.list();
         assert_eq!(docs.len(), 1);
+        assert!(!docs[0].enabled, "unchecked by default");
 
+        store.set_enabled(&docs[0].id, true).unwrap();
         let hits = store.retrieve("how much does the maintenance plan cost", 3);
         assert!(!hits.is_empty());
         assert!(hits[0].text.contains("$90"));
