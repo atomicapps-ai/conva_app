@@ -147,7 +147,7 @@ export function ContextsPane({
       />
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-fg-muted">
-          Conversation contexts
+          Contexts
         </h3>
         {isDesktop && (
           // Icon-only + tooltip (owner decision, 2026-08-17) — "Brief Ally"
