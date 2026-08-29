@@ -222,6 +222,29 @@ body {
   overflow: hidden;
 }
 
+/* Tailwind's preflight (v3.3+, still true in v4) resets <button> to the
+ * browser's native default cursor ("default", i.e. the plain arrow) rather
+ * than "pointer" — a deliberate upstream change to match native <button>
+ * behavior, but this app never restored it, so essentially every button in
+ * the whole app (200+, per an owner report 2026-08-29) showed the wrong
+ * cursor on hover. Also covers non-<button> elements marked `role="button"`
+ * (a few custom clickable spans in TranscriptView.tsx/AllyAccordion.tsx) and
+ * <summary> (native disclosure triangles), which have the identical gap for
+ * the identical reason — role doesn't affect CSS, only accessibility. Explicit
+ * cursor utilities elsewhere (drag handles, resize handles) are unaffected —
+ * this only fills in the missing default. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
 /* Ambient atmosphere — V4.0: the three-voice aurora (brand v2) is retired.
    Two soft azure radials (top-right + bottom-left), single-hue, low opacity —
    surfaces stay "cool navy, no green undertone" per the V4.0 tokens even
