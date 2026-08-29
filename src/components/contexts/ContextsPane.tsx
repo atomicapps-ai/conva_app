@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { readinessOf } from "@/components/contexts/readiness";
-import { rowStatus } from "@/components/contexts/rowStatus";
+import { rowStatus, type RowStatus } from "@/components/contexts/rowStatus";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { formatBytes } from "@/lib/formatBytes";
@@ -47,27 +47,121 @@ function regenerateTooltip(s: ContextSummary): string {
     : "Never regenerated";
 }
 
-/** Tooltip text for the status pill, draft only (requirement 3-4's
- *  readiness-checklist relocation — rows no longer expand to show it
- *  inline, so it moves here). `undefined` when there's nothing to show
- *  (non-draft contexts never carried this checklist either). */
-function readinessTooltip(s: ContextSummary): string | undefined {
-  if (s.status !== "draft") return undefined;
-  const { checks } = readinessOf(s);
-  return checks
-    .map((c) => `${c.ok ? "✓" : c.advisory ? "💡" : "✗"} ${c.label}`)
-    .join("\n");
+/** Click-triggered popover (owner, 2026-08-28 — the row went to one line,
+ *  so Type/Status/Updated moved off the row itself and behind an "i" icon).
+ *  Same open/close-on-outside-{click,resize,scroll} shape as
+ *  `LibraryRowMenu` in `LibraryPane.tsx` and the retired `RowMenu`. */
+function ContextInfoPopover({
+  s,
+  isDefault,
+  status,
+}: {
+  s: ContextSummary;
+  isDefault: boolean;
+  status: RowStatus;
+}) {
+  const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(null);
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [open]);
+
+  const readinessChecks = s.status === "draft" ? readinessOf(s).checks : null;
+
+  return (
+    <span className="relative shrink-0">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          const MARGIN = 8;
+          const POPOVER_W = 220;
+          const x = Math.max(MARGIN, Math.min(r.left, window.innerWidth - POPOVER_W - MARGIN));
+          setOpen((o) => (o ? null : { x, y: r.bottom + 4 }));
+        }}
+        aria-label={`Info for ${s.title}`}
+        aria-haspopup="dialog"
+        aria-expanded={open !== null}
+        title="Info"
+        className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+      >
+        <Icon name="info" size={13} />
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label={`Info for ${s.title}`}
+          onClick={(e) => e.stopPropagation()}
+          style={{ position: "fixed", left: open.x, top: open.y, zIndex: 60 }}
+          className="glass-raised w-[220px] rounded-lg border border-border p-2.5 shadow-[var(--shadow-lg)]"
+        >
+          <dl className="flex flex-col gap-1.5 text-[11px]">
+            <div>
+              <dt className="text-[9px] font-semibold uppercase tracking-wider text-fg-faint">
+                Type
+              </dt>
+              <dd className="text-fg">{isDefault ? "Default" : CATEGORY_LABEL[s.category]}</dd>
+            </div>
+            <div>
+              <dt className="text-[9px] font-semibold uppercase tracking-wider text-fg-faint">
+                Status
+              </dt>
+              <dd className="text-fg">{status.label}</dd>
+              {readinessChecks && (
+                <ul className="mt-1 flex flex-col gap-0.5">
+                  {readinessChecks.map((c) => (
+                    <li
+                      key={c.label}
+                      className={`flex items-start gap-1 text-[10px] ${c.ok ? "text-ok" : c.advisory ? "text-fg-faint" : "text-rec"}`}
+                    >
+                      <Icon
+                        name={c.ok ? "check" : advisoryOrClose(c.advisory)}
+                        size={10}
+                        className="mt-[1px] shrink-0"
+                      />
+                      <span>{c.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <dt className="text-[9px] font-semibold uppercase tracking-wider text-fg-faint">
+                Updated
+              </dt>
+              <dd className="text-fg">{formatRelativeTime(s.updated_at_unix_ms)}</dd>
+            </div>
+          </dl>
+        </div>
+      )}
+    </span>
+  );
+}
+
+// A failing advisory check reads as a hint, not an error — matches the
+// (now-retired) ChecklistLine's own ok/advisory/blocking icon choice.
+function advisoryOrClose(advisory: boolean | undefined): "lightbulb" | "close" {
+  return advisory ? "lightbulb" : "close";
 }
 
 /**
- * The Contexts pane: create/edit/delete/generate, each row expandable to
- * show the documents grounding it (including anything Ally generated) —
- * and a drop target for a Library row's drag payload, so dragging a
- * document from the Library pane onto a context attaches it (owner
- * decision, 2026-08-16, reinstating drag-and-drop after Library moved back
- * onto this same screen — `AttachMenu`'s click-to-pick popover on the
- * Library row still works too; this is an additional, faster path now that
- * both panes are visible together again, not a replacement for it).
+ * The Contexts pane: create/edit/delete/generate, each row a drop target
+ * for a Library row's drag payload, so dragging a document from the
+ * Library pane onto a context attaches it (owner decision, 2026-08-16,
+ * reinstating drag-and-drop after Library moved back onto this same
+ * screen — `LibraryRowMenu`'s "Attach to a context…" click-to-pick item on
+ * the Library row still works too; this is an additional, faster path now
+ * that both panes are visible together again, not a replacement for it).
  *
  * `onDragOver`/`onDragEnter` call `preventDefault()` unconditionally rather
  * than gating on `dataTransfer.types.includes(DOC_DRAG_MIME)` first — some
@@ -213,7 +307,7 @@ export function ContextsPane({
                   if (docId) onAttach(s.id, docId);
                 }}
                 className={[
-                  "mb-1.5 rounded-md border p-2 transition last:mb-0",
+                  "mb-1 rounded-md border px-2 py-1 transition last:mb-0",
                   dragOver
                     ? "border-ai/60 bg-ai/[0.06]"
                     : selectedId === s.id
@@ -222,6 +316,17 @@ export function ContextsPane({
                 ].join(" ")}
               >
                 <div className="flex items-center gap-1.5">
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dotClass}`}
+                    title={
+                      isGenerating
+                        ? "Generating…"
+                        : status.label === "Stale"
+                          ? "Stale — inputs changed since resources were generated"
+                          : status.label
+                    }
+                    aria-hidden
+                  />
                   <button
                     type="button"
                     onClick={() => onSelect(s.id)}
@@ -234,6 +339,7 @@ export function ContextsPane({
                     <Icon name="file" size={11} />
                     {s.source_doc_count}
                   </span>
+                  <ContextInfoPopover s={s} isDefault={isDefault} status={status} />
                   <button
                     type="button"
                     onClick={() => onOpen(s.id)}
@@ -287,29 +393,6 @@ export function ContextsPane({
                       <Icon name="trash" size={13} />
                     </button>
                   )}
-                </div>
-
-                <div className="mt-1 flex items-center gap-2 pl-0">
-                  {isDefault ? (
-                    <span className="pill pill-sm pill-accent shrink-0">Default</span>
-                  ) : (
-                    <span className="pill pill-sm pill-idle shrink-0">
-                      {CATEGORY_LABEL[s.category]}
-                    </span>
-                  )}
-                  <span
-                    className={`pill pill-sm shrink-0 ${status.tone}`}
-                    title={
-                      status.label === "Stale"
-                        ? "Inputs changed since resources were generated — regenerate"
-                        : readinessTooltip(s)
-                    }
-                  >
-                    {isGenerating ? "Generating…" : status.label}
-                  </span>
-                  <span className="text-[11px] text-fg-faint">
-                    Updated {formatRelativeTime(s.updated_at_unix_ms)}
-                  </span>
                 </div>
 
                 {dragOver && contextDocs.length === 0 && (

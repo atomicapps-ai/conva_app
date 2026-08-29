@@ -31,6 +31,7 @@ export type IconName =
   | "thumbUp"
   | "thumbDown"
   | "book"
+  | "info"
   | "howto"
   | "question"
   | "target"
@@ -267,6 +268,14 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M12 6.5C10.5 5 8 4.5 4 4.8v12.4c4-.3 6.5.2 8 1.7 1.5-1.5 4-2 8-1.7V4.8c-4-.3-6.5.2-8 1.7z" />
       <path d="M12 6.5v12.1" />
+    </>
+  ),
+  // Info — a lower-case "i" in a circle (context-row detail popover).
+  info: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5.5" />
+      <path d="M12 8h.01" />
     </>
   ),
   // How-to — a question mark in a rounded square.

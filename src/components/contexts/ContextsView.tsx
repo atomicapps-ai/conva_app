@@ -21,9 +21,10 @@ type Mode =
  * (owner decision, 2026-08-16, reversing an earlier same-day un-merge):
  * "do not have library separate... make it part of conversation [Contexts]."
  * `LibraryPane` sits alongside `ContextsPane`; attaching a document to a
- * context is still the click-to-pick popover (`AttachMenu`), not
- * drag-and-drop — that call stands regardless of the two panes being back
- * on one screen (see `LibraryPane.tsx`'s doc comment for the full why).
+ * context is still the click-to-pick popover (`LibraryRowMenu`'s "Attach
+ * to a context…" item), not drag-and-drop-only — that call stands
+ * regardless of the two panes being back on one screen (see
+ * `LibraryPane.tsx`'s doc comment for the full why).
  *
  * Quick-add: ⌘K's "Add a document…" / "Paste a note…" / "New context…"
  * commands (`CommandPalette.tsx`) set an intent in `useLibraryQuickAdd` and
