@@ -18,6 +18,7 @@ export type IconName =
   | "record"
   | "compact"
   | "search"
+  | "filter"
   | "command"
   | "close"
   | "chevron"
@@ -213,6 +214,8 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M20 20l-4.5-4.5" />
     </>
   ),
+  // Filter — a funnel (search-bar filter-property popover trigger).
+  filter: <path d="M22 3H2l8 9.46V19l4 2v-8.54z" />,
   // The ⌘ command glyph.
   command: (
     <path d="M9 9V7.5A2.5 2.5 0 1 0 6.5 10H9m0 0v5m0-5h6m0 0V7.5A2.5 2.5 0 1 1 17.5 10H15m0 0v5m0 0v1.5A2.5 2.5 0 1 0 17.5 14H15m0 0H9m0 0v1.5A2.5 2.5 0 1 1 6.5 14H9" />

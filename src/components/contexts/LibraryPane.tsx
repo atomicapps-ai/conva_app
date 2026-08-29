@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { FilterPopover } from "@/components/contexts/FilterPopover";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
@@ -75,6 +76,7 @@ function LibraryRowMenu({
   conversationTitle,
   linked,
   onToggleLink,
+  onDelete,
 }: {
   doc: RagDocument;
   contextTitles: Record<string, string>;
@@ -85,6 +87,7 @@ function LibraryRowMenu({
   conversationTitle: string | null;
   linked: boolean;
   onToggleLink: () => void;
+  onDelete: () => void;
 }) {
   const [view, setView] = useState<"menu" | "attach" | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -103,7 +106,9 @@ function LibraryRowMenu({
     };
   }, [view]);
 
-  if (entries.length === 0 && !canView && !conversationOpen) return null;
+  // Delete lives here unconditionally now (owner, 2026-08-29 — "put the 3
+  // dots to the far right and include the trashcan inside that 3dot
+  // menu"), so — unlike before — this never has nothing to show.
 
   return (
     <span className="relative shrink-0">
@@ -175,6 +180,18 @@ function LibraryRowMenu({
                   {linked ? `Unlink from "${conversationTitle}"` : `Link to "${conversationTitle}"`}
                 </button>
               )}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setView(null);
+                  onDelete();
+                }}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-rec transition hover:bg-rec/10"
+              >
+                <Icon name="trash" size={13} />
+                Delete
+              </button>
             </>
           ) : (
             entries.map(([id, title]) => {
@@ -457,30 +474,25 @@ export function LibraryPane({
         </div>
       </div>
 
-      <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search documents"
-        aria-label="Search documents"
-        className="input mb-2 h-[30px] text-xs"
-      />
-
-      <div className="mb-2 flex flex-wrap gap-1.5">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            onClick={() => setFilter(f.key)}
-            className={[
-              "rounded-full border px-2 py-0.5 text-[11px] transition",
-              filter === f.key
-                ? "border-primary/50 bg-primary/[0.12] text-fg"
-                : "border-border text-fg-faint hover:text-fg",
-            ].join(" ")}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="mb-2 flex items-center gap-1.5">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search documents"
+          aria-label="Search documents"
+          className="input h-[30px] flex-1 text-xs"
+        />
+        <FilterPopover
+          groups={[
+            {
+              key: "source",
+              label: "Source",
+              options: FILTERS.map((f) => ({ value: f.key, label: f.label })),
+              selected: filter,
+              onChange: (v) => setFilter(v as Filter),
+            },
+          ]}
+        />
       </div>
 
       {pasteOpen && (
@@ -606,6 +618,20 @@ export function LibraryPane({
                     <Icon name="book" size={13} className="text-fg-faint" />
                   </span>
                 )}
+                {isTauri() && (
+                  <button
+                    type="button"
+                    onClick={() => void downloadDoc(doc)}
+                    aria-label={`Download ${doc.file_name}`}
+                    title="Download"
+                    className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                  >
+                    <Icon name="download" size={12} />
+                  </button>
+                )}
+                {/* Far right (owner, 2026-08-29) — the row's one remaining
+                    "more" surface; Delete moved in here too rather than
+                    staying its own standalone icon. */}
                 <LibraryRowMenu
                   doc={doc}
                   contextTitles={contextTitles}
@@ -618,27 +644,8 @@ export function LibraryPane({
                   conversationTitle={conversationTitle}
                   linked={linkedDocs.includes(doc.id)}
                   onToggleLink={() => void toggleLinkedDoc(doc.id)}
+                  onDelete={() => void backend.rag.delete(doc.id).then(refresh)}
                 />
-                {isTauri() && (
-                  <button
-                    type="button"
-                    onClick={() => void downloadDoc(doc)}
-                    aria-label={`Download ${doc.file_name}`}
-                    title="Download"
-                    className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-                  >
-                    <Icon name="download" size={12} />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void backend.rag.delete(doc.id).then(refresh)}
-                  aria-label={`Delete ${doc.file_name}`}
-                  title="Delete"
-                  className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
-                >
-                  <Icon name="trash" size={12} />
-                </button>
               </li>
               );
             })}

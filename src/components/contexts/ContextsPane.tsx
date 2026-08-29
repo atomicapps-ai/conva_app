@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { FilterPopover } from "@/components/contexts/FilterPopover";
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { readinessOf } from "@/components/contexts/readiness";
 import { rowStatus, type RowStatus } from "@/components/contexts/rowStatus";
@@ -208,6 +209,8 @@ export function ContextsPane({
   const backend = useBackend();
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<"all" | ContextCategory>("all");
 
   const refreshDocs = useCallback(() => {
     backend.rag.list().then(setDocs).catch(() => {});
@@ -216,6 +219,13 @@ export function ContextsPane({
   useEffect(() => {
     refreshDocs();
   }, [refreshDocs, refreshToken]);
+
+  const visibleItems = items.filter((s) => {
+    const q = search.trim().toLowerCase();
+    if (q && !s.title.toLowerCase().includes(q)) return false;
+    if (categoryFilter !== "all" && s.category !== categoryFilter) return false;
+    return true;
+  });
 
   return (
     <div className="card relative flex min-h-0 flex-col p-3">
@@ -264,14 +274,39 @@ export function ContextsPane({
         )}
       </div>
 
-      {items.length === 0 ? (
+      <div className="mb-2 flex items-center gap-1.5">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search contexts"
+          aria-label="Search contexts"
+          className="input h-[30px] flex-1 text-xs"
+        />
+        <FilterPopover
+          groups={[
+            {
+              key: "category",
+              label: "Category",
+              options: [
+                { value: "all", label: "All" },
+                ...Object.entries(CATEGORY_LABEL).map(([value, label]) => ({ value, label })),
+              ],
+              selected: categoryFilter,
+              onChange: (v) => setCategoryFilter(v as "all" | ContextCategory),
+            },
+          ]}
+        />
+      </div>
+
+      {visibleItems.length === 0 ? (
         <p className="px-1 py-6 text-center text-[11px] leading-relaxed text-fg-faint">
-          Create a context to prep Ally for an interview, meeting, or call —
-          ground it in your library, then generate its own briefing.
+          {items.length === 0
+            ? "Create a context to prep Ally for an interview, meeting, or call — ground it in your library, then generate its own briefing."
+            : "No contexts match."}
         </p>
       ) : (
         <ul className="min-h-0 flex-1 overflow-y-auto">
-          {items.map((s) => {
+          {visibleItems.map((s) => {
             const readiness = readinessOf(s);
             const status = rowStatus(s);
             const isGenerating = generatingId === s.id;
@@ -312,7 +347,13 @@ export function ContextsPane({
                     ? "border-ai/60 bg-ai/[0.06]"
                     : selectedId === s.id
                       ? "border-primary/40 bg-primary/[0.06]"
-                      : "border-border",
+                      : // The Default context is a template, not a context the
+                        // owner made — a distinct border says so at a glance
+                        // (owner, 2026-08-29), without claiming the "selected"
+                        // (primary) or "dragging onto" (ai) colors above.
+                        isDefault
+                        ? "border-notice/40"
+                        : "border-border",
                 ].join(" ")}
               >
                 <div className="flex items-center gap-1.5">
@@ -327,28 +368,31 @@ export function ContextsPane({
                     }
                     aria-hidden
                   />
+                  {/* Title opens the context directly (owner, 2026-08-29 —
+                      "the user should be able to click the title to open it
+                      naturally"), replacing the old separate chevron button.
+                      The doc-count control took over what the title used to
+                      do (focus this context in Library). */}
                   <button
                     type="button"
-                    onClick={() => onSelect(s.id)}
+                    onClick={() => onOpen(s.id)}
+                    aria-label={`Open ${s.title}`}
                     title={titleTooltip(s, totalBytes)}
                     className="min-w-0 flex-1 text-left"
                   >
                     <p className="truncate text-[13px] font-semibold text-fg">{s.title}</p>
                   </button>
-                  <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-fg-faint">
-                    <Icon name="file" size={11} />
-                    {s.source_doc_count}
-                  </span>
-                  <ContextInfoPopover s={s} isDefault={isDefault} status={status} />
                   <button
                     type="button"
-                    onClick={() => onOpen(s.id)}
-                    aria-label={`Open ${s.title}`}
-                    title="Open"
-                    className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                    onClick={() => onSelect(s.id)}
+                    aria-label={`Show documents for ${s.title} in Library`}
+                    title="Show this context's documents in Library"
+                    className="flex shrink-0 items-center gap-0.5 rounded-sm p-0.5 text-[11px] text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
                   >
-                    <Icon name="chevron" size={13} className="-rotate-90" />
+                    <Icon name="file" size={11} />
+                    {s.source_doc_count}
                   </button>
+                  <ContextInfoPopover s={s} isDefault={isDefault} status={status} />
                   {!isDefault && (
                     <button
                       type="button"
