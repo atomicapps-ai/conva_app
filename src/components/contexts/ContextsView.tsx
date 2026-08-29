@@ -50,6 +50,11 @@ export function ContextsView() {
         ? { k: "setup", initial: null }
         : { k: "list" },
   );
+  // Which context's documents Library is filtered to — set by a context
+  // row's doc-count control (`ContextsPane`), toggled off by clicking it
+  // again or Library's own clear-filter banner. Purely a Library filter,
+  // not a "selection": it never navigates and never highlights the whole
+  // context row (owner, 2026-08-29).
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const leftWidthPx = useUiPrefs((s) => s.contextsLeftWidthPx);
   const setLeftWidthPx = useUiPrefs((s) => s.setContextsLeftWidthPx);
@@ -203,6 +208,8 @@ export function ContextsView() {
             onAttach={(docId, contextId) => void attach(docId, contextId)}
             refreshToken={libraryRefreshToken}
             quickAction={quickAction === "upload" || quickAction === "paste" ? quickAction : null}
+            focusContextId={selectedId}
+            onClearFocus={() => setSelectedId(null)}
           />
         </div>
       )}

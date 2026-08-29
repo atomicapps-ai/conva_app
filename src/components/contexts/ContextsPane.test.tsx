@@ -128,6 +128,21 @@ describe("ContextsPane", () => {
     expect(onDelete).toHaveBeenCalledWith("s1");
   });
 
+  it("selecting a context never highlights the row body — only the doc-count icon reflects it", () => {
+    renderPane(
+      <ContextsPane {...defaultProps} items={[summary()]} selectedId="s1" />,
+    );
+    const row = screen.getByRole("button", { name: /open acme interview/i }).closest("li");
+    expect(row).not.toHaveClass("border-primary/40");
+    expect(row).toHaveClass("border-border");
+
+    const docCountBtn = screen.getByRole("button", {
+      name: /show documents for acme interview in library/i,
+    });
+    expect(docCountBtn).toHaveClass("bg-primary/10");
+    expect(docCountBtn).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("the Default context's row carries a distinct border — it's a template, not an owner-made context", () => {
     renderPane(
       <ContextsPane

@@ -77,6 +77,23 @@ describe("LibraryPane row", () => {
     expect(screen.queryByTitle("Acme interview")).toBeNull();
   });
 
+  it("focusContextId filters to that context's documents, with a clearable banner", async () => {
+    const onClearFocus = vi.fn();
+    renderPane(
+      [
+        doc({ id: "d1", file_name: "resume.pdf", context_ids: ["c1"] }),
+        doc({ id: "d2", file_name: "cover-letter.pdf", context_ids: [] }),
+      ],
+      { contextTitles: { c1: "Acme interview" }, focusContextId: "c1", onClearFocus },
+    );
+    await screen.findByText("resume.pdf");
+    expect(screen.queryByText("cover-letter.pdf")).toBeNull();
+    expect(screen.getByText("Acme interview")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /clear filter/i }));
+    expect(onClearFocus).toHaveBeenCalled();
+  });
+
   it("the overflow menu shows only Delete when nothing else applies (no contexts, no partner window, no open conversation)", async () => {
     renderPane([doc()]);
     await screen.findByText("resume.pdf");

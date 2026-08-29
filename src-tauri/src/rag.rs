@@ -424,7 +424,12 @@ impl RagStore {
             document: RagDocument {
                 id: id.clone(),
                 file_name,
-                enabled: true,
+                // A freshly-ingested document starts unchecked (owner,
+                // 2026-08-29: "by default the library documents shouldn't
+                // be auto checked") — the user opts a document into
+                // retrieval explicitly, rather than every add silently
+                // widening what grounds every conversation.
+                enabled: false,
                 chunk_count: chunks.len() as u32,
                 ingested_at_unix_ms: crate::session::now_unix_ms(),
                 source,
@@ -889,7 +894,14 @@ mod tests {
         assert_eq!(report.document.file_name, "Warranty terms.txt");
         assert!(report.document.chunk_count >= 1);
 
-        // Retrievable like any other document.
+        // Unchecked by default — not part of retrieval yet.
+        assert!(!report.document.enabled);
+        assert!(store
+            .retrieve("how long is the parts warranty", 3)
+            .is_empty());
+
+        // Enabling it makes it retrievable like any other document.
+        store.set_enabled(&report.document.id, true).unwrap();
         let hits = store.retrieve("how long is the parts warranty", 3);
         assert!(hits.iter().any(|h| h.text.contains("5 year warranty")));
 
@@ -992,7 +1004,9 @@ mod tests {
 
         let docs = store.list();
         assert_eq!(docs.len(), 1);
+        assert!(!docs[0].enabled, "unchecked by default");
 
+        store.set_enabled(&docs[0].id, true).unwrap();
         let hits = store.retrieve("how much does the maintenance plan cost", 3);
         assert!(!hits.is_empty());
         assert!(hits[0].text.contains("$90"));
@@ -1016,16 +1030,18 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
 
         let store = RagStore::open(&dir).unwrap();
-        // Three chunks: "common" in all; "refrigerant" in one.
-        store
-            .ingest_text("a", "common maintenance details here")
-            .unwrap();
-        store
-            .ingest_text("b", "common refrigerant certification requirement")
-            .unwrap();
-        store
-            .ingest_text("c", "common office hours weekdays")
-            .unwrap();
+        // Three chunks: "common" in all; "refrigerant" in one. Enabled
+        // explicitly — a freshly-ingested document starts unchecked, and
+        // the in-memory BM25 index (which token_idf reads) only covers
+        // enabled documents.
+        for (name, text) in [
+            ("a", "common maintenance details here"),
+            ("b", "common refrigerant certification requirement"),
+            ("c", "common office hours weekdays"),
+        ] {
+            let doc = store.ingest_text(name, text).unwrap().document;
+            store.set_enabled(&doc.id, true).unwrap();
+        }
 
         // The rarity signal (Phase 3b): rarer term → higher IDF.
         assert!(
@@ -1098,6 +1114,9 @@ mod tests {
             .ingest_text("b", "the maintenance plan also covers filters")
             .unwrap()
             .document;
+        // Enabled explicitly — a freshly-ingested document starts unchecked.
+        store.set_enabled(&a.id, true).unwrap();
+        store.set_enabled(&b.id, true).unwrap();
 
         // Unscoped: both documents are eligible.
         let unscoped = store.retrieve("maintenance plan", 5);

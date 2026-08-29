@@ -238,12 +238,17 @@ function LibraryRowMenu({
  * see that file and CLAUDE.md's drag-and-drop note for the real trade-off
  * this carries for Library's own OS file-drop ingest. `contextTitles`
  * (id → title) drives both the picker and a doc's own context-tag label.
+ * `focusContextId` (set from a context's doc-count control in
+ * `ContextsPane`) filters the list to that context's documents, with a
+ * dismissible banner as the "show everything again" affordance.
  */
 export function LibraryPane({
   contextTitles,
   onAttach,
   refreshToken,
   quickAction,
+  focusContextId,
+  onClearFocus,
 }: {
   contextTitles: Record<string, string>;
   /** Attach `docId` to `contextId` — the real mutation
@@ -255,6 +260,14 @@ export function LibraryPane({
    *  ⌘K's quick-add commands (`useLibraryQuickAdd`), consumed by the
    *  caller before it ever reaches here, so this only ever fires once. */
   quickAction?: "upload" | "paste" | null;
+  /** Set by clicking a context's doc-count control in `ContextsPane`
+   *  (owner, 2026-08-29: "when I click the document icon in the context
+   *  card it doesn't auto select the documents on the library") — filters
+   *  the list to documents attached to this context. */
+  focusContextId?: string | null;
+  /** Clears `focusContextId` — the banner's ✕, and clicking the same
+   *  doc-count control again (`ContextsView`'s toggle). */
+  onClearFocus?: () => void;
 }) {
   const backend = useBackend();
   const caps = useCapabilities();
@@ -419,12 +432,13 @@ export function LibraryPane({
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     return documents.filter((d) => {
+      if (focusContextId && !d.context_ids.includes(focusContextId)) return false;
       if (q && !d.file_name.toLowerCase().includes(q)) return false;
       if (filter === "pasted") return d.source === "pasted";
       if (filter === "generated") return d.source === "generated";
       return true;
     });
-  }, [documents, search, filter]);
+  }, [documents, search, filter, focusContextId]);
 
   const rowIcon = (d: RagDocument) =>
     d.source === "generated" ? "sparkle" : d.source === "pasted" ? "clipboard" : "file";
@@ -494,6 +508,25 @@ export function LibraryPane({
           ]}
         />
       </div>
+
+      {focusContextId && (
+        <div className="mb-2 flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/[0.06] px-2 py-1 text-[11px] text-fg">
+          <Icon name="file" size={11} className="shrink-0 text-primary" />
+          <span className="min-w-0 flex-1 truncate">
+            Showing documents for{" "}
+            <span className="font-semibold">{contextTitles[focusContextId] ?? "this context"}</span>
+          </span>
+          <button
+            type="button"
+            onClick={onClearFocus}
+            aria-label="Clear filter"
+            title="Show all documents"
+            className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+          >
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
 
       {pasteOpen && (
         <div className="mb-2 rounded-md border border-border p-2">
