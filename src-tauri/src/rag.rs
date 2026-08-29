@@ -1030,16 +1030,18 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
 
         let store = RagStore::open(&dir).unwrap();
-        // Three chunks: "common" in all; "refrigerant" in one.
-        store
-            .ingest_text("a", "common maintenance details here")
-            .unwrap();
-        store
-            .ingest_text("b", "common refrigerant certification requirement")
-            .unwrap();
-        store
-            .ingest_text("c", "common office hours weekdays")
-            .unwrap();
+        // Three chunks: "common" in all; "refrigerant" in one. Enabled
+        // explicitly — a freshly-ingested document starts unchecked, and
+        // the in-memory BM25 index (which token_idf reads) only covers
+        // enabled documents.
+        for (name, text) in [
+            ("a", "common maintenance details here"),
+            ("b", "common refrigerant certification requirement"),
+            ("c", "common office hours weekdays"),
+        ] {
+            let doc = store.ingest_text(name, text).unwrap().document;
+            store.set_enabled(&doc.id, true).unwrap();
+        }
 
         // The rarity signal (Phase 3b): rarer term → higher IDF.
         assert!(
@@ -1112,6 +1114,9 @@ mod tests {
             .ingest_text("b", "the maintenance plan also covers filters")
             .unwrap()
             .document;
+        // Enabled explicitly — a freshly-ingested document starts unchecked.
+        store.set_enabled(&a.id, true).unwrap();
+        store.set_enabled(&b.id, true).unwrap();
 
         // Unscoped: both documents are eligible.
         let unscoped = store.retrieve("maintenance plan", 5);
