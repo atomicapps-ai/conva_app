@@ -11,7 +11,8 @@ const SUPPORTED = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
 /** The custom drag payload MIME a library row carries — read by ContextsPane
  * rows to attach the dragged document. Reinstated (owner decision,
  * 2026-08-16) now that Library sits next to Contexts on one screen again —
- * `AttachMenu` below is still there as the click alternative. */
+ * `LibraryRowMenu` below (its "Attach to a context…" item) is still there
+ * as the click alternative. */
 export const DOC_DRAG_MIME = "application/x-conva-doc-id";
 
 /** Default title for a pasted note (owner spec): words + numbers only — no
@@ -54,21 +55,44 @@ const FILTERS: { key: Filter; label: string }[] = [
  *  Already-attached contexts show a check and are unclickable. Replaces
  *  the earlier drag-to-attach gesture (see the doc comment on
  *  `LibraryPane` for why). */
-function AttachMenu({
+/**
+ * The row's overflow ⋮ menu (owner, 2026-08-28 — the row shows only
+ * checkbox/source-icon/name/context-icon/download/trash inline now; every
+ * other action lives here): Attach to a context… (a second "page" of the
+ * same popover — the former standalone `AttachMenu`, folded in), View
+ * (partner window, when supported), and Link/Unlink to the open
+ * conversation (when one is open). Renders nothing when none apply. Same
+ * open/close-on-outside-{click,resize,scroll} shape the old `AttachMenu`
+ * used (and `ContextInfoPopover` in `ContextsPane.tsx` mirrors too).
+ */
+function LibraryRowMenu({
   doc,
   contextTitles,
   onAttach,
+  canView,
+  onView,
+  conversationOpen,
+  conversationTitle,
+  linked,
+  onToggleLink,
 }: {
   doc: RagDocument;
   contextTitles: Record<string, string>;
   onAttach: (docId: string, contextId: string) => void;
+  canView: boolean;
+  onView: () => void;
+  conversationOpen: boolean;
+  conversationTitle: string | null;
+  linked: boolean;
+  onToggleLink: () => void;
 }) {
-  const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
+  const [view, setView] = useState<"menu" | "attach" | null>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const entries = Object.entries(contextTitles);
 
   useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(null);
+    if (!view) return;
+    const close = () => setView(null);
     window.addEventListener("click", close);
     window.addEventListener("resize", close);
     window.addEventListener("scroll", close, true);
@@ -77,9 +101,9 @@ function AttachMenu({
       window.removeEventListener("resize", close);
       window.removeEventListener("scroll", close, true);
     };
-  }, [open]);
+  }, [view]);
 
-  if (entries.length === 0) return null;
+  if (entries.length === 0 && !canView && !conversationOpen) return null;
 
   return (
     <span className="relative shrink-0">
@@ -88,57 +112,96 @@ function AttachMenu({
         onClick={(e) => {
           e.stopPropagation();
           const r = e.currentTarget.getBoundingClientRect();
-          // Same viewport clamp as GroundPicker (owner-reported there,
-          // 2026-08-17) — this menu had the identical unclamped-left bug,
-          // just not yet hit because Library rows sit further from the
-          // right edge than GroundPicker's trigger.
           const MARGIN = 8;
           const MENU_W = 220;
-          const MENU_H = Math.min(entries.length * 30 + 8, 320);
-          const x = Math.max(MARGIN, Math.min(r.left, window.innerWidth - MENU_W - MARGIN));
-          const y = Math.max(MARGIN, Math.min(r.bottom + 4, window.innerHeight - MENU_H - MARGIN));
-          setOpen((o) => (o ? null : { x, y }));
+          const x = Math.max(MARGIN, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - MARGIN));
+          setPos({ x, y: r.bottom + 4 });
+          setView((v) => (v ? null : "menu"));
         }}
-        title="Attach to a context…"
-        aria-label={`Attach ${doc.file_name} to a context`}
+        title="More actions"
+        aria-label={`More actions for ${doc.file_name}`}
         aria-haspopup="menu"
-        aria-expanded={open !== null}
-        className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai"
+        aria-expanded={view !== null}
+        className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
       >
-        <Icon name="simicon" size={13} />
+        <Icon name="more" size={13} />
       </button>
-      {open && (
+      {view && pos && (
         <div
           role="menu"
-          aria-label={`Attach ${doc.file_name} to a context`}
+          aria-label={`Actions for ${doc.file_name}`}
           onClick={(e) => e.stopPropagation()}
-          style={{ position: "fixed", left: open.x, top: open.y, zIndex: 60 }}
+          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 60 }}
           className="glass-raised max-h-[320px] min-w-[180px] max-w-[220px] overflow-y-auto rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
         >
-          {entries.map(([id, title]) => {
-            const attached = doc.context_ids.includes(id);
-            return (
-              <button
-                key={id}
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={attached}
-                disabled={attached}
-                onClick={() => {
-                  onAttach(doc.id, id);
-                  setOpen(null);
-                }}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
-              >
-                <Icon
-                  name="check"
-                  size={12}
-                  className={attached ? "text-ok" : "invisible"}
-                />
-                <span className="min-w-0 flex-1 truncate">{title}</span>
-              </button>
-            );
-          })}
+          {view === "menu" ? (
+            <>
+              {entries.length > 0 && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => setView("attach")}
+                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+                >
+                  Attach to a context…
+                  <Icon name="chevron" size={12} className="-rotate-90 shrink-0 text-fg-faint" />
+                </button>
+              )}
+              {canView && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setView(null);
+                    onView();
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+                >
+                  <Icon name="expand" size={13} className="text-fg-faint" />
+                  View
+                </button>
+              )}
+              {conversationOpen && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setView(null);
+                    onToggleLink();
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+                >
+                  <Icon name="link" size={13} className={linked ? "text-ai" : "text-fg-faint"} />
+                  {linked ? `Unlink from "${conversationTitle}"` : `Link to "${conversationTitle}"`}
+                </button>
+              )}
+            </>
+          ) : (
+            entries.map(([id, title]) => {
+              const attached = doc.context_ids.includes(id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={attached}
+                  disabled={attached}
+                  onClick={() => {
+                    onAttach(doc.id, id);
+                    setView(null);
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
+                >
+                  <Icon
+                    name="check"
+                    size={12}
+                    className={attached ? "text-ok" : "invisible"}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{title}</span>
+                </button>
+              );
+            })
+          )}
         </div>
       )}
     </span>
@@ -148,7 +211,8 @@ function AttachMenu({
 /**
  * The Library pane: search + filter chips, add/paste documents, each row a
  * drag SOURCE (`DOC_DRAG_MIME`) for dropping onto a context in
- * `ContextsPane`, plus a click-to-pick popover (`AttachMenu`) as the
+ * `ContextsPane`, plus a click-to-pick popover (`LibraryRowMenu`'s "Attach
+ * to a context…" item) as the
  * always-available alternative — dragging a webview element can fail in
  * ways that are hard to diagnose remotely (this pairing was dropped once
  * this session over exactly that, then reinstated per owner decision,
@@ -507,9 +571,6 @@ export function LibraryPane({
                 }}
                 className="flex items-center gap-1.5 border-b border-border py-1.5 text-[12px] last:border-0"
               >
-                <span className="shrink-0 cursor-grab text-fg-faint" aria-hidden>
-                  <Icon name="dragHandle" size={13} />
-                </span>
                 <input
                   type="checkbox"
                   checked={doc.enabled}
@@ -532,66 +593,32 @@ export function LibraryPane({
                 >
                   {doc.file_name}
                 </span>
-                {doc.source === "generated" && (
-                  <span className="shrink-0 rounded-full bg-ai/10 px-1.5 py-0.5 text-[9px] font-semibold text-ai">
-                    conva
-                  </span>
-                )}
+                {/* Passive "which context(s) is this doc in" hint — an icon
+                    now, not the old text chip, since the row has less room.
+                    Wrapped in a <span title=…> rather than passing title to
+                    Icon directly (it doesn't forward one — same pattern as
+                    ContextDetail.tsx's stage icons). */}
                 {firstContextId && (
                   <span
-                    className="shrink-0 truncate text-[10px] text-fg-faint"
+                    className="shrink-0"
                     title={doc.context_ids.map((id) => contextTitles[id] ?? id).join(", ")}
                   >
-                    {contextTitles[firstContextId] ?? firstContextId}
-                    {doc.context_ids.length > 1 ? ` +${doc.context_ids.length - 1}` : ""}
+                    <Icon name="book" size={13} className="text-fg-faint" />
                   </span>
                 )}
-                <AttachMenu doc={doc} contextTitles={contextTitles} onAttach={onAttach} />
-                {conversationOpen && (
-                  <button
-                    type="button"
-                    onClick={() => void toggleLinkedDoc(doc.id)}
-                    aria-pressed={linkedDocs.includes(doc.id)}
-                    aria-label={
-                      linkedDocs.includes(doc.id)
-                        ? `Unlink from "${conversationTitle}"`
-                        : `Link to "${conversationTitle}"`
-                    }
-                    title={
-                      linkedDocs.includes(doc.id)
-                        ? `Linked to "${conversationTitle}" — click to unlink`
-                        : `Link to "${conversationTitle}"`
-                    }
-                    className={[
-                      "shrink-0 rounded-sm p-1 transition",
-                      linkedDocs.includes(doc.id)
-                        ? "text-ai hover:bg-ai/10"
-                        : "text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
-                    ].join(" ")}
-                  >
-                    <Icon name="link" size={12} />
-                  </button>
-                )}
-                {caps?.system.partnerWindow && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void backend.partner.open(
-                        doc.file_name,
-                        null,
-                        null,
-                        null,
-                        [],
-                        doc.id,
-                      )
-                    }
-                    aria-label={`View ${doc.file_name}`}
-                    title="View"
-                    className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-                  >
-                    <Icon name="expand" size={12} />
-                  </button>
-                )}
+                <LibraryRowMenu
+                  doc={doc}
+                  contextTitles={contextTitles}
+                  onAttach={onAttach}
+                  canView={caps?.system.partnerWindow === true}
+                  onView={() =>
+                    void backend.partner.open(doc.file_name, null, null, null, [], doc.id)
+                  }
+                  conversationOpen={conversationOpen}
+                  conversationTitle={conversationTitle}
+                  linked={linkedDocs.includes(doc.id)}
+                  onToggleLink={() => void toggleLinkedDoc(doc.id)}
+                />
                 {isTauri() && (
                   <button
                     type="button"

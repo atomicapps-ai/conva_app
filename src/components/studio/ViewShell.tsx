@@ -25,6 +25,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
 export function ViewShell({
   icon,
   breadcrumb,
+  eyebrow,
   title,
   subtitle,
   badge,
@@ -38,6 +39,14 @@ export function ViewShell({
   /** Parent segment(s) — omit for a flat, top-level view. */
   breadcrumb?: string;
   title: string;
+  /** Override the small mono eyebrow line above `title` — defaults to
+   *  `title` itself (existing behavior, unchanged for every view that
+   *  doesn't pass this). Use it when the page's own title is long/formal
+   *  and repeating it verbatim reads as redundant right above the real
+   *  headline (Contexts, 2026-08-28: "Conversation Contexts" showing twice
+   *  stacked, plus a third time in the pane's own section header). Ignored
+   *  when `breadcrumb` is set — a real parent trail always wins. */
+  eyebrow?: string;
   subtitle?: ReactNode;
   badge?: ReactNode;
   actions?: ReactNode;
@@ -54,7 +63,10 @@ export function ViewShell({
 }) {
   return (
     <section className={`flex h-full flex-col ${className}`}>
-      <header className="flex shrink-0 items-center gap-3 px-6 py-4">
+      {/* px-4 py-3 matches Live's own top bar (LiveTopBar.tsx) — the one
+          routed view that doesn't compose ViewShell — so every header in
+          the app shares one padding, not two slightly different ones. */}
+      <header className="flex shrink-0 items-center gap-3 px-4 py-3">
         {onBack && (
           <button
             type="button"
@@ -79,7 +91,7 @@ export function ViewShell({
                 {breadcrumb} <span aria-hidden>›</span> {title}
               </>
             ) : (
-              title
+              eyebrow ?? title
             )}
           </p>
           <div className="flex items-center gap-2">

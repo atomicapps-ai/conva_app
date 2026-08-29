@@ -59,17 +59,17 @@ const defaultProps = {
 };
 
 describe("ContextsPane", () => {
-  it("disables Generate until the context has a grounding source, and the status pill explains why", () => {
+  it("disables Generate until the context has a grounding source; the info popover's Status explains why for drafts", () => {
     renderPane(<ContextsPane {...defaultProps} items={[summary()]} />);
     expect(
       screen.getByRole("button", { name: /generate resources for acme interview/i }),
     ).toBeDisabled();
-    // The readiness checklist now lives in the status pill's hover tooltip,
-    // not always-visible text.
-    expect(screen.getByText("Draft")).toHaveAttribute(
-      "title",
-      expect.stringContaining("At least one grounding source"),
-    );
+    // The row is one line now (owner, 2026-08-28) — the status dot carries
+    // just the plain label on hover; the readiness checklist moved behind
+    // the "i" info popover.
+    expect(screen.getByTitle("Draft")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /info for acme interview/i }));
+    expect(screen.getByText(/at least one grounding source/i)).toBeInTheDocument();
   });
 
   it("enables Generate once key terms are declared, and calls onGenerate", () => {
@@ -121,14 +121,25 @@ describe("ContextsPane", () => {
     expect(onDelete).toHaveBeenCalledWith("s1");
   });
 
-  it("Ready contexts' status pill carries no readiness tooltip", () => {
+  it("Ready contexts' info popover shows Type/Status/Updated and no readiness checklist", () => {
     renderPane(
       <ContextsPane
         {...defaultProps}
-        items={[summary({ status: "ready", has_key_terms: true })]}
+        items={[
+          summary({
+            status: "ready",
+            has_key_terms: true,
+            updated_at_unix_ms: Date.now() - 3_600_000,
+          }),
+        ]}
       />,
     );
-    expect(screen.getByText("Ready")).not.toHaveAttribute("title");
+    expect(screen.getByTitle("Ready")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /info for acme interview/i }));
+    expect(screen.getByText("Interview")).toBeInTheDocument();
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.getByText(/ago$/)).toBeInTheDocument();
+    expect(screen.queryByText(/at least one grounding source/i)).toBeNull();
   });
 
   it("Regenerate's tooltip reads 'Never regenerated' until the context has one, then the relative time", () => {

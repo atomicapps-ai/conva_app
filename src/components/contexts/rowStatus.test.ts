@@ -25,11 +25,17 @@ describe("rowStatus", () => {
     expect(rowStatus(summary({ status: "draft", has_generated_resources: false }))).toEqual({
       label: "Draft",
       tone: "pill-idle",
+      dotClass: "bg-fg-faint",
     });
-    expect(rowStatus(summary())).toEqual({ label: "Ready", tone: "pill-ready" });
+    expect(rowStatus(summary())).toEqual({
+      label: "Ready",
+      tone: "pill-ready",
+      dotClass: "bg-ok",
+    });
     expect(rowStatus(summary({ status: "running" }))).toEqual({
       label: "Running",
       tone: "pill-accent",
+      dotClass: "bg-primary",
     });
   });
 
@@ -37,10 +43,12 @@ describe("rowStatus", () => {
     expect(rowStatus(summary({ resources_stale: true }))).toEqual({
       label: "Stale",
       tone: "pill-ally",
+      dotClass: "bg-ai",
     });
     expect(rowStatus(summary({ status: "ended", resources_stale: true }))).toEqual({
       label: "Stale",
       tone: "pill-ally",
+      dotClass: "bg-ai",
     });
   });
 
