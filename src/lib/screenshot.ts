@@ -297,15 +297,67 @@ function elementsToCheck(doc: Document, root: HTMLElement): Element[] {
   return [...extra, root, ...root.querySelectorAll("*")];
 }
 
+/** Real elements only — html2canvas's own `resolvePseudoContent` calls
+ *  `window.getComputedStyle(node, ':before')` / `':after'` for EVERY node
+ *  it processes (confirmed by reading its source directly), feeding the
+ *  exact same color parser as everything else. `::placeholder`'s v1.4 fix
+ *  and `<html>`/`<body>`'s v1.5 one both turned out to be red herrings —
+ *  the v1.5 verification pass proved every REAL-ELEMENT property this file
+ *  checks was already clean, yet the capture still failed identically, so
+ *  the remaining gap had to be something read outside that walk entirely.
+ *  `::before`/`::after` were the one remaining color source confirmed (by
+ *  reading html2canvas's own source, not guessed) to be read for every
+ *  element and never checked here. */
+const PSEUDO_ELEMENTS = [":before", ":after"] as const;
+
+/** No JS API sets a pseudo-element's style directly — the only way to
+ *  override one is a stylesheet rule. Elements that need a fix get a
+ *  throwaway `data-scr-fix` id so a rule can target them individually;
+ *  every fix collected across the walk goes into ONE injected `<style>`
+ *  block (cheaper than one `<style>` per element, and keeps the applied
+ *  rules easy to read back out of the DOM while debugging). */
+let pseudoFixCounter = 0;
+
+function normalizePseudoElementColors(view: Window & typeof globalThis, elements: Element[]): number {
+  const rules: string[] = [];
+  for (const el of elements) {
+    if (!(el instanceof view.HTMLElement)) continue; // pseudo-content is an HTML-element-only concept
+    for (const pseudo of PSEUDO_ELEMENTS) {
+      const cs = view.getComputedStyle(el, pseudo);
+      if (cs.getPropertyValue("content") === "none") continue; // no generated content, nothing to render
+      let elementRules = "";
+      for (const prop of COLOR_PROPERTIES) {
+        const value = cs.getPropertyValue(kebabCase(prop));
+        if (!value || !HAS_SUSPECT_COLOR_FN.test(value)) continue;
+        const fixed = replaceSuspectColorFunctions(value, normalizeColor);
+        elementRules += `${kebabCase(prop)}: ${fixed} !important; `;
+      }
+      if (!elementRules) continue;
+      const id = `scr-fix-${pseudoFixCounter++}`;
+      el.setAttribute("data-" + id, "");
+      rules.push(`[data-${id}]${pseudo === ":before" ? "::before" : "::after"} { ${elementRules} }`);
+    }
+  }
+  if (rules.length > 0) {
+    const style = view.document.createElement("style");
+    style.textContent = rules.join("\n");
+    (view.document.head ?? view.document.documentElement).appendChild(style);
+  }
+  return rules.length;
+}
+
 /** Walks every element `elementsToCheck` returns and rewrites any
  *  color-bearing computed value that contains a function html2canvas can't
- *  parse into an inline-style override using its normalized equivalent.
+ *  parse into an inline-style override using its normalized equivalent —
+ *  then does the same for `::before`/`::after` on every real element via
+ *  a scoped stylesheet injection (see `normalizePseudoElementColors`).
  *  Then, so a failure is never a mystery again (owner, 2026-08-30: "you
  *  need better intelligence to verify assumptions through trace data...
  *  so you can see just at what point it fails"), RE-CHECKS every one of
- *  those same values and traces the exact tag/selector/property/raw-value
- *  of anything STILL suspect — meaning this fixup didn't actually catch
- *  it, not just that html2canvas failed somewhere unspecified. */
+ *  those same values — real elements AND their `::before`/`::after` —
+ *  and traces the exact tag/selector/property/raw-value of anything
+ *  STILL suspect, meaning this fixup didn't actually catch it, not just
+ *  that html2canvas failed somewhere unspecified. */
 function normalizeClonedColors(doc: Document, root: HTMLElement, trace: (msg: string) => void) {
   const view = doc.defaultView;
   if (!view) return;
@@ -322,7 +374,10 @@ function normalizeClonedColors(doc: Document, root: HTMLElement, trace: (msg: st
       fixedCount++;
     }
   }
-  trace(`onclone:normalizeClonedColors fixed ${fixedCount} propert${fixedCount === 1 ? "y" : "ies"}`);
+  const pseudoFixedCount = normalizePseudoElementColors(view, elements);
+  trace(
+    `onclone:normalizeClonedColors fixed ${fixedCount} element propert${fixedCount === 1 ? "y" : "ies"}, ${pseudoFixedCount} ::before/::after propert${pseudoFixedCount === 1 ? "y" : "ies"}`,
+  );
 
   let stillSuspect = 0;
   for (const el of elements) {
@@ -333,6 +388,19 @@ function normalizeClonedColors(doc: Document, root: HTMLElement, trace: (msg: st
       if (!value || !HAS_SUSPECT_COLOR_FN.test(value)) continue;
       stillSuspect++;
       trace(`onclone:VERIFY still suspect: ${describeElement(el)} ${kebabCase(prop)}="${value}"`);
+    }
+    if (!(el instanceof view.HTMLElement)) continue;
+    for (const pseudo of PSEUDO_ELEMENTS) {
+      const cs2 = view.getComputedStyle(el, pseudo);
+      if (cs2.getPropertyValue("content") === "none") continue;
+      for (const prop of COLOR_PROPERTIES) {
+        const value = cs2.getPropertyValue(kebabCase(prop));
+        if (!value || !HAS_SUSPECT_COLOR_FN.test(value)) continue;
+        stillSuspect++;
+        trace(
+          `onclone:VERIFY still suspect: ${describeElement(el)}${pseudo} ${kebabCase(prop)}="${value}"`,
+        );
+      }
     }
   }
   trace(
