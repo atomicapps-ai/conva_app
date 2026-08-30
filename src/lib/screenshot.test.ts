@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { blobToBase64, replaceSuspectColorFunctions } from "@/lib/screenshot";
+import {
+  blobToBase64,
+  fixPlaceholderPseudoElement,
+  replaceSuspectColorFunctions,
+} from "@/lib/screenshot";
 
 describe("blobToBase64", () => {
   it("strips the data: URL prefix, leaving only the base64 payload", async () => {
@@ -72,5 +76,31 @@ describe("replaceSuspectColorFunctions", () => {
 
   it("returns an empty string unchanged", () => {
     expect(replaceSuspectColorFunctions("", upper)).toBe("");
+  });
+});
+
+// Regression coverage for the FOURTH round of "still broken" (owner,
+// 2026-08-30): the terminal trace from PR #149 showed capture completing
+// `onclone:done` cleanly and STILL failing with the same error -- because
+// `::placeholder` is a pseudo-element, invisible to `normalizeClonedColors`'s
+// real-element walk no matter how thorough. Tailwind's own preflight sets
+// `::placeholder { color: color-mix(in oklab, currentcolor 50%, transparent) }`
+// unconditionally on every input/textarea.
+describe("fixPlaceholderPseudoElement", () => {
+  it("injects a <style> rule that avoids color-mix/oklab entirely", () => {
+    const doc = document.implementation.createHTMLDocument("test");
+    fixPlaceholderPseudoElement(doc);
+    const style = doc.head.querySelector("style");
+    expect(style).not.toBeNull();
+    const css = style!.textContent ?? "";
+    expect(css).toContain("::placeholder");
+    expect(css).not.toMatch(/color-mix|oklab|oklch/i);
+  });
+
+  it("falls back to documentElement when the document has no <head>", () => {
+    const doc = document.implementation.createDocument(null, "root", null);
+    expect(doc.head).toBeNull();
+    fixPlaceholderPseudoElement(doc);
+    expect(doc.documentElement.querySelector("style")).not.toBeNull();
   });
 });
