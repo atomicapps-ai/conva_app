@@ -782,6 +782,16 @@ pub fn load_session(app: &AppHandle, id: &str) -> Result<Vec<TranscriptSegment>,
         .collect())
 }
 
+pub fn delete_session(app: &AppHandle, id: &str) -> Result<(), CoreError> {
+    // Same check load_session already does above — ids are ours, but
+    // never trusted as path components.
+    if id.contains(['/', '\\', '.']) {
+        return Err(CoreError::Audio("invalid session id".into()));
+    }
+    let path = sessions_dir(app)?.join(format!("{id}.jsonl"));
+    fs::remove_file(path).map_err(|e| CoreError::Audio(e.to_string()))
+}
+
 /// Emits `healthy: false` meter events for any side whose frames stall
 /// ("mic went dead" warning, A4).
 fn spawn_watchdog(app: AppHandle, stop: Arc<AtomicBool>, last_frame: Arc<[AtomicU64; 2]>) {

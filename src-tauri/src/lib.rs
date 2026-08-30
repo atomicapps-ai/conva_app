@@ -226,6 +226,11 @@ fn session_load(app: AppHandle, id: String) -> Result<Vec<TranscriptSegment>, St
     session::load_session(&app, &id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn session_delete(app: AppHandle, id: String) -> Result<(), String> {
+    session::delete_session(&app, &id).map_err(|e| e.to_string())
+}
+
 /// Render finalized transcript segments as speaker-labeled Markdown lines
 /// (shared by `export_transcript` and `analyze_conversation`).
 fn render_transcript_markdown(segments: &[TranscriptSegment]) -> String {
@@ -2178,6 +2183,7 @@ pub fn run() {
             open_screenshots_folder,
             session_list,
             session_load,
+            session_delete,
             export_transcript,
             write_text_file,
             analyze_conversation,
