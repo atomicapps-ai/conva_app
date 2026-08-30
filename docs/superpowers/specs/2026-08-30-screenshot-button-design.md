@@ -26,6 +26,42 @@
 > below explains why) plus a small popover naming the saved path, replacing
 > the old icon-color (green/red) flash the owner found looked like an error
 > state ("no red flash, a white flash").
+>
+> **v1.2 addendum (2026-08-30, still broken after v1.1 — a second, bigger
+> root cause):** the owner's next report showed the folder existing but
+> empty, `lastError` now reading `Attempting to parse an unsupported color
+> function "oklab"`. `globals.css`'s own 17 hand-written `color-mix(in
+> oklab, ...)` calls (cards, rows, buttons, focus rings) were switched to
+> `in srgb` — shipped as its own fix — but a THIRD report followed
+> immediately after, same class of error, different function name
+> (`"color"`). Turned out the 17 hand-written occurrences were never the
+> real bulk of the problem: Tailwind v4's own alpha-modifier utilities
+> (`bg-primary/50`, `border-rec/30`, every `/N` opacity class used anywhere
+> in the app — ~90 of them in the compiled bundle) compile to `color-mix(in
+> oklab, ...)` via a template **hardcoded in Tailwind's engine, with no
+> config override** (confirmed against the installed `tailwindcss`
+> source). A Vite build-pipeline CSS transform was tried first and
+> abandoned after instrumented logging proved it — despite looking like it
+> should work — never actually saw Tailwind's generated content (the
+> module's `code` arrived as an empty string on the one `transform` call
+> observed, through whatever internal channel Tailwind's Vite plugin
+> actually uses to emit final CSS). Chasing the build pipeline further
+> wasn't reliable, so the fix moved to the one point guaranteed to see the
+> real, final styling: **capture time itself.** `screenshot.ts` now passes
+> an `onclone` hook to `html2canvas` — called after the cloned document's
+> stylesheets are attached, so `getComputedStyle` on it is real — that
+> walks every element and, for any color-bearing computed value containing
+> a suspect function (`color-mix`, `oklab`, `oklch`, `lab`, `lch`,
+> `color`), round-trips it through a throwaway `<canvas>` 2D context:
+> `fillStyle`'s setter accepts any valid CSS `<color>` but its getter
+> always serializes back out as `rgb()`/`rgba()`/hex — the standard
+> browser trick for "any CSS color in, a parseable one out" — and writes
+> the result back as an inline style on the clone, which wins the cascade.
+> Catches every source uniformly (Tailwind's utilities, the app's own
+> tokens, anything added later) with no per-declaration chasing. Unit
+> tests cover the pure parsing/replacement logic (`replaceSuspectColorFunctions`
+> in `screenshot.test.ts`); the canvas round-trip itself is browser-only,
+> same as the rest of this capture path.
 
 ## Requirements (from the 2026-08-29 brainstorm)
 
