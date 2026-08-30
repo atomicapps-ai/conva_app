@@ -27,9 +27,10 @@ function renderToast(updater = true) {
   );
 }
 
-function fakeUpdate() {
+function fakeUpdate(overrides: { body?: string } = {}) {
   return {
     version: "0.4.0",
+    body: overrides.body,
     download: vi.fn().mockResolvedValue(undefined),
     install: vi.fn().mockResolvedValue(undefined),
   };
@@ -61,6 +62,27 @@ describe("UpdateToast", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
+  it("never shows the offline/unreachable-feed failure as a user-visible error", async () => {
+    checkMock.mockRejectedValueOnce(new Error("network error"));
+    renderToast();
+    await waitFor(() => expect(checkMock).toHaveBeenCalled());
+    expect(screen.queryByText(/update failed/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("logs the check/download failure to the console only in dev", async () => {
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    checkMock.mockRejectedValueOnce(new Error("offline"));
+    renderToast();
+    await waitFor(() => expect(checkMock).toHaveBeenCalled());
+    // vitest runs with import.meta.env.DEV = true, so the dev diagnostic fires.
+    expect(debugSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[updater]"),
+      expect.any(Error),
+    );
+    debugSpy.mockRestore();
+  });
+
   it("downloads in the background, then offers Restart and install", async () => {
     const update = fakeUpdate();
     checkMock.mockResolvedValueOnce(update);
@@ -71,6 +93,36 @@ describe("UpdateToast", () => {
     expect(
       screen.getByRole("button", { name: "Restart and install" }),
     ).toBeEnabled();
+  });
+
+  it("shows download progress while the update downloads", async () => {
+    const update = fakeUpdate();
+    const oneMb = 1024 * 1024;
+    // Emits progress then never resolves, so the component stays in the
+    // "downloading" phase — isolates the progress UI from the ready-state race.
+    update.download.mockImplementation(
+      (onEvent) =>
+        new Promise<void>(() => {
+          onEvent?.({ event: "Started", data: { contentLength: 2 * oneMb } });
+          onEvent?.({ event: "Progress", data: { chunkLength: oneMb } });
+        }),
+    );
+    checkMock.mockResolvedValueOnce(update);
+    renderToast();
+
+    const bar = await screen.findByRole("progressbar", { name: /update download progress/i });
+    await waitFor(() => expect(bar).toHaveAttribute("aria-valuenow", "50"));
+    expect(screen.getByText("50% · 1 MB")).toBeInTheDocument();
+  });
+
+  it("shows a release-notes preview when the update carries one", async () => {
+    checkMock.mockResolvedValueOnce(
+      fakeUpdate({ body: "Fixed the thing that was broken.\nAlso some internal cleanup." }),
+    );
+    renderToast();
+
+    await screen.findByText("Update ready · conva v0.4.0");
+    expect(screen.getByText("“Fixed the thing that was broken.”")).toBeInTheDocument();
   });
 
   it("Restart and install installs the update and relaunches", async () => {

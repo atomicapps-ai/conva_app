@@ -18,6 +18,8 @@
     "version:stamp": "node scripts/version.mjs stamp",
     "version:check": "node scripts/version.mjs check",
     "version:get": "node scripts/version.mjs get",
+    "changelog:generate": "git-cliff -o CHANGELOG.md",
+    "changelog:preview": "git-cliff --unreleased --strip header",
     "tauri": "tauri",
     "tauri:gpu": "tauri dev --features gpu-vulkan",
     "tauri:gpu:cuda": "tauri dev --features gpu-cuda",

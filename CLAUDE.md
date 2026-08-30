@@ -284,8 +284,11 @@ on ubuntu, and the shell clippy `-D warnings` on windows-latest. Clippy runs wit
 
 Releases: pushing a `v*` tag runs `.github/workflows/release.yml`, which
 builds Windows MSI/NSIS installers (GPU/Vulkan) and a macOS dmg (GPU/Metal)
-on GitHub runners and drafts a GitHub Release — see README "Release
-installers". Signing/notarization and the auto-updater are not wired yet.
+on GitHub runners and drafts a GitHub Release **in the public
+`atomicapps-ai/conva_releases` repo** (this repo stays private) — see README
+"Release installers" and `docs/releasing.md`. The in-app updater
+(`src/components/UpdateToast.tsx`) is wired and checks that repo's release
+feed; signing/notarization of the installers themselves is not wired yet.
 
 ## One codebase, desktop + mobile
 
