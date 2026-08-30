@@ -653,9 +653,13 @@ export function LibraryPane({
                 <span
                   className={[
                     "min-w-0 flex-1 truncate",
-                    doc.enabled ? "text-fg" : "text-fg-faint line-through",
+                    doc.enabled ? "text-fg" : "text-fg-faint",
                   ].join(" ")}
-                  title={doc.file_name}
+                  title={
+                    doc.enabled
+                      ? doc.file_name
+                      : `${doc.file_name} — not included in retrieval`
+                  }
                 >
                   {doc.file_name}
                 </span>
