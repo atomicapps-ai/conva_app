@@ -1,52 +1,206 @@
 diff --git a/node_modules/html2canvas/dist/html2canvas.esm.js b/node_modules/html2canvas/dist/html2canvas.esm.js
-index dab56ad..07d529e 100644
+index dab56ad..53a4a78 100644
 --- a/node_modules/html2canvas/dist/html2canvas.esm.js
 +++ b/node_modules/html2canvas/dist/html2canvas.esm.js
-@@ -1717,6 +1717,19 @@ var color$1 = {
-         if (value.type === 18 /* FUNCTION */) {
-             var colorFunction = SUPPORTED_COLOR_FUNCTIONS[value.name];
-             if (typeof colorFunction === 'undefined') {
-+                (function () {
-+                    try {
-+                        var raw = JSON.stringify(value.values).slice(0, 400);
-+                        var msg = '[html2canvas-debug] unsupported color function "' + value.name + '" raw args=' + raw;
-+                        if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
-+                            window.__TAURI_INTERNALS__.invoke('screenshot_trace', { msg: msg }).catch(function () {});
-+                        }
-+                        console.error(msg);
-+                    }
-+                    catch (loggingError) {
-+                        // never let diagnostic logging itself change the original failure
-+                    }
-+                })();
-                 throw new Error("Attempting to parse an unsupported color function \"" + value.name + "\"");
-             }
-             return colorFunction(context, value.values);
-@@ -3787,7 +3800,26 @@ var ElementContainer = /** @class */ (function () {
-         if (isDebugging(element, 3 /* PARSE */)) {
-             debugger;
-         }
--        this.styles = new CSSParsedDeclaration(context, window.getComputedStyle(element, null));
-+        try {
-+            this.styles = new CSSParsedDeclaration(context, window.getComputedStyle(element, null));
+@@ -1828,11 +1828,127 @@ var hsl = function (context, args) {
+     var b = hue2rgb(t1, t2, h - 1 / 3);
+     return pack(r * 255, g * 255, b * 255, a);
+ };
++// CSS Color 4's `color()` function — not in the upstream release (last meaningfully
++// updated ~2022, predates browsers actually shipping this). Confirmed necessary by
++// instrumenting this exact parser and reproducing: Chromium/WebView2 serializes the
++// COMPUTED value of a `color-mix()`/`oklch()`-sourced color as `color(srgb r g b / a)`
++// (e.g. `color(srgb 0.054902 0.0745098 0.14902 / 0.55)`) even when nothing in the
++// declared CSS text uses `color()` at all and the result is fully representable in
++// legacy `rgb()` — this is Chromium's own computed-style serialization choice for
++// any color sourced from a modern CSS Color 4 function, not something the app or
++// this file's own DOM-walk fixup (`screenshot.ts`) can see ahead of time: it only
++// showed up in html2canvas's OWN later `getComputedStyle()` read during rendering,
++// not the one this app's `onclone` hook reads immediately after cloning.
++//
++// `color()`'s channels are already normalized 0-1 (or a percentage of that),
++// unlike `rgb()`'s legacy 0-255/percentage split — so this needs its own channel
++// scaling, not `getTokenColorValue`. The leading ident (the color-space name, e.g.
++// `srgb`) is intentionally ignored rather than dispatched on: every value this has
++// ever been observed to carry is `srgb` (Chromium's own serialization choice,
++// confirmed above), and treating any other predefined space's channels as if they
++// were already sRGB is a deliberate, acceptable approximation for a screenshot
++// tool — slightly wrong gamut mapping beats refusing to render the capture at all.
++var color$2 = function (_context, args) {
++    var tokens = args.filter(function (token) {
++        return token.type === 17 /* NUMBER_TOKEN */ || token.type === 16 /* PERCENTAGE_TOKEN */;
++    });
++    if (tokens.length < 3) {
++        return 0;
++    }
++    var toChannel = function (token) {
++        var v = token.type === 16 /* PERCENTAGE_TOKEN */ ? token.number / 100 : token.number;
++        return Math.round(Math.min(Math.max(v, 0), 1) * 255);
++    };
++    var r = toChannel(tokens[0]);
++    var g = toChannel(tokens[1]);
++    var b = toChannel(tokens[2]);
++    var a = tokens.length > 3 ? Math.min(Math.max(tokens[3].type === 16 /* PERCENTAGE_TOKEN */ ? tokens[3].number / 100 : tokens[3].number, 0), 1) : 1;
++    return pack(r, g, b, a);
++};
++// `oklab()`/`oklch()` -- the other half of the CSS Color 4 family this app's own
++// tokens actually produce (Tailwind v4's default palette + `color-mix()`-sourced
++// alpha-modifier utilities): `color()` alone would leave any value Chromium
++// serializes directly as `oklab(...)`/`oklch(...)` (rather than re-encoding it as
++// `color(srgb ...)`, which was only ever confirmed for `color-mix()` results)
++// throwing exactly as before. Standard OKLab<->linear-sRGB matrices (Björn
++// Ottosson's reference, also what the CSS Color 4 spec's own sample conversion
++// code uses) -- verified against known round-trip vectors before shipping
++// (pure sRGB red/white/black/mid-gray all reproduce exactly).
++var oklabToRgb255 = function (L, a, b) {
++    var l_ = L + 0.3963377774 * a + 0.2158037573 * b;
++    var m_ = L - 0.1055613458 * a - 0.0638541728 * b;
++    var s_ = L - 0.0894841775 * a - 1.2914855480 * b;
++    var l = l_ * l_ * l_;
++    var m = m_ * m_ * m_;
++    var s = s_ * s_ * s_;
++    var rLin = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
++    var gLin = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
++    var bLin = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
++    var gam = function (c) {
++        c = Math.min(Math.max(c, 0), 1);
++        return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
++    };
++    return [Math.round(gam(rLin) * 255), Math.round(gam(gLin) * 255), Math.round(gam(bLin) * 255)];
++};
++// `refFor100Percent` is the CSS Color 4 spec's percentage-reference-range for each
++// channel: L's 100% is 1, a/b's (and oklch's C) 100% is 0.4 -- unlike color()'s
++// channels, oklab/oklch's are NOT simply "0-100% maps to 0-1" uniformly.
++var readOklabChannel = function (token, refFor100Percent) {
++    if (!token) {
++        return 0;
++    }
++    if (token.type === 16 /* PERCENTAGE_TOKEN */) {
++        return (token.number / 100) * refFor100Percent;
++    }
++    if (token.type === 17 /* NUMBER_TOKEN */) {
++        return token.number;
++    }
++    return 0;
++};
++var oklab = function (_context, args) {
++    var tokens = args.filter(function (token) {
++        return token.type === 17 /* NUMBER_TOKEN */ || token.type === 16 /* PERCENTAGE_TOKEN */;
++    });
++    if (tokens.length < 3) {
++        return 0;
++    }
++    var L = readOklabChannel(tokens[0], 1);
++    var a = readOklabChannel(tokens[1], 0.4);
++    var b = readOklabChannel(tokens[2], 0.4);
++    var alpha = tokens.length > 3 ? Math.min(Math.max(readOklabChannel(tokens[3], 1), 0), 1) : 1;
++    var rgb = oklabToRgb255(L, a, b);
++    return pack(rgb[0], rgb[1], rgb[2], alpha);
++};
++var oklch = function (context, args) {
++    // Hue can be a bare number (degrees, same convention hsl() already uses) or a
++    // dimensioned angle (`120deg`/`2rad`/...) -- reuses hsl()'s own `deg`/`angle`
++    // helpers for that distinction rather than re-implementing it.
++    var tokens = args.filter(function (token) {
++        return (token.type === 17 /* NUMBER_TOKEN */ ||
++            token.type === 16 /* PERCENTAGE_TOKEN */ ||
++            token.type === 15 /* DIMENSION_TOKEN */);
++    });
++    if (tokens.length < 3) {
++        return 0;
++    }
++    var L = readOklabChannel(tokens[0], 1);
++    var C = readOklabChannel(tokens[1], 0.4);
++    var hueToken = tokens[2];
++    var hueRadians = hueToken.type === 17 /* NUMBER_TOKEN */ ? deg(hueToken.number) : angle.parse(context, hueToken);
++    var a = C * Math.cos(hueRadians);
++    var b = C * Math.sin(hueRadians);
++    var alpha = tokens.length > 3 ? Math.min(Math.max(readOklabChannel(tokens[3], 1), 0), 1) : 1;
++    var rgb = oklabToRgb255(L, a, b);
++    return pack(rgb[0], rgb[1], rgb[2], alpha);
++};
+ var SUPPORTED_COLOR_FUNCTIONS = {
+     hsl: hsl,
+     hsla: hsl,
+     rgb: rgb,
+-    rgba: rgb
++    rgba: rgb,
++    color: color$2,
++    oklab: oklab,
++    oklch: oklch
+ };
+ var parseColor = function (context, value) {
+     return color$1.parse(context, Parser.create(value).parseComponentValue());
+@@ -3607,20 +3723,45 @@ var webkitTextStrokeWidth = {
+     }
+ };
+ 
++// Diagnostic only, added alongside the color() fix below to name exactly which
++// property carries a color(srgb ...) value on a given element (as opposed to
++// just the element itself, which round 8's instrumentation already named) --
++// useful for confirming the fix landed on the property that actually needed it.
++var __debugColorFn = function (prop, raw) {
++    if (!raw || typeof raw !== 'string' || raw.indexOf('color(') === -1) {
++        return;
++    }
++    var msg = '[html2canvas-debug] color() on ' + prop + ': ' + raw;
++    try {
++        if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
++            window.__TAURI_INTERNALS__.invoke('screenshot_trace', { msg: msg }).catch(function () {});
 +        }
-+        catch (e) {
-+            try {
-+                var tag = element && element.tagName ? element.tagName.toLowerCase() : typeof element;
-+                var id = element && element.id ? '#' + element.id : '';
-+                var cls = element && element.classList ? Array.prototype.slice.call(element.classList, 0, 5).join('.') : '';
-+                var outer = element && element.outerHTML ? element.outerHTML.slice(0, 300) : '';
-+                var msg = '[html2canvas-debug] CSSParsedDeclaration threw for <' + tag + id + (cls ? '.' + cls : '') + '> :: ' + (e && e.message) + ' :: outerHTML=' + outer;
-+                if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
-+                    window.__TAURI_INTERNALS__.invoke('screenshot_trace', { msg: msg }).catch(function () {});
-+                }
-+                console.error(msg);
-+            }
-+            catch (loggingError) {
-+                // never let diagnostic logging itself change the original failure
-+            }
-+            throw e;
-+        }
-         if (isHTMLElementNode(element)) {
-             if (this.styles.animationDuration.some(function (duration) { return duration > 0; })) {
-                 element.style.animationDuration = '0s';
++    }
++    catch (loggingError) {
++        // never let diagnostic logging itself change parsing behavior
++    }
++    console.error(msg);
++};
+ var CSSParsedDeclaration = /** @class */ (function () {
+     function CSSParsedDeclaration(context, declaration) {
+         var _a, _b;
+         this.animationDuration = parse(context, duration, declaration.animationDuration);
+         this.backgroundClip = parse(context, backgroundClip, declaration.backgroundClip);
++        __debugColorFn('backgroundColor', declaration.backgroundColor);
+         this.backgroundColor = parse(context, backgroundColor, declaration.backgroundColor);
++        __debugColorFn('backgroundImage', declaration.backgroundImage);
+         this.backgroundImage = parse(context, backgroundImage, declaration.backgroundImage);
+         this.backgroundOrigin = parse(context, backgroundOrigin, declaration.backgroundOrigin);
+         this.backgroundPosition = parse(context, backgroundPosition, declaration.backgroundPosition);
+         this.backgroundRepeat = parse(context, backgroundRepeat, declaration.backgroundRepeat);
+         this.backgroundSize = parse(context, backgroundSize, declaration.backgroundSize);
++        __debugColorFn('borderTopColor', declaration.borderTopColor);
+         this.borderTopColor = parse(context, borderTopColor, declaration.borderTopColor);
++        __debugColorFn('borderRightColor', declaration.borderRightColor);
+         this.borderRightColor = parse(context, borderRightColor, declaration.borderRightColor);
++        __debugColorFn('borderBottomColor', declaration.borderBottomColor);
+         this.borderBottomColor = parse(context, borderBottomColor, declaration.borderBottomColor);
++        __debugColorFn('borderLeftColor', declaration.borderLeftColor);
+         this.borderLeftColor = parse(context, borderLeftColor, declaration.borderLeftColor);
+         this.borderTopLeftRadius = parse(context, borderTopLeftRadius, declaration.borderTopLeftRadius);
+         this.borderTopRightRadius = parse(context, borderTopRightRadius, declaration.borderTopRightRadius);
+@@ -3634,7 +3775,9 @@ var CSSParsedDeclaration = /** @class */ (function () {
+         this.borderRightWidth = parse(context, borderRightWidth, declaration.borderRightWidth);
+         this.borderBottomWidth = parse(context, borderBottomWidth, declaration.borderBottomWidth);
+         this.borderLeftWidth = parse(context, borderLeftWidth, declaration.borderLeftWidth);
++        __debugColorFn('boxShadow', declaration.boxShadow);
+         this.boxShadow = parse(context, boxShadow, declaration.boxShadow);
++        __debugColorFn('color', declaration.color);
+         this.color = parse(context, color, declaration.color);
+         this.direction = parse(context, direction, declaration.direction);
+         this.display = parse(context, display, declaration.display);
+@@ -3666,13 +3809,16 @@ var CSSParsedDeclaration = /** @class */ (function () {
+         this.paintOrder = parse(context, paintOrder, declaration.paintOrder);
+         this.position = parse(context, position, declaration.position);
+         this.textAlign = parse(context, textAlign, declaration.textAlign);
++        __debugColorFn('textDecorationColor', declaration.textDecorationColor || declaration.color);
+         this.textDecorationColor = parse(context, textDecorationColor, (_a = declaration.textDecorationColor) !== null && _a !== void 0 ? _a : declaration.color);
+         this.textDecorationLine = parse(context, textDecorationLine, (_b = declaration.textDecorationLine) !== null && _b !== void 0 ? _b : declaration.textDecoration);
++        __debugColorFn('textShadow', declaration.textShadow);
+         this.textShadow = parse(context, textShadow, declaration.textShadow);
+         this.textTransform = parse(context, textTransform, declaration.textTransform);
+         this.transform = parse(context, transform$1, declaration.transform);
+         this.transformOrigin = parse(context, transformOrigin, declaration.transformOrigin);
+         this.visibility = parse(context, visibility, declaration.visibility);
++        __debugColorFn('webkitTextStrokeColor', declaration.webkitTextStrokeColor);
+         this.webkitTextStrokeColor = parse(context, webkitTextStrokeColor, declaration.webkitTextStrokeColor);
+         this.webkitTextStrokeWidth = parse(context, webkitTextStrokeWidth, declaration.webkitTextStrokeWidth);
+         this.wordBreak = parse(context, wordBreak, declaration.wordBreak);
