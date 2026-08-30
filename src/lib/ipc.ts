@@ -294,6 +294,12 @@ export type ContextStatus =
   | "running"
   | "ended";
 
+/** The avatar gender presentation a generated persona was assigned — Ally's
+ *  choice, cosmetic only (drives which silhouette icon the counterparty
+ *  cards show). `undefined`/absent for personas generated before this
+ *  field existed, or when the model's answer didn't parse as male/female. */
+export type PersonaGender = "male" | "female";
+
 /** One generated counterparty persona/strategy option (3 per context). */
 export interface ContextPersona {
   id: string;
@@ -301,6 +307,7 @@ export interface ContextPersona {
   summary: string;
   style_tags: string[];
   recommended: boolean;
+  gender?: PersonaGender | null;
 }
 
 /** A web-research source folded into a knowledge profile. */
