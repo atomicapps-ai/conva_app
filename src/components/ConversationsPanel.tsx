@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBackend } from "@/lib/backend";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
+import { ListRow } from "@/components/ui/ListRow";
 import {
   DEFAULT_CONTEXT_ID,
   type Conversation,
@@ -30,14 +31,6 @@ const STATUS_LABEL: Record<ContextSummary["status"], string> = {
   ready: "Ready",
   running: "Running",
   ended: "Ended",
-};
-
-const STATUS_TONE: Record<ContextSummary["status"], string> = {
-  draft: "pill-idle",
-  ingesting: "pill-accent",
-  ready: "pill-ready",
-  running: "pill-accent",
-  ended: "pill-idle",
 };
 
 type Filter = "saved" | "all" | "rehearse" | "search";
@@ -189,6 +182,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const [contexts, setContexts] = useState<ContextSummary[]>([]);
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [analyzing, setAnalyzing] = useState(false);
   const openId = useConversationStore((s) => s.openId);
   const title = useConversationStore((s) => s.title);
@@ -387,6 +381,25 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const deleteSelected = async () => {
+    const ids = Array.from(selected);
+    try {
+      await Promise.all(
+        ids.map((key) =>
+          key.startsWith("c-")
+            ? backend.conversations.delete(key.slice(2))
+            : backend.sessions.delete(key.slice(2)),
+        ),
+      );
+    } catch (e) {
+      setNotice(String(e));
+    } finally {
+      if (selected.has(`c-${openId}`)) newConversation();
+      setSelected(new Set());
+      await refresh();
+    }
+  };
+
   const exportShown = async () => {
     try {
       const { save } = await import("@tauri-apps/plugin-dialog");
@@ -505,7 +518,10 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
           <button
             key={f.key}
             type="button"
-            onClick={() => setFilter(f.key)}
+            onClick={() => {
+              setFilter(f.key);
+              setSelected(new Set());
+            }}
             className={[
               "rounded-full border px-2 py-0.5 text-[11px] transition",
               filter === f.key
@@ -589,7 +605,13 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
                     <button
                       type="button"
                       onClick={() => void openSearchHit(hit)}
-                      className="row w-full flex-col items-start gap-0.5 !py-1.5"
+                      className="row w-full flex-col items-start gap-0.5 border-l-[3px] !py-1.5"
+                      style={{
+                        borderLeftColor:
+                          hit.rowKind === "conversation"
+                            ? "var(--color-primary)"
+                            : "var(--color-fg-faint)",
+                      }}
                     >
                       <div className="flex w-full min-w-0 items-center gap-2">
                         <Icon
@@ -625,24 +647,16 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
             rehearse against it.
           </div>
         ) : (
-          <ul className="flex flex-col gap-1.5">
+          <ul className="flex flex-col gap-1">
             {contexts.map((c) => (
               <li key={c.id}>
-                <button
-                  type="button"
+                <ListRow
+                  accent="ai"
+                  title={c.title}
+                  badge={{ text: STATUS_LABEL[c.status], tone: "ai" }}
+                  date={`${c.source_doc_count} doc${c.source_doc_count === 1 ? "" : "s"}`}
                   onClick={() => rehearse(c.id)}
-                  title={`Rehearse against "${c.title}"`}
-                  className="row w-full"
-                >
-                  <Icon name="rehearsal" size={14} className="shrink-0 text-fg-faint" />
-                  <span className="truncate text-xs text-fg">{c.title}</span>
-                  <span className={`pill pill-sm ${STATUS_TONE[c.status]} shrink-0`}>
-                    {STATUS_LABEL[c.status]}
-                  </span>
-                  <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">
-                    {c.source_doc_count} doc{c.source_doc_count === 1 ? "" : "s"}
-                  </span>
-                </button>
+                />
               </li>
             ))}
           </ul>
@@ -654,71 +668,84 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
             : "Nothing recorded yet — start a live session to begin."}
         </div>
       ) : (
-        <ul className="flex flex-col gap-1.5">
-          {rows.map((row) =>
-            row.kind === "conversation" ? (
-              <li key={`c-${row.id}`} className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void open(row.id)}
-                  className={`row min-w-0 flex-1 ${row.id === openId ? "border-ai/60" : ""}`}
-                >
-                  <span className="truncate text-xs text-fg">{row.data.title}</span>
-                  <span className="font-mono text-[11px] text-fg-muted">
-                    {formatDate(row.data.updated_at_unix_ms)}
-                  </span>
-                  <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">
-                    {row.data.segment_count} segments
-                    {row.data.linked_docs.length > 0 &&
-                      ` · ${row.data.linked_docs.length} linked doc(s)`}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void remove(row.id)}
-                  aria-label={`Delete conversation ${row.data.title}`}
-                  title="Delete"
-                  className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
-                >
-                  <Icon name="trash" size={13} />
-                </button>
-              </li>
-            ) : (
-              <li key={`s-${row.id}`}>
-                <button
-                  type="button"
-                  onClick={() => void openPastSession(row.id)}
-                  className="row w-full"
-                >
-                  <span className="font-mono text-[11px] text-fg-muted">
-                    {formatDate(row.data.started_at_unix_ms)}
-                  </span>
-                  {row.data.is_rehearsal && (
-                    <span
-                      title={
-                        row.data.simcon_title
-                          ? `Context rehearsal: ${row.data.simcon_title}`
-                          : "Context rehearsal"
-                      }
-                      className="pill pill-sm pill-ally shrink-0"
-                    >
-                      Context
-                    </span>
-                  )}
-                  <span className="truncate text-xs text-fg">
-                    {row.data.is_rehearsal && row.data.simcon_title
-                      ? row.data.simcon_title
-                      : row.data.preview || "(empty)"}
-                  </span>
-                  <span className="pill pill-sm pill-idle shrink-0">Unsaved</span>
-                  <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">
-                    {row.data.segment_count} segments
-                  </span>
-                </button>
-              </li>
-            ),
-          )}
-        </ul>
+        <div className="flex flex-col gap-2">
+          <div
+            className={`flex items-center justify-between gap-2 overflow-hidden rounded-md border px-2.5 transition-all ${
+              selected.size > 0
+                ? "h-[30px] border-rec/35 bg-rec/[0.12] opacity-100"
+                : "h-0 border-transparent opacity-0"
+            }`}
+          >
+            <span className="font-mono text-[11px] text-fg">{selected.size} selected</span>
+            <span className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                className="text-[10.5px] font-bold text-fg-faint hover:text-fg"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteSelected()}
+                className="rounded bg-rec px-2 py-0.5 text-[10.5px] font-bold text-bg"
+              >
+                Delete selected
+              </button>
+            </span>
+          </div>
+
+          <ul className="flex flex-col gap-1">
+            {rows.map((row) => {
+              const key = row.kind === "conversation" ? `c-${row.id}` : `s-${row.id}`;
+              const toggle = (checked: boolean) =>
+                setSelected((prev) => {
+                  const next = new Set(prev);
+                  if (checked) next.add(key);
+                  else next.delete(key);
+                  return next;
+                });
+              if (row.kind === "conversation") {
+                return (
+                  <li key={key}>
+                    <ListRow
+                      accent="primary"
+                      title={row.data.title}
+                      date={`${formatDate(row.data.updated_at_unix_ms)} · ${row.data.segment_count} segment${row.data.segment_count === 1 ? "" : "s"}${row.data.linked_docs.length > 0 ? ` · ${row.data.linked_docs.length} linked doc(s)` : ""}`}
+                      open={row.id === openId}
+                      selected={selected.has(key)}
+                      onSelectChange={toggle}
+                      onDelete={() => void remove(row.id)}
+                      onClick={() => void open(row.id)}
+                    />
+                  </li>
+                );
+              }
+              return (
+                <li key={key}>
+                  <ListRow
+                    accent={row.data.is_rehearsal ? "ai" : "muted"}
+                    title={
+                      row.data.is_rehearsal && row.data.simcon_title
+                        ? row.data.simcon_title
+                        : row.data.preview || "(empty)"
+                    }
+                    badge={
+                      row.data.is_rehearsal
+                        ? { text: "Context", tone: "ai" }
+                        : { text: "Unsaved", tone: "muted" }
+                    }
+                    date={`${formatDate(row.data.started_at_unix_ms)} · ${row.data.segment_count} segment${row.data.segment_count === 1 ? "" : "s"}`}
+                    selected={selected.has(key)}
+                    onSelectChange={toggle}
+                    onDelete={() => void backend.sessions.delete(row.id).then(refresh)}
+                    onClick={() => void openPastSession(row.id)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
     </ViewShell>
   );

@@ -1,0 +1,64 @@
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { ListRow } from "@/components/ui/ListRow";
+
+afterEach(cleanup);
+
+describe("ListRow", () => {
+  it("renders title, badge, and date", () => {
+    render(
+      <ListRow
+        accent="primary"
+        title="Amazon interview prep"
+        badge={{ text: "Context", tone: "ai" }}
+        date="8/21/2026, 4:40:25 PM · 5 segments"
+        onClick={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Amazon interview prep")).toBeInTheDocument();
+    expect(screen.getByText("Context")).toBeInTheDocument();
+    expect(screen.getByText("8/21/2026, 4:40:25 PM · 5 segments")).toBeInTheDocument();
+  });
+
+  it("clicking the row calls onClick", () => {
+    const onClick = vi.fn();
+    render(<ListRow accent="muted" title="Row" date="—" onClick={onClick} />);
+    fireEvent.click(screen.getByRole("button", { name: "Row" }));
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("checking the checkbox fires onSelectChange, not onClick", () => {
+    const onClick = vi.fn();
+    const onSelectChange = vi.fn();
+    render(
+      <ListRow
+        accent="primary"
+        title="Row"
+        date="—"
+        onClick={onClick}
+        onSelectChange={onSelectChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select Row" }));
+    expect(onSelectChange).toHaveBeenCalledWith(true);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("clicking the trash can fires onDelete, not onClick", () => {
+    const onClick = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <ListRow accent="primary" title="Row" date="—" onClick={onClick} onDelete={onDelete} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete Row" }));
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("omitting onSelectChange/onDelete renders no checkbox or trash button", () => {
+    render(<ListRow accent="muted" title="Row" date="—" onClick={vi.fn()} />);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: /delete/i })).toBeNull();
+  });
+});

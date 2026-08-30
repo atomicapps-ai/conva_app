@@ -210,6 +210,7 @@ export class WebBackend implements ConvaBackend {
   sessions = {
     list: (): Promise<SessionSummary[]> => todo("GET /v1/sessions"),
     load: (): Promise<TranscriptSegment[]> => todo("GET /v1/sessions/:id"),
+    delete: (): Promise<void> => todo("DELETE /v1/sessions/:id"),
     exportTranscript: (): Promise<void> => unsupported("sessions.exportTranscript (file path)"),
     analyzeConversation: (): Promise<string> =>
       unsupported("sessions.analyzeConversation (desktop LLM analysis)"),
