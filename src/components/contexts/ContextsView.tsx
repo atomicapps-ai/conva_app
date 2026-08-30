@@ -169,8 +169,8 @@ export function ContextsView() {
   return (
     <ViewShell
       icon="simicon"
-      eyebrow="Contexts"
-      title="Conversation Contexts"
+      eyebrow="Conversation Contexts"
+      title="Contexts"
       subtitle="Ground Ally in your library, by conversation type — then generate its briefing."
       wide
       actions={

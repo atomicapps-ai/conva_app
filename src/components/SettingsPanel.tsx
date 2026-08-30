@@ -1038,7 +1038,7 @@ function AccountSettings() {
   );
 }
 
-export function SettingsPanel({ onClose }: { onClose: () => void }) {
+export function SettingsPanel() {
   const config = useAppStore((s) => s.config);
   const updateConfig = useAppStore((s) => s.updateConfig);
   const refreshDevices = useAppStore((s) => s.refreshDevices);
@@ -1053,7 +1053,6 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         icon="settings"
         title="Settings"
         subtitle="App settings arrive with the hosted backend."
-        onBack={onClose}
       >
         <Section title="Settings">
           <Notice>
@@ -1081,7 +1080,6 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       icon="settings"
       title="Settings"
       subtitle="Devices, transcription, Ally providers, and portable config."
-      onBack={onClose}
     >
       <Section
         title="Account"

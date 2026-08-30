@@ -375,7 +375,6 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const rehearse = (id: string) => {
     useContextsQuickOpen.getState().request(id);
     setView("context");
-    onClose();
   };
 
   const remove = async (id: string) => {
@@ -446,7 +445,6 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
       icon="conversations"
       title="Conversations"
       subtitle="Every listening run is saved automatically — name one to keep it as a conversation you can reopen and continue."
-      onBack={onClose}
       badge={
         openId ? (
           <span className="pill pill-sm pill-ally max-w-[14rem] truncate">open: {title}</span>

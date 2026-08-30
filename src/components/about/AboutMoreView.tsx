@@ -72,7 +72,12 @@ export function AboutMoreView() {
   const goTo = (view: View) => () => setView(view);
 
   return (
-    <ViewShell icon="sparkle" breadcrumb="Settings" title="About & extras">
+    <ViewShell
+      icon="sparkle"
+      breadcrumb="Settings"
+      title="About & extras"
+      onBack={() => setView("settings")}
+    >
       {isTauri() && (
         <Section
           title="Floating HUD"

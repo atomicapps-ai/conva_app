@@ -35,7 +35,19 @@ export function LiveTopBar() {
   const requestNew = useConversationStore((s) => s.requestNew);
 
   return (
-    <header className="flex shrink-0 items-start gap-4 border-b border-border px-4 py-3">
+    <header className="flex shrink-0 items-center gap-4 border-b border-border px-4 py-3">
+      {/* Icon chip — every other routed view gets this from ViewShell;
+          Live's own hand-rolled crown was missing it (owner, 2026-08-30:
+          "include the icon on the top header... make sure all tabs
+          headers follow the same consistent UI scheme"). Same brand-ring
+          treatment, same "live" glyph the nav rail uses for this page
+          (navItems.ts). */}
+      <span
+        className="brand-ring flex h-9 w-9 shrink-0 items-center justify-center rounded text-primary"
+        aria-hidden
+      >
+        <Icon name="live" size={19} />
+      </span>
       <div className="min-w-0 flex-1">
         <p className="truncate font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
           Live session
