@@ -66,7 +66,8 @@ export type IconName =
   | "personaMale"
   | "personaFemale"
   | "star"
-  | "starFilled";
+  | "starFilled"
+  | "camera";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -480,6 +481,13 @@ const PATHS: Record<IconName, ReactNode> = {
       d="M12 3.5l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6-4.5-4.2 6.1-.7z"
       fill="currentColor"
     />
+  ),
+  // Screenshot button — a compact camera body with a viewfinder bump and lens.
+  camera: (
+    <>
+      <path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1-1.5h7l1 1.5h2A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5Z" />
+      <circle cx="12" cy="12.5" r="3.2" />
+    </>
   ),
 };
 

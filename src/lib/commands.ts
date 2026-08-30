@@ -281,6 +281,12 @@ export function saveDebugLog(contents: string): Promise<string> {
   return invoke<string>("save_debug_log", { contents });
 }
 
+/** Write a captured screenshot (base64 PNG) to `<app-data>/screenshots/`;
+ *  resolves to the saved path. */
+export function saveScreenshot(pngBase64: string): Promise<string> {
+  return invoke<string>("save_screenshot", { pngBase64 });
+}
+
 /**
  * Create or update a named conversation. Passing an existing `id` replaces
  * the stored record with this (fuller) transcript — append semantics.

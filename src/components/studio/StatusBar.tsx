@@ -1,7 +1,10 @@
+import { useState } from "react";
+
 import { Icon } from "@/components/ui/Icon";
 import { useBackend, type ConvaBackend } from "@/lib/backend";
 import { BUILD, collectDebugReport } from "@/lib/debug";
 import { isTauri } from "@/lib/ipc";
+import { blobToBase64, captureScreenshot } from "@/lib/screenshot";
 import { useAppStore } from "@/state/app";
 import { useConversationStore } from "@/state/conversation";
 import { useDevMode } from "@/state/devMode";
@@ -36,6 +39,73 @@ async function dumpDebug(backend: ConvaBackend) {
     }
   }
   window.alert("Debug report copied to clipboard.");
+}
+
+type ScreenshotFlash = "idle" | "busy" | "saved" | "error";
+
+/**
+ * Whole-app-window screenshot: capture the `#root` DOM (`captureScreenshot`,
+ * `src/lib/screenshot.ts`), copy it to the clipboard (best-effort), and save
+ * a timestamped PNG under `<app-data>/screenshots/`. Desktop-only —
+ * `isTauri()` gate, same as every other filesystem-touching StatusBar
+ * affordance — and confirms with an inline icon flash rather than a modal
+ * (owner spec; unlike the older `dumpDebug` `window.alert` above). See
+ * `docs/superpowers/specs/2026-08-30-screenshot-button-design.md`.
+ */
+function ScreenshotButton() {
+  const backend = useBackend();
+  const [flash, setFlash] = useState<ScreenshotFlash>("idle");
+
+  if (!isTauri()) return null;
+
+  const take = async () => {
+    if (flash === "busy") return;
+    setFlash("busy");
+    try {
+      const blob = await captureScreenshot();
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      } catch {
+        /* best-effort — the clipboard write can fail independently of the
+         * file save below, which is what actually matters. */
+      }
+      const base64 = await blobToBase64(blob);
+      await backend.screenshot.save(base64);
+      setFlash("saved");
+    } catch {
+      setFlash("error");
+    } finally {
+      setTimeout(() => setFlash("idle"), 1200);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      disabled={flash === "busy"}
+      onClick={() => void take()}
+      title={
+        flash === "saved"
+          ? "Saved to the screenshots folder and copied to the clipboard"
+          : flash === "error"
+            ? "Screenshot failed — try again"
+            : "Screenshot the app window (clipboard + file)"
+      }
+      aria-label="Take a screenshot"
+      className={`flex items-center rounded px-1 py-0.5 transition hover:bg-white/[0.06] ${
+        flash === "saved"
+          ? "text-ok"
+          : flash === "error"
+            ? "text-rec"
+            : "text-fg-faint hover:text-fg"
+      }`}
+    >
+      <Icon
+        name={flash === "saved" ? "check" : flash === "error" ? "close" : "camera"}
+        size={12}
+      />
+    </button>
+  );
 }
 
 export function StatusBar() {
@@ -114,6 +184,7 @@ export function StatusBar() {
           <Icon name={debugChromeVisible ? "eye" : "eyeOff"} size={12} />
         </button>
       )}
+      <ScreenshotButton />
       <button
         type="button"
         onClick={() => void dumpDebug(backend)}

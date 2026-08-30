@@ -145,6 +145,10 @@ export class TauriBackend implements ConvaBackend {
     saveDebugLog: cmd.saveDebugLog,
   };
 
+  screenshot = {
+    save: cmd.saveScreenshot,
+  };
+
   hud = {
     open: cmd.openHud,
     close: cmd.closeHud,

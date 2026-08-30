@@ -57,12 +57,12 @@ const FILTERS: { key: Filter; label: string }[] = [
  *  the earlier drag-to-attach gesture (see the doc comment on
  *  `LibraryPane` for why). */
 /**
- * The row's overflow ⋮ menu (owner, 2026-08-28 — the row shows only
- * checkbox/source-icon/name/context-icon/download/trash inline now; every
- * other action lives here): Attach to a context… (a second "page" of the
- * same popover — the former standalone `AttachMenu`, folded in), View
- * (partner window, when supported), and Link/Unlink to the open
- * conversation (when one is open). Renders nothing when none apply. Same
+ * The row's overflow ⋮ menu (owner, 2026-08-28/29 — the row shows only
+ * checkbox/source-icon/name/context-icon inline now; every other action
+ * lives here): Attach to a context… (a second "page" of the same popover —
+ * the former standalone `AttachMenu`, folded in), View (partner window,
+ * when supported), Download (desktop only), and Link/Unlink to the open
+ * conversation (when one is open) — Delete always shows. Same
  * open/close-on-outside-{click,resize,scroll} shape the old `AttachMenu`
  * used (and `ContextInfoPopover` in `ContextsPane.tsx` mirrors too).
  */
@@ -72,6 +72,8 @@ function LibraryRowMenu({
   onAttach,
   canView,
   onView,
+  canDownload,
+  onDownload,
   conversationOpen,
   conversationTitle,
   linked,
@@ -83,6 +85,11 @@ function LibraryRowMenu({
   onAttach: (docId: string, contextId: string) => void;
   canView: boolean;
   onView: () => void;
+  /** Desktop-only (there's no filesystem to save to in the web preview) —
+   *  moved in here from its own standalone row icon (owner, 2026-08-29:
+   *  "move the download icon into the 3 dots menu"). */
+  canDownload: boolean;
+  onDownload: () => void;
   conversationOpen: boolean;
   conversationTitle: string | null;
   linked: boolean;
@@ -178,6 +185,20 @@ function LibraryRowMenu({
                 >
                   <Icon name="link" size={13} className={linked ? "text-ai" : "text-fg-faint"} />
                   {linked ? `Unlink from "${conversationTitle}"` : `Link to "${conversationTitle}"`}
+                </button>
+              )}
+              {canDownload && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setView(null);
+                    onDownload();
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+                >
+                  <Icon name="download" size={13} className="text-fg-faint" />
+                  Download
                 </button>
               )}
               <button
@@ -651,20 +672,9 @@ export function LibraryPane({
                     <Icon name="book" size={13} className="text-fg-faint" />
                   </span>
                 )}
-                {isTauri() && (
-                  <button
-                    type="button"
-                    onClick={() => void downloadDoc(doc)}
-                    aria-label={`Download ${doc.file_name}`}
-                    title="Download"
-                    className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-                  >
-                    <Icon name="download" size={12} />
-                  </button>
-                )}
                 {/* Far right (owner, 2026-08-29) — the row's one remaining
-                    "more" surface; Delete moved in here too rather than
-                    staying its own standalone icon. */}
+                    "more" surface; Delete and Download both live here now
+                    rather than staying standalone icons. */}
                 <LibraryRowMenu
                   doc={doc}
                   contextTitles={contextTitles}
@@ -673,6 +683,8 @@ export function LibraryPane({
                   onView={() =>
                     void backend.partner.open(doc.file_name, null, null, null, [], doc.id)
                   }
+                  canDownload={isTauri()}
+                  onDownload={() => void downloadDoc(doc)}
                   conversationOpen={conversationOpen}
                   conversationTitle={conversationTitle}
                   linked={linkedDocs.includes(doc.id)}
