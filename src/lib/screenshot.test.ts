@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   blobToBase64,
+  describeElement,
   fixPlaceholderPseudoElement,
   replaceSuspectColorFunctions,
 } from "@/lib/screenshot";
@@ -102,5 +103,28 @@ describe("fixPlaceholderPseudoElement", () => {
     expect(doc.head).toBeNull();
     fixPlaceholderPseudoElement(doc);
     expect(doc.documentElement.querySelector("style")).not.toBeNull();
+  });
+});
+
+// The verification pass (owner, 2026-08-30: "you need better intelligence
+// to verify assumptions through trace data ... so you can see just at what
+// point it fails") identifies a STILL-suspect element in a trace line by
+// this string -- it needs to actually be enough to find the element again.
+describe("describeElement", () => {
+  it("includes the tag, id, and up to 3 classes", () => {
+    const el = document.createElement("div");
+    el.id = "screenshot-btn";
+    el.className = "flex items-center rounded px-1 extra-class-not-shown";
+    expect(describeElement(el)).toBe("<div#screenshot-btn.flex.items-center.rounded>");
+  });
+
+  it("omits the id segment when there is none", () => {
+    const el = document.createElement("span");
+    el.className = "truncate text-xs";
+    expect(describeElement(el)).toBe("<span.truncate.text-xs>");
+  });
+
+  it("is just the bare tag for a plain element", () => {
+    expect(describeElement(document.createElement("body"))).toBe("<body>");
   });
 });

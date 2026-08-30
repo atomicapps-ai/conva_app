@@ -62,7 +62,7 @@ export async function captureScreenshot(trace: (msg: string) => void = noopTrace
         trace("onclone:start");
         try {
           fixPlaceholderPseudoElement(clonedDoc);
-          normalizeClonedColors(clonedRoot);
+          normalizeClonedColors(clonedDoc, clonedRoot, trace);
         } catch (e) {
           // Never let a bug in the color-fixup itself break html2canvas's
           // clone/render pipeline — worst case this capture reverts to the
@@ -154,6 +154,7 @@ const COLOR_PROPERTIES = [
   "borderLeftColor",
   "outlineColor",
   "textDecorationColor",
+  "textShadow",
   "caretColor",
   "columnRuleColor",
   "boxShadow",
@@ -280,14 +281,36 @@ export function fixPlaceholderPseudoElement(doc: Document) {
   (doc.head ?? doc.documentElement).appendChild(style);
 }
 
-/** Walks every element under `root` (inclusive) and rewrites any
+/** Every element this walk touches: `root` (the app's `#root` mount) and
+ *  its descendants, PLUS `<html>`/`<body>` — html2canvas reads THEIR
+ *  `backgroundColor` directly (`getComputedStyle(ownerDocument.body)...`,
+ *  its own source) to fill the canvas background, entirely outside any
+ *  walk scoped to `#root`. Neither carries a suspect value in this
+ *  codebase today (`globals.css`'s `html, body { background: var(...) }`
+ *  is a plain hex custom property, no color-mix), but it's a real gap in
+ *  what this walk covers, cheap to close, and exactly the kind of thing
+ *  that turns into a fifth round of "still broken" if left for later. */
+function elementsToCheck(doc: Document, root: HTMLElement): Element[] {
+  const extra = [doc.documentElement, doc.body].filter(
+    (el): el is HTMLElement => el != null && el !== root && !root.contains(el),
+  );
+  return [...extra, root, ...root.querySelectorAll("*")];
+}
+
+/** Walks every element `elementsToCheck` returns and rewrites any
  *  color-bearing computed value that contains a function html2canvas can't
- *  parse into an inline-style override using its normalized equivalent. */
-function normalizeClonedColors(root: HTMLElement) {
-  const doc = root.ownerDocument;
+ *  parse into an inline-style override using its normalized equivalent.
+ *  Then, so a failure is never a mystery again (owner, 2026-08-30: "you
+ *  need better intelligence to verify assumptions through trace data...
+ *  so you can see just at what point it fails"), RE-CHECKS every one of
+ *  those same values and traces the exact tag/selector/property/raw-value
+ *  of anything STILL suspect — meaning this fixup didn't actually catch
+ *  it, not just that html2canvas failed somewhere unspecified. */
+function normalizeClonedColors(doc: Document, root: HTMLElement, trace: (msg: string) => void) {
   const view = doc.defaultView;
   if (!view) return;
-  const elements: Element[] = [root, ...root.querySelectorAll("*")];
+  const elements = elementsToCheck(doc, root);
+  let fixedCount = 0;
   for (const el of elements) {
     if (!(el instanceof view.HTMLElement) && !(el instanceof view.SVGElement)) continue;
     const cs = view.getComputedStyle(el);
@@ -296,8 +319,36 @@ function normalizeClonedColors(root: HTMLElement) {
       if (!value || !HAS_SUSPECT_COLOR_FN.test(value)) continue;
       const fixed = replaceSuspectColorFunctions(value, normalizeColor);
       (el.style as unknown as Record<string, string>)[prop] = fixed;
+      fixedCount++;
     }
   }
+  trace(`onclone:normalizeClonedColors fixed ${fixedCount} propert${fixedCount === 1 ? "y" : "ies"}`);
+
+  let stillSuspect = 0;
+  for (const el of elements) {
+    if (!(el instanceof view.HTMLElement) && !(el instanceof view.SVGElement)) continue;
+    const cs = view.getComputedStyle(el);
+    for (const prop of COLOR_PROPERTIES) {
+      const value = cs.getPropertyValue(kebabCase(prop));
+      if (!value || !HAS_SUSPECT_COLOR_FN.test(value)) continue;
+      stillSuspect++;
+      trace(`onclone:VERIFY still suspect: ${describeElement(el)} ${kebabCase(prop)}="${value}"`);
+    }
+  }
+  trace(
+    stillSuspect === 0
+      ? "onclone:verify:clean — every walked element/property is now html2canvas-safe"
+      : `onclone:verify:FAILED — ${stillSuspect} propert${stillSuspect === 1 ? "y" : "ies"} still suspect after fixup, listed above`,
+  );
+}
+
+/** Tag + id + first couple classes — enough to find the actual element in
+ *  the live app from a trace line, without dumping its whole className. */
+export function describeElement(el: Element): string {
+  const tag = el.tagName.toLowerCase();
+  const id = el.id ? `#${el.id}` : "";
+  const classes = Array.from(el.classList).slice(0, 3).join(".");
+  return `<${tag}${id}${classes ? `.${classes}` : ""}>`;
 }
 
 function kebabCase(prop: string): string {
