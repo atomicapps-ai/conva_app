@@ -220,6 +220,10 @@ export class WebBackend implements ConvaBackend {
     saveDebugLog: (): Promise<string> => unsupported("diagnostics.saveDebugLog (file)"),
   };
 
+  screenshot = {
+    save: (): Promise<string> => unsupported("screenshot.save (file)"),
+  };
+
   hud = {
     open: (): Promise<void> => unsupported("hud.open"),
     close: (): Promise<void> => unsupported("hud.close"),

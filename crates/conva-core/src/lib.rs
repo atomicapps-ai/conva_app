@@ -26,6 +26,7 @@ pub mod metering;
 pub mod prompt;
 pub mod radar;
 pub mod rag;
+pub mod screenshot;
 pub mod tracker;
 pub mod vad;
 

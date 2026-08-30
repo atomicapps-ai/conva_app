@@ -62,7 +62,8 @@ export type IconName =
   | "rehearsal"
   | "pause"
   | "eye"
-  | "eyeOff";
+  | "eyeOff"
+  | "camera";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -449,6 +450,13 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
       <circle cx="12" cy="12" r="3" />
       <path d="M4 4l16 16" />
+    </>
+  ),
+  // Screenshot button — a compact camera body with a viewfinder bump and lens.
+  camera: (
+    <>
+      <path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2l1-1.5h7l1 1.5h2A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5Z" />
+      <circle cx="12" cy="12.5" r="3.2" />
     </>
   ),
 };
