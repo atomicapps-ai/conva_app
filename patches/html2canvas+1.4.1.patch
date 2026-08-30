@@ -1,0 +1,52 @@
+diff --git a/node_modules/html2canvas/dist/html2canvas.esm.js b/node_modules/html2canvas/dist/html2canvas.esm.js
+index dab56ad..07d529e 100644
+--- a/node_modules/html2canvas/dist/html2canvas.esm.js
++++ b/node_modules/html2canvas/dist/html2canvas.esm.js
+@@ -1717,6 +1717,19 @@ var color$1 = {
+         if (value.type === 18 /* FUNCTION */) {
+             var colorFunction = SUPPORTED_COLOR_FUNCTIONS[value.name];
+             if (typeof colorFunction === 'undefined') {
++                (function () {
++                    try {
++                        var raw = JSON.stringify(value.values).slice(0, 400);
++                        var msg = '[html2canvas-debug] unsupported color function "' + value.name + '" raw args=' + raw;
++                        if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
++                            window.__TAURI_INTERNALS__.invoke('screenshot_trace', { msg: msg }).catch(function () {});
++                        }
++                        console.error(msg);
++                    }
++                    catch (loggingError) {
++                        // never let diagnostic logging itself change the original failure
++                    }
++                })();
+                 throw new Error("Attempting to parse an unsupported color function \"" + value.name + "\"");
+             }
+             return colorFunction(context, value.values);
+@@ -3787,7 +3800,26 @@ var ElementContainer = /** @class */ (function () {
+         if (isDebugging(element, 3 /* PARSE */)) {
+             debugger;
+         }
+-        this.styles = new CSSParsedDeclaration(context, window.getComputedStyle(element, null));
++        try {
++            this.styles = new CSSParsedDeclaration(context, window.getComputedStyle(element, null));
++        }
++        catch (e) {
++            try {
++                var tag = element && element.tagName ? element.tagName.toLowerCase() : typeof element;
++                var id = element && element.id ? '#' + element.id : '';
++                var cls = element && element.classList ? Array.prototype.slice.call(element.classList, 0, 5).join('.') : '';
++                var outer = element && element.outerHTML ? element.outerHTML.slice(0, 300) : '';
++                var msg = '[html2canvas-debug] CSSParsedDeclaration threw for <' + tag + id + (cls ? '.' + cls : '') + '> :: ' + (e && e.message) + ' :: outerHTML=' + outer;
++                if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
++                    window.__TAURI_INTERNALS__.invoke('screenshot_trace', { msg: msg }).catch(function () {});
++                }
++                console.error(msg);
++            }
++            catch (loggingError) {
++                // never let diagnostic logging itself change the original failure
++            }
++            throw e;
++        }
+         if (isHTMLElementNode(element)) {
+             if (this.styles.animationDuration.some(function (duration) { return duration > 0; })) {
+                 element.style.animationDuration = '0s';
