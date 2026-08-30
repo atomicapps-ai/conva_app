@@ -252,9 +252,14 @@ export interface ConvaBackend {
   /** Screenshot button (v1) — capture happens client-side
    *  (`src/lib/screenshot.ts`); this is just the file-save half. */
   screenshot: {
-    /** Desktop-only: write a captured PNG (base64) to
-     *  `<app-data>/screenshots/` (resolves to the saved path). */
+    /** Desktop-only: write a captured PNG (base64) to the current save
+     *  folder (resolves to the saved path). */
     save(pngBase64: string): Promise<string>;
+    /** Desktop-only: the current effective save folder (override, or the
+     *  default `<Pictures>/conva-screenshots/`). */
+    dir(): Promise<string>;
+    /** Desktop-only: reveal the current save folder in the OS file manager. */
+    openFolder(): Promise<void>;
   };
 
   /** Floating HUD panel (`src-tauri/src/hud.rs`). Desktop-only (Layer 4). */

@@ -281,10 +281,21 @@ export function saveDebugLog(contents: string): Promise<string> {
   return invoke<string>("save_debug_log", { contents });
 }
 
-/** Write a captured screenshot (base64 PNG) to `<app-data>/screenshots/`;
- *  resolves to the saved path. */
+/** Write a captured screenshot (base64 PNG) to the Screenshot button's
+ *  current save folder; resolves to the saved path. */
 export function saveScreenshot(pngBase64: string): Promise<string> {
   return invoke<string>("save_screenshot", { pngBase64 });
+}
+
+/** The Screenshot button's current effective save folder (the configured
+ *  override, or the default `<Pictures>/conva-screenshots/`). */
+export function screenshotsDir(): Promise<string> {
+  return invoke<string>("screenshots_dir");
+}
+
+/** Reveal the Screenshot button's current save folder in the OS file manager. */
+export function openScreenshotsFolder(): Promise<void> {
+  return invoke("open_screenshots_folder");
 }
 
 /**

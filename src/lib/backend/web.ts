@@ -222,6 +222,8 @@ export class WebBackend implements ConvaBackend {
 
   screenshot = {
     save: (): Promise<string> => unsupported("screenshot.save (file)"),
+    dir: (): Promise<string> => unsupported("screenshot.dir (file)"),
+    openFolder: (): Promise<void> => unsupported("screenshot.openFolder (file)"),
   };
 
   hud = {

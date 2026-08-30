@@ -5,10 +5,15 @@ import { StatusBar } from "@/components/studio/StatusBar";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 
-function fakeBackend(): ConvaBackend {
+function fakeBackend(overrides: Partial<Record<string, unknown>> = {}): ConvaBackend {
   return {
     diagnostics: { saveDebugLog: vi.fn().mockResolvedValue("/tmp/conva-debug.log") },
-    screenshot: { save: vi.fn().mockResolvedValue("/tmp/screenshots/x.png") },
+    screenshot: {
+      save: vi.fn().mockResolvedValue("/tmp/screenshots/x.png"),
+      dir: vi.fn().mockResolvedValue("/tmp/screenshots"),
+      openFolder: vi.fn().mockResolvedValue(undefined),
+      ...overrides,
+    },
   } as unknown as ConvaBackend;
 }
 

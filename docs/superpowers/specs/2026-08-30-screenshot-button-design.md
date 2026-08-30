@@ -3,6 +3,29 @@
 > Brainstorming-skill design doc. Status: **approved** (owner, 2026-08-29 —
 > requirements gathered; owner, 2026-08-30 — "yes, pick it back up and
 > finish it"). Ships as its own small PR off `main`.
+>
+> **v1.1 addendum (2026-08-30, after first real-device test):** the owner
+> reported the save folder didn't exist at all — a real bug, not a UI
+> nit. Root-caused to the app's CSP (`default-src 'self'`, no `img-src`
+> override): html2canvas internally rasterizes elements via
+> `data:image/svg+xml,...` `<img>` sources, which a strict `'self'`-only
+> CSP blocks outright (`data:`/`blob:` are never implicitly covered by
+> `'self'`) — the whole capture likely threw before ever reaching the save
+> step, and the button's `catch` swallowed the error with no logging, so
+> there was no way to see why. Fixed by adding `img-src 'self' data:
+> blob:` to the CSP, and separately fixed the silent-swallow: errors now
+> `console.error` and land in `useAppStore.lastError` (visible via the
+> existing "debug ⧉" report) as well as a result popover. **Default save
+> location moved** from `<app-data>/screenshots/` to
+> `<Pictures>/conva-screenshots/` (owner: "the proper location should be
+> the usual users pictures folder") — `AppConfig.screenshot_save_dir`
+> (`Option<String>`) overrides it, set via a new right-click menu on the
+> button ("Set save location…" / "Open screenshots folder"). The
+> confirmation is now a white camera-flash overlay (fired the
+> instant capture completes, never before/during — the design section
+> below explains why) plus a small popover naming the saved path, replacing
+> the old icon-color (green/red) flash the owner found looked like an error
+> state ("no red flash, a white flash").
 
 ## Requirements (from the 2026-08-29 brainstorm)
 

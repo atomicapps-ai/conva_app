@@ -36,6 +36,10 @@ pub struct AppConfig {
     pub vad_neural: bool,
     /// Noise-filter strength in [0, 1] (higher = filter more aggressively).
     pub vad_sensitivity: f32,
+    /// Screenshot button's save folder override (Settings, right-click →
+    /// "Set save location…"). `None` = the default
+    /// `<Pictures>/conva-screenshots/`.
+    pub screenshot_save_dir: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -64,6 +68,7 @@ impl Default for AppConfig {
             tracker_enabled: true,
             vad_neural: true,
             vad_sensitivity: 0.5,
+            screenshot_save_dir: None,
         }
     }
 }

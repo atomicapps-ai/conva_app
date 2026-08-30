@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 
 import { Icon } from "@/components/ui/Icon";
 import { useBackend, type ConvaBackend } from "@/lib/backend";
@@ -41,70 +42,197 @@ async function dumpDebug(backend: ConvaBackend) {
   window.alert("Debug report copied to clipboard.");
 }
 
-type ScreenshotFlash = "idle" | "busy" | "saved" | "error";
+type ScreenshotResult =
+  | { ok: true; path: string; pos: { x: number; y: number } }
+  | { ok: false; message: string; pos: { x: number; y: number } };
 
 /**
  * Whole-app-window screenshot: capture the `#root` DOM (`captureScreenshot`,
  * `src/lib/screenshot.ts`), copy it to the clipboard (best-effort), and save
- * a timestamped PNG under `<app-data>/screenshots/`. Desktop-only —
- * `isTauri()` gate, same as every other filesystem-touching StatusBar
- * affordance — and confirms with an inline icon flash rather than a modal
- * (owner spec; unlike the older `dumpDebug` `window.alert` above). See
+ * a timestamped PNG under the current save folder (default
+ * `<Pictures>/conva-screenshots/`, right-click → "Set save location…").
+ * Desktop-only — `isTauri()` gate, same as every other filesystem-touching
+ * StatusBar affordance.
+ *
+ * Confirms with a camera-style white flash (`.animate-screenshot-flash`,
+ * `globals.css`) fired the instant capture completes — never before or
+ * during, or the flash overlay itself would get baked into the captured
+ * image — followed by a small popover naming where it saved (or, on
+ * failure, the actual error: also recorded into `useAppStore`'s
+ * `lastError` so it shows up in the "debug ⧉" report even if the popover
+ * is missed). Right-click opens a menu (same open/close-on-outside-{click,
+ * resize,scroll} shape as `LibraryRowMenu`/`ContextInfoPopover`) for
+ * setting a custom save folder or revealing the current one. See
  * `docs/superpowers/specs/2026-08-30-screenshot-button-design.md`.
  */
 function ScreenshotButton() {
   const backend = useBackend();
-  const [flash, setFlash] = useState<ScreenshotFlash>("idle");
+  const [busy, setBusy] = useState(false);
+  const [flashWhite, setFlashWhite] = useState(false);
+  const [result, setResult] = useState<ScreenshotResult | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!result && !menu) return;
+    const close = () => {
+      setResult(null);
+      setMenu(null);
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [result, menu]);
 
   if (!isTauri()) return null;
 
-  const take = async () => {
-    if (flash === "busy") return;
-    setFlash("busy");
+  const take = async (e: MouseEvent<HTMLButtonElement>) => {
+    if (busy) return;
+    setBusy(true);
+    setResult(null);
+    const r = e.currentTarget.getBoundingClientRect();
+    const pos = { x: r.left, y: r.bottom + 4 };
     try {
       const blob = await captureScreenshot();
+      // The flash fires the instant we have pixels — matches a real
+      // camera (the flash fires with the shutter, not before it), and
+      // guarantees the overlay can never appear inside the captured image.
+      setFlashWhite(true);
+      setTimeout(() => setFlashWhite(false), 260);
       try {
         await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
       } catch {
-        /* best-effort — the clipboard write can fail independently of the
-         * file save below, which is what actually matters. */
+        /* best-effort — the file save below is what actually matters */
       }
       const base64 = await blobToBase64(blob);
-      await backend.screenshot.save(base64);
-      setFlash("saved");
-    } catch {
-      setFlash("error");
+      const path = await backend.screenshot.save(base64);
+      setResult({ ok: true, path, pos });
+    } catch (err) {
+      const message = String(err).replace(/^Error:\s*/, "");
+      // eslint-disable-next-line no-console
+      console.error("[conva] screenshot failed:", err);
+      useAppStore.setState({ lastError: message });
+      setResult({ ok: false, message, pos });
     } finally {
-      setTimeout(() => setFlash("idle"), 1200);
+      setBusy(false);
     }
   };
 
+  const openMenu = (e: MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    setResult(null);
+    const r = e.currentTarget.getBoundingClientRect();
+    const MARGIN = 8;
+    const MENU_W = 200;
+    const x = Math.max(MARGIN, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - MARGIN));
+    setMenu((m) => (m ? null : { x, y: r.top - 4 }));
+  };
+
+  const setSaveLocation = async () => {
+    setMenu(null);
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const current = await backend.screenshot.dir().catch(() => undefined);
+    const picked = await open({ directory: true, defaultPath: current });
+    const dir = Array.isArray(picked) ? picked[0] : picked;
+    if (!dir) return;
+    const config = await backend.config.get();
+    await backend.config.save({ ...config, screenshot_save_dir: dir });
+  };
+
   return (
-    <button
-      type="button"
-      disabled={flash === "busy"}
-      onClick={() => void take()}
-      title={
-        flash === "saved"
-          ? "Saved to the screenshots folder and copied to the clipboard"
-          : flash === "error"
-            ? "Screenshot failed — try again"
-            : "Screenshot the app window (clipboard + file)"
-      }
-      aria-label="Take a screenshot"
-      className={`flex items-center rounded px-1 py-0.5 transition hover:bg-white/[0.06] ${
-        flash === "saved"
-          ? "text-ok"
-          : flash === "error"
-            ? "text-rec"
-            : "text-fg-faint hover:text-fg"
-      }`}
-    >
-      <Icon
-        name={flash === "saved" ? "check" : flash === "error" ? "close" : "camera"}
-        size={12}
-      />
-    </button>
+    <>
+      <span className="relative shrink-0">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={(e) => void take(e)}
+          onContextMenu={openMenu}
+          title="Screenshot the app window (clipboard + file) — right-click for options"
+          aria-label="Take a screenshot"
+          aria-haspopup="menu"
+          aria-expanded={menu !== null}
+          className="flex items-center rounded px-1 py-0.5 text-fg-faint transition hover:bg-white/[0.06] hover:text-fg"
+        >
+          <Icon name="camera" size={12} />
+        </button>
+
+        {result && (
+          <div
+            role="status"
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: "fixed", left: result.pos.x, top: result.pos.y, zIndex: 60 }}
+            className="glass-raised max-w-[280px] rounded-lg border border-border p-2 text-[11px] shadow-[var(--shadow-lg)]"
+          >
+            {result.ok ? (
+              <>
+                <p className="flex items-center gap-1 font-semibold text-ok">
+                  <Icon name="check" size={11} />
+                  Saved
+                </p>
+                <p className="mt-0.5 break-all text-fg-faint">{result.path}</p>
+              </>
+            ) : (
+              <>
+                <p className="flex items-center gap-1 font-semibold text-rec">
+                  <Icon name="close" size={11} />
+                  Screenshot failed
+                </p>
+                <p className="mt-0.5 break-all text-fg-faint">{result.message}</p>
+              </>
+            )}
+          </div>
+        )}
+
+        {menu && (
+          <div
+            role="menu"
+            aria-label="Screenshot options"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              left: menu.x,
+              top: menu.y,
+              transform: "translateY(-100%)",
+              zIndex: 60,
+            }}
+            className="glass-raised min-w-[190px] rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => void setSaveLocation()}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+            >
+              Set save location…
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenu(null);
+                void backend.screenshot.openFolder();
+              }}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+            >
+              Open screenshots folder
+            </button>
+          </div>
+        )}
+      </span>
+
+      {flashWhite &&
+        createPortal(
+          <div
+            aria-hidden
+            className="animate-screenshot-flash pointer-events-none fixed inset-0 z-[9999] bg-white"
+          />,
+          document.body,
+        )}
+    </>
   );
 }
 

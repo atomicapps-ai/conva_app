@@ -147,6 +147,8 @@ export class TauriBackend implements ConvaBackend {
 
   screenshot = {
     save: cmd.saveScreenshot,
+    dir: cmd.screenshotsDir,
+    openFolder: cmd.openScreenshotsFolder,
   };
 
   hud = {
