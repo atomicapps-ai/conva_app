@@ -218,6 +218,14 @@ export class WebBackend implements ConvaBackend {
 
   diagnostics = {
     saveDebugLog: (): Promise<string> => unsupported("diagnostics.saveDebugLog (file)"),
+    // Purely diagnostic, never worth failing loudly for: the browser's own
+    // console is the web equivalent of the desktop terminal this exists to
+    // reach, so just log there instead of throwing "unsupported".
+    trace: (msg: string): Promise<void> => {
+      // eslint-disable-next-line no-console
+      console.debug(`[trace] ${msg}`);
+      return Promise.resolve();
+    },
   };
 
   screenshot = {

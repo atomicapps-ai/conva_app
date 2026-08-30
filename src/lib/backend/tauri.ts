@@ -143,6 +143,7 @@ export class TauriBackend implements ConvaBackend {
 
   diagnostics = {
     saveDebugLog: cmd.saveDebugLog,
+    trace: cmd.screenshotTrace,
   };
 
   screenshot = {

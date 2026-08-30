@@ -62,6 +62,45 @@
 > tests cover the pure parsing/replacement logic (`replaceSuspectColorFunctions`
 > in `screenshot.test.ts`); the canvas round-trip itself is browser-only,
 > same as the rest of this capture path.
+>
+> **v1.3 addendum (2026-08-30, a FOURTH report — this time total silence):**
+> after v1.2, the owner reported no flash, no result popover, no terminal
+> output, nothing — "the screenshot didn't work" with zero symptoms to
+> diagnose from, plus a fair question: is this actually writing trace info
+> anywhere? It wasn't, in any form the owner could see: this pipeline is
+> almost entirely client-side JS, and `console.*` only ever reaches the
+> webview's own devtools (Cargo's `devtools` feature is on — right-click →
+> Inspect), never the terminal `npm run tauri:gpu` runs in, which is where
+> the owner was actually looking. Total silence with no error also matches
+> a genuine hang, not another parse failure: reading html2canvas's own
+> source turned up that its clone step **awaits the cloned document's
+> `fonts.ready`** (the Font Loading API) before ever calling `onclone` — a
+> promise this file has no control over and no way to skip; if it never
+> settles in a given webview, the whole capture waits forever with no
+> observable symptom at all, independent of anything in this codebase.
+> Three changes, all in service of never letting this be silent again:
+> - **A 20s timeout** (`withTimeout` in `screenshot.ts`) races the whole
+>   `html2canvas(...)` call — a hang anywhere in its pipeline (fonts.ready
+>   or otherwise) now becomes a real, caught, reported error instead of an
+>   unbounded wait.
+> - **`onclone`'s color-fixup runs inside its own try/catch** — a bug in
+>   `normalizeClonedColors` can no longer throw synchronously into
+>   html2canvas's clone/render pipeline; worst case a capture reverts to
+>   the pre-v1.2 "unsupported color function" failure, never a new, harder
+>   failure mode.
+> - **Real terminal-visible tracing.** A new `screenshot_trace(msg)` Tauri
+>   command (`lib.rs`) just `eprintln!`s to this process's own stderr —
+>   the terminal the owner is actually watching. `captureScreenshot`
+>   accepts an optional `trace` callback and calls it at every stage
+>   (html2canvas import, render start/done, `onclone` start/done, blob
+>   ready); `StatusBar.tsx` wires it to `backend.diagnostics.trace` and
+>   adds its own stages (clipboard, base64, save). `screenshot.ts` stays
+>   backend-agnostic (no `ConvaBackend` import) — the trace fn is injected,
+>   not imported.
+> - Also: the button now gives visible feedback the instant it's clicked
+>   (`animate-pulse` on the camera icon while `busy`) — previously there
+>   was no UI difference between "just clicked, capture is 2s from
+>   finishing" and "nothing happened," which read as broken on its own.
 
 ## Requirements (from the 2026-08-29 brainstorm)
 
