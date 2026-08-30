@@ -164,6 +164,28 @@
 > that isn't covered by `COLOR_PROPERTIES`/`elementsToCheck` at all —
 > `<canvas>`/`<video>` content, SVG `<stop stop-color>` gradient stops, or
 > something not yet considered) — no more guessing which.
+>
+> **v1.6 addendum (2026-08-30, the verify pass delivered exactly that
+> clarity):** next trace: `fixed 0 properties` / `verify:clean` — proof
+> every real-element property this file checks was already safe — then
+> the SAME failure immediately after. That ruled out everything inside
+> `elementsToCheck`'s scope and pointed straight at something html2canvas
+> reads outside it. Read its source end to end for the complete answer
+> rather than guessing again: `resolvePseudoContent` calls
+> `getComputedStyle(node, ':before')` / `':after'` **for every node it
+> processes**, feeding the identical color parser — and `::before`/
+> `::after` were the one confirmed color source never checked here (SVG
+> `<stop>` gradients turned out to use hardcoded hex, ruled out; the
+> declaration parser's full property list was cross-checked and matched
+> `COLOR_PROPERTIES` exactly otherwise). `normalizePseudoElementColors`
+> closes it: for every real element, read its `::before`/`::after`
+> computed style (skipping elements with `content: none` — the vast
+> majority), and for any suspect property inject a scoped stylesheet rule
+> (`[data-scr-fix-N]::before { prop: normalized !important; }` — no JS API
+> sets a pseudo-element's style directly, so a `<style>` tag is the only
+> way in). The verify pass now re-checks `::before`/`::after` too, so a
+> fifth report, if there is one, will say precisely whether this closed
+> the gap or the search needs to move somewhere neither DOM walk reaches.
 
 ## Requirements (from the 2026-08-29 brainstorm)
 
