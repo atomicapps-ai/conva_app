@@ -281,6 +281,15 @@ export function saveDebugLog(contents: string): Promise<string> {
   return invoke<string>("save_debug_log", { contents });
 }
 
+/** Print one line to this process's own stderr — the terminal `npm run
+ *  tauri:gpu` was launched from — for pipelines that run mostly in the
+ *  webview (whose `console.*` only ever reaches webview devtools, never
+ *  this terminal) and need a diagnostic trail visible without opening
+ *  them. Fire-and-forget; failures here are never worth surfacing. */
+export function screenshotTrace(msg: string): Promise<void> {
+  return invoke("screenshot_trace", { msg });
+}
+
 /** Write a captured screenshot (base64 PNG) to the Screenshot button's
  *  current save folder; resolves to the saved path. */
 export function saveScreenshot(pngBase64: string): Promise<string> {

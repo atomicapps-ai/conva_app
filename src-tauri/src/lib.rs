@@ -844,6 +844,23 @@ fn save_debug_log(app: AppHandle, contents: String) -> Result<String, String> {
     Ok(path.display().to_string())
 }
 
+/// Prints one line to this process's stderr — i.e. the terminal `npm run
+/// tauri:gpu` was launched from. Exists so the Screenshot button's capture
+/// pipeline (owner, 2026-08-30: three rounds of "it still doesn't work" with
+/// zero visible symptoms — no flash, no popover, nothing) has SOME
+/// diagnostic trail the owner can actually see without opening webview
+/// devtools. Most of that pipeline (html2canvas capture, clipboard write,
+/// base64 encode) runs entirely in the webview, where `console.*` only ever
+/// reaches the webview's OWN devtools console (Cargo's `devtools` feature is
+/// on — right-click → Inspect), never this terminal; `screenshot.ts`/
+/// `StatusBar.tsx` call this at each stage specifically to close that gap.
+/// Not wired through `ipc.rs`/`ipc.ts` — a plain fire-and-forget string, same
+/// class as `save_debug_log` below.
+#[tauri::command]
+fn screenshot_trace(msg: String) {
+    eprintln!("[screenshot] {msg}");
+}
+
 /// Decode a base64 PNG (captured client-side via `html2canvas` — see
 /// `src/lib/screenshot.ts`) and write it to `<Pictures>/conva-screenshots/
 /// <timestamped-name>.png` (or the owner's chosen override —
@@ -2155,6 +2172,7 @@ pub fn run() {
             auth_status,
             auth_signout,
             save_debug_log,
+            screenshot_trace,
             save_screenshot,
             screenshots_dir,
             open_screenshots_folder,

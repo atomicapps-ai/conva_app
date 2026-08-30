@@ -96,8 +96,14 @@ function ScreenshotButton() {
     setResult(null);
     const r = e.currentTarget.getBoundingClientRect();
     const pos = { x: r.left, y: r.bottom + 4 };
+    // Reaches the terminal `npm run tauri:gpu` was launched from (desktop)
+    // or the browser console (web) — see `screenshot_trace`'s doc comment
+    // in `lib.rs`. Fire-and-forget: a trace call itself must never be able
+    // to fail the capture it's trying to diagnose.
+    const trace = (msg: string) => void backend.diagnostics.trace(`screenshot: ${msg}`).catch(() => {});
+    trace("button clicked");
     try {
-      const blob = await captureScreenshot();
+      const blob = await captureScreenshot(trace);
       // The flash fires the instant we have pixels — matches a real
       // camera (the flash fires with the shutter, not before it), and
       // guarantees the overlay can never appear inside the captured image.
@@ -105,16 +111,21 @@ function ScreenshotButton() {
       setTimeout(() => setFlashWhite(false), 260);
       try {
         await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-      } catch {
-        /* best-effort — the file save below is what actually matters */
+        trace("clipboard:done");
+      } catch (clipErr) {
+        // best-effort — the file save below is what actually matters
+        trace(`clipboard:failed (non-fatal): ${String(clipErr)}`);
       }
       const base64 = await blobToBase64(blob);
+      trace("base64:done");
       const path = await backend.screenshot.save(base64);
+      trace(`save:done -> ${path}`);
       setResult({ ok: true, path, pos });
     } catch (err) {
       const message = String(err).replace(/^Error:\s*/, "");
       // eslint-disable-next-line no-console
       console.error("[conva] screenshot failed:", err);
+      trace(`failed: ${message}`);
       useAppStore.setState({ lastError: message });
       setResult({ ok: false, message, pos });
     } finally {
@@ -151,13 +162,19 @@ function ScreenshotButton() {
           disabled={busy}
           onClick={(e) => void take(e)}
           onContextMenu={openMenu}
-          title="Screenshot the app window (clipboard + file) — right-click for options"
-          aria-label="Take a screenshot"
+          title={busy ? "Capturing…" : "Screenshot the app window (clipboard + file) — right-click for options"}
+          aria-label={busy ? "Capturing a screenshot" : "Take a screenshot"}
           aria-haspopup="menu"
           aria-expanded={menu !== null}
           className="flex items-center rounded px-1 py-0.5 text-fg-faint transition hover:bg-white/[0.06] hover:text-fg"
         >
-          <Icon name="camera" size={12} />
+          {/* animate-pulse — a click must never look like it did nothing.
+              Capture can legitimately take a couple of seconds (walking
+              every element to fix up colors html2canvas can't parse, see
+              screenshot.ts); before this the button gave zero feedback
+              between click and the result popover, which read as "broken"
+              on its own even when the capture was actually still running. */}
+          <Icon name="camera" size={12} className={busy ? "animate-pulse" : undefined} />
         </button>
 
         {result && (

@@ -247,6 +247,10 @@ export interface ConvaBackend {
   diagnostics: {
     /** Desktop-only: write a report to a log file (resolves to the path). */
     saveDebugLog(contents: string): Promise<string>;
+    /** Print one line to this process's own stderr (desktop) or the
+     *  browser console (web) — a diagnostic trail visible without opening
+     *  webview devtools, for pipelines that run mostly client-side. */
+    trace(msg: string): Promise<void>;
   };
 
   /** Screenshot button (v1) — capture happens client-side

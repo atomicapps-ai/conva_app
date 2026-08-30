@@ -7,7 +7,10 @@ import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 
 function fakeBackend(overrides: Partial<Record<string, unknown>> = {}): ConvaBackend {
   return {
-    diagnostics: { saveDebugLog: vi.fn().mockResolvedValue("/tmp/conva-debug.log") },
+    diagnostics: {
+      saveDebugLog: vi.fn().mockResolvedValue("/tmp/conva-debug.log"),
+      trace: vi.fn().mockResolvedValue(undefined),
+    },
     screenshot: {
       save: vi.fn().mockResolvedValue("/tmp/screenshots/x.png"),
       dir: vi.fn().mockResolvedValue("/tmp/screenshots"),

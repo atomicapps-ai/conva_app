@@ -1,3 +1,33 @@
+/** No-op default so every call site in this file can call `trace(...)`
+ *  unconditionally instead of guarding it every time. */
+const noopTrace = (_msg: string) => {};
+
+/** html2canvas awaits the cloned document's `fonts.ready` (the Font Loading
+ *  API) before it ever calls `onclone` — a step this file doesn't control
+ *  and can't skip. If that promise never settles in a given webview, or
+ *  html2canvas hangs anywhere else in its own clone/render pipeline, the
+ *  capture would otherwise wait forever with zero observable symptom: no
+ *  flash, no popover, no error (owner, 2026-08-30, three rounds in: "I
+ *  don't see anything happening"). Race it against a timeout instead, so a
+ *  hang becomes a loud, traceable failure. */
+const CAPTURE_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error as Error);
+      },
+    );
+  });
+}
+
 /**
  * Captures the whole app window (the `#root` mount, i.e. everything the app
  * currently renders) as a PNG `Blob`. Pure DOM/canvas rendering via
@@ -11,16 +41,43 @@
  * never pay for it in the main bundle.
  *
  * Kept out of `StatusBar.tsx` so the capture step is easy to reason about
- * independent of the button's React state.
+ * independent of the button's React state. `trace`, if given, is called at
+ * each stage — `StatusBar.tsx` wires it to `backend.diagnostics.trace`,
+ * which (on desktop) reaches the terminal, not just webview devtools; see
+ * that function's own doc comment for why this file can't just log there
+ * directly (`screenshot.ts` stays backend-agnostic, no `ConvaBackend`
+ * import).
  */
-export async function captureScreenshot(): Promise<Blob> {
+export async function captureScreenshot(trace: (msg: string) => void = noopTrace): Promise<Blob> {
+  trace("captureScreenshot:start");
   const root = document.getElementById("root");
   if (!root) throw new Error("no #root element to capture");
+  trace("html2canvas:import:start");
   const { default: html2canvas } = await import("html2canvas");
-  const canvas = await html2canvas(root, {
-    onclone: (_clonedDoc: Document, clonedRoot: HTMLElement) => normalizeClonedColors(clonedRoot),
-  });
+  trace("html2canvas:import:done");
+  trace("html2canvas:render:start");
+  const canvas = await withTimeout(
+    html2canvas(root, {
+      onclone: (_clonedDoc: Document, clonedRoot: HTMLElement) => {
+        trace("onclone:start");
+        try {
+          normalizeClonedColors(clonedRoot);
+        } catch (e) {
+          // Never let a bug in the color-fixup itself break html2canvas's
+          // clone/render pipeline — worst case this capture reverts to the
+          // pre-fix "unsupported color function" failure, not a new,
+          // harder-to-diagnose one.
+          trace(`onclone:normalizeClonedColors threw: ${String(e)}`);
+        }
+        trace("onclone:done");
+      },
+    }),
+    CAPTURE_TIMEOUT_MS,
+    `html2canvas didn't finish within ${CAPTURE_TIMEOUT_MS / 1000}s — it likely hung inside its own render pipeline (e.g. waiting on the cloned document's font loading), not this app's code`,
+  );
+  trace("html2canvas:render:done");
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  trace("toBlob:done");
   if (!blob) throw new Error("canvas produced no image data");
   return blob;
 }
