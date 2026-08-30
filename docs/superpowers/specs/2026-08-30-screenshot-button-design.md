@@ -127,6 +127,43 @@
 > current text color" look using only a keyword and an opacity value,
 > nothing color-mix/oklab/any function html2canvas can choke on. Called
 > from `onclone` alongside the existing element walk, same try/catch.
+>
+> **v1.5 addendum (2026-08-30, the v1.4 fix didn't take — and the owner
+> called out exactly why):** the owner's next terminal trace was byte-for-
+> byte identical to before v1.4: `onclone:done` then the same "unsupported
+> color function 'color'" failure, meaning `::placeholder` was either not
+> the (whole) story or the fix didn't apply — and correctly pushed back:
+> "you need better intelligence to verify assumptions through trace data
+> ... so you can see just at what point it fails." Fair — the trace only
+> said THAT it failed, never WHERE. Reading html2canvas's own color parser
+> settled the `::placeholder` question directly: it doesn't read pseudo-
+> element styling for placeholders at all, it just renders the plain
+> `node.placeholder` string using the input's normal `color` — that whole
+> theory, while a reasonable read of the compiled CSS, was never actually
+> how html2canvas resolves this. Its `SUPPORTED_COLOR_FUNCTIONS` list is
+> exactly `hsl`/`hsla`/`rgb`/`rgba` — nothing else, `color()` included —
+> confirming the fixup approach itself (round-trip to something in that
+> set) is right; the gap is coverage. Two real gaps closed:
+> - `<html>`/`<body>` `backgroundColor` — html2canvas reads these directly
+>   (`getComputedStyle(ownerDocument.body).backgroundColor`, its own
+>   source) to fill the canvas background, entirely outside any walk
+>   scoped to `#root`. Not the culprit today (`globals.css`'s `html, body
+>   { background: var(--color-bg) }` is a plain hex custom property) but a
+>   real blind spot, now included in `elementsToCheck`.
+> - `text-shadow` added to the checked property list (html2canvas reads it
+>   for text rendering; unused in this codebase today, cheap insurance).
+>
+> More importantly: `normalizeClonedColors` now runs a SECOND, verification
+> pass after the fixup, re-checking every element/property it just touched
+> and tracing the exact `<tag#id.class>` + property + raw value of anything
+> STILL suspect — plus a summary line either way (`verify:clean` or
+> `verify:FAILED — N properties still suspect`). If the next capture still
+> fails, the trace itself now says whether the gap is inside this walk's
+> scope (a specific element/property will be named) or genuinely outside it
+> (a clean verify pass, meaning the search moves to what html2canvas reads
+> that isn't covered by `COLOR_PROPERTIES`/`elementsToCheck` at all —
+> `<canvas>`/`<video>` content, SVG `<stop stop-color>` gradient stops, or
+> something not yet considered) — no more guessing which.
 
 ## Requirements (from the 2026-08-29 brainstorm)
 
