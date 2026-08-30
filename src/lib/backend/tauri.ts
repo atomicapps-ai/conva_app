@@ -136,6 +136,7 @@ export class TauriBackend implements ConvaBackend {
   sessions = {
     list: cmd.sessionList,
     load: cmd.sessionLoad,
+    delete: cmd.sessionDelete,
     exportTranscript: cmd.exportTranscript,
     analyzeConversation: cmd.analyzeConversation,
     writeTextFile: cmd.writeTextFile,

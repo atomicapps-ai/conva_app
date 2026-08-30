@@ -460,6 +460,10 @@ export function sessionLoad(id: string): Promise<TranscriptSegment[]> {
   return invoke<TranscriptSegment[]>("session_load", { id });
 }
 
+export function sessionDelete(id: string): Promise<void> {
+  return invoke("session_delete", { id });
+}
+
 export function exportTranscript(
   path: string,
   segments: TranscriptSegment[],

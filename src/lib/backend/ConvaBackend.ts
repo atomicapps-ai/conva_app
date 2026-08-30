@@ -229,6 +229,7 @@ export interface ConvaBackend {
   sessions: {
     list(): Promise<SessionSummary[]>;
     load(id: string): Promise<TranscriptSegment[]>;
+    delete(id: string): Promise<void>;
     /** Desktop-only: write Markdown to a path. Web → browser download. */
     exportTranscript(path: string, segments: TranscriptSegment[]): Promise<void>;
     /** Analyze a saved conversation's performance (category-aware, grounded
