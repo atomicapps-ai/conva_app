@@ -605,7 +605,13 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
                     <button
                       type="button"
                       onClick={() => void openSearchHit(hit)}
-                      className="row w-full flex-col items-start gap-0.5 !py-1.5"
+                      className="row w-full flex-col items-start gap-0.5 border-l-[3px] !py-1.5"
+                      style={{
+                        borderLeftColor:
+                          hit.rowKind === "conversation"
+                            ? "var(--color-primary)"
+                            : "var(--color-fg-faint)",
+                      }}
                     >
                       <div className="flex w-full min-w-0 items-center gap-2">
                         <Icon
