@@ -114,7 +114,28 @@ impl RagStore {
             inner: RwLock::new(Corpus::default()),
         };
         store.reload()?;
+        store.migrate_unchecked_default_once();
         Ok(store)
+    }
+
+    /// One-time migration (owner, 2026-08-29): a freshly-ingested document
+    /// now defaults to `enabled: false` ("this should not be default
+    /// behavior at all"), but that only covers documents ingested from now
+    /// on — anything already on disk keeps whatever `enabled` it had before
+    /// the change. This walks every existing document once and unchecks it
+    /// too, so the rule applies uniformly rather than only to new adds.
+    /// Guarded by a marker file so it runs exactly once: after this,
+    /// re-checking a document by hand has to stick, not get silently undone
+    /// on the next launch.
+    fn migrate_unchecked_default_once(&self) {
+        let marker = self.dir.join(".migrated-unchecked-default");
+        if marker.exists() {
+            return;
+        }
+        for id in self.list().into_iter().map(|d| d.id) {
+            let _ = self.set_enabled(&id, false);
+        }
+        let _ = fs::write(&marker, b"1");
     }
 
     fn doc_path(&self, id: &str) -> PathBuf {
@@ -1018,6 +1039,62 @@ mod tests {
 
         store.delete(&docs[0].id).unwrap();
         assert!(store.list().is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reopening_the_store_unchecks_existing_documents_exactly_once() {
+        // Simulate a document that already existed on disk *before* this
+        // migration shipped — enabled: true, no marker file yet. Written
+        // directly to the store's file layout rather than through
+        // RagStore::open()+ingest(): opening the store at all runs the
+        // migration (even against zero documents) and writes the marker,
+        // so ingesting through an already-open store would burn the
+        // one-shot before this "pre-existing" document ever existed —
+        // exactly backwards from what a real upgrading user sees (their
+        // documents are already on disk the first time the new build ever
+        // calls RagStore::open()).
+        let dir = std::env::temp_dir().join(format!("conva-rag-migrate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let rag_dir = dir.join("rag");
+        fs::create_dir_all(&rag_dir).unwrap();
+        let id = "doc-legacy";
+        let legacy = StoredDocument {
+            document: RagDocument {
+                id: id.to_string(),
+                file_name: "legacy.txt".into(),
+                enabled: true,
+                chunk_count: 0,
+                ingested_at_unix_ms: 0,
+                source: DocSource::File,
+                context_ids: Vec::new(),
+                size_bytes: 0,
+            },
+            chunks: Vec::new(),
+        };
+        fs::write(
+            rag_dir.join(format!("{id}.json")),
+            serde_json::to_string(&legacy).unwrap(),
+        )
+        .unwrap();
+
+        // First open after the migration ships: the pre-existing document
+        // gets unchecked.
+        let store = RagStore::open(&dir).unwrap();
+        let doc = store.list().into_iter().find(|d| d.id == id).unwrap();
+        assert!(
+            !doc.enabled,
+            "pre-existing document unchecked by the migration"
+        );
+
+        // The owner re-checks it by hand — a later restart must not undo
+        // that (the migration runs exactly once, guarded by its marker).
+        store.set_enabled(id, true).unwrap();
+        drop(store);
+        let restarted = RagStore::open(&dir).unwrap();
+        let doc = restarted.list().into_iter().find(|d| d.id == id).unwrap();
+        assert!(doc.enabled, "manual re-check survives a later restart");
 
         let _ = fs::remove_dir_all(&dir);
     }
