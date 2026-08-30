@@ -1,10 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ConversationsPanel } from "@/components/ConversationsPanel";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
-import type { ContextSummary } from "@/lib/ipc";
+import type { ContextSummary, ConversationSummary, SessionSummary } from "@/lib/ipc";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useNavStore } from "@/state/nav";
 
@@ -27,10 +27,45 @@ function context(overrides: Partial<ContextSummary> = {}): ContextSummary {
   };
 }
 
-function fakeBackend(contexts: ContextSummary[]): ConvaBackend {
+function conversationRow(overrides: Partial<ConversationSummary> = {}): ConversationSummary {
   return {
-    conversations: { list: vi.fn().mockResolvedValue([]) },
-    sessions: { list: vi.fn().mockResolvedValue([]) },
+    id: "conv-1",
+    title: "Amazon interview prep",
+    created_at_unix_ms: 0,
+    updated_at_unix_ms: 1_000,
+    segment_count: 5,
+    linked_docs: [],
+    preview: "",
+    ...overrides,
+  };
+}
+
+function sessionRow(overrides: Partial<SessionSummary> = {}): SessionSummary {
+  return {
+    id: "session-1",
+    started_at_unix_ms: 2_000,
+    segment_count: 3,
+    preview: "hello",
+    is_rehearsal: false,
+    simcon_title: null,
+    ...overrides,
+  };
+}
+
+function fakeBackend(
+  contexts: ContextSummary[],
+  conversations: ConversationSummary[] = [],
+  sessions: SessionSummary[] = [],
+): ConvaBackend {
+  return {
+    conversations: {
+      list: vi.fn().mockResolvedValue(conversations),
+      delete: vi.fn().mockResolvedValue(undefined),
+    },
+    sessions: {
+      list: vi.fn().mockResolvedValue(sessions),
+      delete: vi.fn().mockResolvedValue(undefined),
+    },
     context: { list: vi.fn().mockResolvedValue(contexts) },
     rag: { list: vi.fn().mockResolvedValue([]) },
   } as unknown as ConvaBackend;
@@ -69,5 +104,73 @@ describe("ConversationsPanel", () => {
     expect(useNavStore.getState().view).toBe("context");
     expect(useContextsQuickOpen.getState().pendingId).toBe("c1");
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("checking two rows shows the bulk bar with a count of 2", async () => {
+    const backend = fakeBackend([], [conversationRow()], [sessionRow()]);
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel onClose={vi.fn()} />
+      </BackendProvider>,
+    );
+    await screen.findByText("Amazon interview prep");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /select amazon interview prep/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /select hello/i }));
+
+    expect(await screen.findByText("2 selected")).toBeInTheDocument();
+  });
+
+  it("bulk delete dispatches to the right backend call per row kind", async () => {
+    const backend = fakeBackend([], [conversationRow()], [sessionRow()]);
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel onClose={vi.fn()} />
+      </BackendProvider>,
+    );
+    await screen.findByText("Amazon interview prep");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /select amazon interview prep/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /select hello/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete selected" }));
+
+    await waitFor(() => {
+      expect(backend.conversations.delete).toHaveBeenCalledWith("conv-1");
+      expect(backend.sessions.delete).toHaveBeenCalledWith("session-1");
+    });
+  });
+
+  it("a session row's own trash can calls backend.sessions.delete", async () => {
+    const backend = fakeBackend([], [], [sessionRow()]);
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel onClose={vi.fn()} />
+      </BackendProvider>,
+    );
+    await screen.findByText("hello");
+
+    fireEvent.click(screen.getByRole("button", { name: /delete hello/i }));
+
+    await waitFor(() => expect(backend.sessions.delete).toHaveBeenCalledWith("session-1"));
+  });
+
+  it("switching filter tabs clears any selection", async () => {
+    const backend = fakeBackend([], [conversationRow()], []);
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel onClose={vi.fn()} />
+      </BackendProvider>,
+    );
+    await screen.findByText("Amazon interview prep");
+    fireEvent.click(screen.getByRole("checkbox", { name: /select amazon interview prep/i }));
+    await screen.findByText("1 selected");
+
+    fireEvent.click(screen.getByRole("button", { name: "History" }));
+    fireEvent.click(screen.getByRole("button", { name: "All activity" }));
+
+    // The bulk bar stays mounted (collapsed to 0 height) even with nothing
+    // selected, so assert no *non-zero* count is shown rather than that
+    // no "selected" text exists at all.
+    expect(screen.queryByText(/^[1-9]\d* selected$/)).toBeNull();
   });
 });

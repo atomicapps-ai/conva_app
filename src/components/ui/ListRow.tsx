@@ -14,6 +14,10 @@ export interface ListRowProps {
   badge?: { text: string; tone: ListRowAccent };
   date: string;
   selected?: boolean;
+  /** The conversation currently open in the transcript — a distinct cue
+   *  from `selected` (bulk-delete checkbox state), so it uses its own
+   *  gold ring rather than reusing the primary-tinted selected style. */
+  open?: boolean;
   /** Omit -> the checkbox column renders as an empty spacer, not omitted
    *  (keeps column widths identical across every row in a list — see the
    *  Rehearsals tab in ConversationsPanel.tsx, which reuses this shape
@@ -47,6 +51,7 @@ export function ListRow({
   badge,
   date,
   selected = false,
+  open = false,
   onSelectChange,
   onDelete,
   onClick,
@@ -67,9 +72,11 @@ export function ListRow({
       className={[
         "grid h-[34px] cursor-pointer grid-cols-[3px_14px_minmax(0,1fr)_auto_auto_20px]",
         "items-center gap-2 rounded-md border pr-2 transition",
-        selected
-          ? "border-primary/35 bg-primary/10"
-          : "border-transparent bg-bg/40 hover:border-border hover:bg-panel-raised",
+        open
+          ? "border-ai/60 bg-ai/[0.06]"
+          : selected
+            ? "border-primary/35 bg-primary/10"
+            : "border-transparent bg-bg/40 hover:border-border hover:bg-panel-raised",
       ].join(" ")}
     >
       <span className="h-full rounded-sm" style={{ background: accentVar }} aria-hidden="true" />
