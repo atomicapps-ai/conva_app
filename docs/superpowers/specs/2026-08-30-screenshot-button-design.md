@@ -101,6 +101,32 @@
 >   (`animate-pulse` on the camera icon while `busy`) — previously there
 >   was no UI difference between "just clicked, capture is 2s from
 >   finishing" and "nothing happened," which read as broken on its own.
+>
+> **v1.4 addendum (2026-08-30, the tracing from v1.3 paid off immediately):**
+> the owner rebuilt and the terminal trace showed exactly what v1.3 was
+> for: `onclone:start` → `onclone:done` (the element-walk color-fixup ran
+> clean) → `failed: Attempting to parse an unsupported color function
+> "color"` — the SAME failure, but now provably happening AFTER the fixup,
+> inside html2canvas's own subsequent render pass. That pointed straight at
+> a `::placeholder`/`::before`/`::after`-shaped gap: pseudo-elements have no
+> real DOM node, so `normalizeClonedColors`'s `querySelectorAll("*")` walk —
+> no matter how many properties it checks — can never see or fix one.
+> Grepping the compiled CSS bundle for every pseudo-element rule using a
+> suspect function turned up exactly one live culprit: Tailwind's own
+> PREFLIGHT sets `::placeholder { color: color-mix(in oklab, currentcolor
+> 50%, transparent); }` **unconditionally on every `<input>`/`<textarea>`**,
+> regardless of any class used — invisible to the fix, and virtually
+> guaranteed to be present on any real app screen with a text field
+> (`::selection` was the only other pseudo-element hit, already safe —
+> `in srgb`, from `globals.css`'s own earlier fix; no `::before`/`::after`
+> rule in this codebase uses a suspect function, confirmed both in source
+> and compiled output). Since no JS API sets a pseudo-element's style
+> directly, `fixPlaceholderPseudoElement` (`screenshot.ts`) injects a
+> `<style>` rule into the cloned document instead — `::placeholder { color:
+> inherit; opacity: .5; }` reproduces the exact same "half-transparent
+> current text color" look using only a keyword and an opacity value,
+> nothing color-mix/oklab/any function html2canvas can choke on. Called
+> from `onclone` alongside the existing element walk, same try/catch.
 
 ## Requirements (from the 2026-08-29 brainstorm)
 

@@ -58,9 +58,10 @@ export async function captureScreenshot(trace: (msg: string) => void = noopTrace
   trace("html2canvas:render:start");
   const canvas = await withTimeout(
     html2canvas(root, {
-      onclone: (_clonedDoc: Document, clonedRoot: HTMLElement) => {
+      onclone: (clonedDoc: Document, clonedRoot: HTMLElement) => {
         trace("onclone:start");
         try {
+          fixPlaceholderPseudoElement(clonedDoc);
           normalizeClonedColors(clonedRoot);
         } catch (e) {
           // Never let a bug in the color-fixup itself break html2canvas's
@@ -248,6 +249,35 @@ function normalizeColor(colorFunctionCall: string): string {
   }
   normalizeCache.set(colorFunctionCall, result);
   return result;
+}
+
+/**
+ * `::placeholder` is a pseudo-element — it has no real DOM node, so
+ * `normalizeClonedColors`'s `querySelectorAll("*")` walk (real elements
+ * only) can never see or fix it, no matter how thorough the property list.
+ * Confirmed via the PR #149 terminal trace: capture got all the way through
+ * `onclone:done` (so the element walk ran clean) and still failed with the
+ * same "unsupported color function" during html2canvas's OWN subsequent
+ * render pass, which — unlike this file — does read placeholder text
+ * styling for empty inputs. Tailwind's PREFLIGHT sets
+ * `::placeholder { color: color-mix(in oklab, currentcolor 50%,
+ * transparent); }` UNCONDITIONALLY on every `<input>`/`<textarea>`,
+ * regardless of any class used — confirmed in the compiled CSS bundle,
+ * where it's the only other pseudo-element rule (besides `::selection`,
+ * already `in srgb` from `globals.css`'s own fix) using a suspect function.
+ *
+ * No per-element JS API can set a pseudo-element's style directly, so this
+ * overrides it the one way that works: inject a `<style>` rule into the
+ * cloned document. `color: inherit; opacity: .5` reproduces the exact same
+ * "half-transparent current text color" look `color-mix(in oklab,
+ * currentcolor 50%, transparent)` was going for, using only a keyword and
+ * an opacity value — nothing color-mix, oklab, or any other function
+ * html2canvas can choke on.
+ */
+export function fixPlaceholderPseudoElement(doc: Document) {
+  const style = doc.createElement("style");
+  style.textContent = "::placeholder { color: inherit !important; opacity: .5 !important; }";
+  (doc.head ?? doc.documentElement).appendChild(style);
 }
 
 /** Walks every element under `root` (inclusive) and rewrites any
