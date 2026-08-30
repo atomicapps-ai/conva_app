@@ -186,6 +186,42 @@
 > way in). The verify pass now re-checks `::before`/`::after` too, so a
 > fifth report, if there is one, will say precisely whether this closed
 > the gap or the search needs to move somewhere neither DOM walk reaches.
+>
+> **v1.7 addendum (2026-08-30, a SIXTH report — same trace shape as v1.6,
+> confirming the curated property list itself was the bug):** next trace:
+> `fixed 0 element properties, 0 ::before/::after properties` /
+> `verify:clean` — proof both DOM walks (real elements and their
+> `::before`/`::after`) were clean — then the identical `"color"` failure
+> anyway. That ruled out `::before`/`::after` too and meant the gap was a
+> CSS property neither walk ever checked, on some real element. Rather than
+> read html2canvas's source a third time hunting for the next one-off
+> pseudo-content-shaped mechanism, this round grepped the app's own
+> **compiled CSS bundle** for color properties never in `COLOR_PROPERTIES`
+> and found `accent-color:var(--color-primary,#4fb8ff)` on checkboxes/radios
+> — a real, in-use color property, absent from the list since v1.2 —
+> with `scrollbar-color` sitting right next to it, equally unchecked. The
+> pattern across v1.4/v1.6/v1.7 was now unmistakable: `COLOR_PROPERTIES`
+> had grown once per round (`::placeholder`, then `::before`/`::after`, now
+> `accent-color`) because a hand-picked list will always be missing
+> whatever property nobody thought to add yet, and CSS keeps adding
+> color-bearing properties (`accent-color` and `scrollbar-color` are both
+> relatively recent). The fix (`suspectProperties` in `screenshot.ts`)
+> removes the list entirely: `getComputedStyle()`'s return value is
+> iterable by index (`cs.length` / `cs.item(i)`), so both the fix pass and
+> the verify pass now walk **every property the browser actually computed**
+> for an element — real elements and `::before`/`::after` alike — instead
+> of a curated subset. A non-color property (`display: block`, `cursor:
+> pointer`, ...) costs nothing to check: the suspect-function regex simply
+> never matches it, so it's never touched or counted. Custom properties
+> (`--*`) are skipped on purpose — html2canvas never reads them directly,
+> only the resolved longhand values they feed via `var()`, which this same
+> scan already catches on whichever real property consumes them. This
+> closes the entire class of "one more property we didn't think to check"
+> bug at once rather than adding a seventh entry to a list that kept
+> growing. Landed as PR #156 (issue #157) on top of #155 — `npx tsc -b`
+> clean, `npx vitest run` 239/239, `npm run build` clean. **Not yet
+> confirmed on-device**: same as every round in this addendum chain, the
+> real test is the owner's next terminal trace after a rebuild.
 
 ## Requirements (from the 2026-08-29 brainstorm)
 
