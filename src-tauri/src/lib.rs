@@ -909,7 +909,7 @@ fn screenshots_dir(app: AppHandle, state: State<AppState>) -> Result<String, Str
 /// first if nothing has been saved there yet, so this never errors on an
 /// otherwise-valid, just-unused location.
 #[tauri::command]
-async fn open_screenshots_folder(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+async fn open_screenshots_folder(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let config = state.config.lock().expect("config lock").clone();
     let dir = resolve_screenshot_dir(&app, &config)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
