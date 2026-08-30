@@ -28,7 +28,7 @@ export function ViewRouter() {
       {view === "features" && <FeaturesView />}
       {view === "whatsnew" && <WhatsComingView />}
       {view === "releases" && <WhatsNewView />}
-      {view === "settings" && <SettingsPanel onClose={backToLive} />}
+      {view === "settings" && <SettingsPanel />}
       {view === "profile" && <ProfileView />}
       {view === "conversations" && <ConversationsPanel onClose={backToLive} />}
       {view === "context" && <ContextsView />}
