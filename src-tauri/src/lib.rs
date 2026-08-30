@@ -845,27 +845,110 @@ fn save_debug_log(app: AppHandle, contents: String) -> Result<String, String> {
 }
 
 /// Decode a base64 PNG (captured client-side via `html2canvas` — see
-/// `src/lib/screenshot.ts`) and write it to
-/// `<app-data>/screenshots/<timestamped-name>.png`, returning the saved
-/// path. The Screenshot button's clipboard copy happens entirely in the
-/// webview (`navigator.clipboard.write`); this command only handles the
-/// file half, same division of labor as `save_debug_log` above.
+/// `src/lib/screenshot.ts`) and write it to `<Pictures>/conva-screenshots/
+/// <timestamped-name>.png` (or the owner's chosen override —
+/// `config.screenshot_save_dir`, right-click → "Set save location…"),
+/// returning the saved path. The Screenshot button's clipboard
+/// copy happens entirely in the webview (`navigator.clipboard.write`); this
+/// command only handles the file half, same division of labor as
+/// `save_debug_log` above.
 #[tauri::command]
-fn save_screenshot(app: AppHandle, png_base64: String) -> Result<String, String> {
+fn save_screenshot(
+    app: AppHandle,
+    state: State<AppState>,
+    png_base64: String,
+) -> Result<String, String> {
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(png_base64)
         .map_err(|e| format!("invalid screenshot data: {e}"))?;
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("no app data dir: {e}"))?
-        .join("screenshots");
+    let config = state.config.lock().expect("config lock").clone();
+    let dir = resolve_screenshot_dir(&app, &config)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let name = conva_core::screenshot::screenshot_filename(session::now_unix_ms());
     let path = dir.join(name);
     fs::write(&path, bytes).map_err(|e| e.to_string())?;
     Ok(path.display().to_string())
+}
+
+/// The Screenshot button's effective save folder — the configured override
+/// if set (non-empty), else the OS Pictures folder's `conva-screenshots`
+/// subfolder (owner, 2026-08-30: "the proper location should be the usual
+/// users pictures folder" — discoverable, not buried in app-data).
+/// `picture_dir()` is Tauri's standard known-folder resolver, same family
+/// as `app_data_dir()` above (`%USERPROFILE%\Pictures` on Windows,
+/// `~/Pictures` on macOS). Shared by `save_screenshot` and
+/// `open_screenshots_folder` so they can never disagree on where "the"
+/// folder is.
+fn resolve_screenshot_dir(
+    app: &AppHandle,
+    config: &AppConfig,
+) -> Result<std::path::PathBuf, String> {
+    if let Some(dir) = &config.screenshot_save_dir {
+        if !dir.trim().is_empty() {
+            return Ok(std::path::PathBuf::from(dir));
+        }
+    }
+    Ok(app
+        .path()
+        .picture_dir()
+        .map_err(|e| format!("no pictures dir: {e}"))?
+        .join("conva-screenshots"))
+}
+
+/// The Screenshot button's current effective save folder, for the
+/// right-click menu to display/reveal.
+#[tauri::command]
+fn screenshots_dir(app: AppHandle, state: State<AppState>) -> Result<String, String> {
+    let config = state.config.lock().expect("config lock").clone();
+    resolve_screenshot_dir(&app, &config).map(|p| p.display().to_string())
+}
+
+/// Reveal the Screenshot button's current save folder in the OS file
+/// manager (right-click → "Open screenshots folder"). Creates the folder
+/// first if nothing has been saved there yet, so this never errors on an
+/// otherwise-valid, just-unused location.
+#[tauri::command]
+async fn open_screenshots_folder(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let config = state.config.lock().expect("config lock").clone();
+    let dir = resolve_screenshot_dir(&app, &config)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.display().to_string();
+    tauri::async_runtime::spawn_blocking(move || reveal_in_file_manager(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Open `path` in the OS's file manager — Explorer/Finder/whatever `xdg-open`
+/// resolves to. Distinct from `auth::open_browser` (URLs, routed through
+/// `rundll32 url.dll,FileProtocolHandler` on Windows specifically to dodge
+/// `cmd`'s `&`-splitting) — a plain folder path has none of that risk, and
+/// `explorer.exe <path>` is the standard, correct way to reveal one.
+fn reveal_in_file_manager(path: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
 }
 
 // ------------------------------------------------------------ Conversations
@@ -2073,6 +2156,8 @@ pub fn run() {
             auth_signout,
             save_debug_log,
             save_screenshot,
+            screenshots_dir,
+            open_screenshots_folder,
             session_list,
             session_load,
             export_transcript,

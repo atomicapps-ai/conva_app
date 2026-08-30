@@ -488,6 +488,9 @@ export interface AppConfig {
   tracker_enabled: boolean;
   vad_neural: boolean;
   vad_sensitivity: number;
+  /** Screenshot button's save folder override (right-click → "Set save
+   *  location…"). `null` = the default `<Pictures>/conva-screenshots/`. */
+  screenshot_save_dir: string | null;
 }
 
 /** Mirror of conva-core audio::AudioDevice. */

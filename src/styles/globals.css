@@ -699,6 +699,22 @@ body {
   animation: conva-flash-ring 900ms var(--ease-out) 1;
 }
 
+/* Screenshot button's shutter flash (owner, 2026-08-30: "shows a white
+   flash... while it's taking the picture") — fires the instant the capture
+   completes (never during: the overlay would otherwise get captured into
+   the screenshot itself), a quick bright pulse over the whole window. */
+@keyframes conva-screenshot-flash {
+  0% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.animate-screenshot-flash {
+  animation: conva-screenshot-flash 260ms ease-out 1;
+}
+
 /* The sonar Core (listening instrument): a rotating sweep, an orbiting node,
    and a breathing center. Used by the <Core> component at every size. */
 @keyframes conva-sweep {
@@ -763,6 +779,7 @@ body {
   .pulse-ring,
   .spine-ping,
   .animate-flash-ring,
+  .animate-screenshot-flash,
   .pill-rec .d {
     transition: none;
     animation: none;
