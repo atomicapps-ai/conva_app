@@ -142,25 +142,28 @@ export function blobToBase64(blob: Blob): Promise<string> {
  * only ever sees colors it can read. This catches every source uniformly —
  * Tailwind's utilities, the app's own tokens, and anything added later —
  * with no per-declaration chasing required.
+ *
+ * v1.6 (owner, 2026-08-30, sixth round — after `::before`/`::after` and a
+ * verify pass that traced "0 element properties, 0 ::before/::after
+ * properties" / "verify:clean" fixed, yet the capture STILL failed with the
+ * exact same `"color"` function): the fix pass had been checking a
+ * hand-picked list of "the color properties" (`COLOR_PROPERTIES`, below,
+ * now removed) — a list that grew once per round (`::placeholder`, then
+ * `::before`/`::after`) because it was always missing exactly one more
+ * property nobody had thought of yet. Grepping the compiled CSS bundle
+ * turned up the likely next one uncaught by that list:
+ * `accent-color:var(--color-primary,#4fb8ff)` on checkboxes/radios — a real
+ * color property, never in `COLOR_PROPERTIES`. Rather than add it and wait
+ * for round seven to find the next omission (`scrollbar-color` was sitting
+ * right next to it, equally unchecked), this switches from a curated list
+ * to a brute-force scan: `getComputedStyle()`'s return value is iterable by
+ * index (`cs.length` / `cs.item(i)`), so walking every index it reports —
+ * not a hand-picked subset — checks literally every property the browser
+ * computed for that element, guaranteeing nothing color-shaped can be
+ * missed again regardless of which CSS property carries it. Checking a
+ * non-color property (e.g. `display: block`) costs nothing: the suspect-
+ * function regex just never matches it, so it's never touched.
  */
-
-const COLOR_PROPERTIES = [
-  "color",
-  "backgroundColor",
-  "backgroundImage",
-  "borderTopColor",
-  "borderRightColor",
-  "borderBottomColor",
-  "borderLeftColor",
-  "outlineColor",
-  "textDecorationColor",
-  "textShadow",
-  "caretColor",
-  "columnRuleColor",
-  "boxShadow",
-  "fill",
-  "stroke",
-] as const;
 
 /** Matches the opening of a CSS color function html2canvas can't parse.
  *  `color-mix` catches Tailwind's alpha-modifier utilities; `oklab`/`oklch`
@@ -219,6 +222,26 @@ export function replaceSuspectColorFunctions(
   }
   out += value.slice(lastEnd);
   return out;
+}
+
+/** Every property `cs` (a `getComputedStyle` result) reports whose value
+ *  contains a suspect color function — walked by index, not a curated
+ *  property-name list (see the v1.6 note above for why). Custom properties
+ *  (`--*`) are skipped: html2canvas never reads them directly, only the
+ *  resolved longhand values they feed via `var()` — which this same scan
+ *  already catches on whatever real property consumes them — so fixing the
+ *  custom property itself would just be wasted work on every element that
+ *  inherits it. */
+function suspectProperties(cs: CSSStyleDeclaration): Array<{ name: string; value: string }> {
+  const found: Array<{ name: string; value: string }> = [];
+  for (let i = 0; i < cs.length; i++) {
+    const name = cs.item(i);
+    if (!name || name.startsWith("--")) continue;
+    const value = cs.getPropertyValue(name);
+    if (!value || !HAS_SUSPECT_COLOR_FN.test(value)) continue;
+    found.push({ name, value });
+  }
+  return found;
 }
 
 let normalizeCanvasCtx: CanvasRenderingContext2D | null | undefined;
@@ -326,11 +349,9 @@ function normalizePseudoElementColors(view: Window & typeof globalThis, elements
       const cs = view.getComputedStyle(el, pseudo);
       if (cs.getPropertyValue("content") === "none") continue; // no generated content, nothing to render
       let elementRules = "";
-      for (const prop of COLOR_PROPERTIES) {
-        const value = cs.getPropertyValue(kebabCase(prop));
-        if (!value || !HAS_SUSPECT_COLOR_FN.test(value)) continue;
+      for (const { name, value } of suspectProperties(cs)) {
         const fixed = replaceSuspectColorFunctions(value, normalizeColor);
-        elementRules += `${kebabCase(prop)}: ${fixed} !important; `;
+        elementRules += `${name}: ${fixed} !important; `;
       }
       if (!elementRules) continue;
       const id = `scr-fix-${pseudoFixCounter++}`;
@@ -366,11 +387,9 @@ function normalizeClonedColors(doc: Document, root: HTMLElement, trace: (msg: st
   for (const el of elements) {
     if (!(el instanceof view.HTMLElement) && !(el instanceof view.SVGElement)) continue;
     const cs = view.getComputedStyle(el);
-    for (const prop of COLOR_PROPERTIES) {
-      const value = cs.getPropertyValue(kebabCase(prop));
-      if (!value || !HAS_SUSPECT_COLOR_FN.test(value)) continue;
+    for (const { name, value } of suspectProperties(cs)) {
       const fixed = replaceSuspectColorFunctions(value, normalizeColor);
-      (el.style as unknown as Record<string, string>)[prop] = fixed;
+      el.style.setProperty(name, fixed, "important");
       fixedCount++;
     }
   }
@@ -383,23 +402,17 @@ function normalizeClonedColors(doc: Document, root: HTMLElement, trace: (msg: st
   for (const el of elements) {
     if (!(el instanceof view.HTMLElement) && !(el instanceof view.SVGElement)) continue;
     const cs = view.getComputedStyle(el);
-    for (const prop of COLOR_PROPERTIES) {
-      const value = cs.getPropertyValue(kebabCase(prop));
-      if (!value || !HAS_SUSPECT_COLOR_FN.test(value)) continue;
+    for (const { name, value } of suspectProperties(cs)) {
       stillSuspect++;
-      trace(`onclone:VERIFY still suspect: ${describeElement(el)} ${kebabCase(prop)}="${value}"`);
+      trace(`onclone:VERIFY still suspect: ${describeElement(el)} ${name}="${value}"`);
     }
     if (!(el instanceof view.HTMLElement)) continue;
     for (const pseudo of PSEUDO_ELEMENTS) {
       const cs2 = view.getComputedStyle(el, pseudo);
       if (cs2.getPropertyValue("content") === "none") continue;
-      for (const prop of COLOR_PROPERTIES) {
-        const value = cs2.getPropertyValue(kebabCase(prop));
-        if (!value || !HAS_SUSPECT_COLOR_FN.test(value)) continue;
+      for (const { name, value } of suspectProperties(cs2)) {
         stillSuspect++;
-        trace(
-          `onclone:VERIFY still suspect: ${describeElement(el)}${pseudo} ${kebabCase(prop)}="${value}"`,
-        );
+        trace(`onclone:VERIFY still suspect: ${describeElement(el)}${pseudo} ${name}="${value}"`);
       }
     }
   }
@@ -417,8 +430,4 @@ export function describeElement(el: Element): string {
   const id = el.id ? `#${el.id}` : "";
   const classes = Array.from(el.classList).slice(0, 3).join(".");
   return `<${tag}${id}${classes ? `.${classes}` : ""}>`;
-}
-
-function kebabCase(prop: string): string {
-  return prop.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 }
