@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ContextDetail } from "@/components/context/ContextDetail";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
-import type { ConversationContext, KnowledgeProfile } from "@/lib/ipc";
+import type { ContextPersona, ConversationContext, KnowledgeProfile } from "@/lib/ipc";
 
 afterEach(cleanup);
 
@@ -25,6 +25,17 @@ function session(overrides: Partial<ConversationContext> = {}): ConversationCont
     chosen_persona_id: null,
     conversation_id: null,
     dossier_doc_id: null,
+    ...overrides,
+  };
+}
+
+function persona(overrides: Partial<ContextPersona> = {}): ContextPersona {
+  return {
+    id: "p1",
+    title: "Skeptical CFO",
+    summary: "Direct, numbers-first.",
+    style_tags: ["skeptical"],
+    recommended: false,
     ...overrides,
   };
 }
@@ -93,5 +104,88 @@ describe("ContextDetail", () => {
     expect(screen.getByText(/generate the personas/i)).toBeInTheDocument();
     fireEvent.click(toggle);
     expect(screen.queryByText(/generate the personas/i)).toBeNull();
+  });
+
+  it("viewing a card's bio never changes which persona is chosen; the star does", async () => {
+    const choosePersona = vi.fn().mockImplementation((_id: string, personaId: string) =>
+      Promise.resolve(
+        session({
+          personas: [persona({ id: "p1", title: "Skeptical CFO" }), persona({ id: "p2", title: "Warm VP", gender: "female" })],
+          chosen_persona_id: personaId,
+        }),
+      ),
+    );
+    renderDetail({
+      context: {
+        load: vi.fn().mockResolvedValue(
+          session({
+            personas: [
+              persona({ id: "p1", title: "Skeptical CFO" }),
+              persona({ id: "p2", title: "Warm VP", gender: "female" }),
+            ],
+          }),
+        ),
+        loadProfile: vi.fn().mockResolvedValue(profile()),
+        choosePersona,
+      },
+      rag: { list: vi.fn().mockResolvedValue([]) },
+      capabilities: vi.fn().mockResolvedValue(null),
+    });
+    await screen.findByText("Counterparty");
+    fireEvent.click(screen.getByRole("button", { name: /counterparty/i }));
+
+    // Defaults to viewing the first persona's bio — no persona chosen yet.
+    expect(await screen.findByText("Direct, numbers-first.")).toBeInTheDocument();
+    expect(screen.queryByText("Chosen ✓")).toBeNull();
+
+    // Viewing the second card's bio is just browsing — still nothing chosen.
+    fireEvent.click(screen.getByRole("button", { name: /view warm vp/i }));
+    expect(screen.getByText("Direct, numbers-first.")).toBeInTheDocument();
+    expect(screen.queryByText("Chosen ✓")).toBeNull();
+    expect(choosePersona).not.toHaveBeenCalled();
+
+    // The star is the actual "choose" control.
+    fireEvent.click(screen.getByRole("button", { name: /choose skeptical cfo for rehearsal/i }));
+    expect(choosePersona).toHaveBeenCalledWith("s1", "p1");
+  });
+
+  it("Ally research renders one line per source, with a viewer-load icon only when the partner window is supported", async () => {
+    const partnerOpen = vi.fn().mockResolvedValue(undefined);
+    renderDetail({
+      context: {
+        load: vi.fn().mockResolvedValue(session()),
+        loadProfile: vi.fn().mockResolvedValue(
+          profile({
+            research: [
+              {
+                title: "GAAP overview",
+                url: "https://example.com/gaap",
+                snippet: "A long snippet that used to render as its own line under the title.",
+                fetched_at_unix_ms: 0,
+              },
+            ],
+          }),
+        ),
+      },
+      rag: { list: vi.fn().mockResolvedValue([]) },
+      capabilities: vi.fn().mockResolvedValue({ system: { partnerWindow: true } }),
+      partner: { open: partnerOpen },
+    });
+    await screen.findByText("Counterparty");
+    fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
+
+    expect(await screen.findByText("GAAP overview")).toBeInTheDocument();
+    // The snippet no longer renders inline — it moved into the viewer payload.
+    expect(screen.queryByText(/long snippet that used to render/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /load gaap overview into the viewer/i }));
+    expect(partnerOpen).toHaveBeenCalledWith(
+      "GAAP overview",
+      "research",
+      "A long snippet that used to render as its own line under the title.",
+      "A long snippet that used to render as its own line under the title.",
+      ["https://example.com/gaap"],
+      null,
+    );
   });
 });

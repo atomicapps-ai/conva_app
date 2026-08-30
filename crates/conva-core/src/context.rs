@@ -88,6 +88,17 @@ pub enum ContextStatus {
     Ended,
 }
 
+/// The avatar gender presentation a generated persona was assigned (Ally's
+/// choice, part of how it envisioned the counterparty — Counterparty card
+/// redesign, 2026-08-30). Cosmetic only: drives which silhouette icon
+/// `ContextDetail.tsx` shows, nothing about the roleplay itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersonaGender {
+    Male,
+    Female,
+}
+
 /// One generated counterparty persona/strategy option (three per session,
 /// Step 3), one of which the AI flags [`recommended`](Self::recommended).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +115,11 @@ pub struct ContextPersona {
     pub style_tags: Vec<String>,
     /// The AI's suggested pick for this meeting context.
     pub recommended: bool,
+    /// `None` for personas generated before this field existed, or on the
+    /// rare occasion the model's answer doesn't parse as male/female — the
+    /// UI falls back to a neutral avatar in that case rather than guessing.
+    #[serde(default)]
+    pub gender: Option<PersonaGender>,
 }
 
 /// A web-research source folded into a [`KnowledgeProfile`] (Step 2), kept for
@@ -370,9 +386,11 @@ pub fn persona_prompt(context: &ConversationContext) -> (String, String) {
     let system = "You generate realistic counterparty personas for rehearsing a \
 high-stakes conversation. Return ONLY a JSON array of exactly 3 objects, each with \
 keys: \"title\" (a short label), \"summary\" (2–3 sentences on how this person \
-behaves in the room), \"style_tags\" (3–5 short lowercase strings), and \
+behaves in the room), \"style_tags\" (3–5 short lowercase strings), \
 \"recommended\" (boolean — set exactly one persona true, the best fit for this \
-context). No prose, no markdown, no code fences."
+context), and \"gender\" (the string \"male\" or \"female\" — whichever \
+presentation best fits how you're envisioning this counterparty). No prose, no \
+markdown, no code fences."
         .to_string();
 
     let mut user = format!(
@@ -407,6 +425,13 @@ pub fn parse_personas(text: &str) -> Vec<ContextPersona> {
         style_tags: Vec<String>,
         #[serde(default)]
         recommended: bool,
+        // A plain string, not `Option<PersonaGender>` directly: a model
+        // occasionally answers with something that isn't exactly "male" or
+        // "female" (extra words, wrong case, a third option) — deserializing
+        // straight into the enum would fail the WHOLE array over one
+        // cosmetic field. `parse_gender` below is the tolerant mapping.
+        #[serde(default)]
+        gender: Option<String>,
     }
 
     let slice = match (text.find('['), text.rfind(']')) {
@@ -425,6 +450,7 @@ pub fn parse_personas(text: &str) -> Vec<ContextPersona> {
             summary: g.summary,
             style_tags: g.style_tags,
             recommended: g.recommended,
+            gender: parse_gender(g.gender.as_deref()),
         })
         .collect();
 
@@ -432,6 +458,18 @@ pub fn parse_personas(text: &str) -> Vec<ContextPersona> {
         out[0].recommended = true;
     }
     out
+}
+
+/// Tolerant mapping from the model's free-text `gender` answer to
+/// [`PersonaGender`] — exact "male"/"female" (any case) match; anything
+/// else (missing, a third option, stray words) is `None` rather than a
+/// parse failure, since this field is cosmetic (avatar choice only).
+fn parse_gender(raw: Option<&str>) -> Option<PersonaGender> {
+    match raw?.trim().to_ascii_lowercase().as_str() {
+        "male" => Some(PersonaGender::Male),
+        "female" => Some(PersonaGender::Female),
+        _ => None,
+    }
 }
 
 // ── Live rehearsal (Step 4) — the counterparty's spoken turn ────────────────
@@ -1102,6 +1140,30 @@ mod tests {
     }
 
     #[test]
+    fn parse_maps_gender_case_insensitively_and_defaults_missing_to_none() {
+        let text = r#"[{"title":"Skeptical CFO","summary":"Tough.","gender":"Female"},
+         {"title":"Behavioral VP","summary":"Warm.","gender":"MALE"},
+         {"title":"Wildcard","summary":"?"}]"#;
+        let p = parse_personas(text);
+        assert_eq!(p.len(), 3);
+        assert_eq!(p[0].gender, Some(PersonaGender::Female));
+        assert_eq!(p[1].gender, Some(PersonaGender::Male));
+        assert_eq!(p[2].gender, None, "missing gender defaults to None");
+    }
+
+    #[test]
+    fn parse_treats_an_unrecognized_gender_value_as_none_not_a_parse_failure() {
+        // A single stray gender value must never wipe out all 3 personas —
+        // it's a cosmetic field, not a validity gate.
+        let text = r#"[{"title":"Skeptical CFO","summary":"Tough.","gender":"nonbinary"},
+         {"title":"Behavioral VP","summary":"Warm.","gender":"female"}]"#;
+        let p = parse_personas(text);
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].gender, None);
+        assert_eq!(p[1].gender, Some(PersonaGender::Female));
+    }
+
+    #[test]
     fn every_type_has_a_nonempty_template() {
         for cat in [
             ContextCategory::Interview,
@@ -1170,6 +1232,7 @@ mod tests {
             summary: "Direct, numbers-first.".into(),
             style_tags: vec!["skeptical".into(), "technical".into()],
             recommended: true,
+            gender: Some(PersonaGender::Female),
         }
     }
 

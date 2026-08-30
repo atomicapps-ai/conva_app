@@ -226,6 +226,25 @@ export function ContextDetail({
   const chosen = session?.chosen_persona_id ?? null;
   const chosenPersona = personas.find((p) => p.id === chosen) ?? null;
 
+  // Which card's bio/details show below the scroll row (owner, 2026-08-30:
+  // "select a card and put the bio and details below") — distinct from
+  // `chosen`, which is which persona rehearsal actually runs against
+  // (toggled by the card's star, not by viewing it). Defaults to the
+  // chosen persona once personas load, so the panel isn't empty on first
+  // open; the owner can still browse other cards without changing `chosen`.
+  const [viewedPersonaId, setViewedPersonaId] = useState<string | null>(null);
+  useEffect(() => {
+    if (viewedPersonaId !== null) return;
+    const first = personas[0];
+    if (!first) return;
+    setViewedPersonaId(chosen ?? first.id);
+    // Only re-run when the persona list itself changes shape (generate/
+    // regenerate) — not on every chosen/viewedPersonaId change, or picking
+    // a different card to view would get silently reset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personas.length]);
+  const viewedPersona = personas.find((p) => p.id === viewedPersonaId) ?? null;
+
   // ── Live rehearsal (Step 4) ───────────────────────────────────────────────
   // Launches into the real cockpit (transcript · spine · Ally); the floating
   // RehearsalBar carries the live controls from there.
@@ -305,55 +324,101 @@ export function ContextDetail({
             </button>
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            <ul className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
+            {/* Horizontally-scrolling avatar cards (owner, 2026-08-30) — a
+                card selects itself into the bio panel below on click; the
+                star is the separate "choose this one for rehearsal"
+                control, so browsing other cards never changes `chosen`. */}
+            <ul className="flex gap-2 overflow-x-auto pb-1">
               {personas.map((p) => {
                 const isChosen = chosen === p.id;
+                const isViewed = viewedPersonaId === p.id;
+                const avatarIcon =
+                  p.gender === "male"
+                    ? "personaMale"
+                    : p.gender === "female"
+                      ? "personaFemale"
+                      : "account";
                 return (
-                  <li
-                    key={p.id}
-                    className={`rounded border p-3 transition ${
-                      isChosen
-                        ? "border-primary/50 bg-primary/[0.08]"
-                        : "border-border"
-                    }`}
-                  >
-                    <div className="flex items-start gap-2">
-                      <h3 className="min-w-0 flex-1 text-sm font-bold tracking-tight text-fg">
-                        {p.title}
-                      </h3>
-                      {p.recommended && (
-                        <span className="pill pill-sm pill-ally shrink-0">★ Recommended</span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-[12px] leading-relaxed text-fg-muted">
-                      {p.summary}
-                    </p>
-                    {p.style_tags.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {p.style_tags.map((t) => (
-                          <span
-                            key={t}
-                            className="rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-fg-faint"
-                          >
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <div className="mt-2">
+                  <li key={p.id} className="shrink-0">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setViewedPersonaId(p.id)}
+                      aria-pressed={isViewed}
+                      aria-label={`View ${p.title}`}
+                      className={`relative flex w-28 flex-col items-center gap-1.5 rounded border p-2.5 text-center transition ${
+                        isViewed
+                          ? "border-primary/60 bg-primary/[0.08]"
+                          : "border-border hover:border-border/80 hover:bg-panel-raised/40"
+                      }`}
+                    >
                       <button
                         type="button"
-                        className={`btn ${isChosen ? "btn-primary" : ""}`}
-                        onClick={() => void choose(p.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void choose(p.id);
+                        }}
+                        title={isChosen ? "Chosen for rehearsal" : "Choose for rehearsal"}
+                        aria-label={
+                          isChosen
+                            ? `${p.title} is chosen for rehearsal`
+                            : `Choose ${p.title} for rehearsal`
+                        }
+                        className={`absolute right-1 top-1 rounded-sm p-0.5 transition hover:bg-white/[0.06] ${
+                          isChosen ? "text-ai" : "text-fg-faint"
+                        }`}
                       >
-                        {isChosen ? "Chosen ✓" : "Choose"}
+                        <Icon name={isChosen ? "starFilled" : "star"} size={13} />
                       </button>
+                      <Icon
+                        name={avatarIcon}
+                        size={30}
+                        className={isViewed ? "text-primary" : "text-fg-faint"}
+                      />
+                      <span className="line-clamp-2 text-[11px] font-semibold leading-tight text-fg">
+                        {p.title}
+                      </span>
+                      {p.recommended && (
+                        <span className="text-[9px] font-semibold uppercase tracking-wide text-ai">
+                          Recommended
+                        </span>
+                      )}
                     </div>
                   </li>
                 );
               })}
             </ul>
+
+            {/* Bio + details for whichever card is selected above. */}
+            {viewedPersona && (
+              <div className="rounded border border-border p-3">
+                <div className="flex items-start gap-2">
+                  <h3 className="min-w-0 flex-1 text-sm font-bold tracking-tight text-fg">
+                    {viewedPersona.title}
+                  </h3>
+                  {chosen === viewedPersona.id && (
+                    <span className="pill pill-sm pill-ally shrink-0">Chosen ✓</span>
+                  )}
+                </div>
+                <p className="mt-1 text-[12px] leading-relaxed text-fg-muted">
+                  {viewedPersona.summary}
+                </p>
+                {viewedPersona.style_tags.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {viewedPersona.style_tags.map((t) => (
+                      <span
+                        key={t}
+                        className="rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-fg-faint"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             <button
               type="button"
               className="btn self-start"
@@ -598,7 +663,11 @@ export function ContextDetail({
               );
             })()}
 
-            {/* Web research Ally collected — links out to each source. */}
+            {/* Web research Ally collected — links out to each source. One
+                line per document (owner, 2026-08-30 — this used to run a
+                2-line snippet under every title and ate too much vertical
+                space); the snippet isn't lost, it just moved into the
+                partner-window viewer behind the load icon below. */}
             <div>
               <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">
                 Ally research ({profile.research.length})
@@ -608,21 +677,39 @@ export function ContextDetail({
                   No web research — grounded on your documents only.
                 </p>
               ) : (
-                <ul className="flex flex-col gap-2">
+                <ul className="flex flex-col">
                   {profile.research.map((src, i) => (
-                    <li key={`${src.url}-${i}`} className="text-[12px]">
+                    <li
+                      key={`${src.url}-${i}`}
+                      className="flex items-center gap-1.5 border-b border-border py-1 text-[12px] last:border-0"
+                    >
                       <button
                         type="button"
                         onClick={() => void backend.auth.openUrl(src.url)}
                         title={src.url}
-                        className="text-left font-medium text-ai hover:underline"
+                        className="min-w-0 flex-1 truncate text-left font-medium text-ai hover:underline"
                       >
                         {src.title || src.url}
                       </button>
-                      {src.snippet && (
-                        <p className="mt-0.5 line-clamp-2 text-fg-faint">
-                          {src.snippet}
-                        </p>
+                      {caps?.system.partnerWindow === true && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void backend.partner.open(
+                              src.title || src.url,
+                              "research",
+                              src.snippet || null,
+                              src.snippet || null,
+                              [src.url],
+                              null,
+                            )
+                          }
+                          title="Load into the viewer"
+                          aria-label={`Load ${src.title || src.url} into the viewer`}
+                          className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                        >
+                          <Icon name="expand" size={12} />
+                        </button>
                       )}
                     </li>
                   ))}

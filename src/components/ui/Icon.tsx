@@ -62,7 +62,11 @@ export type IconName =
   | "rehearsal"
   | "pause"
   | "eye"
-  | "eyeOff";
+  | "eyeOff"
+  | "personaMale"
+  | "personaFemale"
+  | "star"
+  | "starFilled";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -450,6 +454,32 @@ const PATHS: Record<IconName, ReactNode> = {
       <circle cx="12" cy="12" r="3" />
       <path d="M4 4l16 16" />
     </>
+  ),
+  // Counterparty persona avatars — same head, two body silhouettes (owner,
+  // 2026-08-30). Male mirrors the existing generic `account` shape; female
+  // gets the flared "dress" silhouette — the same duo public-signage icons
+  // use, chosen for instant recognizability at 24-32px card sizes.
+  personaMale: (
+    <>
+      <circle cx="12" cy="7.5" r="3.2" />
+      <path d="M8 20v-4.5a4 4 0 0 1 8 0V20" />
+    </>
+  ),
+  personaFemale: (
+    <>
+      <circle cx="12" cy="7" r="3.2" />
+      <path d="M10 12h4l3.5 8h-11z" />
+    </>
+  ),
+  // The counterparty card's "choose this persona" control — outline when
+  // not chosen, filled when it is (same two-glyph-per-state idiom as
+  // lock/unlock and eye/eyeOff above).
+  star: <path d="M12 3.5l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6-4.5-4.2 6.1-.7z" />,
+  starFilled: (
+    <path
+      d="M12 3.5l2.6 5.6 6.1.7-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6-4.5-4.2 6.1-.7z"
+      fill="currentColor"
+    />
   ),
 };
 
