@@ -844,6 +844,30 @@ fn save_debug_log(app: AppHandle, contents: String) -> Result<String, String> {
     Ok(path.display().to_string())
 }
 
+/// Decode a base64 PNG (captured client-side via `html2canvas` — see
+/// `src/lib/screenshot.ts`) and write it to
+/// `<app-data>/screenshots/<timestamped-name>.png`, returning the saved
+/// path. The Screenshot button's clipboard copy happens entirely in the
+/// webview (`navigator.clipboard.write`); this command only handles the
+/// file half, same division of labor as `save_debug_log` above.
+#[tauri::command]
+fn save_screenshot(app: AppHandle, png_base64: String) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(png_base64)
+        .map_err(|e| format!("invalid screenshot data: {e}"))?;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("no app data dir: {e}"))?
+        .join("screenshots");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let name = conva_core::screenshot::screenshot_filename(session::now_unix_ms());
+    let path = dir.join(name);
+    fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
+}
+
 // ------------------------------------------------------------ Conversations
 
 /// Create or update a named conversation (Stop → "save this conversation?").
@@ -2048,6 +2072,7 @@ pub fn run() {
             auth_status,
             auth_signout,
             save_debug_log,
+            save_screenshot,
             session_list,
             session_load,
             export_transcript,

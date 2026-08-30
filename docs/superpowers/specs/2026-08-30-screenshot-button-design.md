@@ -1,0 +1,145 @@
+# Screenshot button (v1)
+
+> Brainstorming-skill design doc. Status: **approved** (owner, 2026-08-29 —
+> requirements gathered; owner, 2026-08-30 — "yes, pick it back up and
+> finish it"). Ships as its own small PR off `main`.
+
+## Requirements (from the 2026-08-29 brainstorm)
+
+- Captures the **whole app window** — not a region picker, not the whole
+  screen/desktop.
+- **Both** clipboard and file: every capture copies to the system clipboard
+  *and* saves a PNG.
+- File save target: **app-data `screenshots/` folder**, timestamped
+  filename — no save dialog, no path picker.
+- Platforms: **Windows + macOS**.
+- Confirmation: an **inline flash** on the button itself, not a modal/alert.
+- **Hidden in the web preview** — desktop-only, same as every other
+  filesystem-touching affordance in this app (`isTauri()` gate).
+
+## Architecture decision: DOM capture, not OS-level window capture
+
+The obvious-looking approach — grab the native window's pixels via the OS
+(Windows `PrintWindow`/`BitBlt`, macOS `CGWindowListCreateImage`) — was
+rejected. It would mean new unsafe, per-platform Rust code (two platforms,
+each with its own window-handle/DPI-scaling quirks) that **this session
+cannot compile or exercise at all**: there's no Windows or macOS toolchain
+in this sandbox (`cargo check -p conva-app` doesn't even link here — see
+CI's `Tauri shell (Windows)` job for why local Rust shell verification
+isn't possible), so landing untested unsafe native capture code is a real
+risk of shipping something that silently doesn't work, discovered only
+after the owner rebuilds.
+
+Instead: **`html2canvas`** renders the app's own DOM (`#root`, the whole
+mounted React tree — i.e. everything the window shows) to a `<canvas>`,
+entirely in the webview via ordinary DOM/canvas APIs that exist identically
+on Windows and macOS (WebView2 and WKWebView both implement them). This is
+the standard "screenshot this web UI" technique and is what "capture the
+whole app window" means in practice for an app whose entire surface is
+already DOM. No new native dependencies, no unsafe code, and the one new
+piece of Rust (writing bytes to a file) is trivially testable.
+
+## Design
+
+### 1. Filename (core, pure + unit-tested)
+
+`crates/conva-core/src/screenshot.rs` — new module:
+
+```rust
+pub fn screenshot_filename(unix_ms: u64) -> String
+```
+
+Formats a Unix-ms timestamp as `conva-screenshot-YYYY-MM-DD_HH-MM-SS.png`
+(UTC, sortable, filesystem-safe — colons aren't valid in Windows
+filenames, hence `HH-MM-SS` not `HH:MM:SS`). No date crate: this codebase
+has never needed one, and UTC calendar conversion from a day count is a
+small, well-known, dependency-free algorithm (Howard Hinnant's
+`civil_from_days`), unit-tested here directly against known dates.
+
+### 2. Save command (shell)
+
+`src-tauri/src/lib.rs`:
+
+```rust
+#[tauri::command]
+fn save_screenshot(app: AppHandle, png_base64: String) -> Result<String, String>
+```
+
+Decodes the base64 PNG (the `base64` crate is already a dependency, used
+by `auth.rs`), writes it to `<app_data_dir>/screenshots/<filename>`
+(creating the directory if needed — same `fs::create_dir_all` idiom
+`save_debug_log` already uses), and returns the absolute path. Registered
+in `generate_handler!`.
+
+### 3. Wrappers (TS mirror)
+
+- `src/lib/commands.ts`: `saveScreenshot(pngBase64: string): Promise<string>`
+  → `invoke("save_screenshot", { pngBase64 })` (mirrors `saveDebugLog`
+  exactly).
+- `src/lib/backend/ConvaBackend.ts` / `tauri.ts` / `web.ts`: new
+  `screenshot: { save(pngBase64: string): Promise<string> }` namespace,
+  same shape as the existing `diagnostics` namespace; the web backend's
+  `save` throws `unsupported(...)` (same pattern as
+  `diagnostics.saveDebugLog`) — unreachable in practice since the button
+  itself is `isTauri()`-gated, but keeps every backend method total.
+
+No `ipc.rs`/`ipc.ts` entry needed — same as `saveDebugLog`/`writeTextFile`,
+this is a plain scalar-in/scalar-out command, not a shared data shape.
+
+### 4. Capture + button (frontend)
+
+New `src/lib/screenshot.ts`:
+
+```ts
+export async function captureScreenshot(): Promise<Blob>
+```
+
+`html2canvas(document.getElementById("root")!)` → `canvas.toBlob(...,
+"image/png")`, rejecting if `toBlob` yields `null`. Kept out of the
+component so it's easy to reason about independent of React state.
+
+`StatusBar.tsx` gets a new button next to the existing `debug ⧉` one
+(same visual treatment — `font-mono text-[10px]`, icon, hover state),
+`isTauri()`-gated:
+
+1. `captureScreenshot()` → `Blob`.
+2. Clipboard: `navigator.clipboard.write([new ClipboardItem({"image/png":
+   blob})])`, wrapped in try/catch — best-effort, exactly like the debug
+   button's `writeText` (a webview clipboard-image-write limitation on one
+   platform shouldn't block the file save).
+3. File: `Blob` → base64 via `FileReader.readAsDataURL` (strip the
+   `data:image/png;base64,` prefix) → `backend.screenshot.save(base64)`.
+4. Confirmation: local `flashed` state, `true` for ~1.2s, swapping the
+   button's icon to a checkmark and its label to "Saved" — no
+   `window.alert` (the brainstorm explicitly asked for an inline flash,
+   not a modal, unlike the older debug button).
+5. Failure (either step, or `html2canvas` throwing on a capture it can't
+   handle): the icon flashes an error state briefly instead, message in
+   `title`.
+
+## Out of scope (v1)
+
+- A region/window picker — always the whole app.
+- Annotating/editing the screenshot before it's saved.
+- Any web-preview behavior — the button doesn't render there at all.
+- Multi-monitor / partner-window capture — this captures the main window's
+  own DOM only, whichever window the button lives in.
+
+## Testing
+
+- Core: `screenshot_filename` — exact output for `0` (`1970-01-01_00-00-00`)
+  and a handful of known unix-ms timestamps spanning a month/year
+  boundary, confirming `civil_from_days` is correct at the edges (last day
+  of a leap year, first day of a new year).
+- UI: no new component test for the capture path itself — `html2canvas`
+  and `navigator.clipboard.write` don't run meaningfully under jsdom (same
+  reason this codebase has never tested `isTauri()`-gated
+  file/clipboard/dialog code, e.g. the pre-existing "Add a document…"
+  button). `StatusBar.tsx`'s existing tests (if any) stay green; the
+  button itself gets a light "renders only when isTauri()" style check if
+  the existing test file already covers that pattern for its neighbors.
+- **Not verified by this session**: the actual on-device behavior (capture
+  quality, clipboard-paste round-trip, file lands in the right folder) —
+  there's no Windows/macOS runtime available here. Owner verification
+  needed after a real rebuild, same as every Rust-shell change this
+  session.
