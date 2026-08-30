@@ -114,7 +114,28 @@ impl RagStore {
             inner: RwLock::new(Corpus::default()),
         };
         store.reload()?;
+        store.migrate_unchecked_default_once();
         Ok(store)
+    }
+
+    /// One-time migration (owner, 2026-08-29): a freshly-ingested document
+    /// now defaults to `enabled: false` ("this should not be default
+    /// behavior at all"), but that only covers documents ingested from now
+    /// on — anything already on disk keeps whatever `enabled` it had before
+    /// the change. This walks every existing document once and unchecks it
+    /// too, so the rule applies uniformly rather than only to new adds.
+    /// Guarded by a marker file so it runs exactly once: after this,
+    /// re-checking a document by hand has to stick, not get silently undone
+    /// on the next launch.
+    fn migrate_unchecked_default_once(&self) {
+        let marker = self.dir.join(".migrated-unchecked-default");
+        if marker.exists() {
+            return;
+        }
+        for id in self.list().into_iter().map(|d| d.id) {
+            let _ = self.set_enabled(&id, false);
+        }
+        let _ = fs::write(&marker, b"1");
     }
 
     fn doc_path(&self, id: &str) -> PathBuf {
@@ -1018,6 +1039,46 @@ mod tests {
 
         store.delete(&docs[0].id).unwrap();
         assert!(store.list().is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reopening_the_store_unchecks_existing_documents_exactly_once() {
+        // Simulate a document ingested before the unchecked-by-default
+        // change: enabled explicitly flipped back to true, the way every
+        // pre-existing library document looks on disk today.
+        let dir = std::env::temp_dir().join(format!("conva-rag-migrate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let id = {
+            let store = RagStore::open(&dir).unwrap();
+            let doc = store
+                .ingest_text("legacy", "some legacy content")
+                .unwrap()
+                .document;
+            store.set_enabled(&doc.id, true).unwrap();
+            doc.id
+        };
+
+        // Re-opening the store (an app restart) runs the one-time migration:
+        // a document that predates the default change gets unchecked too.
+        let reopened = RagStore::open(&dir).unwrap();
+        let doc = reopened.list().into_iter().find(|d| d.id == id).unwrap();
+        assert!(!doc.enabled, "existing document unchecked by the migration");
+
+        // The owner re-checks it by hand — a second restart must not undo
+        // that (the migration runs exactly once, guarded by its marker).
+        reopened.set_enabled(&id, true).unwrap();
+        drop(reopened);
+        let restarted_again = RagStore::open(&dir).unwrap();
+        let doc = restarted_again
+            .list()
+            .into_iter()
+            .find(|d| d.id == id)
+            .unwrap();
+        assert!(doc.enabled, "manual re-check survives a later restart");
 
         let _ = fs::remove_dir_all(&dir);
     }
