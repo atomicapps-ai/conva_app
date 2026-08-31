@@ -1,0 +1,112 @@
+# Releasing
+
+`conva_app` (this repo) is the **private** source. Installers, the updater's
+`latest.json`, and public release notes are published to the **public**
+[`atomicapps-ai/conva_releases`](https://github.com/atomicapps-ai/conva_releases)
+repo instead — never to this repo's own Releases page. See
+[`../CLAUDE.md`](../CLAUDE.md) and
+`conva_core/docs/technical/CONVA_SDLC_RELEASE_STRATEGY.md` for the full SDLC
+this checklist implements.
+
+## Required secrets (names only — set as `conva_app` → Settings → Secrets → Actions)
+
+| Secret | Used for | Required? |
+|---|---|---|
+| `TAURI_SIGNING_PRIVATE_KEY` | Signs updater artifacts so `tauri-plugin-updater` trusts them (the public half is the `pubkey` already committed in `src-tauri/tauri.conf.json`) | Optional — without it, plain installers still build, only update artifacts + `latest.json` are skipped |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the signing key above, if it was generated with one | Optional, only if the key needs one |
+| `RELEASES_REPO_TOKEN` | Fine-grained GitHub PAT scoped to **only** `atomicapps-ai/conva_releases`, permission **Contents: Read and write** — lets the release build attach installers + `latest.json` to a release in that repo instead of this one | Required for a tagged release run to actually publish; a run without it fails loudly at the "Build installers" step with a GitHub API auth error (it never silently falls back to drafting in the wrong, private repo) |
+
+Never commit a secret value anywhere in this repo — see
+[`ai-workflow.md`](ai-workflow.md).
+
+## SemVer rules
+
+Versioning is `MAJOR.MINOR.PATCH[-alpha\|beta\|rc.N]` (enforced by the regex
+in `scripts/version.mjs`). The **git tag `vX.Y.Z` is the source of truth**;
+`package.json` / `Cargo.toml` / `tauri.conf.json` are its mirrors, kept in
+sync only by `scripts/version.mjs` (never hand-edit them).
+
+There is no automatic bump — before cutting a release, read the
+Conventional-Commit log since the last tag (`git log <last-tag>..HEAD
+--oneline`, or `git-cliff --unreleased` for the grouped view) and pick the
+next version by the highest-impact commit type present:
+
+| Commit type(s) since last tag | Bump |
+|---|---|
+| Any `feat!:` / `BREAKING CHANGE:` footer | **MAJOR** |
+| `feat:` (no breaking marker) | **MINOR** |
+| `fix:` / `perf:` / `refactor:` only | **PATCH** |
+| Only `docs:`/`chore:`/`ci:`/`build:`/`test:`/`style:` | No user-facing release needed (these are dropped from release notes) |
+| Beta/RC line | `X.Y.Z-beta.N` / `-rc.N` — only via `dev-build.yml`'s automatic beta stamping, never hand-tagged |
+
+CI enforces the mechanics that make this reliable, not the bump choice
+itself: every PR title must be a Conventional Commit (`ci.yml`
+"PR title is a Conventional Commit"), and the version-guard job on release
+refuses to build if the tag doesn't match `package.json`.
+
+## Release checklist
+
+1. **On `main`, decide the version** per the SemVer table above, then:
+   ```
+   npm run version:set <X.Y.Z>
+   git add -A && git commit -m "chore(release): vX.Y.Z"
+   git push
+   ```
+2. **Tag and push** — this is what triggers everything:
+   ```
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+3. **Watch the `Release` workflow** (`.github/workflows/release.yml`):
+   - `version-guard` fails fast if the tag ≠ `package.json` version, and
+     generates the user-facing notes from Conventional Commits via git-cliff.
+   - `build` (the reusable `build-installers.yml`) builds Windows
+     (MSI + NSIS, Vulkan) and macOS (dmg, Metal) on GitHub-hosted runners,
+     signs updater artifacts (if the signing secrets are set), and opens a
+     **draft** Release in `atomicapps-ai/conva_releases` with those notes.
+4. **Review the draft** at
+   https://github.com/atomicapps-ai/conva_releases/releases — check both
+   platforms' assets are attached, notes read correctly, then **publish**
+   it. The updater feed (`.../releases/latest/download/latest.json`) only
+   resolves once a release is published, not while draft.
+5. **Regenerate the local changelog + in-app release notes** (these are not
+   yet wired into CI — do them by hand on the release branch/commit):
+   ```
+   npm run changelog:generate    # git-cliff -o CHANGELOG.md — needs the git-cliff binary on PATH
+   ```
+   and add the matching entry to `src/lib/releases.ts` (the in-app
+   "What's New" view) with an owner-edited `summary` line.
+   `npm run changelog:preview` (`git-cliff --unreleased`) previews the notes
+   for commits since the last tag without writing the file — useful while
+   deciding the version in step 1.
+6. **Update `conva_core/docs/product/roadmap.md`** in the same pass if this
+   release changes priorities or closes a roadmap item (per that repo's
+   CLAUDE.md).
+
+Beta builds (push to `dev`) go through the same `build-installers.yml` matrix
+via `dev-build.yml`, but with `release: false` — they upload as workflow
+artifacts only, never touch `conva_releases`, and need none of the secrets
+above except the signing ones (optional there too).
+
+## Rollback
+
+The updater always resolves `conva_releases`' **latest published** (not
+draft, not prerelease) release — GitHub picks that automatically by publish
+time unless one is pinned. If a published release turns out to be bad:
+
+1. **Stop new installs/updates immediately:** in `conva_releases`, either
+   delete/unpublish the bad release (GitHub recomputes "latest" to the prior
+   good one), or open the prior good release and use "Edit release" →
+   mark it as the latest release explicitly. Do this first — it's the fast,
+   low-risk step and takes effect for anyone who hasn't updated yet.
+2. **Ship a fixed patch release right after**, same checklist as above, one
+   PATCH version above the bad one (e.g. bad `v0.3.0` → fix ships as
+   `v0.3.1`). This is the step that reaches anyone who already downloaded
+   and installed the bad build — deleting a release does not uninstall
+   anything, only a newer signed update does. Never re-use the bad tag
+   number for the fix.
+3. If the bad tag was pushed to `conva_app` and the build never got as far
+   as a published release (caught in review at step 4 above), it's enough
+   to delete the draft in `conva_releases` and delete the local + remote git
+   tag (`git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`) — no user
+   was ever exposed.

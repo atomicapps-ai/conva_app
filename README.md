@@ -4,6 +4,32 @@ A real-time AI conversation assistant: intercepts both sides of the host compute
 
 **Design blueprint:** [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md) is a pointer stub — the real doc (tech stack, module boundaries, latency budgets, milestones, and the resolved decision checklist) lives in `conva_core/docs/technical/phase-1-design-and-spec.md` (core is the single source of truth for design docs). Read it before touching code.
 
+## Supported desktop platforms
+
+| Platform | Status | Capture |
+|---|---|---|
+| **Windows 10/11** | Phase 1 target, fully supported | Both sides — mic + system audio (WASAPI loopback) |
+| **macOS 12+ (Apple Silicon)** | Supported, mic-only | Mic only — system-audio loopback has no macOS equivalent yet (see [`docs/multiplatform.md`](docs/multiplatform.md)) |
+
+Linux and mobile are not yet built (see [`docs/multiplatform.md`](docs/multiplatform.md) for the multiplatform plan).
+
+## Download
+
+Installers (currently **unsigned** — see "Auto-updates" below) are published as
+GitHub Releases in the public
+**[atomicapps-ai/conva_releases](https://github.com/atomicapps-ai/conva_releases)**
+repo. This repo (`conva_app`) is the private source — releases, installers, update
+manifests, and release notes live in `conva_releases` instead:
+
+- **Latest release:** https://github.com/atomicapps-ai/conva_releases/releases/latest
+- Windows: `.msi` or `.exe` (NSIS) installer
+- macOS: `.dmg` (Apple Silicon)
+
+The installed app checks for updates automatically after startup — see "Auto-updates"
+below. Code signing/notarization isn't wired yet, so first launch needs one manual
+click-through (SmartScreen "More info → Run anyway" on Windows; right-click → Open
+on macOS).
+
 ## Stack
 
 Tauri 2 shell · Rust core (WASAPI capture → whisper.cpp ASR → LanceDB RAG → provider-agnostic LLM streaming, Claude default) · React 19 + TypeScript + Tailwind 4 UI. Windows is the Phase 1 target.
@@ -21,6 +47,8 @@ conva/
 ```
 
 ## Development (Windows)
+
+Condensed setup/run/test/lint/build reference: [`docs/development.md`](docs/development.md).
 
 Prereqs:
 
@@ -82,7 +110,9 @@ to CPU — the flag is safe to use everywhere.
 
 ## Release installers (any PC / Mac)
 
-Installers are built by CI — no toolchain needed on the target machine:
+Installers are built by CI — no toolchain needed on the target machine. Full
+checklist, SemVer rules, rollback: [`docs/releasing.md`](docs/releasing.md).
+Short version:
 
 1. Tag a version and push it:
 
@@ -93,10 +123,11 @@ git push origin v0.1.0
 
 2. The **Release** workflow (`.github/workflows/release.yml`) builds on
    GitHub's Windows and macOS runners and attaches everything to a **draft
-   GitHub Release**: Windows `.msi` + `.exe` installers (GPU/Vulkan whisper —
-   falls back to CPU at runtime on machines without a usable GPU) and a macOS
-   `.dmg` (GPU/Metal whisper, Apple Silicon). Review the draft under the
-   repo's Releases page and publish it.
+   GitHub Release in the public `atomicapps-ai/conva_releases` repo** (this
+   repo stays private): Windows `.msi` + `.exe` installers (GPU/Vulkan
+   whisper — falls back to CPU at runtime on machines without a usable GPU)
+   and a macOS `.dmg` (GPU/Metal whisper, Apple Silicon). Review the draft at
+   https://github.com/atomicapps-ai/conva_releases/releases and publish it.
 3. Install on any Windows 10/11 PC by running the installer (WebView2
    auto-installs on Win10). Models download on first launch.
 
@@ -104,14 +135,19 @@ Not yet wired: code signing. Windows shows a SmartScreen "unrecognized app"
 prompt (More info → Run anyway); macOS needs right-click → Open the first
 time (deliberately deferred until market-ready).
 
-**Auto-updates:** installed copies check the latest GitHub Release's
-`latest.json` a few seconds after startup and show an "Update & restart"
-banner when a newer version exists (`src/components/UpdateBanner.tsx`,
-`tauri-plugin-updater`). Update packages are signed with the Tauri updater
-keypair: the public key lives in `tauri.conf.json`; the private key must be
-in the repo's Actions secret `TAURI_SIGNING_PRIVATE_KEY` (no password) for
-the release build to produce update artifacts + `latest.json`. Releases must
-be **published** (not draft) for the update feed URL to resolve.
+**Auto-updates:** installed copies check `conva_releases`' latest published
+release for a `latest.json` a few seconds after startup (never blocking first
+render) and, once the download completes in the background, show an
+"Update ready" toast — version, a link to release notes, **Download and
+restart**, and **Later** (`src/components/UpdateToast.tsx`,
+`tauri-plugin-updater`). An unreachable/offline update feed is never shown to
+the user as an error (diagnostics log to the console in dev builds only).
+Update packages are signed with the Tauri updater keypair: the public key
+lives in `tauri.conf.json`; the private key must be in the **`conva_app`**
+repo's Actions secret `TAURI_SIGNING_PRIVATE_KEY` (no password) for the
+release build to produce update artifacts + `latest.json`. Releases must be
+**published** (not draft) in `conva_releases` for the update feed URL to
+resolve.
 
 Local release build (needs the full dev toolchain + Vulkan SDK):
 `npm run tauri:build:gpu` — bundles land in `target/release/bundle/`.

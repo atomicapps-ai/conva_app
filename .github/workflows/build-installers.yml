@@ -1,9 +1,24 @@
 name: Build installers
 
 # Reusable installer build (SDLC §5.2). Called by:
-#   - release.yml  → attaches signed MSI/NSIS/dmg to a DRAFT GitHub Release (on a tag)
+#   - release.yml  → attaches signed MSI/NSIS/dmg to a DRAFT GitHub Release
+#                     **in the public RELEASES_REPOSITORY** (on a tag)
 #   - dev-build.yml → uploads beta bundles as workflow artifacts (on push to dev)
 # The matrix + Vulkan SDK step live here once so the two callers can't drift.
+#
+# conva_app (this repo) is private; installers/update manifests/release notes
+# are public, so a release run publishes to a separate public repo instead of
+# this one — see docs/releasing.md. That needs a cross-repo credential
+# (GITHUB_TOKEN only ever reaches the repo the workflow runs in), so release
+# runs use the RELEASES_REPO_TOKEN secret + explicit owner/repo instead of the
+# default token. Non-release runs (dev-build, workflow_dispatch) never touch
+# the releases repo — they keep using the default GITHUB_TOKEN and just build.
+
+env:
+  # The public releases repo (installers, update manifests, release notes).
+  # Split into owner/name because the `with:` block below needs them separately.
+  RELEASES_REPO_OWNER: atomicapps-ai
+  RELEASES_REPO_NAME: conva_releases
 
 on:
   workflow_call:
@@ -31,6 +46,15 @@ on:
       TAURI_SIGNING_PRIVATE_KEY:
         required: false
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+      # Fine-grained PAT scoped to ONLY the public RELEASES_REPOSITORY
+      # (Contents: Read and write) — lets this build attach installers +
+      # latest.json to a release over there instead of in this private repo.
+      # Optional here too: a release run without it fails fast at the "Build
+      # installers" step with a clear GitHub API auth error rather than
+      # silently drafting into the wrong (private) repo. Never required for
+      # non-release runs, which don't touch the releases repo at all.
+      RELEASES_REPO_TOKEN:
         required: false
 
 permissions:
@@ -96,12 +120,20 @@ jobs:
       - name: Build installers
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Release runs publish cross-repo (see the top-of-file note) and need
+          # a PAT that can write releases in RELEASES_REPOSITORY; the default
+          # GITHUB_TOKEN can only ever act on the repo the workflow runs in, so
+          # it's used as-is for non-release runs, which don't publish anywhere.
+          GITHUB_TOKEN: ${{ inputs.release && secrets.RELEASES_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          # On a release the tag drives the GitHub Release; otherwise these are
-          # empty and tauri-action just builds (bundles uploaded below).
+          # On a release the tag drives the GitHub Release, created in the
+          # public RELEASES_REPOSITORY (owner/repo below) instead of this
+          # private repo; otherwise these are all empty and tauri-action just
+          # builds (bundles uploaded below).
+          owner: ${{ inputs.release && env.RELEASES_REPO_OWNER || '' }}
+          repo: ${{ inputs.release && env.RELEASES_REPO_NAME || '' }}
           tagName: ${{ inputs.release && inputs.tag_name || '' }}
           releaseName: ${{ inputs.release && inputs.release_name || '' }}
           releaseBody: ${{ inputs.release_body }}
