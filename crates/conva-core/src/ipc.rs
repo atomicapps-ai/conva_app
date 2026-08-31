@@ -180,7 +180,7 @@ pub enum ModelStatusEvent {
 }
 
 /// Boot-sequence progress for the splash window (`src-tauri/src/splash.rs`).
-/// Each variant is a real, discrete milestone `setup()` has actually
+/// Each variant is a real, discrete milestone the boot sequence has actually
 /// finished — not a timed/simulated fill. `percent` is monotonically
 /// increasing across the sequence: Started(0) → LibraryLoaded(35) →
 /// WorkspaceReady(60) → AlmostReady(85) → done (the splash closes once the

@@ -58,6 +58,22 @@ describe("SplashScreen", () => {
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "85");
   });
 
+  it("never moves the bar backwards (out-of-order stages)", () => {
+    const { backend, emit } = fakeBackend();
+    render(
+      <BackendProvider backend={backend}>
+        <SplashScreen />
+      </BackendProvider>,
+    );
+
+    emit({ stage: "workspace_ready", percent: 60 });
+    // A stale earlier stage (e.g. the splash_status snapshot resolving
+    // after a newer live event) must not regress the bar.
+    emit({ stage: "library_loaded", percent: 35 });
+    expect(screen.getByText("Preparing your workspace…")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+  });
+
   it("unsubscribes on unmount", async () => {
     const { backend, unsubscribe } = fakeBackend();
     const { unmount } = render(

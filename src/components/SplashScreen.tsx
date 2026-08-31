@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 
 import splashArt from "@/assets/brand/splash-screen.webp";
 import { useBackend } from "@/lib/backend";
-import type { SplashProgressEvent } from "@/lib/ipc";
+import { splashStatus } from "@/lib/commands";
+import { isTauri, type SplashProgressEvent } from "@/lib/ipc";
 
 const STAGE_LABEL: Record<SplashProgressEvent["stage"], string> = {
   started: "Starting…",
@@ -16,10 +17,10 @@ const STAGE_LABEL: Record<SplashProgressEvent["stage"], string> = {
  * `src-tauri/src/splash.rs`). Shown at launch, before the main window has
  * anything real to show; closes itself (via the main window invoking
  * `finish_splash` once its own `init()` settles — see `App.tsx`) rather than
- * timing out on its own. The bar reflects real `setup()` milestones emitted
- * over `conva://splash-progress`, not a simulated fill — it holds at the
- * last real stage (85%) until the app is actually ready, rather than
- * animating to a false 100% and stalling there.
+ * timing out on its own. The bar reflects real boot milestones (the backend
+ * `boot` thread's stages) emitted over `conva://splash-progress`, not a
+ * simulated fill — it holds at the last real stage (85%) until the app is
+ * actually ready, rather than animating to a false 100% and stalling there.
  */
 export function SplashScreen() {
   const backend = useBackend();
@@ -31,10 +32,20 @@ export function SplashScreen() {
   useEffect(() => {
     let alive = true;
     let unsub: (() => void) | undefined;
-    void backend.subscribe("splashProgress", (e) => alive && setProgress(e)).then((un) => {
+    // Monotonic: the boot thread races this window's own startup, so a
+    // stage can arrive out of order (the snapshot below resolving after a
+    // newer live event) — never move the bar backwards.
+    const apply = (e: SplashProgressEvent) => {
+      if (alive) setProgress((prev) => (e.percent >= prev.percent ? e : prev));
+    };
+    void backend.subscribe("splashProgress", apply).then((un) => {
       if (alive) unsub = un;
       else un();
     });
+    // Seed from the backend's latest stage: anything emitted before the
+    // subscription above registered would otherwise be lost, leaving the
+    // bar stuck at 0% on a fast boot.
+    if (isTauri()) void splashStatus().then(apply).catch(() => {});
     return () => {
       alive = false;
       unsub?.();

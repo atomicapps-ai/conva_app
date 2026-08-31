@@ -25,6 +25,7 @@ import type {
   RagDocument,
   SecretsStatus,
   SessionSummary,
+  SplashProgressEvent,
   TranscriptSegment,
   UsageSummary,
   WhisperModelInfo,
@@ -511,9 +512,18 @@ export function hudIsOpen(): Promise<boolean> {
 // --- Splash window (src-tauri/src/splash.rs) ---------------------------------
 
 /** Show the main window and close the splash. Call once after the app's
- *  first `init()` round-trip settles (success or failure alike). */
+ *  first `init()` round-trip settles (success or failure alike). Resolves
+ *  only when the backend's boot thread is also done — the splash holds
+ *  until the workspace is actually loaded. */
 export function finishSplash(): Promise<void> {
   return invoke("finish_splash");
+}
+
+/** Latest boot-progress stage — the splash view calls this once on mount to
+ *  seed its bar, since stages emitted before its event listener registered
+ *  would otherwise be lost. */
+export function splashStatus(): Promise<SplashProgressEvent> {
+  return invoke<SplashProgressEvent>("splash_status");
 }
 
 // --- Partner window (src-tauri/src/partner.rs) -------------------------------
