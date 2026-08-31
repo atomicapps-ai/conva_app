@@ -48,6 +48,11 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     .always_on_top(true)
     .skip_taskbar(true)
     .center()
+    // Debug builds only, same convention as partner.rs/hud.rs — lets a
+    // dev right-click → Inspect this window to see console/network errors.
+    // Genuinely needed here: this was the only window without it, which
+    // left a real "why won't the image load" report undebuggable.
+    .devtools(cfg!(debug_assertions))
     .build()
     .map_err(|e| e.to_string())?;
     Ok(())
