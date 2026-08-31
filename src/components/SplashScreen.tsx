@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import splashArt from "@/assets/brand/splash-screen.png";
+import splashArt from "@/assets/brand/splash-screen.webp";
 import { useBackend } from "@/lib/backend";
 import type { SplashProgressEvent } from "@/lib/ipc";
 
@@ -63,14 +63,14 @@ export function SplashScreen() {
           aria-valuenow={progress.percent}
           aria-valuemin={0}
           aria-valuemax={100}
-          className="h-1 w-full max-w-[280px] overflow-hidden rounded-full bg-white/15"
+          className="h-2.5 w-full max-w-[440px] overflow-hidden rounded-full bg-white/15"
         >
           <div
-            className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
+            className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
             style={{ width: `${progress.percent}%` }}
           />
         </div>
-        <p className="text-xs text-white/70">{STAGE_LABEL[progress.stage]}</p>
+        <p className="text-sm text-white/70">{STAGE_LABEL[progress.stage]}</p>
       </div>
     </div>
   );
