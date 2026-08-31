@@ -1,13 +1,28 @@
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 
-import App from "@/App";
 import { BackendProvider } from "@/lib/backend";
-import { HudPanel } from "@/components/hud/HudPanel";
-import { PartnerWindow } from "@/components/partner/PartnerWindow";
-import { SplashScreen } from "@/components/SplashScreen";
 import { PLATFORM } from "@/lib/platform";
 import "@/styles/globals.css";
+
+// Lazy, per-window code-splitting. These four all render into the SAME
+// bundle (main.tsx branches on the query string), but a plain static
+// import of all four would pull App/StudioShell's entire cockpit UI (485KB)
+// into every window — including the splash, whose whole point is to paint
+// almost instantly. A cold splash window was found racing the main window's
+// (much faster) backend setup and closing before its own bundle had even
+// finished loading, i.e. before it ever painted. Splitting each branch into
+// its own chunk means the splash only loads its own small chunk.
+const App = lazy(() => import("@/App"));
+const HudPanel = lazy(() =>
+  import("@/components/hud/HudPanel").then((m) => ({ default: m.HudPanel })),
+);
+const PartnerWindow = lazy(() =>
+  import("@/components/partner/PartnerWindow").then((m) => ({ default: m.PartnerWindow })),
+);
+const SplashScreen = lazy(() =>
+  import("@/components/SplashScreen").then((m) => ({ default: m.SplashScreen })),
+);
 
 // Tag the root with the platform so the skin layer in globals.css can override
 // base tokens for web only (the desktop cockpit skin is the base). See
@@ -37,15 +52,20 @@ if (isSplash) document.documentElement.dataset.window = "splash";
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <BackendProvider>
-      {isHud ? (
-        <HudPanel />
-      ) : isPartner ? (
-        <PartnerWindow />
-      ) : isSplash ? (
-        <SplashScreen />
-      ) : (
-        <App />
-      )}
+      {/* No fallback content: index.html's own base background already
+          paints instantly (see its inline <style>), so there is nothing
+          to flash between that and the lazy chunk's first paint. */}
+      <Suspense fallback={null}>
+        {isHud ? (
+          <HudPanel />
+        ) : isPartner ? (
+          <PartnerWindow />
+        ) : isSplash ? (
+          <SplashScreen />
+        ) : (
+          <App />
+        )}
+      </Suspense>
     </BackendProvider>
   </React.StrictMode>,
 );

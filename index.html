@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>conva</title>
+    <!-- Paints instantly, before globals.css (loaded from main.tsx) or any
+         JS has run — every window (including the splash) is dark from the
+         very first frame instead of a white flash while the bundle boots.
+         Kept in sync with --color-bg in src/styles/globals.css. -->
+    <style>
+      html, body { background: #05060e; margin: 0; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
