@@ -19,6 +19,34 @@ this checklist implements.
 Never commit a secret value anywhere in this repo — see
 [`ai-workflow.md`](ai-workflow.md).
 
+### Generating + storing the updater signing key (exact format matters)
+
+The v0.3.1 release run proved this the hard way: both installers built
+clean and then died at the last step with `failed to decode secret key:
+incorrect updater private key password: Missing comment in secret key` —
+a malformed secret *value*, not a build problem. What Tauri expects:
+
+- Generate the keypair with **Tauri's own signer** (from the repo root):
+  `npm run tauri signer generate -- -w $HOME\.tauri\conva.key`
+- The `.key` file's content is **one long base64 line** (it wraps the
+  two-line minisign box, `untrusted comment: …` + key data). Paste that
+  file content **verbatim, whole** into `TAURI_SIGNING_PRIVATE_KEY` — the
+  full base64 line, not the decoded form, not just the key-data line of a
+  decoded/minisign-generated file. "Missing comment in secret key" is the
+  signature of pasting a base64 blob that isn't the *whole* box.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` must be exactly the password typed
+  at generation (an empty-string secret if you just pressed Enter).
+- The printed **public key** goes in `src-tauri/tauri.conf.json` →
+  `plugins.updater.pubkey`. A regenerated keypair therefore needs a
+  commit + a **new** version/tag; a re-pasted existing key doesn't — just
+  re-run the failed release jobs.
+- Sanity-check a key file before pasting (PowerShell) — it must print two
+  lines starting `untrusted comment:`:
+  `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String((Get-Content $HOME\.tauri\conva.key -Raw).Trim()))`
+- Keep the `.key` file (and its password) somewhere safe **outside** the
+  repo: published builds only accept updates signed by this exact key, so
+  losing it strands every installed copy on manual updates.
+
 ## SemVer rules
 
 Versioning is `MAJOR.MINOR.PATCH[-alpha\|beta\|rc.N]` (enforced by the regex
