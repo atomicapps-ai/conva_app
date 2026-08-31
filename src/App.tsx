@@ -5,6 +5,8 @@ import { FanerReplayPanel } from "@/components/dev/FanerReplayPanel";
 import { StudioShell } from "@/components/studio/StudioShell";
 import { WebShell } from "@/components/web/WebShell";
 import * as webAuth from "@/lib/backend/webAuth";
+import { finishSplash } from "@/lib/commands";
+import { isTauri } from "@/lib/ipc";
 import { isEmbedded, isWeb } from "@/lib/platform";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAppStore } from "@/state/app";
@@ -35,7 +37,13 @@ export default function App() {
   const needsWebLogin = isWeb && !isEmbedded && !webAuth.status().signed_in;
 
   useEffect(() => {
-    void init();
+    // `init()` never rejects (it catches its own errors into `lastError`),
+    // so this always fires — success or failure alike, the IPC bridge is
+    // proven alive either way, which is all the splash is waiting on. Web
+    // has no splash window (and no `finish_splash` command to invoke).
+    void init().then(() => {
+      if (isTauri()) void finishSplash();
+    });
   }, [init]);
 
   useEffect(() => {

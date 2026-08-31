@@ -508,6 +508,14 @@ export function hudIsOpen(): Promise<boolean> {
   return invoke<boolean>("hud_is_open");
 }
 
+// --- Splash window (src-tauri/src/splash.rs) ---------------------------------
+
+/** Show the main window and close the splash. Call once after the app's
+ *  first `init()` round-trip settles (success or failure alike). */
+export function finishSplash(): Promise<void> {
+  return invoke("finish_splash");
+}
+
 // --- Partner window (src-tauri/src/partner.rs) -------------------------------
 
 /** Open (or re-target) the partner window on a term — or, with `docId` set,

@@ -13,13 +13,15 @@
     "macOSPrivateApi": true,
     "windows": [
       {
+        "label": "main",
         "title": "conva",
         "width": 700,
         "height": 540,
         "minWidth": 380,
         "minHeight": 440,
         "decorations": false,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "visible": false
       }
     ],
     "security": {

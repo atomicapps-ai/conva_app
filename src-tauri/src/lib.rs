@@ -23,6 +23,7 @@ mod recorder;
 mod rehearsal;
 mod secrets;
 mod session;
+mod splash;
 mod trace;
 mod tracker;
 mod tts;
@@ -41,7 +42,9 @@ use conva_core::asr::TranscriptSegment;
 use conva_core::audio::AudioDevice;
 use conva_core::config::AppConfig;
 use conva_core::context::{ContextSummary, ConversationContext, KnowledgeProfile};
-use conva_core::ipc::{events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent};
+use conva_core::ipc::{
+    events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent, SplashProgressEvent,
+};
 use conva_core::llm::{provider_registry, LlmRequest, ModelInfo, ProviderId, ProviderInfo};
 use conva_core::metering::{UsageLedger, UsageSummary};
 use conva_core::prompt::{build_ally_request, AllyKind};
@@ -1696,6 +1699,15 @@ fn redock_partner(app: AppHandle) -> Result<(), String> {
     partner::redock(&app)
 }
 
+/// Show the main window and close the splash. Called by the main window's
+/// own React app once its first `init()` round-trip settles (success or
+/// failure — either way the IPC bridge is proven alive, which is the
+/// splash's whole job to cover). See `splash.rs`'s doc comment.
+#[tauri::command]
+fn finish_splash(app: AppHandle) -> Result<(), String> {
+    splash::finish(&app)
+}
+
 /// The payload the partner view should render (read on partner-window boot).
 #[tauri::command]
 fn get_partner_payload() -> Option<conva_core::ipc::PartnerPayload> {
@@ -2046,12 +2058,24 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // First thing, before any of the rest of setup() runs: the splash
+            // is the only thing on screen (the main window starts hidden —
+            // see tauri.conf.json) until `finish_splash` shows it.
+            if let Err(e) = splash::open(app.handle()) {
+                eprintln!("[conva] couldn't open the splash window: {e}");
+            }
+            splash::progress(app.handle(), SplashProgressEvent::Started { percent: 0 });
+
             let config = load_config(app.handle());
             let data_dir = app
                 .path()
                 .app_data_dir()
                 .expect("app data dir must resolve");
             let rag = Arc::new(RagStore::open(&data_dir).expect("open rag store"));
+            splash::progress(
+                app.handle(),
+                SplashProgressEvent::LibraryLoaded { percent: 35 },
+            );
 
             // Session grounding's "required selection" invariant: a fresh
             // install always has the always-present default context to select
@@ -2068,6 +2092,10 @@ pub fn run() {
             if let Err(e) = context::cleanup_orphaned_generated_docs(app.handle(), &rag) {
                 eprintln!("[conva] couldn't clean up orphaned generated docs: {e}");
             }
+            splash::progress(
+                app.handle(),
+                SplashProgressEvent::WorkspaceReady { percent: 60 },
+            );
 
             // Performance tracing → <app-data>/perf.jsonl (+ [perf] stderr lines).
             trace::init(data_dir.join("perf.jsonl"));
@@ -2131,6 +2159,10 @@ pub fn run() {
                     }
                 });
             }
+            splash::progress(
+                app.handle(),
+                SplashProgressEvent::AlmostReady { percent: 85 },
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2220,6 +2252,7 @@ pub fn run() {
             close_partner,
             redock_partner,
             get_partner_payload,
+            finish_splash,
             set_partner_locked,
             get_partner_locked,
         ])
