@@ -3,8 +3,16 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { useAllyStore } from "@/state/ally";
 import type { RadarEvent } from "@/lib/ipc";
 
-function hit(question: string): RadarEvent {
-  return { question, sources: [] };
+function hit(question: string, turnId = question): RadarEvent {
+  return {
+    turn_id: turnId,
+    source_key: `inbound-${turnId}`,
+    question,
+    outcome: "miss",
+    confidence: 0,
+    bridge: { kind: "framework", text: "Start with the main point." },
+    sources: [],
+  };
 }
 
 describe("radarHistory", () => {
@@ -19,12 +27,18 @@ describe("radarHistory", () => {
     ]);
   });
 
-  it("dedupes by question case-insensitively, moving the repeat to the front", () => {
-    useAllyStore.getState().applyRadar(hit("What is BM25?"));
+  it("dedupes updates for the same correlated turn", () => {
+    useAllyStore.getState().applyRadar(hit("What is BM25?", "turn-1"));
     useAllyStore.getState().applyRadar(hit("What is RRF?"));
-    useAllyStore.getState().applyRadar(hit("what is bm25?"));
+    useAllyStore.getState().applyRadar(hit("what is bm25?", "turn-1"));
     const qs = useAllyStore.getState().radarHistory.map((r) => r.question);
     expect(qs).toEqual(["what is bm25?", "What is RRF?"]);
+  });
+
+  it("retains repeated wording from different conversation turns", () => {
+    useAllyStore.getState().applyRadar(hit("Can you explain that?", "turn-1"));
+    useAllyStore.getState().applyRadar(hit("Can you explain that?", "turn-2"));
+    expect(useAllyStore.getState().radarHistory).toHaveLength(2);
   });
 
   it("caps at 20", () => {

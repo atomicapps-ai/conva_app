@@ -18,6 +18,7 @@ mod llm;
 mod metering;
 mod models;
 mod partner;
+mod radar_worker;
 mod rag;
 mod recorder;
 mod rehearsal;

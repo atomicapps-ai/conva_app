@@ -34,6 +34,8 @@ export interface AllyCard {
   summary: string | null;
 }
 
+export type AllyRequestResult = "busy" | "duplicate" | "completed";
+
 /** Unique source file names, first-appearance order — the CLEAN citation
  *  line an answer card shows (owner, 2026-08-22: the raw per-chunk "file ·
  *  ¶57–68 · file · ¶17–36 …" wall is not for users). */
@@ -74,8 +76,8 @@ const SUMMARY_PREFIX = "sum:";
 interface AllyState {
   cards: AllyCard[];
   busy: boolean;
-  /** Question Radar history (§6.2) — newest first, deduped by question
-   *  (case-insensitive; a repeat moves to the front), capped at 20. Feeds
+  /** Question Radar history (§6.2) — newest first, deduped by correlated
+   *  turn id, capped at 20. Feeds
    *  the Found list's Questions group (live-panel re-scope, 2026-08-22). */
   radarHistory: RadarEvent[];
   /** Cumulative session tracker state (§6.3). */
@@ -87,7 +89,8 @@ interface AllyState {
     kind: AllyKind,
     question?: string,
     source?: { key: string; quote: string },
-  ) => Promise<void>;
+    requestId?: string,
+  ) => Promise<AllyRequestResult>;
   /** Summarize an existing card's answer into its collapsible Summary
    *  section (a second LLM pass streamed via a `sum:`-prefixed request). */
   summarize: (cardId: string) => Promise<void>;
@@ -108,10 +111,13 @@ export const useAllyStore = create<AllyState>((set, get) => ({
   tracker: null,
   capture: null,
 
-  request: async (kind, question, source) => {
-    if (get().busy) return;
+  request: async (kind, question, source, requestId) => {
+    if (get().busy) return "busy";
+    if (requestId && get().cards.some((card) => card.id === requestId)) {
+      return "duplicate";
+    }
     counter += 1;
-    const id = `ally-${Date.now()}-${counter}`;
+    const id = requestId ?? `ally-${Date.now()}-${counter}`;
     set((s) => ({
       busy: true,
       // Keep the last few cards; newest first.
@@ -151,6 +157,7 @@ export const useAllyStore = create<AllyState>((set, get) => ({
         ),
       }));
     }
+    return "completed";
   },
 
   summarize: async (cardId) => {
@@ -223,10 +230,7 @@ export const useAllyStore = create<AllyState>((set, get) => ({
 
   applyRadar: (event) =>
     set((s) => {
-      const q = event.question.trim().toLowerCase();
-      const rest = s.radarHistory.filter(
-        (r) => r.question.trim().toLowerCase() !== q,
-      );
+      const rest = s.radarHistory.filter((r) => r.turn_id !== event.turn_id);
       return { radarHistory: [event, ...rest].slice(0, 20) };
     }),
 

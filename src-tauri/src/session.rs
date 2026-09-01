@@ -16,8 +16,7 @@ use conva_core::asr::{TranscriptSegment, TranscriptionEngine};
 use conva_core::audio::{AudioFrame, AudioSource, StreamSide};
 use conva_core::config::AppConfig;
 use conva_core::dsp::rms_dbfs;
-use conva_core::ipc::{events, AudioLevelEvent, RadarEvent, SessionStateEvent};
-use conva_core::radar::looks_like_question;
+use conva_core::ipc::{events, AudioLevelEvent, SessionStateEvent};
 use conva_core::CoreError;
 
 use conva_core::asr::AsrEngineId;
@@ -112,6 +111,9 @@ struct ActiveSession {
     /// Held so the FANER capture worker lives with the session; same drop
     /// semantics as the tracker (final pass + shutdown on stop).
     _capture_tx: Option<Sender<TranscriptSegment>>,
+    /// Held so the per-session Question Radar worker shuts down only after
+    /// all transcript sinks have released their senders.
+    _radar_tx: Sender<TranscriptSegment>,
 }
 
 impl SessionManager {
@@ -365,6 +367,19 @@ impl SessionManager {
             None
         };
 
+        // Question Radar runs independently of ASR delivery. Snapshot the
+        // active Context once for the session so every turn is searched
+        // against the same prepared knowledge bank.
+        let radar_scope = app
+            .state::<crate::AppState>()
+            .active_context_doc_ids
+            .lock()
+            .expect("ctx lock")
+            .clone();
+        let radar_tx =
+            crate::radar_worker::spawn_radar(app.clone(), rag, radar_scope, session_id.clone())
+                .map_err(|e| CoreError::Audio(format!("spawn Question Radar: {e}")))?;
+
         // Neural VAD (Silero) when enabled and the model is present; the
         // segmenter falls back to the energy gate otherwise. Sensitivity maps
         // to a speech-probability cutoff (higher = filter more noise).
@@ -399,8 +414,8 @@ impl SessionManager {
             let make_sink = || {
                 make_transcript_sink(
                     app.clone(),
-                    rag.clone(),
                     session_file.clone(),
+                    radar_tx.clone(),
                     tracker_tx.clone(),
                     capture_tx.clone(),
                     if side == StreamSide::Outbound {
@@ -518,6 +533,7 @@ impl SessionManager {
             stop_flag,
             _tracker_tx: tracker_tx,
             _capture_tx: capture_tx,
+            _radar_tx: radar_tx,
         });
         Ok((session_id, stop_ret))
     }
@@ -628,12 +644,11 @@ fn make_frame_sink(
 }
 
 /// Transcript sink: broadcast segments to the UI, persist finals to the
-/// session file (U3), and fire the Question Radar on inbound questions
-/// (§6.2 — verbatim reference chunks, zero LLM cost).
+/// session file (U3), and queue Question Radar work without blocking ASR.
 fn make_transcript_sink(
     app: AppHandle,
-    rag: Arc<RagStore>,
     session_file: Arc<Mutex<fs::File>>,
+    radar_tx: Sender<TranscriptSegment>,
     tracker_tx: Option<Sender<TranscriptSegment>>,
     capture_tx: Option<Sender<TranscriptSegment>>,
     rehearsal_tx: Option<Sender<TranscriptSegment>>,
@@ -651,22 +666,11 @@ fn make_transcript_sink(
             if let Some(capture) = &capture_tx {
                 let _ = capture.send(segment.clone());
             }
+            let _ = radar_tx.send(segment.clone());
             // Rehearsal: hand finalized user (outbound) turns to the worker.
             if segment.side == StreamSide::Outbound {
                 if let Some(reh) = &rehearsal_tx {
                     let _ = reh.send(segment.clone());
-                }
-            }
-            if segment.side == StreamSide::Inbound && looks_like_question(&segment.text) {
-                let sources = rag.retrieve(&segment.text, 3);
-                if !sources.is_empty() {
-                    let _ = app.emit(
-                        events::RADAR,
-                        RadarEvent {
-                            question: segment.text.clone(),
-                            sources,
-                        },
-                    );
                 }
             }
         }

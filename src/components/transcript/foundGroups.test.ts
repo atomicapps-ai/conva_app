@@ -12,7 +12,15 @@ const tracker: TrackerEvent = {
 };
 
 const radar: RadarEvent[] = [
-  { question: "What is RRF?", sources: [] },
+  {
+    turn_id: "session-1:them:4",
+    source_key: "inbound-4",
+    question: "What is RRF?",
+    outcome: "miss",
+    confidence: 0,
+    bridge: { kind: "definition", text: "Define it, then explain why it matters." },
+    sources: [],
+  },
 ];
 
 describe("buildFoundGroups", () => {
@@ -25,7 +33,7 @@ describe("buildFoundGroups", () => {
       docTerms: ["Lambda"],
     });
     expect(g.questions.map((i) => i.label)).toEqual(["What is RRF?"]);
-    expect(g.questions[0]?.id).toBe("q-what is rrf?");
+    expect(g.questions[0]?.id).toBe("q-session-1:them:4");
     expect(g.commitments[0]).toMatchObject({
       label: "send the deck",
       detail: "you · due Friday",

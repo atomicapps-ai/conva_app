@@ -616,14 +616,17 @@ impl RagStore {
         });
         let keep = |entry: &usize| allowed.as_ref().is_none_or(|a| a.contains(entry));
 
-        // Widen the candidate pool when scoped so filtering still yields k.
-        let pool = if allowed.is_some() { k * 12 } else { k * 3 };
-        let lexical: Vec<usize> = index
-            .search(query, pool)
-            .into_iter()
-            .map(|(entry, _)| entry)
-            .filter(|e| keep(e))
-            .collect();
+        // Score the allowed corpus itself. Searching the global top-k and
+        // filtering afterward creates false Context misses when unrelated
+        // documents crowd the global ranking.
+        let pool = k * 3;
+        let lexical: Vec<usize> = match &allowed {
+            Some(allowed) => index.search_filtered(query, pool, |entry| allowed.contains(&entry)),
+            None => index.search(query, pool),
+        }
+        .into_iter()
+        .map(|(entry, _)| entry)
+        .collect();
 
         let semantic: Option<Vec<usize>> = crate::embed::embed_query(query).map(|qvec| {
             conva_core::fuse::top_k_cosine(

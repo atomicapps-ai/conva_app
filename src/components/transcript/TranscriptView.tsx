@@ -20,6 +20,7 @@ import {
   uniqueSourceFiles,
   useAllyStore,
   type AllyCard,
+  type AllyRequestResult,
 } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
 import { MAX_TERM_LEN, useLiveTermsStore } from "@/state/liveTerms";
@@ -1423,7 +1424,7 @@ function AllyPanel({
     kind: AllyKind,
     question?: string,
     source?: { key: string; quote: string },
-  ) => Promise<void>;
+  ) => Promise<AllyRequestResult>;
   allyFontPx: number;
   bumpAllyFont: (d: number) => void;
   reasoningDefaultOpen: boolean;
