@@ -12,9 +12,46 @@ this checklist implements.
 
 | Secret | Used for | Required? |
 |---|---|---|
-| `TAURI_SIGNING_PRIVATE_KEY` | Signs updater artifacts so `tauri-plugin-updater` trusts them (the public half is the `pubkey` already committed in `src-tauri/tauri.conf.json`) | Optional — without it, plain installers still build, only update artifacts + `latest.json` are skipped |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the signing key above, if it was generated with one | Optional, only if the key needs one |
+| `CONVA_ENV_KEY` | The env-toolkit master key (`env/README.md`) — unlocks the committed `.env.<env>.sec.enc` files, which is where `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` actually live now. `build-installers.yml` decrypts straight into `$GITHUB_ENV` before the build step; nothing is ever printed to the log. | Optional — without it, plain installers still build, only update artifacts + `latest.json` are skipped (same fallback the old direct secrets gave) |
 | `RELEASES_REPO_TOKEN` | Fine-grained GitHub PAT scoped to **only** `atomicapps-ai/conva_releases`, permission **Contents: Read and write** — lets the release build attach installers + `latest.json` to a release in that repo instead of this one | Required for a tagged release run to actually publish; a run without it fails loudly at the "Build installers" step with a GitHub API auth error (it never silently falls back to drafting in the wrong, private repo) |
+
+`TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` are **no
+longer set directly as GitHub secrets** — as of the v0.3.1 release attempt,
+this repo's `TAURI_SIGNING_PRIVATE_KEY` secret held a malformed value (base64
+that didn't decode to a valid minisign box), which killed both installer jobs
+at the very last step, signing, after a full successful build. The direct-secret
+path made that easy to get wrong with no way to verify the value once pasted
+(GitHub secrets are write-only). Routing it through the env toolkit instead
+means the actual key lives in a committed, readable-by-anyone-with-the-master-key
+file — one `CONVA_ENV_KEY` paste unlocks it, and every future rotation is
+`edit .env.<env>.sec` → `npm run env:encrypt:<env>` → commit, never a return
+trip to the GitHub UI.
+
+### Generating the signing keypair (only needed once, or to rotate)
+
+```
+npx tauri signer generate -w ~/.tauri/conva.key
+```
+
+Prompts for a password (empty is fine — CI doesn't need one). Paste the
+printed **private key** into `TAURI_SIGNING_PRIVATE_KEY=` in both
+`.env.dev.sec` and `.env.prod.sec` (same keypair in both — the `pubkey` in
+`src-tauri/tauri.conf.json` is fixed, so the private key must match across
+envs) and the password into `TAURI_SIGNING_PRIVATE_KEY_PASSWORD=` in both.
+Then:
+
+```
+npm run env:encrypt:dev
+npm run env:encrypt:prod
+```
+
+commits the encrypted `.env.dev.sec.enc` / `.env.prod.sec.enc` twins (see
+`env/README.md` for the full model). **Rotating the key also means updating
+`plugins.updater.pubkey` in `src-tauri/tauri.conf.json`** to the newly
+printed public key (that value is the whole `.pub` file's base64 content,
+pasted verbatim — no re-encoding) and cutting a new version, since existing
+installs verify updates against the old pubkey and would reject anything
+signed by a new key without it.
 
 Never commit a secret value anywhere in this repo — see
 [`ai-workflow.md`](ai-workflow.md).

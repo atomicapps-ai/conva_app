@@ -41,11 +41,15 @@ on:
         type: string
         default: ""
     secrets:
-      # Updater artifact signing. Optional — until the secret is set, plain
-      # installers still build; only the auto-update packages are skipped.
-      TAURI_SIGNING_PRIVATE_KEY:
-        required: false
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+      # Master key for the committed env/*.enc files (env/README.md) — the
+      # ONE secret this repo's owner has to set in the GitHub UI. Everything
+      # it unlocks (TAURI_SIGNING_PRIVATE_KEY[_PASSWORD] today) lives as an
+      # encrypted, committed file instead: rotating the signing key from now
+      # on is `edit .env.<env>.sec` → `npm run env:encrypt:<env>` → commit,
+      # never a return trip to Settings → Secrets. Optional — without it,
+      # plain installers still build; only the auto-update packages are
+      # skipped (same fallback the old direct secrets gave).
+      CONVA_ENV_KEY:
         required: false
       # Fine-grained PAT scoped to ONLY the public RELEASES_REPOSITORY
       # (Contents: Read and write) — lets this build attach installers +
@@ -117,6 +121,23 @@ jobs:
 
       - run: npm ci
 
+      # Decrypt the committed env/*.enc secrets (env/README.md) straight into
+      # $GITHUB_ENV, so "Build installers" below can read them without ever
+      # printing them to the log. A release run is always `prod`; dev-build
+      # and workflow_dispatch runs use `dev` — same TAURI_SIGNING_PRIVATE_KEY
+      # value either way today (.env.dev.sec/.env.prod.sec share one keypair,
+      # per those files' own comment: the updater pubkey in tauri.conf.json is
+      # fixed, so the private key must match across envs), kept per-env for
+      # when that stops being true. `if: secrets.CONVA_ENV_KEY != ''` makes
+      # this optional during rollout — no key set yet just means unsigned
+      # installers, exactly the old secrets-unset fallback.
+      - name: Decrypt signing secrets (env/*.enc)
+        if: secrets.CONVA_ENV_KEY != ''
+        shell: bash
+        env:
+          CONVA_ENV_KEY: ${{ secrets.CONVA_ENV_KEY }}
+        run: node env/cli.mjs print ${{ inputs.release && 'prod' || 'dev' }} >> "$GITHUB_ENV"
+
       - name: Build installers
         uses: tauri-apps/tauri-action@v0
         env:
@@ -125,8 +146,8 @@ jobs:
           # GITHUB_TOKEN can only ever act on the repo the workflow runs in, so
           # it's used as-is for non-release runs, which don't publish anywhere.
           GITHUB_TOKEN: ${{ inputs.release && secrets.RELEASES_REPO_TOKEN || secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           # On a release the tag drives the GitHub Release, created in the
           # public RELEASES_REPOSITORY (owner/repo below) instead of this
