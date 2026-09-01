@@ -186,22 +186,24 @@ pub enum ModelStatusEvent {
 /// WorkspaceReady(60) → AlmostReady(85) → done (the splash closes once the
 /// main window's own `init()` resolves; there is no explicit 100 variant —
 /// closing *is* the 100% signal).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "stage")]
 pub enum SplashProgressEvent {
     Started { percent: u8 },
     LibraryLoaded { percent: u8 },
     WorkspaceReady { percent: u8 },
     AlmostReady { percent: u8 },
+    Failed { percent: u8, message: String },
 }
 
 impl SplashProgressEvent {
-    pub fn percent(self) -> u8 {
+    pub fn percent(&self) -> u8 {
         match self {
             Self::Started { percent }
             | Self::LibraryLoaded { percent }
             | Self::WorkspaceReady { percent }
-            | Self::AlmostReady { percent } => percent,
+            | Self::AlmostReady { percent }
+            | Self::Failed { percent, .. } => *percent,
         }
     }
 }
@@ -256,7 +258,7 @@ mod tests {
         ];
         let mut last = -1i16;
         for stage in stages {
-            let json = serde_json::to_value(stage).unwrap();
+            let json = serde_json::to_value(&stage).unwrap();
             assert!(json["stage"].is_string());
             let percent = stage.percent();
             assert!(

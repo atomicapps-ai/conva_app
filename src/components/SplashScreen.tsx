@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import splashArt from "@/assets/brand/splash-screen.webp";
 import { useBackend } from "@/lib/backend";
-import { splashStatus } from "@/lib/commands";
+import { getSplashProgress, showSplash } from "@/lib/commands";
 import { isTauri, type SplashProgressEvent } from "@/lib/ipc";
 
 const STAGE_LABEL: Record<SplashProgressEvent["stage"], string> = {
@@ -10,6 +10,7 @@ const STAGE_LABEL: Record<SplashProgressEvent["stage"], string> = {
   library_loaded: "Loading your library…",
   workspace_ready: "Preparing your workspace…",
   almost_ready: "Almost ready…",
+  failed: "Startup failed",
 };
 
 /**
@@ -18,11 +19,17 @@ const STAGE_LABEL: Record<SplashProgressEvent["stage"], string> = {
  * anything real to show; closes itself (via the main window invoking
  * `finish_splash` once its own `init()` settles — see `App.tsx`) rather than
  * timing out on its own. The bar reflects real boot milestones (the backend
- * `boot` thread's stages) emitted over `conva://splash-progress`, not a
+ * `startup` thread's stages) emitted over `conva://splash-progress`, not a
  * simulated fill — it holds at the last real stage (85%) until the app is
  * actually ready, rather than animating to a false 100% and stalling there.
  */
-export function SplashScreen() {
+export function SplashScreen({
+  getProgress = getSplashProgress,
+  show = showSplash,
+}: {
+  getProgress?: () => Promise<SplashProgressEvent>;
+  show?: () => Promise<void>;
+}) {
   const backend = useBackend();
   const [progress, setProgress] = useState<SplashProgressEvent>({
     stage: "started",
@@ -32,7 +39,7 @@ export function SplashScreen() {
   useEffect(() => {
     let alive = true;
     let unsub: (() => void) | undefined;
-    // Monotonic: the boot thread races this window's own startup, so a
+    // Monotonic: the startup thread races this window's own startup, so a
     // stage can arrive out of order (the snapshot below resolving after a
     // newer live event) — never move the bar backwards.
     const apply = (e: SplashProgressEvent) => {
@@ -45,12 +52,12 @@ export function SplashScreen() {
     // Seed from the backend's latest stage: anything emitted before the
     // subscription above registered would otherwise be lost, leaving the
     // bar stuck at 0% on a fast boot.
-    if (isTauri()) void splashStatus().then(apply).catch(() => {});
+    if (isTauri()) void getProgress().then(apply).catch(() => {});
     return () => {
       alive = false;
       unsub?.();
     };
-  }, [backend]);
+  }, [backend, getProgress]);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-bg">
@@ -58,6 +65,9 @@ export function SplashScreen() {
         src={splashArt}
         alt=""
         aria-hidden
+        onLoad={() => {
+          if (isTauri()) void show().catch(() => {});
+        }}
         className="absolute inset-0 h-full w-full object-cover"
       />
       <div
@@ -82,6 +92,11 @@ export function SplashScreen() {
           />
         </div>
         <p className="text-sm text-white/70">{STAGE_LABEL[progress.stage]}</p>
+        {progress.stage === "failed" && (
+          <p role="alert" className="max-w-[440px] text-center text-xs text-red-300">
+            {progress.message}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -511,19 +511,29 @@ export function hudIsOpen(): Promise<boolean> {
 
 // --- Splash window (src-tauri/src/splash.rs) ---------------------------------
 
-/** Show the main window and close the splash. Call once after the app's
- *  first `init()` round-trip settles (success or failure alike). Resolves
- *  only when the backend's boot thread is also done — the splash holds
- *  until the workspace is actually loaded. */
+/** Show the main window and close the splash. Call only after
+ *  `waitForStartup()` and the app's first `init()` round-trip complete. */
 export function finishSplash(): Promise<void> {
   return invoke("finish_splash");
 }
 
-/** Latest boot-progress stage — the splash view calls this once on mount to
+/** Wait until the backend has fully constructed AppState. This must be the
+ *  first desktop command the main application invokes. */
+export function waitForStartup(): Promise<void> {
+  return invoke("wait_for_startup");
+}
+
+/** Latest startup-progress stage — the splash view calls this once on mount to
  *  seed its bar, since stages emitted before its event listener registered
  *  would otherwise be lost. */
-export function splashStatus(): Promise<SplashProgressEvent> {
-  return invoke<SplashProgressEvent>("splash_status");
+export function getSplashProgress(): Promise<SplashProgressEvent> {
+  return invoke<SplashProgressEvent>("get_splash_progress");
+}
+
+/** Reveal the splash after its artwork has decoded, avoiding WebView2's blank
+ *  pre-navigation native window. */
+export function showSplash(): Promise<void> {
+  return invoke("show_splash");
 }
 
 // --- Partner window (src-tauri/src/partner.rs) -------------------------------

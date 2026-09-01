@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -30,6 +30,13 @@ function fakeBackend() {
 }
 
 describe("SplashScreen", () => {
+  function enableTauriRuntime() {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+  }
+
   it("starts at 0% with the 'Starting…' label", () => {
     const { backend } = fakeBackend();
     render(
@@ -67,11 +74,63 @@ describe("SplashScreen", () => {
     );
 
     emit({ stage: "workspace_ready", percent: 60 });
-    // A stale earlier stage (e.g. the splash_status snapshot resolving
+    // A stale earlier stage (e.g. the get_splash_progress snapshot resolving
     // after a newer live event) must not regress the bar.
     emit({ stage: "library_loaded", percent: 35 });
     expect(screen.getByText("Preparing your workspace…")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+  });
+
+  it("recovers progress emitted before its listener registered", async () => {
+    enableTauriRuntime();
+    const { backend } = fakeBackend();
+    render(
+      <BackendProvider backend={backend}>
+        <SplashScreen getProgress={async () => ({
+          stage: "workspace_ready",
+          percent: 60,
+        })} />
+      </BackendProvider>,
+    );
+
+    expect(await screen.findByText("Preparing your workspace…")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  });
+
+  it("reveals the native window only after the artwork loads", () => {
+    enableTauriRuntime();
+    const { backend } = fakeBackend();
+    const show = vi.fn(async () => {});
+    const { container } = render(
+      <BackendProvider backend={backend}>
+        <SplashScreen getProgress={() => new Promise(() => {})} show={show} />
+      </BackendProvider>,
+    );
+
+    expect(show).not.toHaveBeenCalled();
+    fireEvent.load(container.querySelector("img")!);
+    expect(show).toHaveBeenCalledOnce();
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  });
+
+  it("shows a retained startup failure instead of hanging silently", async () => {
+    enableTauriRuntime();
+    const { backend } = fakeBackend();
+    render(
+      <BackendProvider backend={backend}>
+        <SplashScreen getProgress={async () => ({
+          stage: "failed",
+          percent: 35,
+          message: "Could not open the local library",
+        })} />
+      </BackendProvider>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not open the local library",
+    );
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
   it("unsubscribes on unmount", async () => {

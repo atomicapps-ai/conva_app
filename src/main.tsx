@@ -1,6 +1,7 @@
 import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
 
+import { SplashScreen } from "@/components/SplashScreen";
 import { BackendProvider } from "@/lib/backend";
 import { PLATFORM } from "@/lib/platform";
 import "@/styles/globals.css";
@@ -20,9 +21,9 @@ const HudPanel = lazy(() =>
 const PartnerWindow = lazy(() =>
   import("@/components/partner/PartnerWindow").then((m) => ({ default: m.PartnerWindow })),
 );
-const SplashScreen = lazy(() =>
-  import("@/components/SplashScreen").then((m) => ({ default: m.SplashScreen })),
-);
+// SplashScreen is deliberately NOT lazy. It is only ~1.5 KB, and making the
+// first visible window wait for a second JS chunk produced a black frame on
+// cold WebView2 starts. App/HUD/partner remain split because they are larger.
 
 // Tag the root with the platform so the skin layer in globals.css can override
 // base tokens for web only (the desktop cockpit skin is the base). See

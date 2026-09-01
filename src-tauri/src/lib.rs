@@ -1699,34 +1699,36 @@ fn redock_partner(app: AppHandle) -> Result<(), String> {
     partner::redock(&app)
 }
 
-/// Show the main window and close the splash. Called by the main window's
-/// own React app once its first `init()` round-trip settles (success or
-/// failure — either way the IPC bridge is proven alive). The splash holds
-/// until the `boot` thread also signals done, so the main window never
-/// shows a half-loaded workspace; async so the wait parks on the runtime's
-/// blocking pool, never a webview IPC thread. Fails OPEN on the (never
-/// expected) timeout — showing the app beats hanging behind an
-/// uncloseable frameless always-on-top splash. See `splash.rs`.
+/// Wait for `AppState` to be fully constructed. This command deliberately
+/// takes no `State<AppState>`: it is the gate that makes later stateful
+/// commands safe. The condvar wait runs on Tauri's blocking pool.
 #[tauri::command]
-async fn finish_splash(app: AppHandle) -> Result<(), String> {
-    let gate = app.state::<splash::BootGate>().inner().clone();
-    let finished = tauri::async_runtime::spawn_blocking(move || {
-        gate.wait_ready(std::time::Duration::from_secs(60))
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    if !finished {
-        eprintln!("[conva] boot didn't signal ready within 60s — showing the main window anyway");
-    }
-    splash::finish(&app)
+async fn wait_for_startup(app: AppHandle) -> Result<(), String> {
+    let startup = app.state::<splash::StartupState>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || startup.wait())
+        .await
+        .map_err(|e| format!("startup waiter failed: {e}"))?
 }
 
-/// The latest boot-progress stage — the splash view calls this once on
+/// The latest startup-progress stage — the splash view calls this once on
 /// mount to seed its bar, since stages emitted before its event listener
 /// registered would otherwise be lost.
 #[tauri::command]
-fn splash_status(app: AppHandle) -> SplashProgressEvent {
-    app.state::<splash::BootGate>().last()
+fn get_splash_progress(app: AppHandle) -> SplashProgressEvent {
+    app.state::<splash::StartupState>().progress()
+}
+
+/// Reveal the fully rendered splash window. State-free by design: this runs
+/// while the background initializer may still be constructing AppState.
+#[tauri::command]
+fn show_splash(app: AppHandle) -> Result<(), String> {
+    splash::show(&app)
+}
+
+/// Show the initialized main window and close the splash.
+#[tauri::command]
+fn finish_splash(app: AppHandle) -> Result<(), String> {
+    splash::finish(&app)
 }
 
 /// The payload the partner view should render (read on partner-window boot).
@@ -2086,12 +2088,12 @@ pub fn run() {
             // included, its build() notwithstanding), and on Windows
             // WebView2 can't even finish initializing, since its creation
             // callbacks arrive via the stalled message pump. Anything slow
-            // goes on the `boot` thread below; only fast, order-critical
+            // goes on the `startup` thread below; only fast, order-critical
             // work runs inline. See splash.rs's doc comment.
 
-            // BootGate before the splash window exists: no webview can
-            // invoke splash_status/finish_splash before it's managed.
-            app.manage(splash::BootGate::new());
+            // StartupState before the splash exists: both startup commands
+            // are safe even if a webview invokes them immediately.
+            app.manage(splash::StartupState::new());
 
             // The splash is the only thing on screen (the main window
             // starts hidden — see tauri.conf.json) until `finish_splash`.
@@ -2100,110 +2102,85 @@ pub fn run() {
             }
             splash::progress(app.handle(), SplashProgressEvent::Started { percent: 0 });
 
-            let config = load_config(app.handle());
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("app data dir must resolve");
-            // Empty-but-usable store, managed NOW so every command's
-            // State<AppState> works from the first invoke; the slow disk
-            // scan (rag.load()) happens on the boot thread, and the main
-            // window is gated behind it by finish_splash.
-            let rag = Arc::new(RagStore::open_empty(&data_dir).expect("open rag store"));
-
-            // Performance tracing → <app-data>/perf.jsonl (+ [perf] stderr lines).
-            trace::init(data_dir.join("perf.jsonl"));
-
-            // Seed API keys from a committed encrypted secrets file when the
-            // passphrase env var is set (fills only missing keys). Lets keys
-            // travel to another machine via git without re-entering them.
-            // Stays inline: the main window's init() reads key status, and
-            // seeding must win that race (it's a local decrypt + keyring
-            // writes — milliseconds).
-            secrets::seed_on_startup();
-
-            // Fetch the neural-VAD model in the background so it's ready for
-            // the first session (falls back to the energy gate until it lands).
-            // (Fast inline: a path check that spawns its own download thread.)
-            let _ = models::ensure_silero(app.handle());
-
-            let usage = metering::load(app.handle());
-            app.manage(AppState {
-                config: Mutex::new(config),
-                session: SessionManager::new(),
-                rag: rag.clone(),
-                usage: Mutex::new(usage),
-                active_context_terms: Mutex::new(Vec::new()),
-                active_context_doc_ids: Mutex::new(Vec::new()),
-            });
-
-            // The slow half of boot. Failures degrade (empty library, no
-            // default context) rather than aborting — set_ready ALWAYS runs
-            // so finish_splash never has to ride out its fail-open timeout.
+            // Everything that can touch disk, keyring, or stores runs after
+            // setup returns, allowing Wry/WebView2 to navigate and paint.
             {
                 let handle = app.handle().clone();
-                let rag = rag.clone();
-                let cache_dir = data_dir.join("models");
-                std::thread::Builder::new()
-                    .name("boot".into())
-                    .spawn(move || {
-                        if let Err(e) = rag.load() {
-                            eprintln!("[conva] couldn't load the library: {e}");
-                        }
-                        splash::progress(
-                            &handle,
-                            SplashProgressEvent::LibraryLoaded { percent: 35 },
-                        );
+                let spawn_result =
+                    std::thread::Builder::new()
+                        .name("startup".into())
+                        .spawn(move || {
+                            let result = (|| -> Result<(), String> {
+                                let data_dir = handle.path().app_data_dir().map_err(|e| {
+                                    format!("could not resolve app data directory: {e}")
+                                })?;
+                                let config = load_config(&handle);
+                                trace::init(data_dir.join("perf.jsonl"));
 
-                        // Session grounding's "required selection" invariant: a
-                        // fresh install always has the always-present default
-                        // context to select from. Local-only (no network).
-                        // Still ahead of any activate_context("default"): the
-                        // main window only shows once this thread signals done.
-                        if let Err(e) = context::ensure_default_context(&handle, &rag) {
-                            eprintln!("[conva] couldn't seed the default context: {e}");
-                        }
+                                let rag = Arc::new(
+                                    RagStore::open(&data_dir)
+                                        .map_err(|e| format!("could not open library: {e}"))?,
+                                );
+                                splash::progress(
+                                    &handle,
+                                    SplashProgressEvent::LibraryLoaded { percent: 35 },
+                                );
 
-                        // One-time retroactive cleanup for generated documents an
-                        // old bug orphaned (regenerate's delete-old-then-create-new
-                        // step used to silently no-op — see
-                        // `context::cleanup_orphaned_generated_docs` for the full
-                        // story). Idempotent, local-only — safe every launch.
-                        if let Err(e) = context::cleanup_orphaned_generated_docs(&handle, &rag) {
-                            eprintln!("[conva] couldn't clean up orphaned generated docs: {e}");
-                        }
-                        splash::progress(
-                            &handle,
-                            SplashProgressEvent::WorkspaceReady { percent: 60 },
-                        );
+                                context::ensure_default_context(&handle, &rag).map_err(|e| {
+                                    format!("could not prepare default context: {e}")
+                                })?;
+                                context::cleanup_orphaned_generated_docs(&handle, &rag).map_err(
+                                    |e| format!("could not clean generated documents: {e}"),
+                                )?;
+                                splash::progress(
+                                    &handle,
+                                    SplashProgressEvent::WorkspaceReady { percent: 60 },
+                                );
 
-                        // Warm the embedding model off the critical path (first
-                        // run downloads ~130 MB), then embed any chunks ingested
-                        // before it was ready. Retrieval degrades to BM25-only
-                        // until this lands. Spawned from HERE, not setup():
-                        // seed/backfill scan the corpus, so the load() above
-                        // must have happened first.
-                        {
-                            let rag = rag.clone();
-                            let _ = std::thread::Builder::new().name("embed-warm".into()).spawn(
-                                move || {
-                                    embed::warm(cache_dir);
-                                    // Git-synced library: pick up documents
-                                    // committed to the repo's library/ folder by
-                                    // other machines, then embed everything that
-                                    // still lacks vectors.
-                                    rag.seed_from_repo_library();
-                                    rag.backfill_embeddings();
-                                },
-                            );
-                        }
+                                secrets::seed_on_startup();
+                                let _ = models::ensure_silero(&handle);
+                                let usage = metering::load(&handle);
 
-                        splash::progress(&handle, SplashProgressEvent::AlmostReady { percent: 85 });
-                        if let Some(gate) = handle.try_state::<splash::BootGate>() {
-                            gate.set_ready();
-                        }
-                    })
-                    .expect("spawn boot thread");
+                                // AppState becomes visible atomically only after all
+                                // of its prerequisites have completed successfully.
+                                if !handle.manage(AppState {
+                                    config: Mutex::new(config),
+                                    session: SessionManager::new(),
+                                    rag: rag.clone(),
+                                    usage: Mutex::new(usage),
+                                    active_context_terms: Mutex::new(Vec::new()),
+                                    active_context_doc_ids: Mutex::new(Vec::new()),
+                                }) {
+                                    return Err("application state was already managed".into());
+                                }
+
+                                let cache_dir = data_dir.join("models");
+                                let _ = std::thread::Builder::new()
+                                    .name("embed-warm".into())
+                                    .spawn(move || {
+                                        embed::warm(cache_dir);
+                                        rag.seed_from_repo_library();
+                                        rag.backfill_embeddings();
+                                    });
+
+                                splash::progress(
+                                    &handle,
+                                    SplashProgressEvent::AlmostReady { percent: 85 },
+                                );
+                                handle.state::<splash::StartupState>().ready();
+                                Ok(())
+                            })();
+
+                            if let Err(error) = result {
+                                eprintln!("[conva] startup failed: {error}");
+                                splash::fail(&handle, error);
+                            }
+                        });
+                if let Err(error) = spawn_result {
+                    let message = format!("could not start initializer: {error}");
+                    eprintln!("[conva] startup failed: {message}");
+                    splash::fail(app.handle(), message);
+                }
             }
 
             // Account sign-in return path: catch conva://auth/… deep links,
@@ -2317,8 +2294,10 @@ pub fn run() {
             close_partner,
             redock_partner,
             get_partner_payload,
+            wait_for_startup,
+            get_splash_progress,
+            show_splash,
             finish_splash,
-            splash_status,
             set_partner_locked,
             get_partner_locked,
         ])

@@ -103,22 +103,16 @@ fn repo_library_create_dir() -> Option<PathBuf> {
 }
 
 impl RagStore {
-    /// Open + fully load in one call. Production boots via
-    /// [`Self::open_empty`] + [`Self::load`] split across the boot thread
-    /// (see `lib.rs`'s setup); tests use this compact form.
-    #[cfg(test)]
+    /// Open and fully load the corpus. Startup calls this on the named
+    /// background initializer, never from Tauri's synchronous setup hook.
     pub fn open(app_data_dir: &Path) -> Result<Self, CoreError> {
         let store = Self::open_empty(app_data_dir)?;
         store.load()?;
         Ok(store)
     }
 
-    /// Open the store WITHOUT reading the corpus off disk: directories are
-    /// created and the store is immediately usable, just empty. [`Self::load`]
-    /// does the slow half. Split so `setup()` can construct + manage AppState
-    /// instantly and leave the disk scan to the boot thread — `setup()` runs
-    /// inside the event loop's first callback, and nothing (the splash
-    /// window included) can paint while it blocks.
+    /// Open the store without reading the corpus off disk. Tests and special
+    /// callers may use [`Self::load`] for the slow half later.
     pub fn open_empty(app_data_dir: &Path) -> Result<Self, CoreError> {
         let dir = app_data_dir.join("rag");
         fs::create_dir_all(&dir).map_err(|e| CoreError::Rag(e.to_string()))?;

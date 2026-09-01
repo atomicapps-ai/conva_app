@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>conva</title>
+    <!-- Local and tiny enough to preload for every window. This lets WebView2
+         decode the branded splash while the entry module is being evaluated,
+         rather than showing only the base background until React requests it. -->
+    <link rel="preload" href="/src/assets/brand/splash-screen.webp" as="image" type="image/webp" />
     <!-- Paints instantly, before globals.css (loaded from main.tsx) or any
          JS has run — every window (including the splash) is dark from the
          very first frame instead of a white flash while the bundle boots.
