@@ -346,26 +346,23 @@ impl SessionManager {
             None
         };
 
-        // FANER capture routing (F11): same gating + fast slot as the tracker,
-        // grounded in the active conversation context's terms.
-        let capture_tx = if config.tracker_enabled {
-            let selection = config.fast_selection().clone();
-            let terms = app
-                .state::<crate::AppState>()
-                .active_context_terms
-                .lock()
-                .expect("ctx lock")
-                .clone();
-            let ctx = conva_core::capture::PreparedContext {
-                role: String::new(),
-                terms,
-            };
-            crate::llm::resolve_key(selection.provider)
-                .ok()
-                .map(|key| crate::capture::spawn_capture(app.clone(), selection, key, ctx))
-        } else {
-            None
+        // FANER capture routing (F11) is independent of the Tracker setting:
+        // disabling entity/commitment tracking must not also disable live
+        // explain/recall/assist suggestions. Both still use the fast slot.
+        let selection = config.fast_selection().clone();
+        let terms = app
+            .state::<crate::AppState>()
+            .active_context_terms
+            .lock()
+            .expect("ctx lock")
+            .clone();
+        let ctx = conva_core::capture::PreparedContext {
+            role: String::new(),
+            terms,
         };
+        let capture_tx = crate::llm::resolve_key(selection.provider)
+            .ok()
+            .map(|key| crate::capture::spawn_capture(app.clone(), selection, key, ctx));
 
         // Question Radar runs independently of ASR delivery. Snapshot the
         // active Context once for the session so every turn is searched

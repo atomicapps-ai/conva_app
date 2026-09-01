@@ -13,6 +13,7 @@ use conva_core::asr::TranscriptSegment;
 use conva_core::audio::StreamSide;
 use conva_core::bridge::bridge_response;
 use conva_core::ipc::{events, RadarEvent};
+use conva_core::prepared_qa::match_prepared_qa;
 use conva_core::radar::looks_like_question;
 use conva_core::rag::{classify_evidence, evidence_confidence};
 use tauri::{AppHandle, Emitter};
@@ -39,6 +40,7 @@ fn run(
     session_id: String,
     rx: Receiver<TranscriptSegment>,
 ) {
+    let prepared = rag.prepared_qa_entries(&scope);
     while let Ok(segment) = rx.recv() {
         if !segment.is_final
             || segment.side != StreamSide::Inbound
@@ -50,9 +52,26 @@ fn run(
         let started = Instant::now();
         let turn_id = format!("{session_id}:them:{}", segment.seq);
         let source_key = format!("inbound-{}", segment.seq);
-        let sources = rag.retrieve_scoped(&segment.text, 3, &scope);
-        let confidence = evidence_confidence(&segment.text, &sources);
-        let outcome = classify_evidence(&segment.text, &sources);
+        let prepared_match = match_prepared_qa(&segment.text, &prepared);
+        let sources = if let Some(hit) = prepared_match {
+            vec![conva_core::rag::ScoredChunk {
+                document_id: hit.entry.document_id.clone(),
+                file_name: hit.entry.file_name.clone(),
+                location: hit.entry.location.clone(),
+                text: hit.entry.answer.clone(),
+                score: hit.confidence,
+            }]
+        } else {
+            rag.retrieve_scoped(&segment.text, 3, &scope)
+        };
+        let confidence = prepared_match
+            .map(|hit| hit.confidence)
+            .unwrap_or_else(|| evidence_confidence(&segment.text, &sources));
+        let outcome = if prepared_match.is_some() {
+            conva_core::bridge::RetrievalKind::PreparedHit
+        } else {
+            classify_evidence(&segment.text, &sources)
+        };
         let bridge = bridge_response(
             &segment.text,
             outcome,

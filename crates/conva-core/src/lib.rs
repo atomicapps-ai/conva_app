@@ -24,6 +24,7 @@ pub mod highlight;
 pub mod ipc;
 pub mod llm;
 pub mod metering;
+pub mod prepared_qa;
 pub mod prompt;
 pub mod radar;
 pub mod rag;

@@ -690,6 +690,35 @@ impl RagStore {
         )
     }
 
+    /// Parse prepared Q&A from the active Context's immutable document scope.
+    /// Called by the Radar worker at session start, never by the transcript
+    /// sink, so even large prep documents cannot delay ASR delivery.
+    pub fn prepared_qa_entries(
+        &self,
+        doc_ids: &[String],
+    ) -> Vec<conva_core::prepared_qa::PreparedQaEntry> {
+        let inner = self.inner.read().expect("rag lock");
+        let allowed: std::collections::HashSet<&str> = doc_ids.iter().map(String::as_str).collect();
+        inner
+            .documents
+            .iter()
+            .filter(|doc| allowed.contains(doc.document.id.as_str()))
+            .flat_map(|doc| {
+                let text = doc
+                    .chunks
+                    .iter()
+                    .map(|chunk| chunk.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                conva_core::prepared_qa::parse_prepared_qa(
+                    &text,
+                    &doc.document.id,
+                    &doc.document.file_name,
+                )
+            })
+            .collect()
+    }
+
     /// Embed chunks that were ingested before the model was ready (runs on
     /// the startup warm thread). Rewrites affected documents and reloads.
     pub fn backfill_embeddings(&self) {
@@ -1228,6 +1257,35 @@ mod tests {
         let empty_scope = store.retrieve_scoped("maintenance plan", 5, &[]);
         assert!(empty_scope.iter().any(|c| c.document_id == b.id));
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prepared_qa_snapshot_only_reads_the_active_scope() {
+        let dir = std::env::temp_dir().join(format!("conva-rag-qa-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let store = RagStore::open(&dir).unwrap();
+        let active = store
+            .ingest_text(
+                "Active prep",
+                "## Delivery\nQ: How did you recover the launch?\nA: I reduced scope and shipped in stages.",
+            )
+            .unwrap()
+            .document;
+        let other = store
+            .ingest_text(
+                "Other prep",
+                "Q: What is the private code?\nA: It is outside this Context.",
+            )
+            .unwrap()
+            .document;
+
+        let entries = store.prepared_qa_entries(std::slice::from_ref(&active.id));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].document_id, active.id);
+        assert_eq!(entries[0].location, "Delivery");
+        assert!(entries.iter().all(|entry| entry.document_id != other.id));
         let _ = fs::remove_dir_all(&dir);
     }
 }
