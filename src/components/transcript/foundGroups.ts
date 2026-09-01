@@ -59,7 +59,7 @@ export function buildFoundGroups(args: {
   prepQa?: readonly PrepQaPair[];
 }): FoundGroups {
   const questions: FoundItem[] = args.radarHistory.map((r) => ({
-    id: `q-${r.question.trim().toLowerCase()}`,
+    id: `q-${r.turn_id}`,
     group: "question",
     label: r.question,
     detail: null,

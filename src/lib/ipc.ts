@@ -156,8 +156,29 @@ export interface ScoredChunk {
   score: number;
 }
 
+export type RetrievalKind = "prepared_hit" | "evidence_hit" | "miss";
+export type BridgeKind =
+  | "evidence"
+  | "comparison"
+  | "process"
+  | "behavioral"
+  | "rationale"
+  | "definition"
+  | "boundary"
+  | "framework";
+
+export interface BridgeResponse {
+  kind: BridgeKind;
+  text: string;
+}
+
 export interface RadarEvent {
+  turn_id: string;
+  source_key: string;
   question: string;
+  outcome: RetrievalKind;
+  confidence: number;
+  bridge: BridgeResponse;
   sources: ScoredChunk[];
 }
 

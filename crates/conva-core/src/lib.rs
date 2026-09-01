@@ -12,6 +12,7 @@
 pub mod asr;
 pub mod audio;
 pub mod bm25;
+pub mod bridge;
 pub mod capture;
 pub mod chunk;
 pub mod config;
@@ -23,6 +24,7 @@ pub mod highlight;
 pub mod ipc;
 pub mod llm;
 pub mod metering;
+pub mod prepared_qa;
 pub mod prompt;
 pub mod radar;
 pub mod rag;

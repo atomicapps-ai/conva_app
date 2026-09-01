@@ -1,4 +1,4 @@
-import type { Capture } from "@/lib/ipc";
+import type { Capture, RadarEvent } from "@/lib/ipc";
 
 /**
  * FANER prompt/label helpers (F11 handoff, 2026-08-20 — see PR #44's
@@ -36,4 +36,11 @@ export function fanerPrompt(capture: Capture, phrase: string): string {
         ? `What's the standard fix for "${phrase}"?`
         : `Define "${phrase}" concisely, in the context of this conversation.`;
   }
+}
+
+/** Only a true Context miss starts the quality answer automatically. A
+ * grounded evidence hit already has useful Say-now content; a future
+ * PreparedHit has a complete cached answer and must never spend a model call. */
+export function shouldAutoRefineRadar(event: RadarEvent): boolean {
+  return event.outcome === "miss";
 }

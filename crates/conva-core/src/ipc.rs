@@ -96,12 +96,21 @@ pub struct AllySource {
     pub location: String,
 }
 
-/// Question Radar hit (§6.2): the other party asked something the reference
-/// library can answer — chunks shown verbatim, zero cost, instantly.
+/// Question Radar result (§6.2): always emitted for a detected inbound
+/// question, including a safe bridge when the active Context has no match.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RadarEvent {
+    /// Correlates detection, retrieval, and later refinement for one turn.
+    pub turn_id: String,
+    /// Existing transcript bubble identity (`inbound-<seq>`) for UI linking.
+    pub source_key: String,
     /// The inbound utterance that triggered the radar.
     pub question: String,
+    pub outcome: crate::bridge::RetrievalKind,
+    /// Conservative evidence coverage signal in [0, 1].
+    pub confidence: f32,
+    /// Stable, immediately speakable content while refinement continues.
+    pub bridge: crate::bridge::BridgeResponse,
     pub sources: Vec<crate::rag::ScoredChunk>,
 }
 
@@ -241,11 +250,33 @@ mod tests {
             events::AUDIO_LEVEL,
             events::SESSION_STATE,
             events::ALLY_CHUNK,
+            events::RADAR,
             events::AUTH_CHANGED,
             events::SPLASH_PROGRESS,
         ] {
             assert!(name.starts_with("conva://"), "{name}");
         }
+    }
+
+    #[test]
+    fn radar_event_serializes_correlated_bridge_contract() {
+        let event = RadarEvent {
+            turn_id: "session-1:them:7".into(),
+            source_key: "inbound-7".into(),
+            question: "What is RRF?".into(),
+            outcome: crate::bridge::RetrievalKind::Miss,
+            confidence: 0.0,
+            bridge: crate::bridge::BridgeResponse {
+                kind: crate::bridge::BridgeKind::Definition,
+                text: "Define it first.".into(),
+            },
+            sources: Vec::new(),
+        };
+        let json = serde_json::to_value(event).unwrap();
+        assert_eq!(json["turn_id"], "session-1:them:7");
+        assert_eq!(json["source_key"], "inbound-7");
+        assert_eq!(json["outcome"], "miss");
+        assert_eq!(json["bridge"]["kind"], "definition");
     }
 
     #[test]

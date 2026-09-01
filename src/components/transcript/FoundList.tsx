@@ -57,14 +57,24 @@ export function FoundList({
       key={item.id}
       type="button"
       onClick={() => onSelect(item)}
-      className="flex w-full items-baseline gap-2 rounded-[var(--radius)] border border-border bg-panel px-2 py-1 text-left transition hover:border-ai/40"
+      className="w-full rounded-[var(--radius)] border border-border bg-panel px-2 py-1 text-left transition hover:border-ai/40"
     >
-      <span className="min-w-0 flex-1 truncate text-[0.9em] text-fg">
-        {item.label}
+      <span className="flex items-baseline gap-2">
+        <span className="min-w-0 flex-1 truncate text-[0.9em] text-fg">
+          {item.label}
+        </span>
+        {item.detail && (
+          <span className="shrink-0 font-mono text-[9.5px] text-fg-faint">
+            {item.detail}
+          </span>
+        )}
       </span>
-      {item.detail && (
-        <span className="shrink-0 font-mono text-[9.5px] text-fg-faint">
-          {item.detail}
+      {item.group === "question" && item.radar && (
+        <span className="mt-0.5 flex min-w-0 items-start gap-1.5 text-[0.8em] leading-snug text-fg-muted">
+          <span className="shrink-0 font-mono text-[8.5px] font-bold uppercase tracking-[0.1em] text-primary">
+            Say now
+          </span>
+          <span className="line-clamp-2">{item.radar.bridge.text}</span>
         </span>
       )}
     </button>
