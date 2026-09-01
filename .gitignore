@@ -8,6 +8,7 @@ tsconfig.tsbuildinfo
 
 # Rust
 target/
+library/
 
 # Models are fetched on first run, never committed
 models/

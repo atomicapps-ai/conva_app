@@ -42,6 +42,8 @@ pub mod events {
     /// The partner window's lock-to-app state changed shell-side (e.g. a
     /// manual drag released it) — the window updates its toggle icon.
     pub const PARTNER_LOCK: &str = "conva://partner-lock";
+    /// Payload: [`super::SplashProgressEvent`]
+    pub const SPLASH_PROGRESS: &str = "conva://splash-progress";
 }
 
 /// Re-exported so the IPC module is a one-stop description of the wire.
@@ -177,6 +179,35 @@ pub enum ModelStatusEvent {
     Error { model: String, message: String },
 }
 
+/// Boot-sequence progress for the splash window (`src-tauri/src/splash.rs`).
+/// Each variant is a real, discrete milestone the boot sequence has actually
+/// finished — not a timed/simulated fill. `percent` is monotonically
+/// increasing across the sequence: Started(0) → LibraryLoaded(35) →
+/// WorkspaceReady(60) → AlmostReady(85) → done (the splash closes once the
+/// main window's own `init()` resolves; there is no explicit 100 variant —
+/// closing *is* the 100% signal).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "stage")]
+pub enum SplashProgressEvent {
+    Started { percent: u8 },
+    LibraryLoaded { percent: u8 },
+    WorkspaceReady { percent: u8 },
+    AlmostReady { percent: u8 },
+    Failed { percent: u8, message: String },
+}
+
+impl SplashProgressEvent {
+    pub fn percent(&self) -> u8 {
+        match self {
+            Self::Started { percent }
+            | Self::LibraryLoaded { percent }
+            | Self::WorkspaceReady { percent }
+            | Self::AlmostReady { percent }
+            | Self::Failed { percent, .. } => *percent,
+        }
+    }
+}
+
 /// One streamed piece of an Ally answer (U4/O2).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllyChunkEvent {
@@ -211,8 +242,37 @@ mod tests {
             events::SESSION_STATE,
             events::ALLY_CHUNK,
             events::AUTH_CHANGED,
+            events::SPLASH_PROGRESS,
         ] {
             assert!(name.starts_with("conva://"), "{name}");
         }
+    }
+
+    #[test]
+    fn splash_progress_serializes_with_tag_and_is_monotonic() {
+        let stages = [
+            SplashProgressEvent::Started { percent: 0 },
+            SplashProgressEvent::LibraryLoaded { percent: 35 },
+            SplashProgressEvent::WorkspaceReady { percent: 60 },
+            SplashProgressEvent::AlmostReady { percent: 85 },
+        ];
+        let mut last = -1i16;
+        for stage in stages {
+            let json = serde_json::to_value(&stage).unwrap();
+            assert!(json["stage"].is_string());
+            let percent = stage.percent();
+            assert!(
+                i16::from(percent) > last,
+                "stages must strictly increase, got {percent} after {last}"
+            );
+            last = i16::from(percent);
+        }
+    }
+
+    #[test]
+    fn splash_progress_started_tags_as_started() {
+        let json = serde_json::to_value(SplashProgressEvent::Started { percent: 0 }).unwrap();
+        assert_eq!(json["stage"], "started");
+        assert_eq!(json["percent"], 0);
     }
 }

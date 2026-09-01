@@ -20,6 +20,7 @@ import type {
   RadarEvent,
   RehearsalStateEvent,
   SessionStateEvent,
+  SplashProgressEvent,
   TrackerEvent,
   TranscriptSegment,
 } from "@/lib/ipc";
@@ -38,6 +39,7 @@ export interface EventMap {
   rehearsalState: RehearsalStateEvent;
   partnerTerm: PartnerPayload;
   partnerLock: PartnerLockEvent;
+  splashProgress: SplashProgressEvent;
 }
 
 /** Handle returned by `subscribe`; call to stop receiving the event. */
@@ -61,4 +63,5 @@ export const EVENT_CHANNEL: Record<keyof EventMap, string> = {
   rehearsalState: "conva://rehearsal-state",
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
+  splashProgress: "conva://splash-progress",
 };

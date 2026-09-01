@@ -1,11 +1,14 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import { FanerReplayPanel } from "@/components/dev/FanerReplayPanel";
 import { StudioShell } from "@/components/studio/StudioShell";
 import { WebShell } from "@/components/web/WebShell";
 import * as webAuth from "@/lib/backend/webAuth";
+import { finishSplash, waitForStartup } from "@/lib/commands";
+import { isTauri } from "@/lib/ipc";
 import { isEmbedded, isWeb } from "@/lib/platform";
+import { runStartup } from "@/lib/startup";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAppStore } from "@/state/app";
 import { useDevMode } from "@/state/devMode";
@@ -26,6 +29,7 @@ export default function App() {
   useIpcBridge();
   const init = useAppStore((s) => s.init);
   const debugChromeVisible = useDevMode((s) => s.debugChromeVisible);
+  const [startupReady, setStartupReady] = useState(!isTauri());
 
   // On the WEB, login is the website's job — this app has no sign-in of its own.
   // No session → bounce to the website login and come back signed in. When
@@ -35,7 +39,22 @@ export default function App() {
   const needsWebLogin = isWeb && !isEmbedded && !webAuth.status().signed_in;
 
   useEffect(() => {
-    void init();
+    let alive = true;
+    void runStartup({
+      wait: isTauri() ? waitForStartup : async () => {},
+      ready: () => setStartupReady(true),
+      init,
+      finish: isTauri() ? finishSplash : async () => {},
+      canContinue: () => alive,
+    }).catch((error) => {
+      // The startup thread has already retained/emitted the useful failure
+      // for the visible splash. Keep the hidden main UI unmounted so none of
+      // its effects can invoke commands without AppState.
+      console.error("[conva] startup failed", error);
+    });
+    return () => {
+      alive = false;
+    };
   }, [init]);
 
   useEffect(() => {
@@ -43,6 +62,7 @@ export default function App() {
   }, [needsWebLogin]);
 
   if (needsWebLogin) return <AuthRedirect />;
+  if (!startupReady) return null;
 
   // Two shells over the SAME views: web gets a top-nav layout, desktop the
   // cockpit rail. See WebShell / StudioShell.

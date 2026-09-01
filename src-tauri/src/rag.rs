@@ -103,19 +103,35 @@ fn repo_library_create_dir() -> Option<PathBuf> {
 }
 
 impl RagStore {
+    /// Open and fully load the corpus. Startup calls this on the named
+    /// background initializer, never from Tauri's synchronous setup hook.
     pub fn open(app_data_dir: &Path) -> Result<Self, CoreError> {
+        let store = Self::open_empty(app_data_dir)?;
+        store.load()?;
+        Ok(store)
+    }
+
+    /// Open the store without reading the corpus off disk. Tests and special
+    /// callers may use [`Self::load`] for the slow half later.
+    pub fn open_empty(app_data_dir: &Path) -> Result<Self, CoreError> {
         let dir = app_data_dir.join("rag");
         fs::create_dir_all(&dir).map_err(|e| CoreError::Rag(e.to_string()))?;
         // Originals live beside the chunk JSON so "download the file back"
         // works; missing dir on older stores is created here idempotently.
         fs::create_dir_all(dir.join("originals")).map_err(|e| CoreError::Rag(e.to_string()))?;
-        let store = Self {
+        Ok(Self {
             dir,
             inner: RwLock::new(Corpus::default()),
-        };
-        store.reload()?;
-        store.migrate_unchecked_default_once();
-        Ok(store)
+        })
+    }
+
+    /// The slow half of [`Self::open`]: read every document JSON (chunks +
+    /// embedding vectors) and build the BM25 index. Multi-second on a real
+    /// library in a debug build — keep it off the UI/event-loop thread.
+    pub fn load(&self) -> Result<(), CoreError> {
+        self.reload()?;
+        self.migrate_unchecked_default_once();
+        Ok(())
     }
 
     /// One-time migration (owner, 2026-08-29): a freshly-ingested document
