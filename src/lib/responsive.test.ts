@@ -10,42 +10,36 @@ import {
 } from "@/lib/responsive";
 
 describe("layoutTier", () => {
-  it("classifies the four V5.0 tiers at their boundaries", () => {
+  it("classifies the three V5.0 tiers at their boundaries", () => {
     expect(layoutTier(1600)).toBe("wide");
-    expect(layoutTier(1380)).toBe("wide");
-    expect(layoutTier(1379)).toBe("standard");
-    expect(layoutTier(1040)).toBe("standard");
-    expect(layoutTier(1039)).toBe("compact");
-    expect(layoutTier(700)).toBe("compact");
-    expect(layoutTier(699)).toBe("tiny");
+    expect(layoutTier(1024)).toBe("wide");
+    expect(layoutTier(1023)).toBe("compact");
+    expect(layoutTier(560)).toBe("compact");
+    expect(layoutTier(559)).toBe("tiny");
     expect(layoutTier(0)).toBe("tiny");
   });
 
-  it("puts the 1280×800 new-window default in the standard tier", () => {
-    // The window is 1280 wide, so the shell is a shade under it — either way
-    // it must land on the icon rail, not the expanded one.
-    expect(layoutTier(1280)).toBe("standard");
+  it("puts the 960×640 new-window default in the compact tier", () => {
+    // The default window is narrower than the 1024px expanded-nav threshold
+    // on purpose (smaller-screens-first) — a fresh install starts on the
+    // icon-only rail, not the expanded one.
+    expect(layoutTier(960)).toBe("compact");
   });
 });
 
 describe("resolveLayout", () => {
-  it("sheds labels, then the dock, then the rail — in that order", () => {
+  it("sheds labels/dock/list together at the wide→compact boundary, then the rail at compact→tiny", () => {
     expect(resolveLayout(1440)).toMatchObject({
       railMode: "expanded",
       libraryDocked: true,
       showsListAndWorkspace: true,
     });
-    expect(resolveLayout(1200)).toMatchObject({
-      railMode: "icons",
-      libraryDocked: false,
-      showsListAndWorkspace: true,
-    });
-    expect(resolveLayout(900)).toMatchObject({
+    expect(resolveLayout(800)).toMatchObject({
       railMode: "icons",
       libraryDocked: false,
       showsListAndWorkspace: false,
     });
-    expect(resolveLayout(640)).toMatchObject({
+    expect(resolveLayout(500)).toMatchObject({
       railMode: "menu",
       libraryDocked: false,
       showsListAndWorkspace: false,
@@ -62,19 +56,19 @@ describe("resolveLayout", () => {
 });
 
 describe("canDockLibrary", () => {
-  it("keeps the dock only while the 520px centre floor survives", () => {
-    // 240 rail + 300 list + 360 dock + 520 centre = 1420.
-    expect(canDockLibrary(1420, RAIL_EXPANDED_PX)).toBe(true);
-    expect(canDockLibrary(1419, RAIL_EXPANDED_PX)).toBe(false);
+  it("keeps the dock only while the 360px centre floor survives", () => {
+    // 184 rail + 220 list + 260 dock + 360 centre = 1024.
+    expect(canDockLibrary(1024, RAIL_EXPANDED_PX)).toBe(true);
+    expect(canDockLibrary(1023, RAIL_EXPANDED_PX)).toBe(false);
   });
 
   it("an icon rail buys back exactly the width it saves", () => {
     const saved = RAIL_EXPANDED_PX - RAIL_ICONS_PX;
-    expect(canDockLibrary(1420 - saved, RAIL_ICONS_PX)).toBe(true);
+    expect(canDockLibrary(1024 - saved, RAIL_ICONS_PX)).toBe(true);
   });
 
   it("never claims a dock fits at the minimum shell width", () => {
-    expect(canDockLibrary(700, RAIL_ICONS_PX)).toBe(false);
-    expect(CENTER_MIN_PX).toBe(520);
+    expect(canDockLibrary(560, RAIL_ICONS_PX)).toBe(false);
+    expect(CENTER_MIN_PX).toBe(360);
   });
 });

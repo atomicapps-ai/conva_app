@@ -52,7 +52,7 @@ import { useNavStore } from "@/state/nav";
  * belongs to the design package and to `lib/fixtures/`, not here.
  *
  * The hero artwork is the locked intelligence field: right-aligned at its
- * intrinsic aspect ratio, ≤597×245, with the **complete incoming tail and the
+ * intrinsic aspect ratio, ≤478×196, with the **complete incoming tail and the
  * empty left lead-in preserved** and blended into the hero's own ground. The
  * hero panel supplies the ONLY border — the image has none, and is never
  * cropped, recolored, or redrawn.
@@ -210,7 +210,7 @@ export function DashboardView() {
         onReload={load}
       />
 
-      <div className="grid gap-5 xl:grid-cols-[1.5fr_1fr]">
+      <div className="grid gap-5 min-[960px]:grid-cols-[1.5fr_1fr]">
         <Panel className="p-5">
           <h3 className="mb-4 text-[15px] font-bold leading-none text-fg">
             Recent conversations
@@ -393,15 +393,15 @@ function Hero({
   onReload: () => void;
 }) {
   return (
-    <section className="relative flex min-h-[252px] items-center gap-7 overflow-hidden rounded-lg border border-border bg-panel px-7 py-7">
+    <section className="relative flex min-h-[200px] items-center gap-7 overflow-hidden rounded-lg border border-border bg-panel px-7 py-7">
       {/* The locked intelligence field. Right-aligned, intrinsic aspect ratio,
-          capped at its 597×245 CSS maximum, complete tail + left lead-in
+          capped at its 478×196 CSS maximum, complete tail + left lead-in
           intact (`object-position: right center` with `object-fit: contain`
           never crops it). No border on the image — this panel supplies the
           only one. `select-none`/`draggable=false` keep it from being dragged
           out as a file.
 
-          It is HIDDEN below ~1180px of window rather than shown behind the
+          It is HIDDEN below ~940px of window rather than shown behind the
           copy. The locked-artwork rules forbid cropping, masking, filtering or
           shrinking it to fit, and a narrow hero would otherwise run the
           headline straight across the waves — unreadable, and a violation of
@@ -413,7 +413,7 @@ function Hero({
         alt=""
         aria-hidden
         draggable={false}
-        className="pointer-events-none absolute right-0 top-1/2 hidden h-[245px] w-[597px] max-w-full -translate-y-1/2 select-none object-contain object-right [@media(min-width:1180px)]:block"
+        className="pointer-events-none absolute right-0 top-1/2 hidden h-[196px] w-[478px] max-w-full -translate-y-1/2 select-none object-contain object-right [@media(min-width:940px)]:block"
       />
 
       {state.kind === "loading" ? (

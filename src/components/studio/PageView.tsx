@@ -12,8 +12,8 @@ import { LockedIcon } from "@/components/ui/LockedIcon";
  * still owns the breadcrumb + back chevron. Two components, one rule each —
  * don't add a breadcrumb here.
  *
- * Type scale from §12: page titles 24–28/700, greeting 32–36/700, body 14.
- * Page edge padding 24–32 (we use 32/30 like the frames), section gaps 20–24.
+ * Type scale (smaller-screens-first pass, 2026-09-02): page titles 22/700,
+ * greeting 28/700, body 13. Page edge padding 20–24, section gaps 20–24.
  */
 export function PageView({
   title,
@@ -26,9 +26,9 @@ export function PageView({
   fill = false,
   /**
    * Drop the body's page padding so panes run edge to edge. Contexts needs
-   * this: §3's wide frame is `212px 300px 568px 360px` across a 1440 window
-   * with NO page gutter, and the 520px centre floor only survives if the
-   * gutter isn't eating 64px of it.
+   * this: §3's frame is `184px 220px 360px 260px` (rail/list/centre/dock)
+   * across a 1024px window at the wide-tier floor, with NO page gutter — the
+   * 360px centre floor only survives if the gutter isn't eating into it.
    */
   bleed = false,
   className = "",
@@ -44,13 +44,13 @@ export function PageView({
 }) {
   return (
     <section className={`flex h-full min-h-0 flex-col ${className}`}>
-      <header className="flex shrink-0 flex-wrap items-start justify-between gap-5 px-8 pb-5 pt-7">
+      <header className="flex shrink-0 flex-wrap items-start justify-between gap-5 px-5 pb-5 pt-7">
         <div className="min-w-0">
           <h2
             className={
               large
-                ? "text-[34px] font-bold leading-[1.1] tracking-[-0.02em] text-fg"
-                : "text-[26px] font-bold leading-[1.1] tracking-[-0.02em] text-fg"
+                ? "text-[28px] font-bold leading-[1.1] tracking-[-0.02em] text-fg"
+                : "text-[22px] font-bold leading-[1.1] tracking-[-0.02em] text-fg"
             }
           >
             {title}
@@ -59,8 +59,8 @@ export function PageView({
             <p
               className={
                 large
-                  ? "mt-2 text-base leading-relaxed text-fg-muted"
-                  : "mt-1.5 text-sm leading-relaxed text-fg-muted"
+                  ? "mt-2 text-[13px] leading-relaxed text-fg-muted"
+                  : "mt-1.5 text-[13px] leading-relaxed text-fg-muted"
               }
             >
               {subtitle}
@@ -70,11 +70,11 @@ export function PageView({
         {actions && <div className="flex shrink-0 flex-wrap items-center gap-2.5">{actions}</div>}
       </header>
       {fill ? (
-        <div className={`flex min-h-0 flex-1 flex-col ${bleed ? "" : "px-8 pb-6"}`}>
+        <div className={`flex min-h-0 flex-1 flex-col ${bleed ? "" : "px-5 pb-6"}`}>
           {children}
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-8">
           <div className="flex flex-col gap-5">{children}</div>
         </div>
       )}
