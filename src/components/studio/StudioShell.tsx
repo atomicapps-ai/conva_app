@@ -61,9 +61,9 @@ export function StudioShell() {
     setShellWidth(el.getBoundingClientRect().width);
     return () => ro.disconnect();
   }, []);
-  // Width 0 = not measured yet; assume the 1280×800 default window rather
+  // Width 0 = not measured yet; assume the 960×640 default window rather
   // than flashing the ☰ tier on first paint.
-  const layout = resolveLayout(shellWidth || 1280, compact);
+  const layout = resolveLayout(shellWidth || 960, compact);
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
     if (layout.railMode !== "menu") setMenuOpen(false);
@@ -80,7 +80,7 @@ export function StudioShell() {
       <div ref={shellRef} className="relative flex min-h-0 flex-1">
         {layout.railMode === "menu" ? (
           <>
-            {/* Very compact (<700): the rail becomes a ☰ menu. Order and
+            {/* Very compact (<560): the rail becomes a ☰ menu. Order and
                 labels are preserved inside the drawer — only its placement
                 changes (§1 "Responsive shed order"). */}
             <button

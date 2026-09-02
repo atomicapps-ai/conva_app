@@ -39,8 +39,8 @@ import { useNavStore } from "@/state/nav";
  * - **Settings is NOT a row.** It is the middle utility button. `activeRailView`
  *   returns null on Settings so no row lights while it's open.
  *
- * Rail modes come from `resolveLayout()` (V5.0 §10): `expanded` ≥1380,
- * `icons` 700–1379, and `menu` below 700 — where StudioShell renders this same
+ * Rail modes come from `resolveLayout()` (V5.0 §10): `expanded` ≥1024,
+ * `icons` 560–1023, and `menu` below 560 — where StudioShell renders this same
  * component inside a ☰ drawer, in `expanded` form, and passes `onNavigate` so
  * picking a row closes the drawer.
  */
@@ -123,7 +123,7 @@ export function NavRail({
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
                 compact
                   ? "h-11 w-full justify-center"
-                  : "gap-3 px-[13px] py-[11px] text-left text-sm",
+                  : "gap-3 px-[13px] py-2 text-left text-[13px]",
                 isActive
                   ? "border-border-strong bg-panel-raised text-fg"
                   : "border-transparent text-fg-muted hover:bg-white/[0.045] hover:text-fg",

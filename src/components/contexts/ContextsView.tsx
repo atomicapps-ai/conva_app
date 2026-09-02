@@ -9,7 +9,7 @@ import { EmptyState, PageView, PrimaryButton } from "@/components/studio/PageVie
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { DEFAULT_CONTEXT_ID, type ConversationContext, type ContextSummary } from "@/lib/ipc";
-import { CENTER_MIN_PX, LIBRARY_DOCK_PX, resolveLayout } from "@/lib/responsive";
+import { CENTER_MIN_PX, resolveLayout } from "@/lib/responsive";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useGroundingStore } from "@/state/grounding";
 import { useLibraryQuickAdd } from "@/state/libraryQuickAdd";
@@ -23,14 +23,14 @@ type Mode =
 /**
  * Contexts — the three-pane workspace (AppUI V5.0 §3).
  *
- * > Context list (300px) · selected-context workspace (flex, min 520px) ·
- * > contextual Library dock (360px), all visible at wide width.
+ * > Context list (220px) · selected-context workspace (flex, min 360px) ·
+ * > contextual Library dock (260px), all visible at wide width.
  * > Selecting a row updates B + filters C; **never a third-level page.**
  * > Dock collapses to a right-edge Library tab; reopening restores prior width.
  *
- * Responsive (§10): at wide the dock is Pane C in the flow; below 1380 it
+ * Responsive (§10): at wide the dock is Pane C in the flow; below 1024 it
  * becomes an **overlay** over the right portion rather than squeezing the
- * centre — the centre never goes below 520px. The dock's open/closed state is
+ * centre — the centre never goes below 360px. The dock's open/closed state is
  * remembered separately from the top-level Library page (`LibraryView`), which
  * is the same documents doing the *manage* job rather than the *attach* one.
  *
@@ -57,6 +57,8 @@ export function ContextsView() {
   const [focusId, setFocusId] = useState<string | null>(null);
   const leftWidthPx = useUiPrefs((s) => s.contextsLeftWidthPx);
   const setLeftWidthPx = useUiPrefs((s) => s.setContextsLeftWidthPx);
+  const dockWidthPx = useUiPrefs((s) => s.libraryDockWidthPx);
+  const setDockWidthPx = useUiPrefs((s) => s.setLibraryDockWidthPx);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -79,9 +81,9 @@ export function ContextsView() {
     return () => ro.disconnect();
   }, [mode.k]);
   // The rail is outside this element, so measure against the pane area alone:
-  // list + dock + the 520px centre floor is what actually has to fit.
-  const canDock = areaWidth === 0 || areaWidth - leftWidthPx - LIBRARY_DOCK_PX >= CENTER_MIN_PX;
-  const tier = resolveLayout(areaWidth || 1280).tier;
+  // list + dock + the 360px centre floor is what actually has to fit.
+  const canDock = areaWidth === 0 || areaWidth - leftWidthPx - dockWidthPx >= CENTER_MIN_PX;
+  const tier = resolveLayout(areaWidth || 960).tier;
   const dockInFlow = canDock && dockOpen;
 
   // When the window narrows past the point where the dock still fits beside
@@ -241,12 +243,12 @@ export function ContextsView() {
       ) : (
         // Panes run edge to edge and are separated by their own borders, not
         // by gaps — §3's grid is `list | workspace | dock` with no gutter, and
-        // the gutter is exactly what would push the centre under its 520 floor.
+        // the gutter is exactly what would push the centre under its 360 floor.
         <div ref={areaRef} className="relative flex min-h-0 flex-1 border-t border-border">
-          {/* Pane A — the context list, at its FIXED 300px (§3; resizable
-              260–380 via the pane's own drag handle). It must carry the width
+          {/* Pane A — the context list, at its default 220px (§3; resizable
+              190–280 via the pane's own drag handle). It must carry the width
               itself: the flex row would otherwise size it from its content
-              and push the centre pane under its 520px floor. */}
+              and push the centre pane under its 360px floor. */}
           <div
             className="flex min-h-0 shrink-0 flex-col border-r border-border"
             style={{ width: leftWidthPx }}
@@ -306,13 +308,34 @@ export function ContextsView() {
             )}
           </div>
 
-          {/* Pane C — the contextual Library dock. In the flow when it fits,
-              an overlay over the right portion when it doesn't (§10). */}
+          {/* Pane C — the contextual Library dock, at its default 260px
+              (resizable 230–320 via the pane's own left-edge drag handle,
+              mirroring Pane A's). In the flow when it fits, an overlay over
+              the right portion when it doesn't (§10). */}
           {dockInFlow ? (
             <div
-              className="flex min-h-0 shrink-0 flex-col border-l border-border bg-bg-2 px-3 py-3"
-              style={{ width: LIBRARY_DOCK_PX }}
+              className="relative flex min-h-0 shrink-0 flex-col border-l border-border bg-bg-2 px-3 py-3"
+              style={{ width: dockWidthPx }}
             >
+              {/* Left-edge width handle — dragging left widens the dock. */}
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize Library dock"
+                onPointerDown={(e) => {
+                  const startX = e.clientX;
+                  const startW = dockWidthPx;
+                  const move = (ev: PointerEvent) =>
+                    setDockWidthPx(startW - (ev.clientX - startX));
+                  const up = () => {
+                    window.removeEventListener("pointermove", move);
+                    window.removeEventListener("pointerup", up);
+                  };
+                  window.addEventListener("pointermove", move);
+                  window.addEventListener("pointerup", up);
+                }}
+                className="absolute inset-y-0 left-0 z-30 hidden w-[5px] cursor-col-resize hover:bg-panel-raised sm:block"
+              />
               <DockHeader onClose={() => setDockOpen(false)} />
               <LibraryPane
                 contextTitles={contextTitles}
@@ -333,7 +356,7 @@ export function ContextsView() {
               />
               <div
                 className="absolute inset-y-0 right-0 z-40 flex max-w-full flex-col border-l border-border-strong bg-bg-2 px-3 py-3 shadow-[var(--shadow-lg)]"
-                style={{ width: LIBRARY_DOCK_PX }}
+                style={{ width: dockWidthPx }}
               >
                 <DockHeader onClose={() => setDockOpen(false)} />
                 <LibraryPane

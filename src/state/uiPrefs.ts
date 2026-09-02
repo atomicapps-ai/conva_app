@@ -32,14 +32,19 @@ const PANEL_WIDTH_DEFAULT = 340;
 // name/checkbox/two icons per row now, so it can afford to be the
 // narrower pane; still freely drag-resizable, this is just the start).
 const CONTEXTS_LEFT_WIDTH_KEY = "conva.contexts.leftWidthPx";
-// AppUI V5.0 §3/§12 (FIXED): Pane A is 300px, resizable 260–380. Was
-// 260/480/400 when Contexts was a two-pane screen; the third pane (the
-// Library dock) needs the list to keep to its stated width or the 520px
-// centre floor can't hold. A stored 400 from the old range now falls
-// outside MAX and self-heals back to the 300 default on read.
-const CONTEXTS_LEFT_WIDTH_MIN = 260;
-const CONTEXTS_LEFT_WIDTH_MAX = 380;
-const CONTEXTS_LEFT_WIDTH_DEFAULT = 300;
+// Smaller-screens-first pass (2026-09-02): Pane A is 220px, resizable
+// 190–280. Was 300/260–380 under AppUI V5.0's original wide-first tuning; a
+// stored value from that old range now falls outside MAX and self-heals back
+// to the 220 default on read.
+const CONTEXTS_LEFT_WIDTH_MIN = 190;
+const CONTEXTS_LEFT_WIDTH_MAX = 280;
+const CONTEXTS_LEFT_WIDTH_DEFAULT = 220;
+const LIBRARY_DOCK_WIDTH_KEY = "conva.contexts.libraryDockWidthPx";
+// Pane C — the contextual Library dock, resizable 230–320 (mirrors Pane A's
+// pattern exactly; same width-px style, not a ratio).
+const LIBRARY_DOCK_WIDTH_MIN = 230;
+const LIBRARY_DOCK_WIDTH_MAX = 320;
+const LIBRARY_DOCK_WIDTH_DEFAULT = 260;
 const FONT_MIN = 11;
 const FONT_MAX = 20;
 const FONT_DEFAULT = 14;
@@ -84,6 +89,9 @@ interface UiPrefs {
   /** Contexts screen's Contexts-pane width, px — Library fills the rest. */
   contextsLeftWidthPx: number;
   setContextsLeftWidthPx: (px: number) => void;
+  /** Contexts screen's Library dock width, px (Pane C). */
+  libraryDockWidthPx: number;
+  setLibraryDockWidthPx: (px: number) => void;
   setAllyFontPx: (px: number) => void;
   bumpAllyFont: (delta: number) => void;
   bumpTranscriptFont: (delta: number) => void;
@@ -114,6 +122,12 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
     return v >= CONTEXTS_LEFT_WIDTH_MIN && v <= CONTEXTS_LEFT_WIDTH_MAX
       ? v
       : CONTEXTS_LEFT_WIDTH_DEFAULT;
+  })(),
+  libraryDockWidthPx: (() => {
+    const v = Number(localStorage.getItem(LIBRARY_DOCK_WIDTH_KEY));
+    return v >= LIBRARY_DOCK_WIDTH_MIN && v <= LIBRARY_DOCK_WIDTH_MAX
+      ? v
+      : LIBRARY_DOCK_WIDTH_DEFAULT;
   })(),
   // Default pinned — the Answers dock stays visible unless turned off.
   answersPinned: localStorage.getItem(ANSWERS_PINNED_KEY) !== "false",
@@ -160,6 +174,14 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
     );
     localStorage.setItem(CONTEXTS_LEFT_WIDTH_KEY, String(clamped));
     set({ contextsLeftWidthPx: clamped });
+  },
+  setLibraryDockWidthPx: (px) => {
+    const clamped = Math.max(
+      LIBRARY_DOCK_WIDTH_MIN,
+      Math.min(LIBRARY_DOCK_WIDTH_MAX, Math.round(px)),
+    );
+    localStorage.setItem(LIBRARY_DOCK_WIDTH_KEY, String(clamped));
+    set({ libraryDockWidthPx: clamped });
   },
   setAllyFontPx: (px) => {
     const clamped = Math.max(FONT_MIN, Math.min(FONT_MAX, Math.round(px)));

@@ -130,7 +130,7 @@ export function ContextWorkspace({
     // content as soon as a long Q&A list overflows.
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* header */}
-      <div className="flex shrink-0 flex-col gap-[18px] px-6 pb-0 pt-6">
+      <div className="flex shrink-0 flex-col gap-[18px] px-[18px] pb-0 pt-[18px]">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h3 className="truncate text-[22px] font-bold leading-tight tracking-[-0.01em] text-fg">
@@ -218,7 +218,7 @@ export function ContextWorkspace({
         role="tabpanel"
         id={`context-panel-${activeTab}`}
         aria-labelledby={`context-tab-${activeTab}`}
-        className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto px-6 py-[18px]"
+        className="flex min-h-0 flex-1 flex-col gap-[18px] overflow-y-auto px-[18px] py-[18px]"
       >
         {error ? (
           <ErrorState title="Couldn't load this context" description={error} onRetry={load} />
@@ -263,7 +263,7 @@ export function ContextWorkspace({
       </div>
 
       {/* footer — regenerate, provenance, and the coaching hand-off */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-4">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-[18px] py-4">
         <SecondaryButton onClick={onGenerate} disabled={generating}>
           <Icon name="rehearsal" size={15} />
           {generating ? "Generating…" : summary.has_generated_resources ? "Regenerate" : "Generate"}

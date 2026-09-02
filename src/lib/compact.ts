@@ -6,19 +6,19 @@
 
 import { isTauri } from "@/lib/ipc";
 
-const COMPACT_WIDTH = 380;
+const COMPACT_WIDTH = 340;
 const COMPACT_MIN_HEIGHT = 440;
 
 /**
- * The full shell's floor — AppUI V5.0 §10/§12, FIXED: "New-window 1280×800;
- * min shell 700×600." Kept in lockstep with `tauri.conf.json`'s
+ * The full shell's floor — smaller-screens-first layout pass: default window
+ * 960×640, minimum shell 560×440. Kept in lockstep with `tauri.conf.json`'s
  * `minWidth`/`minHeight`; the compact strip is deliberately NOT the full
  * shell, so it lowers the floor while it's on and puts it back on the way out
- * (without the swap, the 380px strip would be clamped to 700 and Compact mode
+ * (without the swap, the 340px strip would be clamped to 560 and Compact mode
  * would silently stop working).
  */
-export const SHELL_MIN_WIDTH = 700;
-export const SHELL_MIN_HEIGHT = 600;
+export const SHELL_MIN_WIDTH = 560;
+export const SHELL_MIN_HEIGHT = 440;
 
 let savedSize: { width: number; height: number } | null = null;
 
