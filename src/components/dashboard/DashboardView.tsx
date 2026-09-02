@@ -440,11 +440,15 @@ function Hero({
         </div>
       ) : (
         <>
+          {/* Blue-rimmed glowing badge around the mark (owner reference
+              image, 2026-09-02 — "where is the blue border and outerglow?"):
+              same bordered-circle-on-radial-gradient idiom NavRail's own
+              account avatar already uses, not new geometry. */}
           <span
-            className="relative hidden h-20 w-20 shrink-0 items-center justify-center text-fg drop-shadow-[0_0_14px_rgba(79,184,255,0.18)] sm:flex"
+            className="relative hidden h-20 w-20 shrink-0 items-center justify-center rounded-full border-[1.5px] border-primary/60 bg-[radial-gradient(120%_120%_at_50%_25%,#1a2742,#0c1424)] text-fg shadow-[0_0_28px_rgba(79,184,255,0.35)] sm:flex"
             aria-hidden
           >
-            <LockedMark size={80} />
+            <LockedMark size={52} />
           </span>
           <div className="relative min-w-0 flex-1">
             {state.kind === "starter" ? (
@@ -509,9 +513,9 @@ function Hero({
                 ) : (
                   <>
                     <div className="mt-4 flex flex-wrap items-center gap-x-8 gap-y-3">
-                      <Stat value={state.context.source_doc_count} label="source files" />
+                      <Stat icon="file" value={state.context.source_doc_count} label="source files" />
                       {preparedQa !== null && (
-                        <Stat value={preparedQa} label="prepared Q&A" divided />
+                        <Stat icon="question" value={preparedQa} label="prepared Q&A" divided />
                       )}
                       {state.kind === "generating" ? (
                         <span className="self-center border-l border-border-strong pl-8 font-mono text-xs text-fg-faint">
@@ -549,18 +553,25 @@ function Hero({
   );
 }
 
+/** Reference image (2026-09-02): each stat carries a small leading icon —
+ *  a file glyph for source files, a question-bubble glyph for prepared Q&A. */
 function Stat({
+  icon,
   value,
   label,
   divided = false,
 }: {
+  icon: IconName;
   value: number;
   label: string;
   divided?: boolean;
 }) {
   return (
-    <span className={divided ? "border-l border-border-strong pl-8" : undefined}>
-      <span className="text-[22px] font-bold leading-none text-primary">{value}</span>{" "}
+    <span
+      className={`inline-flex items-center gap-1.5 ${divided ? "border-l border-border-strong pl-8" : ""}`}
+    >
+      <Icon name={icon} size={14} className="text-fg-faint" aria-hidden />
+      <span className="text-[22px] font-bold leading-none text-primary">{value}</span>
       <span className="text-[13px] font-medium leading-none text-fg-muted">{label}</span>
     </span>
   );
