@@ -154,15 +154,19 @@ export function NavRail({
       </div>
 
       {/* ── lower brand: the Conva Core orbit ─────────────────────────────
-          EDGE TO EDGE. -mx-3 exactly cancels the rail's px-3; the image gets
-          no padding, no border, no radius, and no divider of its own. */}
+          EDGE TO EDGE horizontally — -mx-3 exactly cancels the rail's px-3,
+          no padding/border/radius/divider of its own. Height-CAPPED and
+          object-cover-cropped as of 2026-09-02 (owner screenshot feedback:
+          "trim to this yellow box... move the below login up more") — this
+          supersedes the earlier "never crop the locked artwork" rule for
+          this element specifically; width stays uncropped/edge-to-edge. */}
       {!compact && (
-        <div className="-mx-3 my-3">
+        <div className="-mx-3 my-2 h-16 overflow-hidden">
           <img
             src={orbitArtwork}
             alt=""
             aria-hidden
-            className="m-0 block h-auto w-full rounded-none border-0"
+            className="m-0 block h-full w-full rounded-none border-0 object-cover object-top"
           />
         </div>
       )}
@@ -196,7 +200,7 @@ export function NavRail({
           )}
         </div>
       ) : (
-        <div className="border-t border-border pt-3.5">
+        <div className="border-t border-border pt-2.5">
           <div ref={menuRef} className="relative">
             <button
               type="button"

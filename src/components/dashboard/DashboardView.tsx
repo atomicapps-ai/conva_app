@@ -19,6 +19,7 @@ import {
   StatusPill,
 } from "@/components/studio/PageView";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { ListRow } from "@/components/ui/ListRow";
 import { LockedIcon, LockedMark } from "@/components/ui/LockedIcon";
 import { greetingFor } from "@/lib/account";
 import { useBackend } from "@/lib/backend";
@@ -52,7 +53,7 @@ import { useNavStore } from "@/state/nav";
  * belongs to the design package and to `lib/fixtures/`, not here.
  *
  * The hero artwork is the locked intelligence field: right-aligned at its
- * intrinsic aspect ratio, ≤478×196, with the **complete incoming tail and the
+ * intrinsic aspect ratio, ≤359×147, with the **complete incoming tail and the
  * empty left lead-in preserved** and blended into the hero's own ground. The
  * hero panel supplies the ONLY border — the image has none, and is never
  * cropped, recolored, or redrawn.
@@ -210,11 +211,14 @@ export function DashboardView() {
         onReload={load}
       />
 
-      <div className="grid gap-5 min-[960px]:grid-cols-[1.5fr_1fr]">
-        <Panel className="p-5">
-          <h3 className="mb-4 text-[15px] font-bold leading-none text-fg">
-            Recent conversations
-          </h3>
+      <div className="grid gap-4 min-[960px]:grid-cols-[1.5fr_1fr]">
+        <Panel className="p-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-[15px] font-bold leading-none text-fg">Recent conversations</h3>
+            {!loading && conversations.length > 0 && (
+              <ViewAll label="View all" onClick={() => setView("conversations")} />
+            )}
+          </div>
           {loading ? (
             <Skeleton rows={3} />
           ) : conversations.length === 0 ? (
@@ -223,23 +227,27 @@ export function DashboardView() {
               description="Saved calls and coaching sessions land here. Start listening, then save the transcript when you stop."
             />
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1">
               {conversations.slice(0, 3).map((c) => (
-                <RowLink
+                <ListRow
                   key={c.id}
-                  icon="live"
+                  accent="primary"
                   title={c.title}
-                  meta={formatRelativeTime(c.updated_at_unix_ms)}
+                  date={formatRelativeTime(c.updated_at_unix_ms)}
                   onClick={() => setView("conversations")}
                 />
               ))}
-              <ViewAll label="View all conversations" onClick={() => setView("conversations")} />
             </div>
           )}
         </Panel>
 
-        <Panel className="p-5">
-          <h3 className="mb-4 text-[15px] font-bold leading-none text-fg">Contexts</h3>
+        <Panel className="p-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-[15px] font-bold leading-none text-fg">Contexts</h3>
+            {!loading && userContexts.length > 0 && (
+              <ViewAll label="View all" onClick={() => setView("context")} />
+            )}
+          </div>
           {loading ? (
             <Skeleton rows={3} />
           ) : userContexts.length === 0 ? (
@@ -258,16 +266,16 @@ export function DashboardView() {
               }
             />
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1">
               {userContexts.slice(0, 3).map((c) => (
-                <RowLink
+                <ListRow
                   key={c.id}
-                  icon="simicon"
+                  accent="ai"
                   title={c.title}
+                  date={formatRelativeTime(c.updated_at_unix_ms)}
                   onClick={() => openContext(c.id)}
                 />
               ))}
-              <ViewAll label="View all contexts" onClick={() => setView("context")} />
             </div>
           )}
         </Panel>
@@ -393,13 +401,15 @@ function Hero({
   onReload: () => void;
 }) {
   return (
-    <section className="relative flex min-h-[200px] items-center gap-7 overflow-hidden rounded-lg border border-border bg-panel px-7 py-7">
+    <section className="relative flex min-h-[150px] items-center gap-5 overflow-hidden rounded-lg border border-border bg-panel px-5 py-5">
       {/* The locked intelligence field. Right-aligned, intrinsic aspect ratio,
-          capped at its 478×196 CSS maximum, complete tail + left lead-in
-          intact (`object-position: right center` with `object-fit: contain`
-          never crops it). No border on the image — this panel supplies the
-          only one. `select-none`/`draggable=false` keep it from being dragged
-          out as a file.
+          capped at its 359×147 CSS maximum (scaled with the 2026-09-02 hero
+          shrink — owner: "the general conversation banner can also lose some
+          height at least .25 including padding"), complete tail + left
+          lead-in intact (`object-position: right center` with
+          `object-fit: contain` never crops it). No border on the image —
+          this panel supplies the only one. `select-none`/`draggable=false`
+          keep it from being dragged out as a file.
 
           It is HIDDEN below ~940px of window rather than shown behind the
           copy. The locked-artwork rules forbid cropping, masking, filtering or
@@ -413,7 +423,7 @@ function Hero({
         alt=""
         aria-hidden
         draggable={false}
-        className="pointer-events-none absolute right-0 top-1/2 hidden h-[196px] w-[478px] max-w-full -translate-y-1/2 select-none object-contain object-right [@media(min-width:940px)]:block"
+        className="pointer-events-none absolute right-0 top-1/2 hidden h-[147px] w-[359px] max-w-full -translate-y-1/2 select-none object-contain object-right [@media(min-width:940px)]:block"
       />
 
       {state.kind === "loading" ? (
@@ -431,10 +441,10 @@ function Hero({
       ) : (
         <>
           <span
-            className="relative hidden h-[104px] w-[104px] shrink-0 items-center justify-center text-fg drop-shadow-[0_0_18px_rgba(79,184,255,0.18)] sm:flex"
+            className="relative hidden h-20 w-20 shrink-0 items-center justify-center text-fg drop-shadow-[0_0_14px_rgba(79,184,255,0.18)] sm:flex"
             aria-hidden
           >
-            <LockedMark size={104} />
+            <LockedMark size={80} />
           </span>
           <div className="relative min-w-0 flex-1">
             {state.kind === "starter" ? (
@@ -556,51 +566,18 @@ function Stat({
   );
 }
 
-function RowLink({
-  icon,
-  title,
-  meta,
-  onClick,
-}: {
-  icon: IconName;
-  title: string;
-  meta?: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex items-center gap-3.5 rounded-[var(--radius)] border border-border bg-panel-raised px-3.5 py-3 text-left transition hover:border-border-strong hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-    >
-      <span
-        className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[var(--radius)] bg-primary/10 text-primary"
-        aria-hidden
-      >
-        <Icon name={icon} size={18} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold leading-tight text-fg">{title}</span>
-        {meta && <span className="mt-1 block font-mono text-[11px] text-fg-faint">{meta}</span>}
-      </span>
-      <Icon
-        name="chevron"
-        size={17}
-        className="-rotate-90 shrink-0 text-fg-faint transition group-hover:text-fg-muted"
-      />
-    </button>
-  );
-}
-
+/** A panel header's "see everything" link — lives beside the h3, top-right
+ *  (owner screenshot feedback, 2026-09-02: "move this up and to the right"),
+ *  not below the row list as a fourth row-shaped affordance. */
 function ViewAll({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center justify-between rounded-[var(--radius)] px-3.5 py-2.5 text-[13px] font-semibold text-primary transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      className="flex shrink-0 items-center gap-0.5 rounded-[var(--radius)] px-1.5 py-1 text-[12px] font-semibold text-primary transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       {label}
-      <Icon name="chevron" size={17} className="-rotate-90" />
+      <Icon name="chevron" size={13} className="-rotate-90" />
     </button>
   );
 }
