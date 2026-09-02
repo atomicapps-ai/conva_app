@@ -4,7 +4,7 @@ import { FilterPopover } from "@/components/contexts/FilterPopover";
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { readinessOf } from "@/components/contexts/readiness";
 import { rowStatus, type RowStatus } from "@/components/contexts/rowStatus";
-import { Icon } from "@/components/ui/Icon";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { formatBytes } from "@/lib/formatBytes";
 import { formatRelativeTime } from "@/lib/relativeTime";
@@ -21,6 +21,22 @@ const CATEGORY_LABEL: Record<ContextCategory, string> = {
   company_meeting: "Company meeting",
   sales_call: "Sales call",
   other: "Other",
+};
+
+/**
+ * Per-category row pictogram + color (owner reference, 2026-09-02 —
+ * `conva_core/docs/technical/assets/home-contexts-redesign/concept-contexts.png`,
+ * colors sampled directly from that image). `interview` reuses the app's
+ * existing azure primary; the other three are dedicated hex values, not
+ * reused voice-lock colors (`--color-inbound`/`--color-outbound` are
+ * exclusively Them/You per the palette rules) or Ally gold (exclusively
+ * Ally-authored content) — new, category-only swatches instead.
+ */
+export const CATEGORY_ICON: Record<ContextCategory, { icon: IconName; color: string }> = {
+  interview: { icon: "radar", color: "var(--color-primary)" },
+  company_meeting: { icon: "meeting", color: "#E0B84C" },
+  sales_call: { icon: "search", color: "#9D7DC4" },
+  other: { icon: "book", color: "#67C6C5" },
 };
 
 function formatDate(unixMs: number): string {
@@ -361,6 +377,19 @@ export function ContextsPane({
                 ].join(" ")}
               >
                 <div className="flex items-center gap-1.5">
+                  {/* Type-specific pictogram (spec §7 Pane A: "each row shows
+                      a type-specific pictogram"), colorized per category. */}
+                  <span
+                    className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md"
+                    style={{
+                      color: CATEGORY_ICON[s.category].color,
+                      background: `color-mix(in srgb, ${CATEGORY_ICON[s.category].color} 16%, transparent)`,
+                    }}
+                    title={CATEGORY_LABEL[s.category]}
+                    aria-hidden
+                  >
+                    <Icon name={CATEGORY_ICON[s.category].icon} size={11} />
+                  </span>
                   <span
                     className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dotClass}`}
                     title={

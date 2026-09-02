@@ -72,6 +72,24 @@ describe("ContextsPane", () => {
     expect(screen.getByText(/at least one grounding source/i)).toBeInTheDocument();
   });
 
+  it("each row's pictogram matches its own category, not a shared generic icon", () => {
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        items={[
+          summary({ id: "s1", title: "Acme interview", category: "interview" }),
+          summary({ id: "s2", title: "Board sync", category: "company_meeting" }),
+          summary({ id: "s3", title: "Acme discovery call", category: "sales_call" }),
+          summary({ id: "s4", title: "War stories", category: "other" }),
+        ]}
+      />,
+    );
+    expect(screen.getByTitle("Interview")).toBeInTheDocument();
+    expect(screen.getByTitle("Company meeting")).toBeInTheDocument();
+    expect(screen.getByTitle("Sales call")).toBeInTheDocument();
+    expect(screen.getByTitle("Other")).toBeInTheDocument();
+  });
+
   it("enables Generate once key terms are declared, and calls onGenerate", () => {
     const onGenerate = vi.fn();
     renderPane(

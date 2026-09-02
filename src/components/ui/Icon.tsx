@@ -67,7 +67,9 @@ export type IconName =
   | "personaFemale"
   | "star"
   | "starFilled"
-  | "camera";
+  | "camera"
+  | "radar"
+  | "meeting";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -308,6 +310,25 @@ const PATHS: Record<IconName, ReactNode> = {
       <circle cx="12" cy="12" r="7" />
       <circle cx="12" cy="12" r="2.5" />
       <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+    </>
+  ),
+  // Interview context type — a radar/scan sweep (concentric broken rings +
+  // center dot). Distinct from `target`'s crosshair — that one is already
+  // spoken for by the Live cockpit's Tracking section.
+  radar: (
+    <>
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="5.5" strokeDasharray="3.4 3" />
+      <circle cx="12" cy="12" r="9" strokeDasharray="4.6 4" />
+    </>
+  ),
+  // Company-meeting context type — two people (boardroom/group).
+  meeting: (
+    <>
+      <circle cx="9" cy="8.5" r="2.4" />
+      <path d="M4.5 18a4.5 4.5 0 0 1 9 0" />
+      <circle cx="15.5" cy="9" r="1.9" />
+      <path d="M15 13.6a4 4 0 0 1 4.5 4.4" />
     </>
   ),
   // Elaborate — expand outward (plus with radiating arrows).
