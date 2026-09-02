@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ConversationsPanel } from "@/components/ConversationsPanel";
+import { NAV_ITEMS } from "@/components/studio/navItems";
+import { activeRailView } from "@/components/studio/railState";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 import type { ContextSummary, ConversationSummary, SessionSummary } from "@/lib/ipc";
@@ -72,14 +74,28 @@ function fakeBackend(
 }
 
 describe("ConversationsPanel", () => {
-  it("is a top-level nav destination — no back button (owner, 2026-08-30)", async () => {
+  // AppUI V5.0 decision 2 (owner-approved, conva_core@1b007ed) reverses the
+  // 2026-08-30 call that made this a top-level destination: the rail is now
+  // exactly six rows and Conversations is a SUB-VIEW of Home. Per CLAUDE.md
+  // rule 9 that means it MUST carry the back control it previously refused.
+  it("is a sub-view of Home — back control returns to it", async () => {
+    const onClose = vi.fn();
     render(
       <BackendProvider backend={fakeBackend([])}>
-        <ConversationsPanel onClose={vi.fn()} />
+        <ConversationsPanel onClose={onClose} />
       </BackendProvider>,
     );
     await screen.findByRole("heading", { name: "Conversations" });
-    expect(screen.queryByRole("button", { name: /back/i })).toBeNull();
+
+    const back = screen.getByRole("button", { name: /back/i });
+    fireEvent.click(back);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not one of the six rail destinations", () => {
+    expect(NAV_ITEMS.some((i) => i.view === "conversations")).toBe(false);
+    // …but it still lights Home, so the rail keeps answering "where am I".
+    expect(activeRailView("conversations")).toBe("dashboard");
   });
 
   it("Rehearse navigates to the context's detail page, not Live", async () => {

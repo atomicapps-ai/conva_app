@@ -456,6 +456,12 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   return (
     <ViewShell
       icon="conversations"
+      // AppUI V5.0 decision 2: Conversations is a SUB-VIEW now, not a rail
+      // destination — so it gets the breadcrumb + back chevron that CLAUDE.md
+      // rule 9 reserves for exactly that. Home owns it ("View all
+      // conversations"), which is where `onClose` returns to.
+      breadcrumb="Home"
+      onBack={onClose}
       title="Conversations"
       subtitle="Every listening run is saved automatically — name one to keep it as a conversation you can reopen and continue."
       badge={

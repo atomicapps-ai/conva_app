@@ -15,10 +15,10 @@
       {
         "label": "main",
         "title": "conva",
-        "width": 700,
-        "height": 540,
-        "minWidth": 380,
-        "minHeight": 440,
+        "width": 1280,
+        "height": 800,
+        "minWidth": 700,
+        "minHeight": 600,
         "decorations": false,
         "dragDropEnabled": false,
         "visible": false

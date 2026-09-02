@@ -11,6 +11,7 @@ import { ViewRouter } from "@/components/studio/ViewRouter";
 import { WindowChrome } from "@/components/studio/WindowChrome";
 import { Icon } from "@/components/ui/Icon";
 import { UpdateToast } from "@/components/UpdateToast";
+import { resolveLayout } from "@/lib/responsive";
 import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
 
@@ -41,16 +42,12 @@ export function StudioShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [togglePalette]);
 
-  // Responsive tiers (V4.0 §"Responsive"): shed order is label text →
-  // secondary pane → breadcrumb depth → the rail, driven by actual
-  // available width, not just the manual Compact toggle. The packet's own
-  // real-window mapping is "~1240 wide / ~900 medium" — below 900 the rail
-  // drops its labels automatically, same threshold semantics as the Ally
-  // panel's own already-existing width-driven drawer collapse at 640
-  // (TranscriptView.tsx) — labels shed first, at the wider breakpoint, the
-  // secondary pane second, at the narrower one, matching the stated order.
-  // `narrow` is additive to the manual `compact` store flag, never a
-  // replacement for it — Compact still does its own (window-resizing) thing.
+  // Responsive tiers — AppUI V5.0 §10. The shed order is FIXED: label → Ally
+  // → breadcrumb → rail, and the transcript never shrinks first. The tier
+  // table itself lives in `lib/responsive.ts` (pure + unit-tested); this
+  // component only measures the shell and renders what the tier asks for.
+  // Manual Compact (which physically shrinks the OS window) is additive: it
+  // forces the icon rail but can't re-expand a rail that already became a ☰.
   const shellRef = useRef<HTMLDivElement>(null);
   const [shellWidth, setShellWidth] = useState(0);
   useEffect(() => {
@@ -64,24 +61,65 @@ export function StudioShell() {
     setShellWidth(el.getBoundingClientRect().width);
     return () => ro.disconnect();
   }, []);
-  const narrow = shellWidth > 0 && shellWidth < 900;
+  // Width 0 = not measured yet; assume the 1280×800 default window rather
+  // than flashing the ☰ tier on first paint.
+  const layout = resolveLayout(shellWidth || 1280, compact);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    if (layout.railMode !== "menu") setMenuOpen(false);
+  }, [layout.railMode]);
 
   return (
     <div className="flex h-full flex-col">
       <WindowChrome />
       <UpdateToast />
-      {/* One continuous frame (V4.0's "file cabinet") — rail and content sit
-          flush, joined by NavRail's own right border, not a gap between two
-          floating cards. No padding/gap here: the window's own edges are the
-          frame boundary now (WindowChrome plays the role of the mockup's
-          `.appframe` top edge), so there's nothing left to inset against. */}
-      <div ref={shellRef} className="flex min-h-0 flex-1">
-        <NavRail narrow={narrow} />
-        {/* bg-panel — same surface the active rail row takes on, so its
-            join reads as "becomes the pane" rather than "a differently-
-            colored block next to the pane" (mockup's `.main{background:
-            var(--color-panel)}`). */}
-        <div className="flex min-w-0 flex-1 flex-col bg-panel">
+      {/* One continuous frame — rail and content sit flush, joined by
+          NavRail's own right border, not a gap between two floating cards.
+          No padding/gap here: the window's own edges are the frame boundary
+          (WindowChrome plays the role of the mockup's `.appframe` top edge). */}
+      <div ref={shellRef} className="relative flex min-h-0 flex-1">
+        {layout.railMode === "menu" ? (
+          <>
+            {/* Very compact (<700): the rail becomes a ☰ menu. Order and
+                labels are preserved inside the drawer — only its placement
+                changes (§1 "Responsive shed order"). */}
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="Open navigation"
+              aria-expanded={menuOpen}
+              title="Navigation"
+              className="absolute left-2 top-2 z-30 grid h-9 w-9 place-items-center rounded-[var(--radius)] border border-border-strong bg-panel-raised text-fg-muted transition hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M4 7h16M4 12h16M4 17h16"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+            {menuOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Close navigation"
+                  onClick={() => setMenuOpen(false)}
+                  className="fixed inset-0 z-40 cursor-default bg-black/50"
+                />
+                <div className="absolute inset-y-0 left-0 z-50 shadow-[var(--shadow-lg)]">
+                  <NavRail mode="expanded" onNavigate={() => setMenuOpen(false)} />
+                </div>
+              </>
+            )}
+          </>
+        ) : (
+          <NavRail mode={layout.railMode} />
+        )}
+        {/* bg-bg — the window ground the V5.0 palette puts behind page
+            content; cards inside views step UP to bg-panel. */}
+        <div className="flex min-w-0 flex-1 flex-col bg-bg">
           <main className="min-h-0 flex-1 overflow-hidden">
             <ViewRouter />
           </main>

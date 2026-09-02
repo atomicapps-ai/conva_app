@@ -524,6 +524,14 @@ export interface AppConfig {
   /** Screenshot button's save folder override (right-click → "Set save
    *  location…"). `null` = the default `<Pictures>/conva-screenshots/`. */
   screenshot_save_dir: string | null;
+  /** Display name for the account block (rail, Home greeting, Settings →
+   *  Account). AppUI V5.0 decision 6: production shows the REAL user, so this
+   *  is the user's own text, edited in Settings. `null` = fall back to the
+   *  account email's local part — never a fabricated name. */
+  profile_display_name: string | null;
+  /** The user's own role/title line under their name. `null` renders no role
+   *  at all rather than guessing one. */
+  profile_role: string | null;
 }
 
 /** Mirror of conva-core audio::AudioDevice. */

@@ -1,7 +1,9 @@
 import { AboutMoreView } from "@/components/about/AboutMoreView";
+import { CoachingView } from "@/components/coaching/CoachingView";
 import { ConversationsPanel } from "@/components/ConversationsPanel";
 import { ContextsView } from "@/components/contexts/ContextsView";
 import { DashboardView } from "@/components/dashboard/DashboardView";
+import { LibraryView } from "@/components/library/LibraryView";
 import { FeaturesView } from "@/components/product/FeaturesView";
 import { WhatsComingView } from "@/components/product/WhatsComingView";
 import { WhatsNewView } from "@/components/product/WhatsNewView";
@@ -19,7 +21,9 @@ import { useNavStore } from "@/state/nav";
 export function ViewRouter() {
   const view = useNavStore((s) => s.view);
   const setView = useNavStore((s) => s.setView);
-  const backToLive = () => setView("live");
+  // Conversations is a sub-view of Home now (AppUI V5.0 decision 2), so its
+  // back control returns there — `railState.activeRailView` agrees.
+  const backToHome = () => setView("dashboard");
 
   return (
     <>
@@ -30,8 +34,10 @@ export function ViewRouter() {
       {view === "releases" && <WhatsNewView />}
       {view === "settings" && <SettingsPanel />}
       {view === "profile" && <ProfileView />}
-      {view === "conversations" && <ConversationsPanel onClose={backToLive} />}
+      {view === "conversations" && <ConversationsPanel onClose={backToHome} />}
       {view === "context" && <ContextsView />}
+      {view === "library" && <LibraryView />}
+      {view === "coaching" && <CoachingView />}
       {view === "about" && <AboutMoreView />}
     </>
   );

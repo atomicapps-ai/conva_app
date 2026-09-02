@@ -11,6 +11,8 @@ export type View =
   | "live"
   | "conversations"
   | "context"
+  | "library"
+  | "coaching"
   | "features"
   | "whatsnew"
   | "releases"
