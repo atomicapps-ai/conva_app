@@ -78,6 +78,15 @@ jobs:
             args: --features gpu-metal
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
+    # GitHub Actions forbids the `secrets` context inside an `if:` conditional
+    # (job- or step-level) — using it there is a workflow-file validation
+    # error, not a YAML syntax error: the run shows zero jobs and fails
+    # instantly, before anything is scheduled (the v0.3.2 tag's first attempt
+    # hit exactly this). The documented workaround: mirror the secret into a
+    # job-level env var — env: assignment isn't an `if:` expression, so this
+    # is allowed — and gate on `env.*` instead of `secrets.*` below.
+    env:
+      CONVA_ENV_KEY: ${{ secrets.CONVA_ENV_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -128,14 +137,15 @@ jobs:
       # value either way today (.env.dev.sec/.env.prod.sec share one keypair,
       # per those files' own comment: the updater pubkey in tauri.conf.json is
       # fixed, so the private key must match across envs), kept per-env for
-      # when that stops being true. `if: secrets.CONVA_ENV_KEY != ''` makes
-      # this optional during rollout — no key set yet just means unsigned
-      # installers, exactly the old secrets-unset fallback.
+      # when that stops being true. `if: env.CONVA_ENV_KEY != ''` (NOT
+      # `secrets.CONVA_ENV_KEY` — GitHub Actions forbids the `secrets`
+      # context inside any `if:`, see the job-level `env:` above) makes this
+      # optional during rollout — no key set yet just means unsigned
+      # installers, exactly the old secrets-unset fallback. CONVA_ENV_KEY is
+      # already in this step's environment via the job-level `env:`.
       - name: Decrypt signing secrets (env/*.enc)
-        if: secrets.CONVA_ENV_KEY != ''
+        if: env.CONVA_ENV_KEY != ''
         shell: bash
-        env:
-          CONVA_ENV_KEY: ${{ secrets.CONVA_ENV_KEY }}
         run: node env/cli.mjs print ${{ inputs.release && 'prod' || 'dev' }} >> "$GITHUB_ENV"
 
       - name: Build installers
