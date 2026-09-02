@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { FilterPopover } from "@/components/contexts/FilterPopover";
+import {
+  documentTypeLabel,
+  filterDocuments,
+  LIBRARY_FILTERS,
+  type LibraryFilter,
+} from "@/components/contexts/libraryFilter";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
@@ -15,6 +21,10 @@ const SUPPORTED = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
  * `LibraryRowMenu` below (its "Attach to a context…" item) is still there
  * as the click alternative. */
 export const DOC_DRAG_MIME = "application/x-conva-doc-id";
+
+/** The top-level Library page's table grid (AppUI V5.0 §4's column set). */
+const PAGE_ROW_GRID =
+  "grid grid-cols-[24px_minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,0.8fr)_40px] gap-3.5";
 
 /** Default title for a pasted note (owner spec): words + numbers only — no
  *  punctuation/symbols — spaces replaced with underscores, capped at the
@@ -44,13 +54,6 @@ function deriveNoteName(text: string): string {
   return words.replace(/\s+/g, "_");
 }
 
-type Filter = "all" | "pasted" | "generated";
-
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "pasted", label: "Pasted" },
-  { key: "generated", label: "By conva" },
-];
 
 /** A row's "attach to a context" control — click, pick a context, done.
  *  Already-attached contexts show a check and are unclickable. Replaces
@@ -270,6 +273,7 @@ export function LibraryPane({
   quickAction,
   focusContextId,
   onClearFocus,
+  variant = "dock",
 }: {
   contextTitles: Record<string, string>;
   /** Attach `docId` to `contextId` — the real mutation
@@ -289,6 +293,16 @@ export function LibraryPane({
   /** Clears `focusContextId` — the banner's ✕, and clicking the same
    *  doc-count control again (`ContextsView`'s toggle). */
   onClearFocus?: () => void;
+  /**
+   * `"dock"` (default) is the narrow contextual pane inside Contexts —
+   * relationship-focused, one line per document. `"page"` is the top-level
+   * Library destination (AppUI V5.0 §4): the same component and the same
+   * actions, presented as the management table the spec asks for — visible
+   * filter chips plus Name / Type / In contexts / Added columns. Same
+   * documents, different job; one implementation, so ingest/attach/delete
+   * can't drift between the two.
+   */
+  variant?: "dock" | "page";
 }) {
   const backend = useBackend();
   const caps = useCapabilities();
@@ -306,7 +320,7 @@ export function LibraryPane({
     if (!titleTouched) setPasteTitle(deriveNoteName(pasteText));
   }, [pasteText, titleTouched]);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<LibraryFilter>("all");
   const conversationOpen = useConversationStore((s) => s.openId !== null);
   const conversationTitle = useConversationStore((s) => s.title);
   const linkedDocs = useConversationStore((s) => s.linkedDocs);
@@ -450,17 +464,12 @@ export function LibraryPane({
     }
   };
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return documents.filter((d) => {
-      if (focusContextId && !d.context_ids.includes(focusContextId)) return false;
-      if (q && !d.file_name.toLowerCase().includes(q)) return false;
-      if (filter === "pasted") return d.source === "pasted";
-      if (filter === "generated") return d.source === "generated";
-      return true;
-    });
-  }, [documents, search, filter, focusContextId]);
+  const visible = useMemo(
+    () => filterDocuments(documents, { search, filter, focusContextId }),
+    [documents, search, filter, focusContextId],
+  );
 
+  const page = variant === "page";
   const rowIcon = (d: RagDocument) =>
     d.source === "generated" ? "sparkle" : d.source === "pasted" ? "clipboard" : "file";
 
@@ -513,22 +522,49 @@ export function LibraryPane({
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search documents"
+          placeholder={page ? "Search files, notes, and briefs" : "Search documents"}
           aria-label="Search documents"
-          className="input h-[30px] flex-1 text-xs"
+          className={page ? "input h-[38px] flex-1 text-[13px]" : "input h-[30px] flex-1 text-xs"}
         />
-        <FilterPopover
-          groups={[
-            {
-              key: "source",
-              label: "Source",
-              options: FILTERS.map((f) => ({ value: f.key, label: f.label })),
-              selected: filter,
-              onChange: (v) => setFilter(v as Filter),
-            },
-          ]}
-        />
+        {!page && (
+          <FilterPopover
+            groups={[
+              {
+                key: "source",
+                label: "Source",
+                options: LIBRARY_FILTERS.map((f) => ({ value: f.key, label: f.label })),
+                selected: filter,
+                onChange: (v) => setFilter(v as LibraryFilter),
+              },
+            ]}
+          />
+        )}
       </div>
+
+      {page && (
+        <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Filter documents">
+          {LIBRARY_FILTERS.map((f) => {
+            const on = filter === f.key;
+            return (
+              <button
+                key={f.key}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setFilter(f.key)}
+                className={[
+                  "rounded-full px-4 py-2 text-xs transition",
+                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                  on
+                    ? "bg-primary font-bold text-primary-ink"
+                    : "border border-border bg-panel font-semibold text-fg-muted hover:text-fg",
+                ].join(" ")}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {focusContextId && (
         <div className="mb-2 flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/[0.06] px-2 py-1 text-[11px] text-fg">
@@ -614,6 +650,17 @@ export function LibraryPane({
         </p>
       )}
 
+      {page && visible.length > 0 && (
+        <div className={`${PAGE_ROW_GRID} shrink-0 items-center border-b border-border bg-bg-2 px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-fg-faint`}>
+          <span aria-hidden />
+          <span>Name</span>
+          <span>Type</span>
+          <span>In contexts</span>
+          <span>Added</span>
+          <span aria-hidden />
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto">
         {visible.length === 0 ? (
           <p className="px-1 py-6 text-center text-[11px] text-fg-faint">
@@ -635,7 +682,11 @@ export function LibraryPane({
                   e.dataTransfer.setData(DOC_DRAG_MIME, doc.id);
                   e.dataTransfer.effectAllowed = "link";
                 }}
-                className="flex items-center gap-1.5 border-b border-border py-1.5 text-[12px] last:border-0"
+                className={
+                  page
+                    ? `${PAGE_ROW_GRID} items-center border-b border-border px-4 py-3 text-[13.5px] last:border-0`
+                    : "flex items-center gap-1.5 border-b border-border py-1.5 text-[12px] last:border-0"
+                }
               >
                 <input
                   type="checkbox"
@@ -645,14 +696,16 @@ export function LibraryPane({
                   }
                   aria-label={`Include ${doc.file_name} in retrieval`}
                 />
+                <span className="flex min-w-0 items-center gap-2.5">
                 <Icon
                   name={rowIcon(doc)}
-                  size={14}
+                  size={page ? 18 : 14}
                   className={doc.source === "generated" ? "text-ai shrink-0" : "text-fg-faint shrink-0"}
                 />
                 <span
                   className={[
                     "min-w-0 flex-1 truncate",
+                    page ? "font-semibold" : "",
                     doc.enabled ? "text-fg" : "text-fg-faint",
                   ].join(" ")}
                   title={
@@ -663,12 +716,41 @@ export function LibraryPane({
                 >
                   {doc.file_name}
                 </span>
+                </span>
+
+                {page && (
+                  <>
+                    <span className="truncate font-mono text-xs text-fg-muted">
+                      {documentTypeLabel(doc)}
+                    </span>
+                    <span className="flex min-w-0 flex-wrap gap-1.5">
+                      {doc.context_ids.length === 0 ? (
+                        <span className="font-mono text-[11px] text-fg-faint">—</span>
+                      ) : (
+                        doc.context_ids.map((id) => (
+                          <span
+                            key={id}
+                            className="max-w-[180px] truncate rounded-[5px] bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary"
+                          >
+                            {contextTitles[id] ?? id}
+                          </span>
+                        ))
+                      )}
+                    </span>
+                    <span className="font-mono text-xs text-fg-faint">
+                      {new Date(doc.ingested_at_unix_ms).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                  </>
+                )}
                 {/* Passive "which context(s) is this doc in" hint — an icon
                     now, not the old text chip, since the row has less room.
                     Wrapped in a <span title=…> rather than passing title to
                     Icon directly (it doesn't forward one — same pattern as
                     ContextDetail.tsx's stage icons). */}
-                {firstContextId && (
+                {!page && firstContextId && (
                   <span
                     className="shrink-0"
                     title={doc.context_ids.map((id) => contextTitles[id] ?? id).join(", ")}

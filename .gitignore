@@ -8,7 +8,11 @@ tsconfig.tsbuildinfo
 
 # Rust
 target/
-library/
+
+# The owner's portable reference library (repo root only — anchored, because an
+# unanchored `library/` also swallowed src/components/library/, silently keeping
+# real source out of commits).
+/library/
 
 # Models are fetched on first run, never committed
 models/

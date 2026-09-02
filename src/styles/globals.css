@@ -34,11 +34,21 @@
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("../assets/fonts/jetbrains-mono-600.woff2") format("woff2"); }
 
 :root {
-  /* ---- Surfaces ---- */
-  --color-bg: #05060e;
-  --color-bg-2: #0a0e1e;
-  --color-panel: #0e1326;
-  --color-panel-raised: #141a31;
+  /* ---- Surfaces ----
+     AppUI V5.0 (`conva_core@1b007ed`, brand/UI/AppUI_V5.0): the four surface
+     steps are matched to the accepted `concept-home.png` reference and are
+     "authoritative over the lighter V4 tokens" (HANDOFF.md). Same four roles,
+     same order, just deeper and cooler:
+       bg     #030B16  outer / window ground (content area)
+       bg-2   #00060F  the navigation rail
+       panel  #040A15  primary content surfaces (cards, list panes)
+       raised #09121E  selected / interactive rows
+     Only these four values changed — every component keeps reading the same
+     semantic token, so nothing structural moves. */
+  --color-bg: #030b16;
+  --color-bg-2: #00060f;
+  --color-panel: #040a15;
+  --color-panel-raised: #09121e;
   --color-border: #1c2340;
   --color-border-strong: #2e3861;
   --color-edge: rgba(255, 255, 255, 0.1);
@@ -136,8 +146,10 @@
   --ai-w: 452px;
   --transcript-min: 520px;
   --compact-w: 360px;
-  --win-min-w: 1040px;
-  --win-min-h: 680px;
+  /* Full-shell floor — AppUI V5.0 §12 (FIXED). Mirrors tauri.conf.json's
+     minWidth/minHeight and lib/compact.ts's SHELL_MIN_*. */
+  --win-min-w: 700px;
+  --win-min-h: 600px;
 
   /* voice aliases — point at the brand tokens; use these in cockpit code */
   --voice-them: var(--color-inbound);
@@ -793,6 +805,14 @@ body {
   .spine-ping,
   .animate-flash-ring,
   .animate-screenshot-flash,
+  /* Tailwind's own looping animations — the V5.0 skeleton loaders and any
+     spinner use these, and §12 (FIXED) requires prefers-reduced-motion to be
+     respected. The bars/rings stay VISIBLE, they just stop moving, so the
+     loading state still reads as loading. */
+  .animate-pulse,
+  .animate-spin,
+  .animate-ping,
+  .animate-bounce,
   .pill-rec .d {
     transition: none;
     animation: none;

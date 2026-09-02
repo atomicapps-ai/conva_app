@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ContextsPane } from "@/components/contexts/ContextsPane";
+import { ContextWorkspace } from "@/components/contexts/ContextWorkspace";
 import { LibraryPane } from "@/components/contexts/LibraryPane";
 import { ContextDetail } from "@/components/context/ContextDetail";
 import { ContextSetup } from "@/components/context/ContextSetup";
-import { ViewShell } from "@/components/studio/ViewShell";
+import { EmptyState, PageView, PrimaryButton } from "@/components/studio/PageView";
+import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { DEFAULT_CONTEXT_ID, type ConversationContext, type ContextSummary } from "@/lib/ipc";
+import { CENTER_MIN_PX, LIBRARY_DOCK_PX, resolveLayout } from "@/lib/responsive";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
+import { useGroundingStore } from "@/state/grounding";
 import { useLibraryQuickAdd } from "@/state/libraryQuickAdd";
 import { useUiPrefs } from "@/state/uiPrefs";
 
@@ -17,25 +21,26 @@ type Mode =
   | { k: "detail"; id: string };
 
 /**
- * The Conversation Contexts page — Contexts and Library on one screen
- * (owner decision, 2026-08-16, reversing an earlier same-day un-merge):
- * "do not have library separate... make it part of conversation [Contexts]."
- * `LibraryPane` sits alongside `ContextsPane`; attaching a document to a
- * context is still the click-to-pick popover (`LibraryRowMenu`'s "Attach
- * to a context…" item), not drag-and-drop-only — that call stands
- * regardless of the two panes being back on one screen (see
- * `LibraryPane.tsx`'s doc comment for the full why).
+ * Contexts — the three-pane workspace (AppUI V5.0 §3).
  *
- * Quick-add: ⌘K's "Add a document…" / "Paste a note…" / "New context…"
- * commands (`CommandPalette.tsx`) set an intent in `useLibraryQuickAdd` and
- * navigate here; consumed once on mount below, so a document/paste/context
- * flow is reachable from anywhere in the app, not just once you're already
- * on this screen.
+ * > Context list (300px) · selected-context workspace (flex, min 520px) ·
+ * > contextual Library dock (360px), all visible at wide width.
+ * > Selecting a row updates B + filters C; **never a third-level page.**
+ * > Dock collapses to a right-edge Library tab; reopening restores prior width.
  *
- * Quick-open: Conversations' "Rehearse" tab lists contexts and needs to
- * land directly on one's detail page (personas/rehearse, Step 3/4) rather
- * than the list — `useContextsQuickOpen`, same one-shot pattern, consumed
- * once below alongside `quickAction`.
+ * Responsive (§10): at wide the dock is Pane C in the flow; below 1380 it
+ * becomes an **overlay** over the right portion rather than squeezing the
+ * centre — the centre never goes below 520px. The dock's open/closed state is
+ * remembered separately from the top-level Library page (`LibraryView`), which
+ * is the same documents doing the *manage* job rather than the *attach* one.
+ *
+ * The persona / start-a-coaching-session drill-in is still `ContextDetail` —
+ * a genuine sub-view with `ViewShell`'s breadcrumb + back (CLAUDE.md rule 9),
+ * not a third pane level.
+ *
+ * Quick-add (⌘K's "Add a document…" / "Paste a note…" / "New context…") and
+ * quick-open (jump straight to one context) keep working exactly as before —
+ * both one-shot intents, consumed once on mount.
  */
 export function ContextsView() {
   const backend = useBackend();
@@ -44,23 +49,50 @@ export function ContextsView() {
   const [quickAction] = useState(() => useLibraryQuickAdd.getState().consume());
   const [quickOpenId] = useState(() => useContextsQuickOpen.getState().consume());
   const [mode, setMode] = useState<Mode>(
-    quickOpenId
-      ? { k: "detail", id: quickOpenId }
-      : quickAction === "new_context"
-        ? { k: "setup", initial: null }
-        : { k: "list" },
+    quickAction === "new_context" ? { k: "setup", initial: null } : { k: "list" },
   );
-  // Which context's documents Library is filtered to — set by a context
-  // row's doc-count control (`ContextsPane`), toggled off by clicking it
-  // again or Library's own clear-filter banner. Purely a Library filter,
-  // not a "selection": it never navigates and never highlights the whole
-  // context row (owner, 2026-08-29).
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** The context Pane B is showing. Selecting a row only changes THIS. */
+  const [workspaceId, setWorkspaceId] = useState<string | null>(quickOpenId);
+  /** Library's "In this Context" scope — the doc-count control in Pane A. */
+  const [focusId, setFocusId] = useState<string | null>(null);
   const leftWidthPx = useUiPrefs((s) => s.contextsLeftWidthPx);
   const setLeftWidthPx = useUiPrefs((s) => s.setContextsLeftWidthPx);
   const [error, setError] = useState<string | null>(null);
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [dockOpen, setDockOpen] = useState(true);
+  const activeGroundingId = useGroundingStore((s) => s.activeId);
+  const setGroundingActive = useGroundingStore((s) => s.setActive);
+
+  // Measure the pane area so the dock can dock/overlay by the real tier.
+  const areaRef = useRef<HTMLDivElement>(null);
+  const [areaWidth, setAreaWidth] = useState(0);
+  useEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((es) => {
+      const r = es[0];
+      if (r) setAreaWidth(r.contentRect.width);
+    });
+    ro.observe(el);
+    setAreaWidth(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, [mode.k]);
+  // The rail is outside this element, so measure against the pane area alone:
+  // list + dock + the 520px centre floor is what actually has to fit.
+  const canDock = areaWidth === 0 || areaWidth - leftWidthPx - LIBRARY_DOCK_PX >= CENTER_MIN_PX;
+  const tier = resolveLayout(areaWidth || 1280).tier;
+  const dockInFlow = canDock && dockOpen;
+
+  // When the window narrows past the point where the dock still fits beside
+  // the 520px centre, collapse it to its right-edge tab instead of throwing an
+  // overlay across the workspace the user is reading. Reopening is one click,
+  // and an explicit reopen sticks until the width changes again.
+  const wasDockable = useRef(canDock);
+  useEffect(() => {
+    if (wasDockable.current && !canDock) setDockOpen(false);
+    wasDockable.current = canDock;
+  }, [canDock]);
 
   const contextTitles = useMemo(
     () => Object.fromEntries(items.map((s) => [s.id, s.title])),
@@ -71,18 +103,26 @@ export function ContextsView() {
     backend.context
       .list()
       .then((list) => {
-        // Pin the always-present default to the top regardless of recency —
-        // otherwise it sinks as the user creates newer contexts. Stable sort:
-        // everything else keeps the backend's own (updated-at) order.
-        setItems(
-          [...list].sort((a, b) =>
-            a.id === DEFAULT_CONTEXT_ID ? -1 : b.id === DEFAULT_CONTEXT_ID ? 1 : 0,
-          ),
+        // Pin the always-present default to the top regardless of recency.
+        const sorted = [...list].sort((a, b) =>
+          a.id === DEFAULT_CONTEXT_ID ? -1 : b.id === DEFAULT_CONTEXT_ID ? 1 : 0,
         );
+        setItems(sorted);
         setError(null);
+        // Open something useful in Pane B: the grounding context if it's a
+        // real one, else the first user context. Never auto-select the
+        // always-present default — an empty workspace is more honest than
+        // pretending "General conversation" is prepared material.
+        setWorkspaceId((cur) => {
+          if (cur && sorted.some((c) => c.id === cur)) return cur;
+          const grounded = sorted.find(
+            (c) => c.id === activeGroundingId && c.id !== DEFAULT_CONTEXT_ID,
+          );
+          return grounded?.id ?? sorted.find((c) => c.id !== DEFAULT_CONTEXT_ID)?.id ?? null;
+        });
       })
       .catch(() => setError("Contexts run on the desktop app for now."));
-  }, [backend]);
+  }, [backend, activeGroundingId]);
 
   useEffect(() => {
     refresh();
@@ -99,7 +139,8 @@ export function ContextsView() {
   const remove = async (id: string) => {
     try {
       await backend.context.delete(id);
-      if (selectedId === id) setSelectedId(null);
+      if (focusId === id) setFocusId(null);
+      if (workspaceId === id) setWorkspaceId(null);
       refresh();
     } catch {
       /* best-effort; the list refresh reflects the real state */
@@ -122,15 +163,25 @@ export function ContextsView() {
         setError(String(e));
       } finally {
         setGeneratingId(null);
+        setLibraryRefreshToken((t) => t + 1);
         refresh();
       }
     },
     [backend, refresh],
   );
 
-  // Shared by attach and detach — either changes both a context's doc count
-  // (needs `refresh()`) and Library's own per-row context tags (needs
-  // `libraryRefreshToken` to bump, so LibraryPane re-fetches).
+  const activate = async (id: string) => {
+    try {
+      const ctx = await backend.context.activateContext(id);
+      setGroundingActive(ctx.id, ctx.title);
+      setNotice(`"${ctx.title}" will ground the next session.`);
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
+
+  // Attach and detach both change a context's doc count AND Library's own
+  // per-row context tags, so both refreshes fire.
   const bumpDocs = () => {
     setLibraryRefreshToken((t) => t + 1);
     refresh();
@@ -166,33 +217,45 @@ export function ContextsView() {
     );
   }
 
+  const workspace = workspaceId ? items.find((c) => c.id === workspaceId) : undefined;
+  const userContextCount = items.filter((c) => c.id !== DEFAULT_CONTEXT_ID).length;
+
   return (
-    <ViewShell
-      icon="simicon"
-      eyebrow="Conversation Contexts"
+    <PageView
+      fill
+      bleed
       title="Contexts"
       subtitle="Ground Ally in your library, by conversation type — then generate its briefing."
-      wide
       actions={
-        error ? null : (
-          <p className="text-[11px] text-fg-faint">
-            {notice ?? `${items.length} context${items.length === 1 ? "" : "s"}`}
-          </p>
-        )
+        <>
+          {notice && <p className="text-[11px] text-fg-faint">{notice}</p>}
+          <PrimaryButton onClick={() => setMode({ k: "setup", initial: null })}>
+            <Icon name="add" size={15} />
+            New context
+          </PrimaryButton>
+        </>
       }
     >
-      {error && <p className="text-sm text-fg-muted">{error}</p>}
-
-      {!error && (
-        <div
-          className="grid min-h-0 flex-1 grid-cols-1 gap-3 sm:grid-cols-[var(--contexts-left-w)_minmax(0,1fr)]"
-          style={{ "--contexts-left-w": `${leftWidthPx}px` } as React.CSSProperties}
-        >
+      {error ? (
+        <p className="px-8 text-sm text-fg-muted">{error}</p>
+      ) : (
+        // Panes run edge to edge and are separated by their own borders, not
+        // by gaps — §3's grid is `list | workspace | dock` with no gutter, and
+        // the gutter is exactly what would push the centre under its 520 floor.
+        <div ref={areaRef} className="relative flex min-h-0 flex-1 border-t border-border">
+          {/* Pane A — the context list, at its FIXED 300px (§3; resizable
+              260–380 via the pane's own drag handle). It must carry the width
+              itself: the flex row would otherwise size it from its content
+              and push the centre pane under its 520px floor. */}
+          <div
+            className="flex min-h-0 shrink-0 flex-col border-r border-border"
+            style={{ width: leftWidthPx }}
+          >
           <ContextsPane
             items={items}
-            selectedId={selectedId}
-            onSelect={(id) => setSelectedId((cur) => (cur === id ? null : id))}
-            onOpen={(id) => setMode({ k: "detail", id })}
+            selectedId={focusId}
+            onSelect={(id) => setFocusId((cur) => (cur === id ? null : id))}
+            onOpen={(id) => setWorkspaceId(id)}
             onNew={() => setMode({ k: "setup", initial: null })}
             onEdit={(id) => void edit(id)}
             onDelete={(id) => void remove(id)}
@@ -203,16 +266,123 @@ export function ContextsView() {
             widthPx={leftWidthPx}
             onResize={setLeftWidthPx}
           />
-          <LibraryPane
-            contextTitles={contextTitles}
-            onAttach={(docId, contextId) => void attach(docId, contextId)}
-            refreshToken={libraryRefreshToken}
-            quickAction={quickAction === "upload" || quickAction === "paste" ? quickAction : null}
-            focusContextId={selectedId}
-            onClearFocus={() => setSelectedId(null)}
-          />
+          </div>
+
+          {/* Pane B — the selected context's workspace. */}
+          <div
+            className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg"
+            style={{ minWidth: tier === "compact" || tier === "tiny" ? undefined : CENTER_MIN_PX }}
+          >
+            {workspace ? (
+              <ContextWorkspace
+                summary={workspace}
+                generating={generatingId === workspace.id}
+                onGenerate={() => void generate(workspace.id)}
+                onOpenDetail={() => setMode({ k: "detail", id: workspace.id })}
+                onEdit={() => void edit(workspace.id)}
+                onActivate={() => void activate(workspace.id)}
+                isActive={activeGroundingId === workspace.id}
+                refreshToken={libraryRefreshToken}
+              />
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center p-8">
+                <EmptyState
+                  className="max-w-[46ch]"
+                  title={userContextCount === 0 ? "No contexts yet" : "Select a context"}
+                  description={
+                    userContextCount === 0
+                      ? "Create one to prepare for a conversation — attach the documents Ally should answer from, then generate its briefing."
+                      : "Pick a context on the left to see its overview, prepared Q&A, briefing and research."
+                  }
+                  action={
+                    userContextCount === 0 ? (
+                      <PrimaryButton onClick={() => setMode({ k: "setup", initial: null })}>
+                        Create context
+                      </PrimaryButton>
+                    ) : undefined
+                  }
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Pane C — the contextual Library dock. In the flow when it fits,
+              an overlay over the right portion when it doesn't (§10). */}
+          {dockInFlow ? (
+            <div
+              className="flex min-h-0 shrink-0 flex-col border-l border-border bg-bg-2 px-3 py-3"
+              style={{ width: LIBRARY_DOCK_PX }}
+            >
+              <DockHeader onClose={() => setDockOpen(false)} />
+              <LibraryPane
+                contextTitles={contextTitles}
+                onAttach={(docId, contextId) => void attach(docId, contextId)}
+                refreshToken={libraryRefreshToken}
+                quickAction={quickAction === "upload" || quickAction === "paste" ? quickAction : null}
+                focusContextId={focusId}
+                onClearFocus={() => setFocusId(null)}
+              />
+            </div>
+          ) : dockOpen ? (
+            <>
+              <button
+                type="button"
+                aria-label="Close Library"
+                onClick={() => setDockOpen(false)}
+                className="absolute inset-0 z-30 cursor-default bg-black/40"
+              />
+              <div
+                className="absolute inset-y-0 right-0 z-40 flex max-w-full flex-col border-l border-border-strong bg-bg-2 px-3 py-3 shadow-[var(--shadow-lg)]"
+                style={{ width: LIBRARY_DOCK_PX }}
+              >
+                <DockHeader onClose={() => setDockOpen(false)} />
+                <LibraryPane
+                  contextTitles={contextTitles}
+                  onAttach={(docId, contextId) => void attach(docId, contextId)}
+                  refreshToken={libraryRefreshToken}
+                  quickAction={
+                    quickAction === "upload" || quickAction === "paste" ? quickAction : null
+                  }
+                  focusContextId={focusId}
+                  onClearFocus={() => setFocusId(null)}
+                />
+              </div>
+            </>
+          ) : (
+            /* Collapsed → a right-edge Library tab; reopening restores it. */
+            <button
+              type="button"
+              onClick={() => setDockOpen(true)}
+              title="Show Library"
+              aria-label="Show Library"
+              aria-expanded={false}
+              className="flex w-9 shrink-0 items-center justify-center border-l border-border bg-bg-2 text-fg-muted transition hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              <span className="rotate-180 font-mono text-[10px] font-semibold uppercase tracking-[0.2em] [writing-mode:vertical-rl]">
+                Library
+              </span>
+            </button>
+          )}
         </div>
       )}
-    </ViewShell>
+    </PageView>
+  );
+}
+
+/** The dock's collapse control. No title — `LibraryPane` carries its own
+ *  "LIBRARY" header, and two would read as two panels. */
+function DockHeader({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="mb-1 flex shrink-0 items-center justify-end">
+      <button
+        type="button"
+        onClick={onClose}
+        title="Hide Library"
+        aria-label="Hide Library"
+        className="grid h-6 w-6 place-items-center rounded-[5px] text-fg-faint transition hover:bg-panel-raised hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      >
+        <Icon name="close" size={13} />
+      </button>
+    </div>
   );
 }

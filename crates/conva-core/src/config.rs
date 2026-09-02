@@ -40,6 +40,14 @@ pub struct AppConfig {
     /// "Set save location…"). `None` = the default
     /// `<Pictures>/conva-screenshots/`.
     pub screenshot_save_dir: Option<String>,
+    /// Display name for the account block (rail, Home greeting, Settings →
+    /// Account). AppUI V5.0 decision 6: production shows the REAL user, so
+    /// this is the user's own text, edited in Settings. `None` = fall back to
+    /// the account email's local part — never a fabricated name.
+    pub profile_display_name: Option<String>,
+    /// The user's own role/title line under their name. `None` renders no
+    /// role at all rather than guessing one.
+    pub profile_role: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -69,6 +77,8 @@ impl Default for AppConfig {
             vad_neural: true,
             vad_sensitivity: 0.5,
             screenshot_save_dir: None,
+            profile_display_name: None,
+            profile_role: None,
         }
     }
 }
@@ -114,5 +124,26 @@ mod tests {
         // Forward-compat: an older config file missing new fields still loads.
         let sparse: AppConfig = serde_json::from_str("{}").unwrap();
         assert_eq!(sparse, AppConfig::default());
+    }
+
+    #[test]
+    fn profile_identity_defaults_to_unset() {
+        // AppUI V5.0 decision 6: no fabricated identity. A fresh config knows
+        // neither a name nor a role; the UI falls back to the account email
+        // and omits the role line entirely.
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.profile_display_name, None);
+        assert_eq!(cfg.profile_role, None);
+    }
+
+    #[test]
+    fn profile_identity_round_trips() {
+        let cfg = AppConfig {
+            profile_display_name: Some("Ada Lovelace".to_string()),
+            profile_role: Some("Principal Engineer".to_string()),
+            ..Default::default()
+        };
+        let back: AppConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(back, cfg);
     }
 }

@@ -1,9 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AllySettings } from "@/components/AllySettings";
+import {
+  DEFAULT_SETTINGS_GROUP,
+  groupForKey,
+  SETTINGS_GROUPS,
+  type SettingsGroup,
+} from "@/components/settingsNav";
 import { Notice, Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
+import { LockedIcon } from "@/components/ui/LockedIcon";
 import { useBackend } from "@/lib/backend";
+import { useAccount } from "@/lib/useAccount";
 import { BUILD } from "@/lib/debug";
 import type {
   AuthStatus,
@@ -1076,18 +1084,21 @@ export function SettingsPanel() {
   };
 
   return (
-    <ViewShell
-      icon="settings"
-      title="Settings"
-      subtitle="Devices, transcription, Ally providers, and portable config."
-    >
+    <SettingsShell>
+      {(group) => (
+        <>
+      {group === "account" && (
       <Section
         title="Account"
         description="Sign in for settings sync and plan management. Identity only — no conversation content leaves your device."
       >
         <AccountSettings />
       </Section>
+      )}
 
+      {group === "account" && <ProfileSettings />}
+
+      {group === "devices" && (
       <Section
         title="Audio devices"
         description="Device changes apply when the next session starts. Tip: use a headset — open speakers leak the other side into your microphone."
@@ -1121,7 +1132,9 @@ export function SettingsPanel() {
             : "Just plugged something in? Hit Refresh devices."}
         </p>
       </Section>
+      )}
 
+      {group === "transcription" && (
       <Section
         title="Transcription"
         description="Choose the speech engine and tune the speed/accuracy and noise trade-offs."
@@ -1132,11 +1145,15 @@ export function SettingsPanel() {
           <NoiseFilterControls />
         </div>
       </Section>
+      )}
 
+      {group === "ally" && (
       <Section>
         <AllySettings />
       </Section>
+      )}
 
+      {group === "privacy" && (
       <Section
         title="Settings file"
         description={
@@ -1150,26 +1167,206 @@ export function SettingsPanel() {
       >
         <ConfigFileControls />
       </Section>
+      )}
 
+      {group === "ally" && (
       <Section
         title="Web research (Context)"
         description="Optional — a Tavily key so a Context can research context from the web."
       >
         <ResearchSettings />
       </Section>
+      )}
 
+      {group === "ally" && (
       <Section
         title="Usage"
         description="What your API keys have been spent on — LLM tokens and web searches."
       >
         <UsageSettings />
       </Section>
+      )}
 
+      {group === "privacy" && (
       <Section title="Portable secrets">
         <SecretsSettings />
       </Section>
+      )}
 
-      <AboutSection />
-    </ViewShell>
+      {group === "privacy" && <AboutSection />}
+        </>
+      )}
+    </SettingsShell>
+  );
+}
+
+/**
+ * Settings' own chrome — AppUI V5.0 §8: a left sub-nav (Account · Devices ·
+ * Transcription · Ally · Privacy) beside the selected group's panel. Settings
+ * is a SUB-VIEW reached from the account gear, so it keeps `ViewShell`'s
+ * breadcrumb-free crown but is never a rail destination (`railState.ts`
+ * returns null for it, so no rail row lights).
+ *
+ * The group list and its keyboard behaviour live in `settingsNav.ts`.
+ */
+function SettingsShell({
+  children,
+}: {
+  children: (group: SettingsGroup) => React.ReactNode;
+}) {
+  const [group, setGroup] = useState<SettingsGroup>(DEFAULT_SETTINGS_GROUP);
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const label = SETTINGS_GROUPS.find((g) => g.id === group)?.label ?? "Settings";
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const next = groupForKey(group, e.key);
+    if (next === group) return;
+    e.preventDefault();
+    setGroup(next);
+    refs.current[next]?.focus();
+  };
+
+  return (
+    <section className="flex h-full min-h-0">
+      <nav
+        aria-label="Settings sections"
+        className="flex w-[200px] shrink-0 flex-col gap-0.5 border-r border-border bg-bg-2 px-3.5 py-5"
+      >
+        <div className="mb-4 flex items-center gap-2.5 px-1">
+          <LockedIcon name="utility-settings" size={20} className="text-fg-muted" />
+          <h2 className="text-lg font-bold leading-none text-fg">Settings</h2>
+        </div>
+        {SETTINGS_GROUPS.map((g) => {
+          const active = g.id === group;
+          return (
+            <button
+              key={g.id}
+              ref={(el) => {
+                refs.current[g.id] = el;
+              }}
+              type="button"
+              aria-current={active ? "page" : undefined}
+              tabIndex={active ? 0 : -1}
+              onClick={() => setGroup(g.id)}
+              onKeyDown={onKeyDown}
+              className={[
+                "relative rounded-[var(--radius)] border px-3 py-2.5 text-left text-[13px] transition",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                active
+                  ? "border-border-strong bg-panel-raised font-bold text-fg"
+                  : "border-transparent font-semibold text-fg-muted hover:bg-white/[0.045] hover:text-fg",
+              ].join(" ")}
+            >
+              <span
+                aria-hidden
+                className={[
+                  "absolute -left-px bottom-[7px] top-[7px] w-[2px] rounded-full bg-primary transition-opacity",
+                  active ? "opacity-100" : "opacity-0",
+                ].join(" ")}
+              />
+              {g.label}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="min-h-0 flex-1 overflow-y-auto px-8 py-7">
+        <div className="mx-auto flex max-w-3xl flex-col gap-5">
+          <div>
+            <h3 className="text-[22px] font-bold leading-tight tracking-[-0.01em] text-fg">
+              {label}
+            </h3>
+            <p className="mt-1 text-[13px] leading-relaxed text-fg-muted">
+              {GROUP_BLURB[group]}
+            </p>
+          </div>
+          {children(group)}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const GROUP_BLURB: Record<SettingsGroup, string> = {
+  account: "Your profile and how Conva identifies you.",
+  devices: "Which microphone Conva hears you on, and which output it captures.",
+  transcription: "The speech engine and its speed, accuracy and noise trade-offs.",
+  ally: "Providers and models Ally answers with, plus what they've been spent on.",
+  privacy: "Where your settings and secrets live, and what leaves this machine.",
+};
+
+/**
+ * The account profile — display name and role, the two fields the V5.0
+ * Settings → Account panel edits.
+ *
+ * Owner decision 6: **production uses the real signed-in user**, so these are
+ * the user's own words, stored in their config (`profile_display_name` /
+ * `profile_role`) and read back by `resolveAccount`. Leaving a field empty is
+ * a real state — the rail then falls back to the account email and shows no
+ * role line, rather than inventing one. Photo upload isn't wired to any store
+ * yet, so the avatar is the **account-initials monogram** and the panel says
+ * so instead of offering a control that would do nothing.
+ */
+function ProfileSettings() {
+  const config = useAppStore((s) => s.config);
+  const updateConfig = useAppStore((s) => s.updateConfig);
+  const { account } = useAccount();
+  const [name, setName] = useState(config?.profile_display_name ?? "");
+  const [role, setRole] = useState(config?.profile_role ?? "");
+
+  // Reflect an external config change (import, another surface) without
+  // stomping what the user is typing right now.
+  useEffect(() => {
+    setName(config?.profile_display_name ?? "");
+    setRole(config?.profile_role ?? "");
+  }, [config?.profile_display_name, config?.profile_role]);
+
+  const commit = () =>
+    void updateConfig({
+      profile_display_name: name.trim() || null,
+      profile_role: role.trim() || null,
+    });
+
+  return (
+    <Section
+      title="Profile"
+      description="How Conva addresses you in the app. Stored on this machine with your other settings."
+    >
+      <div className="mb-4 flex items-center gap-4">
+        <span
+          className="grid h-14 w-14 shrink-0 place-items-center rounded-full border-[1.5px] border-primary/50 bg-[radial-gradient(120%_120%_at_50%_25%,#1a2742,#0c1424)] text-lg font-extrabold text-fg-muted"
+          aria-hidden
+        >
+          {account.initials}
+        </span>
+        <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-fg-muted">
+          Your initials are the avatar everywhere in the app — the rail, Home
+          and here. A photo isn&apos;t stored anywhere yet, so there&apos;s
+          nothing to upload; the monogram is the real avatar, not a placeholder
+          for one.
+        </p>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-bold text-fg">Display name</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={commit}
+            placeholder={account.email ?? "Your name"}
+            className="input h-10"
+          />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-bold text-fg">Role</span>
+          <input
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            onBlur={commit}
+            placeholder="Optional — e.g. Senior Product Manager"
+            className="input h-10"
+          />
+        </label>
+      </div>
+    </Section>
   );
 }

@@ -32,9 +32,14 @@ const PANEL_WIDTH_DEFAULT = 340;
 // name/checkbox/two icons per row now, so it can afford to be the
 // narrower pane; still freely drag-resizable, this is just the start).
 const CONTEXTS_LEFT_WIDTH_KEY = "conva.contexts.leftWidthPx";
+// AppUI V5.0 §3/§12 (FIXED): Pane A is 300px, resizable 260–380. Was
+// 260/480/400 when Contexts was a two-pane screen; the third pane (the
+// Library dock) needs the list to keep to its stated width or the 520px
+// centre floor can't hold. A stored 400 from the old range now falls
+// outside MAX and self-heals back to the 300 default on read.
 const CONTEXTS_LEFT_WIDTH_MIN = 260;
-const CONTEXTS_LEFT_WIDTH_MAX = 480;
-const CONTEXTS_LEFT_WIDTH_DEFAULT = 400;
+const CONTEXTS_LEFT_WIDTH_MAX = 380;
+const CONTEXTS_LEFT_WIDTH_DEFAULT = 300;
 const FONT_MIN = 11;
 const FONT_MAX = 20;
 const FONT_DEFAULT = 14;
