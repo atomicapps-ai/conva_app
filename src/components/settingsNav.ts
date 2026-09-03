@@ -5,26 +5,38 @@
  * > utility row below [the user]. No nav row is active while on Settings.
  * > …Account, devices, transcription, Ally, privacy.
  *
- * Five groups, in that order. Every pre-V5 Settings section is mapped onto one
- * of them — nothing was dropped in the reorganisation, and this table is the
- * record of where each went, so a future section has an obvious home:
+ * Seven groups, in that order (Usage and Subscription split out of Ally,
+ * 2026-09-03). Every pre-V5 Settings section is mapped onto one of them —
+ * nothing was dropped in the reorganisation, and this table is the record
+ * of where each went, so a future section has an obvious home:
  *
  * | Group         | Sections it owns                                          |
  * | ------------- | --------------------------------------------------------- |
  * | Account       | sign-in, display name + role                              |
  * | Devices       | microphone + system-audio device pickers                  |
  * | Transcription | engine, whisper model, noise filter                       |
- * | Ally          | providers & models, web research key, usage counters      |
+ * | Ally          | providers & models, web research key                      |
+ * | Usage         | usage counters (LLM tokens, searches, time listening)      |
+ * | Subscription  | plan + billing (mocked — see SubscriptionSettings.tsx)    |
  * | Privacy       | portable secrets, settings file, about & extras           |
  */
 
-export type SettingsGroup = "account" | "devices" | "transcription" | "ally" | "privacy";
+export type SettingsGroup =
+  | "account"
+  | "devices"
+  | "transcription"
+  | "ally"
+  | "usage"
+  | "subscription"
+  | "privacy";
 
 export const SETTINGS_GROUPS: { id: SettingsGroup; label: string }[] = [
   { id: "account", label: "Account" },
   { id: "devices", label: "Devices" },
   { id: "transcription", label: "Transcription" },
   { id: "ally", label: "Ally" },
+  { id: "usage", label: "Usage" },
+  { id: "subscription", label: "Subscription" },
   { id: "privacy", label: "Privacy" },
 ];
 
