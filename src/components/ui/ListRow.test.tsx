@@ -61,4 +61,21 @@ describe("ListRow", () => {
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("button", { name: /delete/i })).toBeNull();
   });
+
+  it("renders the icon column only when an icon is provided", () => {
+    const { container, rerender } = render(
+      <ListRow accent="muted" title="Row" date="—" onClick={vi.fn()} />,
+    );
+    expect(container.querySelector("svg")).toBeNull();
+    rerender(
+      <ListRow
+        accent="ai"
+        title="Row"
+        date="—"
+        icon={{ icon: "live", color: "#4FB8FF" }}
+        onClick={vi.fn()}
+      />,
+    );
+    expect(container.querySelector("svg")).toBeInTheDocument();
+  });
 });

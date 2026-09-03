@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import fieldArtwork from "@/assets/brand/raster/conva-intelligence-field-reference@2x.png";
+import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import {
   addedThisWeek,
   heroState,
@@ -232,6 +233,7 @@ export function DashboardView() {
                 <ListRow
                   key={c.id}
                   accent="primary"
+                  icon={{ icon: "live", color: "var(--color-primary)" }}
                   title={c.title}
                   date={formatRelativeTime(c.updated_at_unix_ms)}
                   onClick={() => setView("conversations")}
@@ -271,6 +273,7 @@ export function DashboardView() {
                 <ListRow
                   key={c.id}
                   accent="ai"
+                  icon={CATEGORY_ICON[c.category]}
                   title={c.title}
                   date={formatRelativeTime(c.updated_at_unix_ms)}
                   onClick={() => openContext(c.id)}

@@ -159,14 +159,20 @@ export function NavRail({
           object-cover-cropped as of 2026-09-02 (owner screenshot feedback:
           "trim to this yellow box... move the below login up more") — this
           supersedes the earlier "never crop the locked artwork" rule for
-          this element specifically; width stays uncropped/edge-to-edge. */}
+          this element specifically; width stays uncropped/edge-to-edge.
+          object-center (not object-top): the mark sits centered in the
+          source image with rings above AND below it, so an object-top crop
+          showed empty upper rings instead of the mark — object-center
+          brings the actual icon into view. mt-0 (no top margin): flush
+          against the last nav button, per "no need for padding between the
+          icon and the menu buttons on top." */}
       {!compact && (
-        <div className="-mx-3 my-2 h-16 overflow-hidden">
+        <div className="-mx-3 mb-2 mt-0 h-16 overflow-hidden">
           <img
             src={orbitArtwork}
             alt=""
             aria-hidden
-            className="m-0 block h-full w-full rounded-none border-0 object-cover object-top"
+            className="m-0 block h-full w-full rounded-none border-0 object-cover object-center"
           />
         </div>
       )}

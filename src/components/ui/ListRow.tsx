@@ -1,4 +1,4 @@
-import { Icon } from "@/components/ui/Icon";
+import { Icon, type IconName } from "@/components/ui/Icon";
 
 export type ListRowAccent = "primary" | "muted" | "ai";
 
@@ -11,6 +11,14 @@ const ACCENT_VAR: Record<ListRowAccent, string> = {
 export interface ListRowProps {
   accent: ListRowAccent;
   title: string;
+  /** Omit -> the icon column renders as an empty spacer (keeps column
+   *  widths identical across every row in a list, same convention as
+   *  `onSelectChange`/`onDelete` below). `color` is a raw CSS color (a
+   *  `var(--color-*)` token or a hex value) — the icon itself and its
+   *  tinted background swatch both use it. Same `{ icon, color }` shape
+   *  as `ContextsPane.tsx`'s `CATEGORY_ICON`, so its entries pass straight
+   *  through with no reshaping. */
+  icon?: { icon: IconName; color: string };
   badge?: { text: string; tone: ListRowAccent };
   date: string;
   selected?: boolean;
@@ -48,6 +56,7 @@ export interface ListRowProps {
 export function ListRow({
   accent,
   title,
+  icon,
   badge,
   date,
   selected = false,
@@ -70,7 +79,7 @@ export function ListRow({
       }}
       aria-label={title}
       className={[
-        "grid h-[34px] cursor-pointer grid-cols-[3px_14px_minmax(0,1fr)_auto_auto_20px]",
+        "grid h-[34px] cursor-pointer grid-cols-[3px_18px_14px_minmax(0,1fr)_auto_auto_20px]",
         "items-center gap-2 rounded-md border pr-2 transition",
         open
           ? "border-ai/60 bg-ai/[0.06]"
@@ -80,6 +89,20 @@ export function ListRow({
       ].join(" ")}
     >
       <span className="h-full rounded-sm" style={{ background: accentVar }} aria-hidden="true" />
+      {icon ? (
+        <span
+          className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md"
+          style={{
+            color: icon.color,
+            background: `color-mix(in srgb, ${icon.color} 16%, transparent)`,
+          }}
+          aria-hidden="true"
+        >
+          <Icon name={icon.icon} size={11} />
+        </span>
+      ) : (
+        <span aria-hidden="true" />
+      )}
       {onSelectChange ? (
         <input
           type="checkbox"
