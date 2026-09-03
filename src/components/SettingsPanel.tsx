@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AllySettings } from "@/components/AllySettings";
+import { SubscriptionSettings } from "@/components/SubscriptionSettings";
 import {
   DEFAULT_SETTINGS_GROUP,
   groupForKey,
@@ -456,7 +457,8 @@ function UsageSettings() {
     !!usage &&
     (usage.providers.length > 0 ||
       usage.tavily_searches > 0 ||
-      usage.tts_characters > 0);
+      usage.tts_characters > 0 ||
+      usage.listening_ms > 0);
 
   if (!usage) return null;
 
@@ -594,6 +596,13 @@ function UsageSettings() {
             <span className="text-fg-muted">Voice characters (Aura TTS)</span>
             <span className="font-mono tabular-nums text-fg">
               {fmt(usage.tts_characters)}
+            </span>
+          </div>
+          {/* Session time — summed across every stop_session (Live + rehearsal). */}
+          <div className="flex items-center justify-between border-t border-border px-3 py-2 text-[12px]">
+            <span className="text-fg-muted">Time listening</span>
+            <span className="font-mono tabular-nums text-fg">
+              {fmt(Math.round(usage.listening_ms / 60_000))} min
             </span>
           </div>
         </div>
@@ -1178,12 +1187,18 @@ export function SettingsPanel() {
       </Section>
       )}
 
-      {group === "ally" && (
+      {group === "usage" && (
       <Section
         title="Usage"
-        description="What your API keys have been spent on — LLM tokens and web searches."
+        description="What your API keys have been spent on — LLM tokens, web searches, and time listening."
       >
         <UsageSettings />
+      </Section>
+      )}
+
+      {group === "subscription" && (
+      <Section>
+        <SubscriptionSettings />
       </Section>
       )}
 
@@ -1290,7 +1305,9 @@ const GROUP_BLURB: Record<SettingsGroup, string> = {
   account: "Your profile and how Conva identifies you.",
   devices: "Which microphone Conva hears you on, and which output it captures.",
   transcription: "The speech engine and its speed, accuracy and noise trade-offs.",
-  ally: "Providers and models Ally answers with, plus what they've been spent on.",
+  ally: "Providers and models Ally answers with.",
+  usage: "What your API keys have been spent on — tokens, searches, and time listening.",
+  subscription: "Your plan and billing — preview only for now.",
   privacy: "Where your settings and secrets live, and what leaves this machine.",
 };
 
