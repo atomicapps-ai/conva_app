@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
+import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
@@ -269,7 +270,8 @@ export function ContextDetail({
 
   return (
     <ViewShell
-      icon="simicon"
+      icon={session ? CATEGORY_ICON[session.category].icon : "simicon"}
+      iconColor={session ? CATEGORY_ICON[session.category].color : undefined}
       breadcrumb="Contexts"
       title={session?.title || "Context"}
       subtitle={session?.purpose || "Rehearse a high-stakes call."}

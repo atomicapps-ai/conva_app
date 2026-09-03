@@ -24,6 +24,7 @@ import { Icon, type IconName } from "@/components/ui/Icon";
  */
 export function ViewShell({
   icon,
+  iconColor,
   breadcrumb,
   eyebrow,
   title,
@@ -36,6 +37,13 @@ export function ViewShell({
   wide = false,
 }: {
   icon: IconName;
+  /** Override the default azure `brand-ring` chip with a category-specific
+   *  color (e.g. `CATEGORY_ICON[category].color` from `ContextsPane.tsx`) —
+   *  glyph + tinted ring + tinted fill, same recipe as `ListRow`'s icon
+   *  chip. Omit for the default brand-gradient ring every other view uses
+   *  unchanged (owner, 2026-09-03: the Context edit/detail header icon
+   *  should reflect the context's type, not always the generic glyph). */
+  iconColor?: string;
   /** Parent segment(s) — omit for a flat, top-level view. */
   breadcrumb?: string;
   title: string;
@@ -79,7 +87,20 @@ export function ViewShell({
           </button>
         )}
         <span
-          className="brand-ring flex h-9 w-9 items-center justify-center rounded text-primary"
+          className={
+            iconColor
+              ? "flex h-9 w-9 shrink-0 items-center justify-center rounded border"
+              : "brand-ring flex h-9 w-9 items-center justify-center rounded text-primary"
+          }
+          style={
+            iconColor
+              ? {
+                  color: iconColor,
+                  borderColor: `color-mix(in srgb, ${iconColor} 45%, transparent)`,
+                  background: `color-mix(in srgb, ${iconColor} 16%, transparent)`,
+                }
+              : undefined
+          }
           aria-hidden
         >
           <Icon name={icon} size={19} />

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
@@ -274,7 +275,8 @@ export function ContextSetup({
 
   return (
     <ViewShell
-      icon="simicon"
+      icon={CATEGORY_ICON[category].icon}
+      iconColor={CATEGORY_ICON[category].color}
       breadcrumb="Contexts"
       title={initial ? "Edit Context" : "New Context"}
       subtitle={`Step ${step} of 3 — ${STEP_LABEL[step - 1]}`}
