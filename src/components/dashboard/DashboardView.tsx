@@ -216,16 +216,21 @@ export function DashboardView() {
         <Panel className="p-4">
           <div className="mb-2 flex items-center justify-between gap-3">
             <h3 className="text-[15px] font-bold leading-none text-fg">Recent conversations</h3>
-            {!loading && conversations.length > 0 && (
-              <ViewAll label="View all" onClick={() => setView("conversations")} />
-            )}
+            {/* Always shown once loaded (not gated on conversations.length) —
+                it's the only way back to history from Home when nothing's
+                been named yet, and backend.sessions.list() may still have
+                real content behind it even at zero saved conversations. */}
+            {!loading && <ViewAll label="View all" onClick={() => setView("conversations")} />}
           </div>
           {loading ? (
             <Skeleton rows={3} />
           ) : conversations.length === 0 ? (
             <EmptyState
               title="No conversations yet"
-              description="Saved calls and coaching sessions land here. Start listening, then save the transcript when you stop."
+              description="Saved calls land here once you name one. Your raw session log is still there:"
+              action={
+                <ViewAll label="View all activity" onClick={() => setView("conversations")} />
+              }
             />
           ) : (
             <div className="flex flex-col gap-1">

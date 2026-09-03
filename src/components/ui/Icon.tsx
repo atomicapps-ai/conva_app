@@ -51,6 +51,7 @@ export type IconName =
   | "download"
   | "dragHandle"
   | "check"
+  | "history"
   | "pin"
   | "lock"
   | "unlock"
@@ -415,6 +416,13 @@ const PATHS: Record<IconName, ReactNode> = {
   check: (
     <>
       <path d="M5 12.5l4.5 4.5L19 7" />
+    </>
+  ),
+  // History — a clock face, its hands short of noon (past conversations).
+  history: (
+    <>
+      <circle cx="12" cy="12" r="8.2" />
+      <path d="M12 7.5V12l3 2" />
     </>
   ),
   // Drag handle — a 2x3 grip of dots (draggable library rows).

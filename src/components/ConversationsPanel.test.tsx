@@ -6,7 +6,7 @@ import { NAV_ITEMS } from "@/components/studio/navItems";
 import { activeRailView } from "@/components/studio/railState";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
-import type { ContextSummary, ConversationSummary, SessionSummary } from "@/lib/ipc";
+import type { Conversation, ContextSummary, ConversationSummary, SessionSummary } from "@/lib/ipc";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useNavStore } from "@/state/nav";
 
@@ -63,10 +63,21 @@ function fakeBackend(
     conversations: {
       list: vi.fn().mockResolvedValue(conversations),
       delete: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn().mockImplementation(
+        async (id: string): Promise<Conversation> => ({
+          id,
+          title: conversations.find((c) => c.id === id)?.title ?? "Untitled",
+          created_at_unix_ms: 0,
+          updated_at_unix_ms: 0,
+          segments: [],
+          linked_docs: [],
+        }),
+      ),
     },
     sessions: {
       list: vi.fn().mockResolvedValue(sessions),
       delete: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn().mockResolvedValue([]),
     },
     context: { list: vi.fn().mockResolvedValue(contexts) },
     rag: { list: vi.fn().mockResolvedValue([]) },
@@ -120,6 +131,46 @@ describe("ConversationsPanel", () => {
     expect(useNavStore.getState().view).toBe("context");
     expect(useContextsQuickOpen.getState().pendingId).toBe("c1");
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("opening a saved conversation row navigates to Live", async () => {
+    // Regression: clicking a row loaded the transcript into the store but
+    // never switched views, so the app stayed on whatever screen the
+    // Conversations panel was opened from (Home/⌘K) and the loaded
+    // conversation never actually appeared anywhere — only the search-hit
+    // path (openSearchHit) called setView("live"); the plain row click
+    // (open) didn't.
+    useNavStore.setState({ view: "conversations" });
+    const backend = fakeBackend([], [conversationRow({ title: "Amazon interview prep" })]);
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel onClose={vi.fn()} />
+      </BackendProvider>,
+    );
+    await screen.findByRole("heading", { name: "Conversations" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Amazon interview prep" }));
+
+    await waitFor(() => expect(backend.conversations.load).toHaveBeenCalledWith("conv-1"));
+    expect(useNavStore.getState().view).toBe("live");
+  });
+
+  it("opening a past (unsaved) session row navigates to Live", async () => {
+    useNavStore.setState({ view: "conversations" });
+    const backend = fakeBackend([], [], [sessionRow({ preview: "hello there" })]);
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel onClose={vi.fn()} />
+      </BackendProvider>,
+    );
+    await screen.findByRole("heading", { name: "Conversations" });
+
+    // Default tab is "All activity" — a session row is visible with no tab
+    // switch needed.
+    fireEvent.click(screen.getByRole("button", { name: "hello there" }));
+
+    await waitFor(() => expect(backend.sessions.load).toHaveBeenCalledWith("session-1"));
+    expect(useNavStore.getState().view).toBe("live");
   });
 
   it("checking two rows shows the bulk bar with a count of 2", async () => {

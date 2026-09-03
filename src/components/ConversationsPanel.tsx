@@ -351,6 +351,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const open = async (id: string) => {
     try {
       openConversation(await backend.conversations.load(id));
+      setView("live");
       onClose();
     } catch (e) {
       setNotice(String(e));
@@ -360,6 +361,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const openPastSession = async (id: string) => {
     try {
       loadPastSession(id, await backend.sessions.load(id));
+      setView("live");
       onClose();
     } catch (e) {
       setNotice(String(e));

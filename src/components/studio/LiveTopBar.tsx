@@ -2,6 +2,7 @@ import { GroundPicker } from "@/components/contexts/GroundPicker";
 import { Icon } from "@/components/ui/Icon";
 import { useConversationStore } from "@/state/conversation";
 import { useGroundingStore } from "@/state/grounding";
+import { useNavStore } from "@/state/nav";
 import { useTranscriptStore } from "@/state/transcript";
 
 /**
@@ -33,6 +34,7 @@ export function LiveTopBar() {
   const listening = session.state === "listening";
   const activeTitle = useGroundingStore((s) => s.activeTitle);
   const requestNew = useConversationStore((s) => s.requestNew);
+  const setView = useNavStore((s) => s.setView);
 
   return (
     <header className="flex shrink-0 items-center gap-4 border-b border-border px-4 py-3">
@@ -61,6 +63,22 @@ export function LiveTopBar() {
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
+        {/* History (owner, 2026-09-03): a labeled entry point back into
+            Conversations — the ONLY documented way in besides Home's mini-
+            list and ⌘K was this one, and it didn't exist. Not a new
+            tab-switching pattern for the Ally panel/control bar (both stay
+            exactly as locked in, CLAUDE.md rule 10) — this is a top-bar
+            navigation link, same family as the icon chip/breadcrumb next
+            to it, just pointing at a sub-view instead of decorating this
+            one. Opens on ConversationsPanel's default "All activity" tab. */}
+        <button
+          type="button"
+          onClick={() => setView("conversations")}
+          className="flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-primary/45 bg-primary/[0.09] px-3 text-[12px] font-bold text-fg transition hover:bg-primary/[0.16]"
+        >
+          <Icon name="history" size={13} className="text-primary" />
+          History
+        </button>
         {/* "+ New" lives up here in the crown (owner, 2026-08-21 — it bled
             over the panel border when crammed into the conversation
             sub-header at narrow widths). Unsaved content routes through the
