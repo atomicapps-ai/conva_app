@@ -341,8 +341,11 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
         loadPastSession(hit.rowId, cached ?? (await backend.sessions.load(hit.rowId)));
       }
       useTranscriptJump.getState().request(hit.turnKey, searchQuery.trim());
+      // No `onClose()` here — see the note on `open` below. This panel
+      // navigates to Live itself; calling onClose (== backToHome ==
+      // setView("dashboard")) right after would synchronously clobber the
+      // "live" view we just set, in the same tick.
       setView("live");
-      onClose();
     } catch (e) {
       setNotice(String(e));
     }
@@ -351,8 +354,15 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const open = async (id: string) => {
     try {
       openConversation(await backend.conversations.load(id));
+      // Deliberately no `onClose()` after this. `onClose` in production is
+      // always `backToHome` (`ViewRouter.tsx`'s only call site) — a
+      // synchronous `setView("dashboard")` — and calling it right after
+      // `setView("live")` overwrote "live" back to "dashboard" in the same
+      // tick, silently stranding the app on Home instead of the
+      // conversation it just opened. Once we've navigated to Live
+      // ourselves, this panel unmounts via the view change regardless, so
+      // onClose has nothing left to do.
       setView("live");
-      onClose();
     } catch (e) {
       setNotice(String(e));
     }
@@ -361,8 +371,8 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const openPastSession = async (id: string) => {
     try {
       loadPastSession(id, await backend.sessions.load(id));
+      // See the note on `open` above — same reasoning, same fix.
       setView("live");
-      onClose();
     } catch (e) {
       setNotice(String(e));
     }

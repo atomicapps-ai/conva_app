@@ -133,18 +133,28 @@ describe("ConversationsPanel", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("opening a saved conversation row navigates to Live", async () => {
-    // Regression: clicking a row loaded the transcript into the store but
-    // never switched views, so the app stayed on whatever screen the
-    // Conversations panel was opened from (Home/⌘K) and the loaded
-    // conversation never actually appeared anywhere — only the search-hit
-    // path (openSearchHit) called setView("live"); the plain row click
-    // (open) didn't.
+  // `onClose` in production is ALWAYS `backToHome` (ViewRouter.tsx's only
+  // call site) — `() => setView("dashboard")`, not a no-op. A bare `vi.fn()`
+  // here would pass even if the real onClose clobbers the "live" navigation
+  // right after it (which it did — see the regression note below), so these
+  // tests use a stand-in that actually mimics backToHome's real effect.
+  const realOnClose = () => useNavStore.setState({ view: "dashboard" });
+
+  it("opening a saved conversation row navigates to Live, not Home", async () => {
+    // Regression (twice over): first, clicking a row loaded the transcript
+    // but never switched views at all, so the app stayed on whatever screen
+    // the panel was opened from. Fixed by adding setView("live") to `open`.
+    // That fix then IMMEDIATELY called onClose() right after — and onClose
+    // is backToHome (setView("dashboard")), a synchronous Zustand set that
+    // overwrote "live" back to "dashboard" in the same tick. Net effect:
+    // still landed on Home, just via a different code path. Root cause:
+    // onClose() has no reason to run at all once we've already navigated
+    // to Live ourselves — the panel unmounts via the view change regardless.
     useNavStore.setState({ view: "conversations" });
     const backend = fakeBackend([], [conversationRow({ title: "Amazon interview prep" })]);
     render(
       <BackendProvider backend={backend}>
-        <ConversationsPanel onClose={vi.fn()} />
+        <ConversationsPanel onClose={realOnClose} />
       </BackendProvider>,
     );
     await screen.findByRole("heading", { name: "Conversations" });
@@ -155,12 +165,12 @@ describe("ConversationsPanel", () => {
     expect(useNavStore.getState().view).toBe("live");
   });
 
-  it("opening a past (unsaved) session row navigates to Live", async () => {
+  it("opening a past (unsaved) session row navigates to Live, not Home", async () => {
     useNavStore.setState({ view: "conversations" });
     const backend = fakeBackend([], [], [sessionRow({ preview: "hello there" })]);
     render(
       <BackendProvider backend={backend}>
-        <ConversationsPanel onClose={vi.fn()} />
+        <ConversationsPanel onClose={realOnClose} />
       </BackendProvider>,
     );
     await screen.findByRole("heading", { name: "Conversations" });
