@@ -21,7 +21,7 @@ import {
 } from "@/components/studio/PageView";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { ListRow } from "@/components/ui/ListRow";
-import { LockedIcon, LockedMark } from "@/components/ui/LockedIcon";
+import { LockedIcon, LockedMarkBadge } from "@/components/ui/LockedIcon";
 import { greetingFor } from "@/lib/account";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
@@ -448,14 +448,13 @@ function Hero({
       ) : (
         <>
           {/* Blue-rimmed glowing badge around the mark (owner reference
-              image, 2026-09-02 — "where is the blue border and outerglow?"):
-              same bordered-circle-on-radial-gradient idiom NavRail's own
-              account avatar already uses, not new geometry. */}
-          <span
-            className="relative hidden h-20 w-20 shrink-0 items-center justify-center rounded-full border-[1.5px] border-primary/60 bg-[radial-gradient(120%_120%_at_50%_25%,#1a2742,#0c1424)] text-fg shadow-[0_0_28px_rgba(79,184,255,0.35)] sm:flex"
-            aria-hidden
-          >
-            <LockedMark size={52} />
+              image, 2026-09-02): the border/glow trace the mark's OWN
+              bubble silhouette, not a generic circle — a round badge
+              wrapper was wrong (round-tripped, corrected same day). The
+              bubble itself is dark; the "C" is bright — not the other way
+              around. See `LockedMarkBadge` in `LockedIcon.tsx`. */}
+          <span className="relative hidden h-20 w-20 shrink-0 items-center justify-center sm:flex" aria-hidden>
+            <LockedMarkBadge size={80} />
           </span>
           <div className="relative min-w-0 flex-1">
             {state.kind === "starter" ? (

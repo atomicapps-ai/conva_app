@@ -324,3 +324,59 @@ export function LockedMark({
     </svg>
   );
 }
+
+/** Just the mark's OUTER two-form silhouette (its first sub-path — the same
+ *  `d` data as {@link LockedMark} above, verbatim, truncated at the first
+ *  `Z`) with no "C" cutout. Not a retrace: it's the identical coordinate
+ *  string, used as its own closed region for {@link LockedMarkBadge}'s
+ *  backing fill + outline below. */
+const MARK_SILHOUETTE_D =
+  "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91Z";
+
+const MARK_D =
+  "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91ZM402.78 307.14 337.17 388.44 234.64 408.55 143.18 358.06 105.57 260.58 139.42 161.74 228.88 107.78 332.1 123.95 400.78 202.68 354.84 222.55 309.68 168.7 240.48 156.47 241.61 204.11 179.6 191.59 155.54 257.62 179.55 323.67 240.4 358.83 309.62 346.65 354.81 292.83 402.78 307.14Z";
+
+/**
+ * The mark as a blue-rimmed, glowing badge — a bright "C" cut out of a dark
+ * bubble, a blue outline traced around the bubble's own silhouette, and an
+ * outer glow that follows that same silhouette (not a generic circle).
+ * Layering, back to front: a solid light disc in the exact mark shape (no
+ * cutout) → the real locked mark on top, dark, with its "C" cutout — the
+ * cutout is what lets the light disc show through as the "C" → the outline
+ * traced along the silhouette. `filter: drop-shadow` (not `box-shadow`,
+ * which would just glow the square bounding box) is what makes the glow
+ * hug the actual bubble shape.
+ */
+export function LockedMarkBadge({
+  size = 80,
+  bubbleColor = "#0b1220",
+  cColor = "#eef1ff",
+  ringColor = "#4fb8ff",
+  title = "conva",
+}: {
+  size?: number;
+  /** Fill of the bubble body (everywhere the "C" isn't). */
+  bubbleColor?: string;
+  /** What shows through the "C" cutout. */
+  cColor?: string;
+  /** Outline + glow color. */
+  ringColor?: string;
+  title?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 512 512"
+      role="img"
+      aria-label={title}
+      style={{
+        filter: `drop-shadow(0 0 ${size * 0.09}px ${ringColor}99) drop-shadow(0 0 ${size * 0.2}px ${ringColor}4d)`,
+      }}
+    >
+      <path d={MARK_SILHOUETTE_D} fill={cColor} />
+      <path d={MARK_D} fill={bubbleColor} fillRule="evenodd" />
+      <path d={MARK_SILHOUETTE_D} fill="none" stroke={ringColor} strokeWidth={11} strokeLinejoin="round" />
+    </svg>
+  );
+}
