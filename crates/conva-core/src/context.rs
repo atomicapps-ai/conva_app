@@ -177,6 +177,18 @@ pub struct ConversationContext {
     /// the ingestion phase folds into the `KnowledgeProfile`.
     #[serde(default)]
     pub source_doc_ids: Vec<String>,
+    /// Which attached document ids are filed under which of the category's
+    /// `ConversationTemplate::file_slots`, keyed by `FileSlot::key`. Purely
+    /// organizational for the setup/detail UI — the grounding pipeline still
+    /// reads `source_doc_ids` (the flat union) for what actually indexes, this
+    /// map only drives per-slot display. A doc id present in `source_doc_ids`
+    /// but absent from every slot's list here is unslotted — rendered under
+    /// the UI's "Other documents" catch-all rather than under a synthetic
+    /// slot key. `#[serde(default)]` so a context saved before this field
+    /// existed deserializes with an empty map (all its docs read as
+    /// unslotted) — no migration, no data loss.
+    #[serde(default)]
+    pub slot_doc_ids: std::collections::BTreeMap<String, Vec<String>>,
     /// Whether Ally should auto-generate context (Step 1, Path B) during ingest.
     #[serde(default)]
     pub auto_generate_context: bool,
@@ -1239,6 +1251,42 @@ mod tests {
         assert!(!ContextCategory::Other.default_research_enabled());
     }
 
+    #[test]
+    fn old_contexts_without_slot_doc_ids_deserialize_with_an_empty_map() {
+        // A context persisted before slot_doc_ids existed — must still load
+        // (serde default), reading every attached doc as unslotted (it falls
+        // into the UI's "Other documents" catch-all rather than losing data
+        // or failing to deserialize).
+        let old_json = r#"{
+            "id": "s1",
+            "title": "Senior Accountant Interview",
+            "purpose": "Prep for GAAP questions",
+            "job_description": null,
+            "category": "interview",
+            "status": "ready",
+            "created_at_unix_ms": 0,
+            "updated_at_unix_ms": 0,
+            "source_doc_ids": [],
+            "auto_generate_context": false,
+            "research_enabled": true,
+            "key_terms": [],
+            "glossary": [],
+            "glossary_definitions": {},
+            "knowledge_profile_id": null,
+            "personas": [],
+            "chosen_persona_id": null,
+            "conversation_id": null,
+            "dossier_doc_id": null,
+            "research_doc_id": null,
+            "deep_qa_enabled": false,
+            "qa_doc_id": null,
+            "resources_stale": false,
+            "resources_generated_at_unix_ms": null
+        }"#;
+        let ctx: ConversationContext = serde_json::from_str(old_json).unwrap();
+        assert!(ctx.slot_doc_ids.is_empty());
+    }
+
     fn sample_context() -> ConversationContext {
         ConversationContext {
             id: "s1".into(),
@@ -1250,6 +1298,7 @@ mod tests {
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,
             source_doc_ids: vec![],
+            slot_doc_ids: std::collections::BTreeMap::new(),
             auto_generate_context: false,
             research_enabled: true,
             key_terms: vec![],
@@ -1444,6 +1493,7 @@ mod tests {
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,
             source_doc_ids: vec!["doc-a".into(), "doc-b".into()],
+            slot_doc_ids: std::collections::BTreeMap::new(),
             auto_generate_context: false,
             research_enabled: true,
             key_terms: vec!["GAAP".into()],
