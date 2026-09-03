@@ -285,15 +285,16 @@ export function DashboardView() {
       </div>
 
       <Panel className="flex flex-wrap items-center gap-4 px-6 py-5">
-        {/* Sized to match the ListRow icon chip below, not a bespoke larger
-            size — same 16%-tint treatment (owner, 2026-09-02: "this is a
-            waste of space, align the icon with the recent conversations
-            padding width"). */}
+        {/* Sized to match the ListRow icon chip below, not a bespoke size of
+            its own — same 16%-tint treatment (owner, 2026-09-02: "align the
+            icon with the recent conversations..."; owner, 2026-09-03: "all
+            of the icons should be much larger, nearly the height of the
+            row they are in" — 28px chip, 18px glyph, same as ListRow's). */}
         <span
-          className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md bg-primary/[0.16] text-primary"
+          className="grid h-[28px] w-[28px] shrink-0 place-items-center rounded-md bg-primary/[0.16] text-primary"
           aria-hidden
         >
-          <LockedIcon name="nav-library" size={11} />
+          <LockedIcon name="nav-library" size={18} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[15px] font-bold leading-tight text-fg">Library</span>
