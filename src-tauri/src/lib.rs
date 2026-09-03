@@ -335,6 +335,13 @@ async fn stop_session(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
     // retrieval scope (session grounding) — a stopped session always returns
     // to the unscoped default.
     clear_active_context(&state);
+    // Meter the time this session ran (best-effort; session_started_ms is 0
+    // if a session was never actually started).
+    let started = state.session.session_started_ms();
+    if started > 0 {
+        let elapsed = session::now_unix_ms().saturating_sub(started);
+        metering::record_listening_ms(&app, elapsed);
+    }
     state.session.stop(&app).map_err(|e| e.to_string())
 }
 
