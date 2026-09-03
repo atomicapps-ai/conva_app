@@ -79,8 +79,8 @@ export function ListRow({
       }}
       aria-label={title}
       className={[
-        "grid h-[34px] cursor-pointer grid-cols-[3px_18px_14px_minmax(0,1fr)_auto_auto_20px]",
-        "items-center gap-2 rounded-md border pr-2 transition",
+        "grid h-[34px] cursor-pointer grid-cols-[3px_12px_14px_minmax(0,1fr)_auto_auto_20px]",
+        "items-center gap-1 rounded-md border pr-2 transition",
         open
           ? "border-ai/60 bg-ai/[0.06]"
           : selected
@@ -91,14 +91,14 @@ export function ListRow({
       <span className="h-full rounded-sm" style={{ background: accentVar }} aria-hidden="true" />
       {icon ? (
         <span
-          className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md"
+          className="grid h-[12px] w-[12px] shrink-0 place-items-center rounded-[3px]"
           style={{
             color: icon.color,
             background: `color-mix(in srgb, ${icon.color} 16%, transparent)`,
           }}
           aria-hidden="true"
         >
-          <Icon name={icon.icon} size={11} />
+          <Icon name={icon.icon} size={8} />
         </span>
       ) : (
         <span aria-hidden="true" />

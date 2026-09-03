@@ -92,7 +92,7 @@ export function NavRail({
         "relative z-10 flex shrink-0 flex-col border-r border-border bg-bg-2 py-5",
         // px-3 == the 12px the orbit's -mx-3 cancels below. Change one, change
         // the other or the artwork stops being edge-to-edge.
-        compact ? "items-center px-2" : "px-3",
+        compact ? "items-center px-1" : "px-3",
       ].join(" ")}
     >
       {/* ── brand ─────────────────────────────────────────────────────── */}
@@ -122,7 +122,7 @@ export function NavRail({
                 "relative flex shrink-0 items-center rounded-[var(--radius)] border transition",
                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
                 compact
-                  ? "h-11 w-full justify-center"
+                  ? "h-9 w-full justify-center"
                   : "gap-3 px-[13px] py-2 text-left text-[13px]",
                 isActive
                   ? "border-border-strong bg-panel-raised text-fg"
