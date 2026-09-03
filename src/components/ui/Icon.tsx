@@ -68,8 +68,11 @@ export type IconName =
   | "star"
   | "starFilled"
   | "camera"
-  | "radar"
-  | "meeting";
+  | "chatBubbles"
+  | "groupThree"
+  | "videoCam"
+  | "phoneCall"
+  | "dots";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -312,23 +315,64 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
     </>
   ),
-  // Interview context type — a radar/scan sweep (concentric broken rings +
-  // center dot). Distinct from `target`'s crosshair — that one is already
-  // spoken for by the Live cockpit's Tracking section.
-  radar: (
+  // Interview context type — two overlapping speech bubbles (Material
+  // "forum" / FontAwesome fa-comments), solid-filled per the owner's
+  // reference table (2026-09-02) rather than this file's usual outline
+  // language — a deliberate exception for the category-badge use case.
+  chatBubbles: (
     <>
-      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="12" r="5.5" strokeDasharray="3.4 3" />
-      <circle cx="12" cy="12" r="9" strokeDasharray="4.6 4" />
+      <rect x="2" y="4" width="14" height="10" rx="3" fill="currentColor" stroke="none" opacity="0.55" />
+      <path d="M5 14v3.2l4-3.2z" fill="currentColor" stroke="none" opacity="0.55" />
+      <rect x="8" y="10" width="14" height="10" rx="3" fill="currentColor" stroke="none" />
+      <path d="M19 20v-3.2l-4 3.2z" fill="currentColor" stroke="none" />
     </>
   ),
-  // Company-meeting context type — two people (boardroom/group).
-  meeting: (
+  // Company-meeting context type — a three-person cluster (Material
+  // "groups" / fa-users), solid-filled.
+  groupThree: (
     <>
-      <circle cx="9" cy="8.5" r="2.4" />
-      <path d="M4.5 18a4.5 4.5 0 0 1 9 0" />
-      <circle cx="15.5" cy="9" r="1.9" />
-      <path d="M15 13.6a4 4 0 0 1 4.5 4.4" />
+      <circle cx="6.5" cy="8.2" r="2.1" fill="currentColor" stroke="none" />
+      <path d="M2.5 18c0-3 1.8-5 4-5s4 2 4 5z" fill="currentColor" stroke="none" />
+      <circle cx="17.5" cy="8.2" r="2.1" fill="currentColor" stroke="none" />
+      <path d="M13.5 18c0-3 1.8-5 4-5s4 2 4 5z" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="6.5" r="2.6" fill="currentColor" stroke="none" />
+      <path d="M6.5 19c0-3.3 2.3-5.5 5.5-5.5s5.5 2.2 5.5 5.5z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Live-stream context type — a video camera (Material "videocam" /
+  // fa-video), solid-filled.
+  videoCam: (
+    <>
+      <rect x="2" y="6" width="13" height="12" rx="2.5" fill="currentColor" stroke="none" />
+      <path d="M17 10.3 22 7v10l-5-3.3z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Sales-call context type — a phone handset + sound waves (Material
+  // "phone_in_talk" / fa-phone-volume), solid-filled handset.
+  phoneCall: (
+    <>
+      <rect
+        x="7"
+        y="9.5"
+        width="10"
+        height="5"
+        rx="2.5"
+        fill="currentColor"
+        stroke="none"
+        transform="rotate(-45 12 12)"
+      />
+      <path d="M15.7 6.6a5 5 0 0 1 3 3" strokeLinecap="round" />
+      <path d="M17.6 3.6a8.6 8.6 0 0 1 5 5" strokeLinecap="round" />
+    </>
+  ),
+  // Other context type — three horizontal dots (Material "more_horiz" /
+  // fa-ellipsis), solid-filled. Distinct from `more`'s VERTICAL dots (an
+  // overflow-menu affordance, not a category glyph).
+  dots: (
+    <>
+      <circle cx="5" cy="12" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.8" fill="currentColor" stroke="none" />
     </>
   ),
   // Elaborate — expand outward (plus with radiating arrows).

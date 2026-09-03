@@ -306,6 +306,7 @@ export type ContextCategory =
   | "interview"
   | "company_meeting"
   | "sales_call"
+  | "live_stream"
   | "other";
 
 /** Lifecycle of a Context, start to finish. */

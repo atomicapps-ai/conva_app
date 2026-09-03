@@ -32,8 +32,10 @@ pub const DEFAULT_CONTEXT_ID: &str = "default";
 
 /// The kind of conversation this context is for — drives the setup template
 /// (documents to collect + digest sections), persona generation, and the
-/// web-research default. The launch set (Interview · Company Meeting ·
-/// Sales Call · Other) is fixed but extensible later; see
+/// web-research default. Interview · Company Meeting · Sales Call · Live
+/// Stream · Other (`LiveStream` added 2026-09-02 — podcast/streamer/
+/// live-commerce hosts prepping a broadcast, per
+/// `conva_core/docs/product/use-cases.md`); extensible later — see
 /// `conva_core/docs/technical/conversation-context.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -41,6 +43,7 @@ pub enum ContextCategory {
     Interview,
     CompanyMeeting,
     SalesCall,
+    LiveStream,
     Other,
 }
 
@@ -363,6 +366,37 @@ impl ContextCategory {
                     "Objections",
                     "Talking points",
                 ],
+                default_research_enabled: true,
+            },
+            ContextCategory::LiveStream => ConversationTemplate {
+                label: "livestream or podcast",
+                file_slots: &[
+                    FileSlot {
+                        key: "rundown",
+                        label: "Show rundown / outline",
+                        multiple: false,
+                    },
+                    FileSlot {
+                        key: "guest_bio",
+                        label: "Guest bio",
+                        multiple: true,
+                    },
+                    FileSlot {
+                        key: "talking_points",
+                        label: "Talking points / script",
+                        multiple: true,
+                    },
+                ],
+                digest_sections: &[
+                    "Episode outline",
+                    "Core vocabulary",
+                    "Guest background",
+                    "Likely audience questions",
+                ],
+                // On by default — current-events/topic research is exactly
+                // what a host prepping a broadcast wants, same reasoning as
+                // Interview/SalesCall (public info helps; nothing here is
+                // internal/confidential the way a company meeting's is).
                 default_research_enabled: true,
             },
             ContextCategory::Other => ConversationTemplate {
@@ -910,6 +944,12 @@ the transcript and give concrete suggestions for improvement."
 items and who owns them, and how clearly the user communicated. Cite \
 specific moments from the transcript."
         }
+        Some(ContextCategory::LiveStream) => {
+            "Analyze how well the user performed as HOST of this livestream \
+or podcast — pacing, energy, clarity, how well they kept to the outline, \
+and how they handled the guest or audience questions. Cite specific \
+moments from the transcript and give concrete suggestions for improvement."
+        }
         Some(ContextCategory::Other) | None => {
             "Analyze this conversation's clarity and structure — what \
 went well, what was unclear, and concrete suggestions for improvement. \
@@ -1169,6 +1209,7 @@ mod tests {
             ContextCategory::Interview,
             ContextCategory::CompanyMeeting,
             ContextCategory::SalesCall,
+            ContextCategory::LiveStream,
             ContextCategory::Other,
         ] {
             let t = cat.template();
@@ -1189,9 +1230,11 @@ mod tests {
 
     #[test]
     fn research_defaults_match_decision_two() {
-        // Interview + sales: on (public info helps). Internal meeting: off.
+        // Interview + sales + livestream: on (public info helps). Internal
+        // meeting: off.
         assert!(ContextCategory::Interview.default_research_enabled());
         assert!(ContextCategory::SalesCall.default_research_enabled());
+        assert!(ContextCategory::LiveStream.default_research_enabled());
         assert!(!ContextCategory::CompanyMeeting.default_research_enabled());
         assert!(!ContextCategory::Other.default_research_enabled());
     }
@@ -1767,5 +1810,13 @@ mod tests {
         let sales = performance_analysis_prompt(Some(ContextCategory::SalesCall), None, &[], "x");
         assert_ne!(interview.system, sales.system);
         assert!(sales.system.to_lowercase().contains("objection"));
+    }
+
+    #[test]
+    fn performance_analysis_prompt_livestream_framing_is_host_specific() {
+        let stream = performance_analysis_prompt(Some(ContextCategory::LiveStream), None, &[], "x");
+        let sys = stream.system.to_lowercase();
+        assert!(sys.contains("host"));
+        assert!(sys.contains("pacing"));
     }
 }

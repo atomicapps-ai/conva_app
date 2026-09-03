@@ -25,6 +25,12 @@ const CATEGORIES: {
     research: false,
   },
   { value: "sales_call", label: "Sales call", hint: "Demo, objection handling", research: true },
+  {
+    value: "live_stream",
+    label: "Live stream",
+    hint: "Podcast, stream, live-commerce broadcast",
+    research: true,
+  },
   { value: "other", label: "Other", hint: "Anything high-stakes", research: false },
 ];
 

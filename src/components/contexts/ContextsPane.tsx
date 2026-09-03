@@ -20,23 +20,28 @@ const CATEGORY_LABEL: Record<ContextCategory, string> = {
   interview: "Interview",
   company_meeting: "Company meeting",
   sales_call: "Sales call",
+  live_stream: "Live stream",
   other: "Other",
 };
 
 /**
- * Per-category row pictogram + color (owner reference, 2026-09-02 —
- * `conva_core/docs/technical/assets/home-contexts-redesign/concept-contexts.png`,
- * colors sampled directly from that image). `interview` reuses the app's
- * existing azure primary; the other three are dedicated hex values, not
- * reused voice-lock colors (`--color-inbound`/`--color-outbound` are
- * exclusively Them/You per the palette rules) or Ally gold (exclusively
- * Ally-authored content) — new, category-only swatches instead.
+ * Per-category row pictogram + color. Icons revised 2026-09-02 (owner:
+ * "try these") to solid-filled Material/FontAwesome-style glyphs —
+ * `chatBubbles`/`groupThree`/`videoCam`/`phoneCall`/`dots` in `Icon.tsx` —
+ * superseding the first outline-style pass (`radar`/`search`/`book`).
+ * `interview` reuses the app's existing azure primary; the rest are
+ * dedicated hex values, not reused voice-lock colors
+ * (`--color-inbound`/`--color-outbound` are exclusively Them/You per the
+ * palette rules) or Ally gold (exclusively Ally-authored content) or
+ * recording-red (exclusively recording/danger) — new, category-only
+ * swatches instead.
  */
 export const CATEGORY_ICON: Record<ContextCategory, { icon: IconName; color: string }> = {
-  interview: { icon: "radar", color: "var(--color-primary)" },
-  company_meeting: { icon: "meeting", color: "#E0B84C" },
-  sales_call: { icon: "search", color: "#9D7DC4" },
-  other: { icon: "book", color: "#67C6C5" },
+  interview: { icon: "chatBubbles", color: "var(--color-primary)" },
+  company_meeting: { icon: "groupThree", color: "#E0B84C" },
+  sales_call: { icon: "phoneCall", color: "#9D7DC4" },
+  live_stream: { icon: "videoCam", color: "#E8608F" },
+  other: { icon: "dots", color: "#67C6C5" },
 };
 
 function formatDate(unixMs: number): string {

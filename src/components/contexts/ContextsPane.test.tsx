@@ -80,13 +80,15 @@ describe("ContextsPane", () => {
           summary({ id: "s1", title: "Acme interview", category: "interview" }),
           summary({ id: "s2", title: "Board sync", category: "company_meeting" }),
           summary({ id: "s3", title: "Acme discovery call", category: "sales_call" }),
-          summary({ id: "s4", title: "War stories", category: "other" }),
+          summary({ id: "s4", title: "Weekly show", category: "live_stream" }),
+          summary({ id: "s5", title: "War stories", category: "other" }),
         ]}
       />,
     );
     expect(screen.getByTitle("Interview")).toBeInTheDocument();
     expect(screen.getByTitle("Company meeting")).toBeInTheDocument();
     expect(screen.getByTitle("Sales call")).toBeInTheDocument();
+    expect(screen.getByTitle("Live stream")).toBeInTheDocument();
     expect(screen.getByTitle("Other")).toBeInTheDocument();
   });
 
