@@ -506,6 +506,9 @@ export interface UsageSummary {
   tavily_searches: number;
   /** TTS characters synthesized (Aura bills per character). */
   tts_characters: number;
+  /** Milliseconds an active session (Live or rehearsal) has run, summed
+   *  across every stop. */
+  listening_ms: number;
   /** When the current window opened (first record / last reset); 0 = never. */
   since_unix_ms: number;
   updated_at_unix_ms: number;
