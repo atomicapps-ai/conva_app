@@ -11,6 +11,36 @@ import { RAIL_EXPANDED_PX, RAIL_ICONS_PX, type RailMode } from "@/lib/responsive
 import { useAccount } from "@/lib/useAccount";
 import { useNavStore } from "@/state/nav";
 
+// ── Core-orbit artwork crop ────────────────────────────────────────────────
+// `conva-core-orbit-reference@2x.png`'s own pixel geometry — measured
+// directly off the source file, not eyeballed. The mark sits noticeably
+// ABOVE the image's own vertical center (its dark-octagon bubble's bounding
+// box is x:[164,295] y:[136,263] out of 456×460), so centering the CROP on
+// the image's geometric center (plain `object-position: center`) puts the
+// mark visibly off-center — that was the bug in the 2026-09-02 h-16 crop
+// (owner: "cut off") and remained latent in the follow-up uncropped h-auto
+// version (owner: still off-center once the whole ring was visible).
+const ORBIT_SRC_W = 456;
+const ORBIT_SRC_H = 460;
+const ORBIT_MARK_CX = (164 + 295) / 2;
+const ORBIT_MARK_CY = (136 + 263) / 2;
+// Square window, in SOURCE px, to keep visible — big enough for a couple of
+// rings around the mark, small enough to drop the outermost ring and the
+// antenna-line accessory (owner, 2026-09-03: "this is the size this icon
+// square should be, trim off the rest"). Tune this one number to make the
+// crop tighter/looser; everything else below derives from it.
+const ORBIT_CROP_PX = 300;
+// The rail's own square footprint for this element (RAIL_EXPANDED_PX ×
+// RAIL_EXPANDED_PX — expanded-mode only, never compact). Scale + offset
+// place ORBIT_MARK_CX/CY exactly at that square's center, so the mark has
+// EQUAL clearance top and bottom (and left/right) by construction, not by
+// eye.
+const ORBIT_SCALE = RAIL_EXPANDED_PX / ORBIT_CROP_PX;
+const ORBIT_DISPLAY_W = ORBIT_SRC_W * ORBIT_SCALE;
+const ORBIT_DISPLAY_H = ORBIT_SRC_H * ORBIT_SCALE;
+const ORBIT_LEFT = -(ORBIT_MARK_CX * ORBIT_SCALE - RAIL_EXPANDED_PX / 2);
+const ORBIT_TOP = -(ORBIT_MARK_CY * ORBIT_SCALE - RAIL_EXPANDED_PX / 2);
+
 /**
  * The primary navigation rail — AppUI V5.0 (`conva_core@1b007ed`,
  * `brand/UI/AppUI_V5.0/NavRail.dc.html`, the component every frame imports).
@@ -155,28 +185,33 @@ export function NavRail({
 
       {/* ── lower brand: the Conva Core orbit ─────────────────────────────
           EDGE TO EDGE horizontally — -mx-3 exactly cancels the rail's px-3,
-          no padding/border of its own. The 2026-09-02 height-cap
-          (`h-16 object-cover`, "trim to this yellow box") over-cropped: at
-          the rail's own width the artwork's natural aspect renders far
-          taller than 64px, so `object-cover` sliced straight through the
-          outer rings — reported back as "cut off when it should never be
-          cut off" (owner, 2026-09-03). Fixed by NOT cropping at all:
-          `h-auto` renders the image at its true width-constrained height
-          (the full ring, uncropped) and `py-2` (8px) gives the ring
-          breathing room top and bottom, "still more about 8 pixels top
-          and bottom" per that feedback — this only ever renders in
-          expanded mode (`!compact`); the icon-only rail keeps its own
-          small `LockedMark` at the top instead, untouched by this. mt-0
-          (no extra top margin beyond the py-2): flush-ish against the
-          last nav button, per "no need for padding between the icon and
-          the menu buttons on top." */}
+          no padding/border of its own. Third pass on this element's crop
+          (owner, 2026-09-03): the 2026-09-02 `h-16 object-cover` cap
+          over-cropped ("cut off"); the follow-up uncropped `h-auto` fixed
+          that but left the mark visibly off-center once the whole ring was
+          visible ("this is the size this icon square should be, trim off
+          the rest... equal top and bottom"). This version is a fixed
+          RAIL_EXPANDED_PX-square window (`ORBIT_*` consts above), the image
+          explicitly sized/positioned so `ORBIT_MARK_CX/CY` lands exactly at
+          that square's center — equal clearance top/bottom by construction.
+          Only ever renders in expanded mode (`!compact`); the icon-only
+          rail keeps its own small `LockedMark` at the top, untouched. */}
       {!compact && (
-        <div className="-mx-3 mb-2 mt-0 py-2">
+        <div
+          className="-mx-3 mb-2 mt-0 relative overflow-hidden"
+          style={{ width: RAIL_EXPANDED_PX, height: RAIL_EXPANDED_PX }}
+        >
           <img
             src={orbitArtwork}
             alt=""
             aria-hidden
-            className="m-0 block h-auto w-full rounded-none border-0"
+            className="absolute m-0 max-w-none rounded-none border-0"
+            style={{
+              width: ORBIT_DISPLAY_W,
+              height: ORBIT_DISPLAY_H,
+              left: ORBIT_LEFT,
+              top: ORBIT_TOP,
+            }}
           />
         </div>
       )}

@@ -62,13 +62,27 @@ const LOCKED: Record<LockedIconName, Locked> = {
       />
     ),
   },
-  // nav-live-session — the sitewide brand mark (owner, 2026-09-03: "the
-  // icon at the top should be the sitewide logo for live session, update
-  // the icon on the left navigation"), not a bespoke glyph. Same `MARK_D`
-  // path as {@link LockedMark}, verbatim — not a second trace of the mark.
+  // nav-live-session — the pulse/EKG glyph, same coordinate string as
+  // `Icon.tsx`'s "live" (`PATHS.live`), so the rail row and every other
+  // "live session" icon in the app (LiveTopBar, CommandPalette,
+  // LiveControlBar, etc. — all render via `Icon name="live"`) are the
+  // SAME glyph. This row used to be a different concentric-arc/broadcast
+  // glyph, inconsistent with everywhere else — that mismatch was the
+  // actual bug (owner, 2026-09-03, confirmed with a reference screenshot
+  // of the pulse icon: "this is the correct live session icon, update it
+  // site wide"). A brief detour swapped this AND LiveTopBar to the brand
+  // mark instead — reverted; the mark was never the ask, consistency was.
   "nav-live-session": {
-    viewBox: "0 0 512 512",
-    body: <path d={MARK_D} fill="currentColor" fillRule="evenodd" />,
+    viewBox: "0 0 24 24",
+    body: (
+      <path
+        d="M4 12h2l1.5-5 3 12L13 5l2 9 1.5-2H20"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    ),
   },
   // nav-contexts.svg
   "nav-contexts": {

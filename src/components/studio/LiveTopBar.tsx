@@ -1,6 +1,5 @@
 import { GroundPicker } from "@/components/contexts/GroundPicker";
 import { Icon } from "@/components/ui/Icon";
-import { LockedMark } from "@/components/ui/LockedIcon";
 import { useConversationStore } from "@/state/conversation";
 import { useGroundingStore } from "@/state/grounding";
 import { useTranscriptStore } from "@/state/transcript";
@@ -41,15 +40,16 @@ export function LiveTopBar() {
           Live's own hand-rolled crown was missing it (owner, 2026-08-30:
           "include the icon on the top header... make sure all tabs
           headers follow the same consistent UI scheme"). Same brand-ring
-          treatment; the sitewide mark itself, not a bespoke glyph (owner,
-          2026-09-03: "the icon at the top should be the sitewide logo for
-          live session") — same `LockedMark` the nav rail's `nav-live-session`
-          row and brand area both use. */}
+          treatment, the pulse/"live" glyph — confirmed correct as-is
+          (owner, 2026-09-03, reference screenshot); the actual bug was
+          the nav rail's row using a DIFFERENT glyph for the same concept
+          (fixed in `LockedIcon.tsx`'s `nav-live-session`, now the same
+          path as this). */}
       <span
         className="brand-ring flex h-9 w-9 shrink-0 items-center justify-center rounded text-primary"
         aria-hidden
       >
-        <LockedMark size={19} />
+        <Icon name="live" size={19} />
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
