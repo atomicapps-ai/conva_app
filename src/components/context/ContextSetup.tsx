@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
+import { CATEGORIES, researchDefault } from "@/components/context/categoryTemplates";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
@@ -9,34 +10,6 @@ import { splitDocuments } from "@/components/context/documentSplit";
 import { buildQaMarkdown, parseQaImport } from "@/components/transcript/qaPairs";
 import type { RagDocument, ContextCategory, ConversationContext } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
-
-// Mirrors conva_core::context templates. `research` = the web-research default
-// for the type (decision 2 — on for interview/sales, off for internal meetings).
-const CATEGORIES: {
-  value: ContextCategory;
-  label: string;
-  hint: string;
-  research: boolean;
-}[] = [
-  { value: "interview", label: "Interview", hint: "Job or panel interview", research: true },
-  {
-    value: "company_meeting",
-    label: "Company meeting",
-    hint: "Internal — financials, reviews, planning",
-    research: false,
-  },
-  { value: "sales_call", label: "Sales call", hint: "Demo, objection handling", research: true },
-  {
-    value: "live_stream",
-    label: "Live stream",
-    hint: "Podcast, stream, live-commerce broadcast",
-    research: true,
-  },
-  { value: "other", label: "Other", hint: "Anything high-stakes", research: false },
-];
-
-const researchDefault = (c: ContextCategory): boolean =>
-  CATEGORIES.find((x) => x.value === c)?.research ?? false;
 
 const DOC_EXTENSIONS = ["pdf", "docx", "md", "txt", "html"];
 const STEP_LABEL = ["the basics", "context & documents", "review"];
