@@ -815,6 +815,42 @@ Change to:
 `group === "ally"` blocks, around lines 1150 and 1172) are untouched —
 still gated on `"ally"`.
 
+- [ ] **Step 3b: Fix `GROUP_BLURB` (found during Task 5 — missed in the
+  original spec exploration)**
+
+`GROUP_BLURB: Record<SettingsGroup, string>` (around line 1289 — the
+per-group one-line description shown at the top of each Settings panel)
+is keyed by every `SettingsGroup` variant, so Task 4's type widening
+breaks its build until this is added. Currently:
+
+```ts
+const GROUP_BLURB: Record<SettingsGroup, string> = {
+  account: "Your profile and how Conva identifies you.",
+  devices: "Which microphone Conva hears you on, and which output it captures.",
+  transcription: "The speech engine and its speed, accuracy and noise trade-offs.",
+  ally: "Providers and models Ally answers with, plus what they've been spent on.",
+  privacy: "Where your settings and secrets live, and what leaves this machine.",
+};
+```
+
+Change to:
+
+```ts
+const GROUP_BLURB: Record<SettingsGroup, string> = {
+  account: "Your profile and how Conva identifies you.",
+  devices: "Which microphone Conva hears you on, and which output it captures.",
+  transcription: "The speech engine and its speed, accuracy and noise trade-offs.",
+  ally: "Providers and models Ally answers with.",
+  usage: "What your API keys have been spent on — tokens, searches, and time listening.",
+  subscription: "Your plan and billing — preview only for now.",
+  privacy: "Where your settings and secrets live, and what leaves this machine.",
+};
+```
+
+(`ally`'s blurb drops "plus what they've been spent on" — that's Usage's
+line now, not Ally's, since the Usage section moved out in this same
+change.)
+
 - [ ] **Step 4: Typecheck + run the full UI test suite**
 
 Run: `npx tsc -b`
