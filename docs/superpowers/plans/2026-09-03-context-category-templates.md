@@ -484,7 +484,11 @@ git commit -m "feat(context): add groupBySlot for per-slot document grouping"
       screen.getByRole("heading", { name: /take-home \/ test \(multiple\)/i }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    // Two "Back" buttons share this accessible name — ViewShell's own header
+    // chevron (rendered whenever `onBack` is passed, unrelated to the
+    // wizard) and the wizard's own step-nav button. The wizard's is the one
+    // rendered second (DOM order: header chrome, then the step footer).
+    fireEvent.click(screen.getAllByRole("button", { name: "Back" })[1]!);
     fireEvent.click(screen.getByRole("button", { name: "Company meeting" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(
