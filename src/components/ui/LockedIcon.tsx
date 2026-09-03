@@ -42,6 +42,12 @@ export type LockedIconName =
 
 type Locked = { viewBox: string; body: ReactNode };
 
+// The mark's `d` data, verbatim — same coordinate string as {@link LockedMark}
+// below. Declared here (rather than only near `LockedMark`) so `LOCKED`'s
+// `nav-live-session` entry can reuse it without a forward reference.
+const MARK_D =
+  "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91ZM402.78 307.14 337.17 388.44 234.64 408.55 143.18 358.06 105.57 260.58 139.42 161.74 228.88 107.78 332.1 123.95 400.78 202.68 354.84 222.55 309.68 168.7 240.48 156.47 241.61 204.11 179.6 191.59 155.54 257.62 179.55 323.67 240.4 358.83 309.62 346.65 354.81 292.83 402.78 307.14Z";
+
 const LOCKED: Record<LockedIconName, Locked> = {
   // nav-home.svg
   "nav-home": {
@@ -56,20 +62,13 @@ const LOCKED: Record<LockedIconName, Locked> = {
       />
     ),
   },
-  // nav-live-session.svg
+  // nav-live-session — the sitewide brand mark (owner, 2026-09-03: "the
+  // icon at the top should be the sitewide logo for live session, update
+  // the icon on the left navigation"), not a bespoke glyph. Same `MARK_D`
+  // path as {@link LockedMark}, verbatim — not a second trace of the mark.
   "nav-live-session": {
-    viewBox: "0 0 24 24",
-    body: (
-      <>
-        <circle cx="7" cy="12" r="2.1" fill="currentColor" />
-        <path
-          d="M12 6.5a7.5 7.5 0 0 1 0 11M15.5 4a11.5 11.5 0 0 1 0 16"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinecap="round"
-        />
-      </>
-    ),
+    viewBox: "0 0 512 512",
+    body: <path d={MARK_D} fill="currentColor" fillRule="evenodd" />,
   },
   // nav-contexts.svg
   "nav-contexts": {
@@ -316,11 +315,7 @@ export function LockedMark({
       aria-label={title}
       className={className}
     >
-      <path
-        fill="currentColor"
-        fillRule="evenodd"
-        d="M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91ZM402.78 307.14 337.17 388.44 234.64 408.55 143.18 358.06 105.57 260.58 139.42 161.74 228.88 107.78 332.1 123.95 400.78 202.68 354.84 222.55 309.68 168.7 240.48 156.47 241.61 204.11 179.6 191.59 155.54 257.62 179.55 323.67 240.4 358.83 309.62 346.65 354.81 292.83 402.78 307.14Z"
-      />
+      <path fill="currentColor" fillRule="evenodd" d={MARK_D} />
     </svg>
   );
 }
@@ -332,9 +327,6 @@ export function LockedMark({
  *  backing fill + outline below. */
 const MARK_SILHOUETTE_D =
   "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91Z";
-
-const MARK_D =
-  "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91ZM402.78 307.14 337.17 388.44 234.64 408.55 143.18 358.06 105.57 260.58 139.42 161.74 228.88 107.78 332.1 123.95 400.78 202.68 354.84 222.55 309.68 168.7 240.48 156.47 241.61 204.11 179.6 191.59 155.54 257.62 179.55 323.67 240.4 358.83 309.62 346.65 354.81 292.83 402.78 307.14Z";
 
 /**
  * The mark as a blue-rimmed, glowing badge — a bright "C" cut out of a dark

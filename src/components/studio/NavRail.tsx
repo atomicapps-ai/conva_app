@@ -155,24 +155,28 @@ export function NavRail({
 
       {/* ── lower brand: the Conva Core orbit ─────────────────────────────
           EDGE TO EDGE horizontally — -mx-3 exactly cancels the rail's px-3,
-          no padding/border/radius/divider of its own. Height-CAPPED and
-          object-cover-cropped as of 2026-09-02 (owner screenshot feedback:
-          "trim to this yellow box... move the below login up more") — this
-          supersedes the earlier "never crop the locked artwork" rule for
-          this element specifically; width stays uncropped/edge-to-edge.
-          object-center (not object-top): the mark sits centered in the
-          source image with rings above AND below it, so an object-top crop
-          showed empty upper rings instead of the mark — object-center
-          brings the actual icon into view. mt-0 (no top margin): flush
-          against the last nav button, per "no need for padding between the
-          icon and the menu buttons on top." */}
+          no padding/border of its own. The 2026-09-02 height-cap
+          (`h-16 object-cover`, "trim to this yellow box") over-cropped: at
+          the rail's own width the artwork's natural aspect renders far
+          taller than 64px, so `object-cover` sliced straight through the
+          outer rings — reported back as "cut off when it should never be
+          cut off" (owner, 2026-09-03). Fixed by NOT cropping at all:
+          `h-auto` renders the image at its true width-constrained height
+          (the full ring, uncropped) and `py-2` (8px) gives the ring
+          breathing room top and bottom, "still more about 8 pixels top
+          and bottom" per that feedback — this only ever renders in
+          expanded mode (`!compact`); the icon-only rail keeps its own
+          small `LockedMark` at the top instead, untouched by this. mt-0
+          (no extra top margin beyond the py-2): flush-ish against the
+          last nav button, per "no need for padding between the icon and
+          the menu buttons on top." */}
       {!compact && (
-        <div className="-mx-3 mb-2 mt-0 h-16 overflow-hidden">
+        <div className="-mx-3 mb-2 mt-0 py-2">
           <img
             src={orbitArtwork}
             alt=""
             aria-hidden
-            className="m-0 block h-full w-full rounded-none border-0 object-cover object-center"
+            className="m-0 block h-auto w-full rounded-none border-0"
           />
         </div>
       )}
