@@ -366,6 +366,12 @@ export interface ConversationContext {
   updated_at_unix_ms: number;
   /** Library docs attached at setup (Path A) — RagDocument ids. */
   source_doc_ids: string[];
+  /** Which attached doc ids are filed under which of the category's file
+   * slots, keyed by slot key (see `categoryTemplates.ts`'s `ContextFileSlot`).
+   * Purely organizational for the setup/detail UI. Optional: older records
+   * (and any object literal that predates this field) read as empty —
+   * every doc renders as unslotted ("Other documents") until re-filed. */
+  slot_doc_ids?: Record<string, string[]>;
   /** Whether Ally should auto-generate context (Path B) during ingest. */
   auto_generate_context: boolean;
   /** Whether web research runs during prep — defaults from the type template,
