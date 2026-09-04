@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { splitDocuments } from "@/components/context/documentSplit";
+import { groupBySlot, splitDocuments } from "@/components/context/documentSplit";
+import type { ContextFileSlot } from "@/components/context/categoryTemplates";
 import type { RagDocument } from "@/lib/ipc";
 
 function doc(overrides: Partial<RagDocument> = {}): RagDocument {
@@ -53,5 +54,39 @@ describe("splitDocuments", () => {
     const { attachable, generated } = splitDocuments([gen, file], undefined);
     expect(generated).toEqual([]);
     expect(attachable).toEqual([file]);
+  });
+});
+
+describe("groupBySlot", () => {
+  const slots: ContextFileSlot[] = [
+    { key: "resume", label: "Résumé / CV", multiple: false },
+    { key: "job_description", label: "Job description", multiple: false },
+  ];
+
+  it("puts a doc into the slot whose slotDocIds list contains its id", () => {
+    const resume = doc({ id: "d1", file_name: "resume.pdf" });
+    const { slots: groups } = groupBySlot([resume], slots, { resume: ["d1"] });
+    expect(groups[0]!.docs).toEqual([resume]);
+    expect(groups[1]!.docs).toEqual([]);
+  });
+
+  it("puts a doc absent from every slot's list into `other`", () => {
+    const misc = doc({ id: "d2", file_name: "misc.txt" });
+    const { other } = groupBySlot([misc], slots, {});
+    expect(other).toEqual([misc]);
+  });
+
+  it("puts every doc into `other` when slotDocIds is empty (back-compat, pre-migration contexts)", () => {
+    const a = doc({ id: "d1" });
+    const b = doc({ id: "d2" });
+    const { slots: groups, other } = groupBySlot([a, b], slots, {});
+    expect(other).toEqual([a, b]);
+    expect(groups.every((g) => g.docs.length === 0)).toBe(true);
+  });
+
+  it("keeps a slot in the result with an empty docs array when nothing matches", () => {
+    const { slots: groups } = groupBySlot([], slots, {});
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toEqual({ slot: slots[0], docs: [] });
   });
 });

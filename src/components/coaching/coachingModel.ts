@@ -45,7 +45,7 @@ export interface PracticeTemplate {
 }
 
 /**
- * The starter set. Deliberately mapped onto the four categories the backend
+ * The starter set. Deliberately mapped onto the five categories the backend
  * actually has — a template that promised a "mode" the pipeline can't honour
  * would be a fabricated feature.
  */
@@ -86,6 +86,12 @@ export const PRACTICE_TEMPLATES: PracticeTemplate[] = [
     category: "other",
     purpose: "Practise a hard conversation and stay on the outcome you want.",
   },
+  {
+    id: "livestream-hosting",
+    name: "Livestream / Podcast Hosting",
+    category: "live_stream",
+    purpose: "Rehearse hosting a broadcast: pacing, guest questions, audience Q&A.",
+  },
 ];
 
 /** Human label for the mode a setup runs in — derived from the context's REAL
@@ -94,6 +100,7 @@ export const CATEGORY_LABEL: Record<ContextCategory, string> = {
   interview: "Interview candidate",
   company_meeting: "Meeting / executive prep",
   sales_call: "Sales discovery",
+  live_stream: "Livestream / podcast host",
   other: "General / custom",
 };
 

@@ -42,6 +42,12 @@ export type LockedIconName =
 
 type Locked = { viewBox: string; body: ReactNode };
 
+// The mark's `d` data, verbatim — same coordinate string as {@link LockedMark}
+// below. Declared here (rather than only near `LockedMark`) so `LOCKED`'s
+// `nav-live-session` entry can reuse it without a forward reference.
+const MARK_D =
+  "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91ZM402.78 307.14 337.17 388.44 234.64 408.55 143.18 358.06 105.57 260.58 139.42 161.74 228.88 107.78 332.1 123.95 400.78 202.68 354.84 222.55 309.68 168.7 240.48 156.47 241.61 204.11 179.6 191.59 155.54 257.62 179.55 323.67 240.4 358.83 309.62 346.65 354.81 292.83 402.78 307.14Z";
+
 const LOCKED: Record<LockedIconName, Locked> = {
   // nav-home.svg
   "nav-home": {
@@ -56,19 +62,26 @@ const LOCKED: Record<LockedIconName, Locked> = {
       />
     ),
   },
-  // nav-live-session.svg
+  // nav-live-session — the pulse/EKG glyph, same coordinate string as
+  // `Icon.tsx`'s "live" (`PATHS.live`), so the rail row and every other
+  // "live session" icon in the app (LiveTopBar, CommandPalette,
+  // LiveControlBar, etc. — all render via `Icon name="live"`) are the
+  // SAME glyph. This row used to be a different concentric-arc/broadcast
+  // glyph, inconsistent with everywhere else — that mismatch was the
+  // actual bug (owner, 2026-09-03, confirmed with a reference screenshot
+  // of the pulse icon: "this is the correct live session icon, update it
+  // site wide"). A brief detour swapped this AND LiveTopBar to the brand
+  // mark instead — reverted; the mark was never the ask, consistency was.
   "nav-live-session": {
     viewBox: "0 0 24 24",
     body: (
-      <>
-        <circle cx="7" cy="12" r="2.1" fill="currentColor" />
-        <path
-          d="M12 6.5a7.5 7.5 0 0 1 0 11M15.5 4a11.5 11.5 0 0 1 0 16"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinecap="round"
-        />
-      </>
+      <path
+        d="M4 12h2l1.5-5 3 12L13 5l2 9 1.5-2H20"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     ),
   },
   // nav-contexts.svg
@@ -316,11 +329,60 @@ export function LockedMark({
       aria-label={title}
       className={className}
     >
-      <path
-        fill="currentColor"
-        fillRule="evenodd"
-        d="M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91ZM402.78 307.14 337.17 388.44 234.64 408.55 143.18 358.06 105.57 260.58 139.42 161.74 228.88 107.78 332.1 123.95 400.78 202.68 354.84 222.55 309.68 168.7 240.48 156.47 241.61 204.11 179.6 191.59 155.54 257.62 179.55 323.67 240.4 358.83 309.62 346.65 354.81 292.83 402.78 307.14Z"
-      />
+      <path fill="currentColor" fillRule="evenodd" d={MARK_D} />
+    </svg>
+  );
+}
+
+/** Just the mark's OUTER two-form silhouette (its first sub-path — the same
+ *  `d` data as {@link LockedMark} above, verbatim, truncated at the first
+ *  `Z`) with no "C" cutout. Not a retrace: it's the identical coordinate
+ *  string, used as its own closed region for {@link LockedMarkBadge}'s
+ *  backing fill + outline below. */
+const MARK_SILHOUETTE_D =
+  "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91Z";
+
+/**
+ * The mark as a blue-rimmed, glowing badge — a bright "C" cut out of a dark
+ * bubble, a blue outline traced around the bubble's own silhouette, and an
+ * outer glow that follows that same silhouette (not a generic circle).
+ * Layering, back to front: a solid light disc in the exact mark shape (no
+ * cutout) → the real locked mark on top, dark, with its "C" cutout — the
+ * cutout is what lets the light disc show through as the "C" → the outline
+ * traced along the silhouette. `filter: drop-shadow` (not `box-shadow`,
+ * which would just glow the square bounding box) is what makes the glow
+ * hug the actual bubble shape.
+ */
+export function LockedMarkBadge({
+  size = 80,
+  bubbleColor = "#0b1220",
+  cColor = "#eef1ff",
+  ringColor = "#4fb8ff",
+  title = "conva",
+}: {
+  size?: number;
+  /** Fill of the bubble body (everywhere the "C" isn't). */
+  bubbleColor?: string;
+  /** What shows through the "C" cutout. */
+  cColor?: string;
+  /** Outline + glow color. */
+  ringColor?: string;
+  title?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 512 512"
+      role="img"
+      aria-label={title}
+      style={{
+        filter: `drop-shadow(0 0 ${size * 0.09}px ${ringColor}99) drop-shadow(0 0 ${size * 0.2}px ${ringColor}4d)`,
+      }}
+    >
+      <path d={MARK_SILHOUETTE_D} fill={cColor} />
+      <path d={MARK_D} fill={bubbleColor} fillRule="evenodd" />
+      <path d={MARK_SILHOUETTE_D} fill="none" stroke={ringColor} strokeWidth={11} strokeLinejoin="round" />
     </svg>
   );
 }

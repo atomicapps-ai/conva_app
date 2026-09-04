@@ -1,4 +1,4 @@
-import { Icon } from "@/components/ui/Icon";
+import { Icon, type IconName } from "@/components/ui/Icon";
 
 export type ListRowAccent = "primary" | "muted" | "ai";
 
@@ -11,6 +11,14 @@ const ACCENT_VAR: Record<ListRowAccent, string> = {
 export interface ListRowProps {
   accent: ListRowAccent;
   title: string;
+  /** Omit -> the icon column renders as an empty spacer (keeps column
+   *  widths identical across every row in a list, same convention as
+   *  `onSelectChange`/`onDelete` below). `color` is a raw CSS color (a
+   *  `var(--color-*)` token or a hex value) — the icon itself and its
+   *  tinted background swatch both use it. Same `{ icon, color }` shape
+   *  as `ContextsPane.tsx`'s `CATEGORY_ICON`, so its entries pass straight
+   *  through with no reshaping. */
+  icon?: { icon: IconName; color: string };
   badge?: { text: string; tone: ListRowAccent };
   date: string;
   selected?: boolean;
@@ -23,6 +31,18 @@ export interface ListRowProps {
    *  Rehearsals tab in ConversationsPanel.tsx, which reuses this shape
    *  with neither optional prop wired). */
   onSelectChange?: (checked: boolean) => void;
+  /** Open this row's transcript read-only in the partner-window viewer
+   *  (owner request, 2026-09-04 — "one for the transcript view... load it
+   *  in the viewer on the right"). Omit -> spacer, same convention as
+   *  `onDelete`. Rows with no transcript (e.g. a Rehearsals-tab context
+   *  row) omit this. */
+  onOpenViewer?: () => void;
+  /** Open this row in the Live cockpit (owner request, 2026-09-04 — "the
+   *  other icon to open the conversation in the live session viewer").
+   *  Omit -> spacer. Distinct from `onClick` (the row's own default open
+   *  action) so both can be wired to the same handler without conflating
+   *  "click anywhere on the row" with "this specific icon." */
+  onOpenLive?: () => void;
   /** Omit -> the trash-can column renders as an empty spacer. */
   onDelete?: () => void;
   onClick: () => void;
@@ -48,11 +68,14 @@ export interface ListRowProps {
 export function ListRow({
   accent,
   title,
+  icon,
   badge,
   date,
   selected = false,
   open = false,
   onSelectChange,
+  onOpenViewer,
+  onOpenLive,
   onDelete,
   onClick,
 }: ListRowProps) {
@@ -70,8 +93,8 @@ export function ListRow({
       }}
       aria-label={title}
       className={[
-        "grid h-[34px] cursor-pointer grid-cols-[3px_14px_minmax(0,1fr)_auto_auto_20px]",
-        "items-center gap-2 rounded-md border pr-2 transition",
+        "grid h-[34px] cursor-pointer grid-cols-[3px_28px_14px_minmax(0,1fr)_auto_auto_20px_20px_20px]",
+        "items-center gap-1 rounded-md border pr-2 transition",
         open
           ? "border-ai/60 bg-ai/[0.06]"
           : selected
@@ -80,6 +103,23 @@ export function ListRow({
       ].join(" ")}
     >
       <span className="h-full rounded-sm" style={{ background: accentVar }} aria-hidden="true" />
+      {icon ? (
+        <span
+          // Nearly the row's own 34px height (owner, 2026-09-03: "all of
+          // the icons should be much larger nearly the height of the row
+          // they are in") — 28px, 3px clearance top/bottom.
+          className="grid h-[28px] w-[28px] shrink-0 place-items-center rounded-md"
+          style={{
+            color: icon.color,
+            background: `color-mix(in srgb, ${icon.color} 16%, transparent)`,
+          }}
+          aria-hidden="true"
+        >
+          <Icon name={icon.icon} size={18} />
+        </span>
+      ) : (
+        <span aria-hidden="true" />
+      )}
       {onSelectChange ? (
         <input
           type="checkbox"
@@ -110,6 +150,38 @@ export function ListRow({
       <span className="shrink-0 whitespace-nowrap font-mono text-[10px] text-fg-faint">
         {date}
       </span>
+      {onOpenViewer ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenViewer();
+          }}
+          aria-label={`Open ${title} in the transcript viewer`}
+          title="Open in transcript viewer"
+          className="grid h-5 w-5 place-items-center rounded-sm text-fg-faint transition hover:bg-ai/10 hover:text-ai"
+        >
+          <Icon name="expand" size={12} />
+        </button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
+      {onOpenLive ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenLive();
+          }}
+          aria-label={`Open ${title} in Live`}
+          title="Open in Live"
+          className="grid h-5 w-5 place-items-center rounded-sm text-fg-faint transition hover:bg-primary/10 hover:text-primary"
+        >
+          <Icon name="live" size={12} />
+        </button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
       {onDelete ? (
         <button
           type="button"

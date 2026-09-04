@@ -24,6 +24,7 @@ export type IconName =
   | "chevron"
   | "unfoldMore"
   | "unfoldLess"
+  | "bubbleCollapse"
   | "mic"
   | "system"
   | "account"
@@ -51,6 +52,7 @@ export type IconName =
   | "download"
   | "dragHandle"
   | "check"
+  | "history"
   | "pin"
   | "lock"
   | "unlock"
@@ -67,7 +69,12 @@ export type IconName =
   | "personaFemale"
   | "star"
   | "starFilled"
-  | "camera";
+  | "camera"
+  | "chatBubbles"
+  | "groupThree"
+  | "videoCam"
+  | "phoneCall"
+  | "dots";
 
 const PATHS: Record<IconName, ReactNode> = {
   // Live cockpit — a sound/signal waveform.
@@ -232,6 +239,17 @@ const PATHS: Record<IconName, ReactNode> = {
   unfoldMore: <path d="M8 9l4-4 4 4M8 15l4 4 4-4" />,
   // Collapse-all — chevrons pointing together.
   unfoldLess: <path d="M8 5l4 4 4-4M8 19l4-4 4 4" />,
+  // Chat bubble with an arrow — toggles whether "your" turns start
+  // collapsed by default. Distinct from the plain "chevron" (one turn's
+  // own collapse toggle) and unfoldMore/unfoldLess (every turn at once);
+  // the arrow flips via the caller's className (rotate-180), same
+  // convention as "chevron".
+  bubbleCollapse: (
+    <>
+      <path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H10l-4 3v-3H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+      <path d="M9 9.5l3 3 3-3" />
+    </>
+  ),
   // Microphone — the "you" stream.
   mic: (
     <>
@@ -310,6 +328,66 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
     </>
   ),
+  // Interview context type — two overlapping speech bubbles (Material
+  // "forum" / FontAwesome fa-comments), solid-filled per the owner's
+  // reference table (2026-09-02) rather than this file's usual outline
+  // language — a deliberate exception for the category-badge use case.
+  chatBubbles: (
+    <>
+      <rect x="2" y="4" width="14" height="10" rx="3" fill="currentColor" stroke="none" opacity="0.55" />
+      <path d="M5 14v3.2l4-3.2z" fill="currentColor" stroke="none" opacity="0.55" />
+      <rect x="8" y="10" width="14" height="10" rx="3" fill="currentColor" stroke="none" />
+      <path d="M19 20v-3.2l-4 3.2z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Company-meeting context type — a three-person cluster (Material
+  // "groups" / fa-users), solid-filled.
+  groupThree: (
+    <>
+      <circle cx="6.5" cy="8.2" r="2.1" fill="currentColor" stroke="none" />
+      <path d="M2.5 18c0-3 1.8-5 4-5s4 2 4 5z" fill="currentColor" stroke="none" />
+      <circle cx="17.5" cy="8.2" r="2.1" fill="currentColor" stroke="none" />
+      <path d="M13.5 18c0-3 1.8-5 4-5s4 2 4 5z" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="6.5" r="2.6" fill="currentColor" stroke="none" />
+      <path d="M6.5 19c0-3.3 2.3-5.5 5.5-5.5s5.5 2.2 5.5 5.5z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Live-stream context type — a video camera (Material "videocam" /
+  // fa-video), solid-filled.
+  videoCam: (
+    <>
+      <rect x="2" y="6" width="13" height="12" rx="2.5" fill="currentColor" stroke="none" />
+      <path d="M17 10.3 22 7v10l-5-3.3z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Sales-call context type — a phone handset + sound waves (Material
+  // "phone_in_talk" / fa-phone-volume), solid-filled handset.
+  phoneCall: (
+    <>
+      <rect
+        x="7"
+        y="9.5"
+        width="10"
+        height="5"
+        rx="2.5"
+        fill="currentColor"
+        stroke="none"
+        transform="rotate(-45 12 12)"
+      />
+      <path d="M15.7 6.6a5 5 0 0 1 3 3" strokeLinecap="round" />
+      <path d="M17.6 3.6a8.6 8.6 0 0 1 5 5" strokeLinecap="round" />
+    </>
+  ),
+  // Other context type — three horizontal dots (Material "more_horiz" /
+  // fa-ellipsis), solid-filled. Distinct from `more`'s VERTICAL dots (an
+  // overflow-menu affordance, not a category glyph).
+  dots: (
+    <>
+      <circle cx="5" cy="12" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none" />
+      <circle cx="19" cy="12" r="1.8" fill="currentColor" stroke="none" />
+    </>
+  ),
   // Elaborate — expand outward (plus with radiating arrows).
   elaborate: (
     <>
@@ -350,6 +428,13 @@ const PATHS: Record<IconName, ReactNode> = {
   check: (
     <>
       <path d="M5 12.5l4.5 4.5L19 7" />
+    </>
+  ),
+  // History — a clock face, its hands short of noon (past conversations).
+  history: (
+    <>
+      <circle cx="12" cy="12" r="8.2" />
+      <path d="M12 7.5V12l3 2" />
     </>
   ),
   // Drag handle — a 2x3 grip of dots (draggable library rows).

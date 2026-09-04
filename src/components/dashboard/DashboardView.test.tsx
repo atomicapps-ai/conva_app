@@ -1,12 +1,21 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DashboardView } from "@/components/dashboard/DashboardView";
 import { BackendProvider } from "@/lib/backend";
-import { DESKTOP_CAPABILITIES } from "@/lib/backend/capabilities";
+import { DESKTOP_CAPABILITIES, type Capabilities } from "@/lib/backend/capabilities";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
-import type { AuthStatus, ContextSummary, ConversationSummary, RagDocument } from "@/lib/ipc";
+import { formatTranscriptForViewer } from "@/lib/formatTranscript";
+import type {
+  AuthStatus,
+  Conversation,
+  ContextSummary,
+  ConversationSummary,
+  RagDocument,
+  TranscriptSegment,
+} from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
+import { useConversationStore } from "@/state/conversation";
 import { useGroundingStore } from "@/state/grounding";
 import { useNavStore } from "@/state/nav";
 
@@ -15,6 +24,7 @@ beforeEach(() => {
   useNavStore.setState({ view: "dashboard", paletteOpen: false });
   useAppStore.setState({ config: null });
   useGroundingStore.setState({ activeId: null, activeTitle: null });
+  useConversationStore.setState({ openId: null, title: null });
 });
 
 function fakeBackend({
@@ -23,10 +33,22 @@ function fakeBackend({
   documents = [] as RagDocument[],
   fails = false,
   auth = { signed_in: true, email: "maya.chen@example.com" } as Partial<AuthStatus>,
+  capabilities = DESKTOP_CAPABILITIES,
+  conversationLoad,
+  partnerOpen = vi.fn().mockResolvedValue(undefined),
+}: {
+  contexts?: ContextSummary[];
+  conversations?: ConversationSummary[];
+  documents?: RagDocument[];
+  fails?: boolean;
+  auth?: Partial<AuthStatus>;
+  capabilities?: Capabilities | null;
+  conversationLoad?: (id: string) => Promise<Conversation>;
+  partnerOpen?: ReturnType<typeof vi.fn>;
 } = {}): ConvaBackend {
   const reject = () => Promise.reject(new Error("no backend"));
   return {
-    capabilities: vi.fn().mockResolvedValue(DESKTOP_CAPABILITIES),
+    capabilities: vi.fn().mockResolvedValue(capabilities),
     auth: {
       status: vi.fn().mockResolvedValue({
         signed_in: false,
@@ -43,11 +65,15 @@ function fakeBackend({
       list: fails ? vi.fn(reject) : vi.fn().mockResolvedValue(contexts),
       load: vi.fn(reject),
     },
-    conversations: { list: fails ? vi.fn(reject) : vi.fn().mockResolvedValue(conversations) },
+    conversations: {
+      list: fails ? vi.fn(reject) : vi.fn().mockResolvedValue(conversations),
+      load: conversationLoad ? vi.fn(conversationLoad) : vi.fn(reject),
+    },
     rag: {
       list: fails ? vi.fn(reject) : vi.fn().mockResolvedValue(documents),
       documentText: vi.fn().mockResolvedValue(null),
     },
+    partner: { open: partnerOpen },
   } as unknown as ConvaBackend;
 }
 
@@ -107,6 +133,143 @@ describe("DashboardView — Home", () => {
     );
     expect(await screen.findByRole("heading", { name: "General conversation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose a context" })).toBeInTheDocument();
+  });
+
+  it("clicking a Recent-conversations row loads it into Live, not just the Conversations page", async () => {
+    // Regression (owner bug report, 2026-09-04): the row's onClick only
+    // called setView("conversations") — it never loaded the specific
+    // conversation, unlike the identical-looking row on the Conversations
+    // page itself, which does (`ConversationsPanel.tsx`'s `open`).
+    const conversationLoad = vi.fn().mockResolvedValue({
+      id: "conv-1",
+      title: "Amazon interview prep",
+      created_at_unix_ms: 0,
+      updated_at_unix_ms: 0,
+      segments: [],
+      linked_docs: [],
+    } satisfies Conversation);
+    render(
+      <BackendProvider
+        backend={fakeBackend({
+          conversations: [
+            {
+              id: "conv-1",
+              title: "Amazon interview prep",
+              created_at_unix_ms: 0,
+              updated_at_unix_ms: 1_000,
+              segment_count: 5,
+              linked_docs: [],
+              preview: "",
+            },
+          ],
+          conversationLoad,
+        })}
+      >
+        <DashboardView />
+      </BackendProvider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Amazon interview prep" }));
+
+    await waitFor(() => expect(conversationLoad).toHaveBeenCalledWith("conv-1"));
+    expect(useNavStore.getState().view).toBe("live");
+    expect(useConversationStore.getState().title).toBe("Amazon interview prep");
+  });
+
+  it("the transcript-viewer icon opens the partner window with a formatted transcript, and stays on Home", async () => {
+    const segments: TranscriptSegment[] = [
+      {
+        side: "inbound",
+        seq: 0,
+        text: "Walk me through your last project.",
+        is_final: true,
+        start_ms: 0,
+        end_ms: 0,
+        confidence: null,
+        latency_ms: 0,
+      },
+    ];
+    const partnerOpen = vi.fn().mockResolvedValue(undefined);
+    render(
+      <BackendProvider
+        backend={fakeBackend({
+          conversations: [
+            {
+              id: "conv-1",
+              title: "Amazon interview prep",
+              created_at_unix_ms: 0,
+              updated_at_unix_ms: 1_000,
+              segment_count: 1,
+              linked_docs: [],
+              preview: "",
+            },
+          ],
+          conversationLoad: vi.fn().mockResolvedValue({
+            id: "conv-1",
+            title: "Amazon interview prep",
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            segments,
+            linked_docs: [],
+          } satisfies Conversation),
+          partnerOpen,
+        })}
+      >
+        <DashboardView />
+      </BackendProvider>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Open Amazon interview prep in the transcript viewer",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(partnerOpen).toHaveBeenCalledWith(
+        "Amazon interview prep",
+        null,
+        null,
+        formatTranscriptForViewer(segments),
+        [],
+      ),
+    );
+    expect(useNavStore.getState().view).toBe("dashboard");
+  });
+
+  it("the Live icon on a Recent-conversations row opens it in Live", async () => {
+    const conversationLoad = vi.fn().mockResolvedValue({
+      id: "conv-1",
+      title: "Amazon interview prep",
+      created_at_unix_ms: 0,
+      updated_at_unix_ms: 0,
+      segments: [],
+      linked_docs: [],
+    } satisfies Conversation);
+    render(
+      <BackendProvider
+        backend={fakeBackend({
+          conversations: [
+            {
+              id: "conv-1",
+              title: "Amazon interview prep",
+              created_at_unix_ms: 0,
+              updated_at_unix_ms: 1_000,
+              segment_count: 5,
+              linked_docs: [],
+              preview: "",
+            },
+          ],
+          conversationLoad,
+        })}
+      >
+        <DashboardView />
+      </BackendProvider>,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open Amazon interview prep in Live" }),
+    );
+
+    await waitFor(() => expect(conversationLoad).toHaveBeenCalledWith("conv-1"));
+    expect(useNavStore.getState().view).toBe("live");
   });
 
   it("surfaces a load failure in the hero with a retry", async () => {

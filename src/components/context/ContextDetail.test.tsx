@@ -188,4 +188,73 @@ describe("ContextDetail", () => {
       null,
     );
   });
+
+  it("groups the Documents list by category slot when slot_doc_ids is populated", async () => {
+    const resumeDoc = {
+      id: "d1",
+      file_name: "resume.pdf",
+      enabled: true,
+      chunk_count: 2,
+      ingested_at_unix_ms: 0,
+      source: "file" as const,
+      context_ids: ["s1"],
+      size_bytes: 1024,
+    };
+    const otherDoc = {
+      id: "d2",
+      file_name: "notes.txt",
+      enabled: true,
+      chunk_count: 1,
+      ingested_at_unix_ms: 0,
+      source: "file" as const,
+      context_ids: ["s1"],
+      size_bytes: 512,
+    };
+    renderDetail({
+      context: {
+        load: vi.fn().mockResolvedValue(session({ slot_doc_ids: { resume: ["d1"] } })),
+        loadProfile: vi.fn().mockResolvedValue(profile({ doc_ids: ["d1", "d2"] })),
+      },
+      rag: { list: vi.fn().mockResolvedValue([resumeDoc, otherDoc]) },
+      capabilities: vi.fn().mockResolvedValue(null),
+    });
+    await screen.findByText("Counterparty");
+    fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
+
+    expect(await screen.findByText("Résumé / CV (1)")).toBeInTheDocument();
+    expect(screen.getByText("resume.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Other documents (1)")).toBeInTheDocument();
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    // Every slot renders even with zero docs — the "what's still missing"
+    // signal the spec is for.
+    expect(screen.getByText("Job description (0)")).toBeInTheDocument();
+    expect(screen.getByText("Take-home / test (0)")).toBeInTheDocument();
+  });
+
+  it("falls back to Other documents for every attached doc when slot_doc_ids is empty (pre-migration contexts)", async () => {
+    const resumeDoc = {
+      id: "d1",
+      file_name: "resume.pdf",
+      enabled: true,
+      chunk_count: 2,
+      ingested_at_unix_ms: 0,
+      source: "file" as const,
+      context_ids: ["s1"],
+      size_bytes: 1024,
+    };
+    renderDetail({
+      context: {
+        load: vi.fn().mockResolvedValue(session()), // slot_doc_ids omitted entirely
+        loadProfile: vi.fn().mockResolvedValue(profile({ doc_ids: ["d1"] })),
+      },
+      rag: { list: vi.fn().mockResolvedValue([resumeDoc]) },
+      capabilities: vi.fn().mockResolvedValue(null),
+    });
+    await screen.findByText("Counterparty");
+    fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
+
+    expect(await screen.findByText("Other documents (1)")).toBeInTheDocument();
+    expect(screen.getByText("resume.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Résumé / CV (0)")).toBeInTheDocument();
+  });
 });

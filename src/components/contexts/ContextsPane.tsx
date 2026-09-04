@@ -4,7 +4,7 @@ import { FilterPopover } from "@/components/contexts/FilterPopover";
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { readinessOf } from "@/components/contexts/readiness";
 import { rowStatus, type RowStatus } from "@/components/contexts/rowStatus";
-import { Icon } from "@/components/ui/Icon";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { formatBytes } from "@/lib/formatBytes";
 import { formatRelativeTime } from "@/lib/relativeTime";
@@ -20,7 +20,28 @@ const CATEGORY_LABEL: Record<ContextCategory, string> = {
   interview: "Interview",
   company_meeting: "Company meeting",
   sales_call: "Sales call",
+  live_stream: "Live stream",
   other: "Other",
+};
+
+/**
+ * Per-category row pictogram + color. Icons revised 2026-09-02 (owner:
+ * "try these") to solid-filled Material/FontAwesome-style glyphs —
+ * `chatBubbles`/`groupThree`/`videoCam`/`phoneCall`/`dots` in `Icon.tsx` —
+ * superseding the first outline-style pass (`radar`/`search`/`book`).
+ * `interview` reuses the app's existing azure primary; the rest are
+ * dedicated hex values, not reused voice-lock colors
+ * (`--color-inbound`/`--color-outbound` are exclusively Them/You per the
+ * palette rules) or Ally gold (exclusively Ally-authored content) or
+ * recording-red (exclusively recording/danger) — new, category-only
+ * swatches instead.
+ */
+export const CATEGORY_ICON: Record<ContextCategory, { icon: IconName; color: string }> = {
+  interview: { icon: "chatBubbles", color: "var(--color-primary)" },
+  company_meeting: { icon: "groupThree", color: "#E0B84C" },
+  sales_call: { icon: "phoneCall", color: "#9D7DC4" },
+  live_stream: { icon: "videoCam", color: "#E8608F" },
+  other: { icon: "dots", color: "#67C6C5" },
 };
 
 function formatDate(unixMs: number): string {
@@ -361,6 +382,19 @@ export function ContextsPane({
                 ].join(" ")}
               >
                 <div className="flex items-center gap-1.5">
+                  {/* Type-specific pictogram (spec §7 Pane A: "each row shows
+                      a type-specific pictogram"), colorized per category. */}
+                  <span
+                    className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md"
+                    style={{
+                      color: CATEGORY_ICON[s.category].color,
+                      background: `color-mix(in srgb, ${CATEGORY_ICON[s.category].color} 16%, transparent)`,
+                    }}
+                    title={CATEGORY_LABEL[s.category]}
+                    aria-hidden
+                  >
+                    <Icon name={CATEGORY_ICON[s.category].icon} size={11} />
+                  </span>
                   <span
                     className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dotClass}`}
                     title={

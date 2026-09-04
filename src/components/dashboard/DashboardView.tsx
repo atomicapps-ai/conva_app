@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import fieldArtwork from "@/assets/brand/raster/conva-intelligence-field-reference@2x.png";
+import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import {
   addedThisWeek,
   heroState,
@@ -19,7 +20,8 @@ import {
   StatusPill,
 } from "@/components/studio/PageView";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { LockedIcon, LockedMark } from "@/components/ui/LockedIcon";
+import { ListRow } from "@/components/ui/ListRow";
+import { LockedIcon, LockedMarkBadge } from "@/components/ui/LockedIcon";
 import { greetingFor } from "@/lib/account";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
@@ -29,10 +31,12 @@ import {
   type ConversationSummary,
   type RagDocument,
 } from "@/lib/ipc";
+import { formatTranscriptForViewer } from "@/lib/formatTranscript";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { useAccount } from "@/lib/useAccount";
 import { useAppStore } from "@/state/app";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
+import { useConversationStore } from "@/state/conversation";
 import { useGroundingStore } from "@/state/grounding";
 import { useLibraryQuickAdd } from "@/state/libraryQuickAdd";
 import { useNavStore } from "@/state/nav";
@@ -52,7 +56,7 @@ import { useNavStore } from "@/state/nav";
  * belongs to the design package and to `lib/fixtures/`, not here.
  *
  * The hero artwork is the locked intelligence field: right-aligned at its
- * intrinsic aspect ratio, ≤478×196, with the **complete incoming tail and the
+ * intrinsic aspect ratio, ≤359×147, with the **complete incoming tail and the
  * empty left lead-in preserved** and blended into the hero's own ground. The
  * hero panel supplies the ONLY border — the image has none, and is never
  * cropped, recolored, or redrawn.
@@ -61,6 +65,7 @@ export function DashboardView() {
   const backend = useBackend();
   const caps = useCapabilities();
   const setView = useNavStore((s) => s.setView);
+  const openConversationInStore = useConversationStore((s) => s.openConversation);
   const { account } = useAccount();
   const activeId = useGroundingStore((s) => s.activeId);
   const startSession = useAppStore((s) => s.start);
@@ -149,6 +154,35 @@ export function DashboardView() {
     setView("context");
   };
 
+  // Open a Recent-conversations row in the Live cockpit (owner bug report,
+  // 2026-09-04: clicking a row here only navigated to the Conversations
+  // page — it never actually loaded the conversation into the bubbles, the
+  // way the same row click already does on the Conversations page itself,
+  // `ConversationsPanel.tsx`'s `open`). Same fix here: load the full
+  // record into the conversation store, then navigate.
+  const openConversation = async (id: string) => {
+    try {
+      openConversationInStore(await backend.conversations.load(id));
+      setView("live");
+    } catch {
+      /* best-effort — the row stays clickable, nothing else to degrade to */
+    }
+  };
+
+  // Read-only transcript viewer (owner request, 2026-09-04) — same partner-
+  // window surface every other "open in viewer" affordance in the app uses
+  // (CLAUDE.md rule 10, "it IS the viewer"); falls back to opening in Live
+  // on web (no partner window) rather than inventing a second surface.
+  const openConversationViewer = async (id: string, title: string) => {
+    try {
+      if (!caps?.system.partnerWindow) return void (await openConversation(id));
+      const conv = await backend.conversations.load(id);
+      await backend.partner.open(title, null, null, formatTranscriptForViewer(conv.segments), []);
+    } catch {
+      /* best-effort, see openConversation above */
+    }
+  };
+
   const startListening = () => {
     setView("live");
     void startSession();
@@ -210,36 +244,51 @@ export function DashboardView() {
         onReload={load}
       />
 
-      <div className="grid gap-5 min-[960px]:grid-cols-[1.5fr_1fr]">
-        <Panel className="p-5">
-          <h3 className="mb-4 text-[15px] font-bold leading-none text-fg">
-            Recent conversations
-          </h3>
+      <div className="grid gap-4 min-[960px]:grid-cols-[1.5fr_1fr]">
+        <Panel className="p-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-[15px] font-bold leading-none text-fg">Recent conversations</h3>
+            {/* Always shown once loaded (not gated on conversations.length) —
+                it's the only way back to history from Home when nothing's
+                been named yet, and backend.sessions.list() may still have
+                real content behind it even at zero saved conversations. */}
+            {!loading && <ViewAll label="View all" onClick={() => setView("conversations")} />}
+          </div>
           {loading ? (
             <Skeleton rows={3} />
           ) : conversations.length === 0 ? (
             <EmptyState
               title="No conversations yet"
-              description="Saved calls and coaching sessions land here. Start listening, then save the transcript when you stop."
+              description="Saved calls land here once you name one. Your raw session log is still there:"
+              action={
+                <ViewAll label="View all activity" onClick={() => setView("conversations")} />
+              }
             />
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1">
               {conversations.slice(0, 3).map((c) => (
-                <RowLink
+                <ListRow
                   key={c.id}
-                  icon="live"
+                  accent="primary"
+                  icon={{ icon: "live", color: "var(--color-primary)" }}
                   title={c.title}
-                  meta={formatRelativeTime(c.updated_at_unix_ms)}
-                  onClick={() => setView("conversations")}
+                  date={formatRelativeTime(c.updated_at_unix_ms)}
+                  onOpenViewer={() => void openConversationViewer(c.id, c.title)}
+                  onOpenLive={() => void openConversation(c.id)}
+                  onClick={() => void openConversation(c.id)}
                 />
               ))}
-              <ViewAll label="View all conversations" onClick={() => setView("conversations")} />
             </div>
           )}
         </Panel>
 
-        <Panel className="p-5">
-          <h3 className="mb-4 text-[15px] font-bold leading-none text-fg">Contexts</h3>
+        <Panel className="p-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="text-[15px] font-bold leading-none text-fg">Contexts</h3>
+            {!loading && userContexts.length > 0 && (
+              <ViewAll label="View all" onClick={() => setView("context")} />
+            )}
+          </div>
           {loading ? (
             <Skeleton rows={3} />
           ) : userContexts.length === 0 ? (
@@ -258,27 +307,33 @@ export function DashboardView() {
               }
             />
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-1">
               {userContexts.slice(0, 3).map((c) => (
-                <RowLink
+                <ListRow
                   key={c.id}
-                  icon="simicon"
+                  accent="ai"
+                  icon={CATEGORY_ICON[c.category]}
                   title={c.title}
+                  date={formatRelativeTime(c.updated_at_unix_ms)}
                   onClick={() => openContext(c.id)}
                 />
               ))}
-              <ViewAll label="View all contexts" onClick={() => setView("context")} />
             </div>
           )}
         </Panel>
       </div>
 
       <Panel className="flex flex-wrap items-center gap-4 px-6 py-5">
+        {/* Sized to match the ListRow icon chip below, not a bespoke size of
+            its own — same 16%-tint treatment (owner, 2026-09-02: "align the
+            icon with the recent conversations..."; owner, 2026-09-03: "all
+            of the icons should be much larger, nearly the height of the
+            row they are in" — 28px chip, 18px glyph, same as ListRow's). */}
         <span
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-[var(--radius)] bg-primary/10 text-primary"
+          className="grid h-[28px] w-[28px] shrink-0 place-items-center rounded-md bg-primary/[0.16] text-primary"
           aria-hidden
         >
-          <LockedIcon name="nav-library" size={22} />
+          <LockedIcon name="nav-library" size={18} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[15px] font-bold leading-tight text-fg">Library</span>
@@ -393,13 +448,15 @@ function Hero({
   onReload: () => void;
 }) {
   return (
-    <section className="relative flex min-h-[200px] items-center gap-7 overflow-hidden rounded-lg border border-border bg-panel px-7 py-7">
+    <section className="relative flex min-h-[150px] items-center gap-5 overflow-hidden rounded-lg border border-border bg-panel px-5 py-5">
       {/* The locked intelligence field. Right-aligned, intrinsic aspect ratio,
-          capped at its 478×196 CSS maximum, complete tail + left lead-in
-          intact (`object-position: right center` with `object-fit: contain`
-          never crops it). No border on the image — this panel supplies the
-          only one. `select-none`/`draggable=false` keep it from being dragged
-          out as a file.
+          capped at its 359×147 CSS maximum (scaled with the 2026-09-02 hero
+          shrink — owner: "the general conversation banner can also lose some
+          height at least .25 including padding"), complete tail + left
+          lead-in intact (`object-position: right center` with
+          `object-fit: contain` never crops it). No border on the image —
+          this panel supplies the only one. `select-none`/`draggable=false`
+          keep it from being dragged out as a file.
 
           It is HIDDEN below ~940px of window rather than shown behind the
           copy. The locked-artwork rules forbid cropping, masking, filtering or
@@ -413,7 +470,7 @@ function Hero({
         alt=""
         aria-hidden
         draggable={false}
-        className="pointer-events-none absolute right-0 top-1/2 hidden h-[196px] w-[478px] max-w-full -translate-y-1/2 select-none object-contain object-right [@media(min-width:940px)]:block"
+        className="pointer-events-none absolute right-0 top-1/2 hidden h-[147px] w-[359px] max-w-full -translate-y-1/2 select-none object-contain object-right [@media(min-width:940px)]:block"
       />
 
       {state.kind === "loading" ? (
@@ -430,11 +487,14 @@ function Hero({
         </div>
       ) : (
         <>
-          <span
-            className="relative hidden h-[104px] w-[104px] shrink-0 items-center justify-center text-fg drop-shadow-[0_0_18px_rgba(79,184,255,0.18)] sm:flex"
-            aria-hidden
-          >
-            <LockedMark size={104} />
+          {/* Blue-rimmed glowing badge around the mark (owner reference
+              image, 2026-09-02): the border/glow trace the mark's OWN
+              bubble silhouette, not a generic circle — a round badge
+              wrapper was wrong (round-tripped, corrected same day). The
+              bubble itself is dark; the "C" is bright — not the other way
+              around. See `LockedMarkBadge` in `LockedIcon.tsx`. */}
+          <span className="relative hidden h-20 w-20 shrink-0 items-center justify-center sm:flex" aria-hidden>
+            <LockedMarkBadge size={80} />
           </span>
           <div className="relative min-w-0 flex-1">
             {state.kind === "starter" ? (
@@ -499,9 +559,9 @@ function Hero({
                 ) : (
                   <>
                     <div className="mt-4 flex flex-wrap items-center gap-x-8 gap-y-3">
-                      <Stat value={state.context.source_doc_count} label="source files" />
+                      <Stat icon="file" value={state.context.source_doc_count} label="source files" />
                       {preparedQa !== null && (
-                        <Stat value={preparedQa} label="prepared Q&A" divided />
+                        <Stat icon="question" value={preparedQa} label="prepared Q&A" divided />
                       )}
                       {state.kind === "generating" ? (
                         <span className="self-center border-l border-border-strong pl-8 font-mono text-xs text-fg-faint">
@@ -539,68 +599,42 @@ function Hero({
   );
 }
 
+/** Reference image (2026-09-02): each stat carries a small leading icon —
+ *  a file glyph for source files, a question-bubble glyph for prepared Q&A. */
 function Stat({
+  icon,
   value,
   label,
   divided = false,
 }: {
+  icon: IconName;
   value: number;
   label: string;
   divided?: boolean;
 }) {
   return (
-    <span className={divided ? "border-l border-border-strong pl-8" : undefined}>
-      <span className="text-[22px] font-bold leading-none text-primary">{value}</span>{" "}
+    <span
+      className={`inline-flex items-center gap-1.5 ${divided ? "border-l border-border-strong pl-8" : ""}`}
+    >
+      <Icon name={icon} size={14} className="text-fg-faint" aria-hidden />
+      <span className="text-[22px] font-bold leading-none text-primary">{value}</span>
       <span className="text-[13px] font-medium leading-none text-fg-muted">{label}</span>
     </span>
   );
 }
 
-function RowLink({
-  icon,
-  title,
-  meta,
-  onClick,
-}: {
-  icon: IconName;
-  title: string;
-  meta?: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex items-center gap-3.5 rounded-[var(--radius)] border border-border bg-panel-raised px-3.5 py-3 text-left transition hover:border-border-strong hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-    >
-      <span
-        className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[var(--radius)] bg-primary/10 text-primary"
-        aria-hidden
-      >
-        <Icon name={icon} size={18} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold leading-tight text-fg">{title}</span>
-        {meta && <span className="mt-1 block font-mono text-[11px] text-fg-faint">{meta}</span>}
-      </span>
-      <Icon
-        name="chevron"
-        size={17}
-        className="-rotate-90 shrink-0 text-fg-faint transition group-hover:text-fg-muted"
-      />
-    </button>
-  );
-}
-
+/** A panel header's "see everything" link — lives beside the h3, top-right
+ *  (owner screenshot feedback, 2026-09-02: "move this up and to the right"),
+ *  not below the row list as a fourth row-shaped affordance. */
 function ViewAll({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center justify-between rounded-[var(--radius)] px-3.5 py-2.5 text-[13px] font-semibold text-primary transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      className="flex shrink-0 items-center gap-0.5 rounded-[var(--radius)] px-1.5 py-1 text-[12px] font-semibold text-primary transition hover:brightness-125 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       {label}
-      <Icon name="chevron" size={17} className="-rotate-90" />
+      <Icon name="chevron" size={13} className="-rotate-90" />
     </button>
   );
 }

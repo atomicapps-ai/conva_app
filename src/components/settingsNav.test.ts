@@ -11,12 +11,14 @@ import {
 } from "@/components/settingsNav";
 
 describe("SETTINGS_GROUPS", () => {
-  it("is exactly the five approved groups, in order", () => {
+  it("is exactly the seven approved groups, in order", () => {
     expect(SETTINGS_GROUPS.map((g) => g.label)).toEqual([
       "Account",
       "Devices",
       "Transcription",
       "Ally",
+      "Usage",
+      "Subscription",
       "Privacy",
     ]);
   });

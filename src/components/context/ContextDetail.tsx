@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { categoryTemplate } from "@/components/context/categoryTemplates";
 import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
+import { groupBySlot } from "@/components/context/documentSplit";
+import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
@@ -269,7 +272,8 @@ export function ContextDetail({
 
   return (
     <ViewShell
-      icon="simicon"
+      icon={session ? CATEGORY_ICON[session.category].icon : "simicon"}
+      iconColor={session ? CATEGORY_ICON[session.category].color : undefined}
       breadcrumb="Contexts"
       title={session?.title || "Context"}
       subtitle={session?.purpose || "Rehearse a high-stakes call."}
@@ -589,6 +593,9 @@ export function ContextDetail({
               const attached = profile.doc_ids.filter(
                 (d) => d !== dossierId && d !== researchDocId && d !== qaDocId,
               );
+              const attachedDocs = attached
+                .map((docId) => docs.find((d) => d.id === docId))
+                .filter((d): d is RagDocument => !!d);
               const docMeta = (docId: string): string => {
                 const d = docs.find((x) => x.id === docId);
                 if (!d) return docName(docId);
@@ -604,61 +611,63 @@ export function ContextDetail({
                   `Added ${formatDate(d.ingested_at_unix_ms)}`,
                 ].join("\n");
               };
+              const renderDocRow = (d: RagDocument) =>
+                caps?.system.partnerWindow ? (
+                  <li key={d.id}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void backend.partner.open(d.file_name, null, null, null, [], d.id)
+                      }
+                      title={docMeta(d.id)}
+                      aria-label={`View "${d.file_name}"`}
+                      className="flex w-full items-center gap-1.5 rounded-sm text-left text-[12px] text-fg-muted transition hover:text-ai"
+                    >
+                      <Icon name="book" size={13} className="shrink-0 text-fg-faint" />
+                      <span className="truncate">{d.file_name}</span>
+                    </button>
+                  </li>
+                ) : (
+                  <li
+                    key={d.id}
+                    title={docMeta(d.id)}
+                    className="flex items-center gap-1.5 text-[12px] text-fg-muted"
+                  >
+                    <Icon name="book" size={13} className="shrink-0 text-fg-faint" />
+                    <span className="truncate">{d.file_name}</span>
+                  </li>
+                );
+              const { slots, other } = groupBySlot(
+                attachedDocs,
+                session ? categoryTemplate(session.category).fileSlots : [],
+                session?.slot_doc_ids ?? {},
+              );
               return (
-                <div>
-                  <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">
-                    Documents ({attached.length})
-                  </h3>
-                  {attached.length === 0 ? (
-                    <p className="text-[12px] text-fg-faint">
-                      No documents attached.
-                    </p>
-                  ) : (
-                    <ul className="flex flex-col gap-0.5">
-                      {attached.map((docId) =>
-                        caps?.system.partnerWindow ? (
-                          <li key={docId}>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void backend.partner.open(
-                                  docName(docId),
-                                  null,
-                                  null,
-                                  null,
-                                  [],
-                                  docId,
-                                )
-                              }
-                              title={docMeta(docId)}
-                              aria-label={`View "${docName(docId)}"`}
-                              className="flex w-full items-center gap-1.5 rounded-sm text-left text-[12px] text-fg-muted transition hover:text-ai"
-                            >
-                              <Icon
-                                name="book"
-                                size={13}
-                                className="shrink-0 text-fg-faint"
-                              />
-                              <span className="truncate">{docName(docId)}</span>
-                            </button>
-                          </li>
-                        ) : (
-                          <li
-                            key={docId}
-                            title={docMeta(docId)}
-                            className="flex items-center gap-1.5 text-[12px] text-fg-muted"
-                          >
-                            <Icon
-                              name="book"
-                              size={13}
-                              className="shrink-0 text-fg-faint"
-                            />
-                            <span className="truncate">{docName(docId)}</span>
-                          </li>
-                        ),
+                <div className="flex flex-col gap-3">
+                  {slots.map(({ slot, docs: slotDocs }) => (
+                    <div key={slot.key}>
+                      <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">
+                        {slot.label} ({slotDocs.length})
+                      </h3>
+                      {slotDocs.length === 0 ? (
+                        <p className="text-[12px] text-fg-faint">—</p>
+                      ) : (
+                        <ul className="flex flex-col gap-0.5">
+                          {slotDocs.map((d) => renderDocRow(d))}
+                        </ul>
                       )}
-                    </ul>
-                  )}
+                    </div>
+                  ))}
+                  <div>
+                    <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-faint">
+                      Other documents ({other.length})
+                    </h3>
+                    {other.length === 0 ? (
+                      <p className="text-[12px] text-fg-faint">No documents attached.</p>
+                    ) : (
+                      <ul className="flex flex-col gap-0.5">{other.map((d) => renderDocRow(d))}</ul>
+                    )}
+                  </div>
                 </div>
               );
             })()}
