@@ -146,7 +146,18 @@ jobs:
             echo "Installers will still build; update artifacts are skipped."
             exit 0
           fi
-          node env/cli.mjs print "$CONVA_ENV_NAME" >> "$GITHUB_ENV"
+          # Decrypt to a temp file first: piping straight into $GITHUB_ENV would
+          # append the CLI's error text as bogus env lines when the key is wrong.
+          out="$(mktemp)"
+          if ! node env/cli.mjs print "$CONVA_ENV_NAME" > "$out"; then
+            rm -f "$out"
+            echo "::error::CONVA_ENV_KEY does not match the key that encrypted .env.$CONVA_ENV_NAME.sec.enc."
+            echo "::error::The secret is set but cannot open the committed file, so the updater signing key is unreachable."
+            echo "::error::Fix either side: re-paste the correct master key as the CONVA_ENV_KEY secret, or re-encrypt with the key GitHub holds (npm run env:encrypt:$CONVA_ENV_NAME) and commit. See docs/releasing.md."
+            exit 1
+          fi
+          cat "$out" >> "$GITHUB_ENV"
+          rm -f "$out"
 
       - name: Build installers
         uses: tauri-apps/tauri-action@v0
