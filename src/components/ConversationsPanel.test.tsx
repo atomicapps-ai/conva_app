@@ -6,7 +6,14 @@ import { NAV_ITEMS } from "@/components/studio/navItems";
 import { activeRailView } from "@/components/studio/railState";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
-import type { Conversation, ContextSummary, ConversationSummary, SessionSummary } from "@/lib/ipc";
+import { formatTranscriptForViewer } from "@/lib/formatTranscript";
+import type {
+  Conversation,
+  ContextSummary,
+  ConversationSummary,
+  SessionSummary,
+  TranscriptSegment,
+} from "@/lib/ipc";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useNavStore } from "@/state/nav";
 
@@ -81,6 +88,7 @@ function fakeBackend(
     },
     context: { list: vi.fn().mockResolvedValue(contexts) },
     rag: { list: vi.fn().mockResolvedValue([]) },
+    capabilities: vi.fn().mockResolvedValue(null),
   } as unknown as ConvaBackend;
 }
 
@@ -181,6 +189,133 @@ describe("ConversationsPanel", () => {
 
     await waitFor(() => expect(backend.sessions.load).toHaveBeenCalledWith("session-1"));
     expect(useNavStore.getState().view).toBe("live");
+  });
+
+  it("the transcript-viewer icon opens the partner window with a formatted transcript, and stays on Conversations", async () => {
+    useNavStore.setState({ view: "conversations" });
+    const segments: TranscriptSegment[] = [
+      {
+        side: "inbound",
+        seq: 0,
+        text: "Walk me through your last project.",
+        is_final: true,
+        start_ms: 0,
+        end_ms: 0,
+        confidence: null,
+        latency_ms: 0,
+      },
+    ];
+    const partnerOpen = vi.fn().mockResolvedValue(undefined);
+    const backend = {
+      conversations: {
+        list: vi.fn().mockResolvedValue([conversationRow({ title: "Amazon interview prep" })]),
+        delete: vi.fn(),
+        load: vi.fn().mockResolvedValue({
+          id: "conv-1",
+          title: "Amazon interview prep",
+          created_at_unix_ms: 0,
+          updated_at_unix_ms: 0,
+          segments,
+          linked_docs: [],
+        }),
+      },
+      sessions: { list: vi.fn().mockResolvedValue([]), delete: vi.fn(), load: vi.fn() },
+      context: { list: vi.fn().mockResolvedValue([]) },
+      rag: { list: vi.fn().mockResolvedValue([]) },
+      capabilities: vi.fn().mockResolvedValue({ system: { partnerWindow: true } }),
+      partner: { open: partnerOpen },
+    } as unknown as ConvaBackend;
+
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel onClose={vi.fn()} />
+      </BackendProvider>,
+    );
+    await screen.findByText("Amazon interview prep");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Amazon interview prep in the transcript viewer" }),
+    );
+
+    await waitFor(() =>
+      expect(partnerOpen).toHaveBeenCalledWith(
+        "Amazon interview prep",
+        null,
+        null,
+        formatTranscriptForViewer(segments),
+        [],
+      ),
+    );
+    // Unlike the Live-open icon, the transcript viewer is read-only in a
+    // separate window — the panel itself doesn't navigate away.
+    expect(useNavStore.getState().view).toBe("conversations");
+  });
+
+  it("the transcript-viewer icon falls back to opening in Live when the partner window is unsupported", async () => {
+    useNavStore.setState({ view: "conversations" });
+    const backend = fakeBackend([], [conversationRow({ title: "Amazon interview prep" })]);
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel onClose={vi.fn()} />
+      </BackendProvider>,
+    );
+    await screen.findByText("Amazon interview prep");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Amazon interview prep in the transcript viewer" }),
+    );
+
+    await waitFor(() => expect(backend.conversations.load).toHaveBeenCalledWith("conv-1"));
+    expect(useNavStore.getState().view).toBe("live");
+  });
+
+  it("a session row's transcript-viewer icon opens the partner window with its formatted transcript", async () => {
+    useNavStore.setState({ view: "conversations" });
+    const segments: TranscriptSegment[] = [
+      {
+        side: "outbound",
+        seq: 0,
+        text: "Quick recap of yesterday's decisions.",
+        is_final: true,
+        start_ms: 0,
+        end_ms: 0,
+        confidence: null,
+        latency_ms: 0,
+      },
+    ];
+    const partnerOpen = vi.fn().mockResolvedValue(undefined);
+    const backend = {
+      conversations: { list: vi.fn().mockResolvedValue([]), delete: vi.fn(), load: vi.fn() },
+      sessions: {
+        list: vi.fn().mockResolvedValue([sessionRow({ preview: "hello there" })]),
+        delete: vi.fn(),
+        load: vi.fn().mockResolvedValue(segments),
+      },
+      context: { list: vi.fn().mockResolvedValue([]) },
+      rag: { list: vi.fn().mockResolvedValue([]) },
+      capabilities: vi.fn().mockResolvedValue({ system: { partnerWindow: true } }),
+      partner: { open: partnerOpen },
+    } as unknown as ConvaBackend;
+
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel onClose={vi.fn()} />
+      </BackendProvider>,
+    );
+    await screen.findByText("hello there");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open hello there in the transcript viewer" }));
+
+    await waitFor(() =>
+      expect(partnerOpen).toHaveBeenCalledWith(
+        "hello there",
+        null,
+        null,
+        formatTranscriptForViewer(segments),
+        [],
+      ),
+    );
+    expect(useNavStore.getState().view).toBe("conversations");
   });
 
   it("checking two rows shows the bulk bar with a count of 2", async () => {

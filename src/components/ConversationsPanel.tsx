@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useBackend } from "@/lib/backend";
+import { useCapabilities } from "@/lib/backend/context";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { ListRow } from "@/components/ui/ListRow";
+import { formatTranscriptForViewer } from "@/lib/formatTranscript";
 import {
   DEFAULT_CONTEXT_ID,
   type Conversation,
@@ -177,6 +179,7 @@ function findMatches(
  */
 export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const backend = useBackend();
+  const caps = useCapabilities();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [contexts, setContexts] = useState<ContextSummary[]>([]);
@@ -373,6 +376,33 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
       loadPastSession(id, await backend.sessions.load(id));
       // See the note on `open` above — same reasoning, same fix.
       setView("live");
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
+
+  // Read-only transcript viewer (owner request, 2026-09-04) — opens the
+  // partner window with the conversation formatted as plain, readable
+  // speaker-labeled text (`formatTranscriptForViewer`), same "it IS the
+  // viewer" surface every other "open in viewer" affordance in the app
+  // routes to (CLAUDE.md rule 10) — never a second internal viewer. On web
+  // (no partner window) this falls back to the ordinary Live open below
+  // rather than inventing a second surface just for this.
+  const openViewer = async (id: string, title: string) => {
+    try {
+      if (!caps?.system.partnerWindow) return void (await open(id));
+      const conv = await backend.conversations.load(id);
+      await backend.partner.open(title, null, null, formatTranscriptForViewer(conv.segments), []);
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
+
+  const openPastSessionViewer = async (id: string, title: string) => {
+    try {
+      if (!caps?.system.partnerWindow) return void (await openPastSession(id));
+      const segments = await backend.sessions.load(id);
+      await backend.partner.open(title, null, null, formatTranscriptForViewer(segments), []);
     } catch (e) {
       setNotice(String(e));
     }
@@ -733,21 +763,23 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
                       open={row.id === openId}
                       selected={selected.has(key)}
                       onSelectChange={toggle}
+                      onOpenViewer={() => void openViewer(row.id, row.data.title)}
+                      onOpenLive={() => void open(row.id)}
                       onDelete={() => void remove(row.id)}
                       onClick={() => void open(row.id)}
                     />
                   </li>
                 );
               }
+              const sessionTitle =
+                row.data.is_rehearsal && row.data.simcon_title
+                  ? row.data.simcon_title
+                  : row.data.preview || "(empty)";
               return (
                 <li key={key}>
                   <ListRow
                     accent={row.data.is_rehearsal ? "ai" : "muted"}
-                    title={
-                      row.data.is_rehearsal && row.data.simcon_title
-                        ? row.data.simcon_title
-                        : row.data.preview || "(empty)"
-                    }
+                    title={sessionTitle}
                     badge={
                       row.data.is_rehearsal
                         ? { text: "Context", tone: "ai" }
@@ -756,6 +788,8 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
                     date={`${formatDate(row.data.started_at_unix_ms)} · ${row.data.segment_count} segment${row.data.segment_count === 1 ? "" : "s"}`}
                     selected={selected.has(key)}
                     onSelectChange={toggle}
+                    onOpenViewer={() => void openPastSessionViewer(row.id, sessionTitle)}
+                    onOpenLive={() => void openPastSession(row.id)}
                     onDelete={() => void backend.sessions.delete(row.id).then(refresh)}
                     onClick={() => void openPastSession(row.id)}
                   />

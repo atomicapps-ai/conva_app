@@ -31,10 +31,12 @@ import {
   type ConversationSummary,
   type RagDocument,
 } from "@/lib/ipc";
+import { formatTranscriptForViewer } from "@/lib/formatTranscript";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { useAccount } from "@/lib/useAccount";
 import { useAppStore } from "@/state/app";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
+import { useConversationStore } from "@/state/conversation";
 import { useGroundingStore } from "@/state/grounding";
 import { useLibraryQuickAdd } from "@/state/libraryQuickAdd";
 import { useNavStore } from "@/state/nav";
@@ -63,6 +65,7 @@ export function DashboardView() {
   const backend = useBackend();
   const caps = useCapabilities();
   const setView = useNavStore((s) => s.setView);
+  const openConversationInStore = useConversationStore((s) => s.openConversation);
   const { account } = useAccount();
   const activeId = useGroundingStore((s) => s.activeId);
   const startSession = useAppStore((s) => s.start);
@@ -149,6 +152,35 @@ export function DashboardView() {
   const openContext = (id?: string) => {
     if (id) useContextsQuickOpen.getState().request(id);
     setView("context");
+  };
+
+  // Open a Recent-conversations row in the Live cockpit (owner bug report,
+  // 2026-09-04: clicking a row here only navigated to the Conversations
+  // page — it never actually loaded the conversation into the bubbles, the
+  // way the same row click already does on the Conversations page itself,
+  // `ConversationsPanel.tsx`'s `open`). Same fix here: load the full
+  // record into the conversation store, then navigate.
+  const openConversation = async (id: string) => {
+    try {
+      openConversationInStore(await backend.conversations.load(id));
+      setView("live");
+    } catch {
+      /* best-effort — the row stays clickable, nothing else to degrade to */
+    }
+  };
+
+  // Read-only transcript viewer (owner request, 2026-09-04) — same partner-
+  // window surface every other "open in viewer" affordance in the app uses
+  // (CLAUDE.md rule 10, "it IS the viewer"); falls back to opening in Live
+  // on web (no partner window) rather than inventing a second surface.
+  const openConversationViewer = async (id: string, title: string) => {
+    try {
+      if (!caps?.system.partnerWindow) return void (await openConversation(id));
+      const conv = await backend.conversations.load(id);
+      await backend.partner.open(title, null, null, formatTranscriptForViewer(conv.segments), []);
+    } catch {
+      /* best-effort, see openConversation above */
+    }
   };
 
   const startListening = () => {
@@ -241,7 +273,9 @@ export function DashboardView() {
                   icon={{ icon: "live", color: "var(--color-primary)" }}
                   title={c.title}
                   date={formatRelativeTime(c.updated_at_unix_ms)}
-                  onClick={() => setView("conversations")}
+                  onOpenViewer={() => void openConversationViewer(c.id, c.title)}
+                  onOpenLive={() => void openConversation(c.id)}
+                  onClick={() => void openConversation(c.id)}
                 />
               ))}
             </div>

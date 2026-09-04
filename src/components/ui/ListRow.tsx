@@ -31,6 +31,18 @@ export interface ListRowProps {
    *  Rehearsals tab in ConversationsPanel.tsx, which reuses this shape
    *  with neither optional prop wired). */
   onSelectChange?: (checked: boolean) => void;
+  /** Open this row's transcript read-only in the partner-window viewer
+   *  (owner request, 2026-09-04 — "one for the transcript view... load it
+   *  in the viewer on the right"). Omit -> spacer, same convention as
+   *  `onDelete`. Rows with no transcript (e.g. a Rehearsals-tab context
+   *  row) omit this. */
+  onOpenViewer?: () => void;
+  /** Open this row in the Live cockpit (owner request, 2026-09-04 — "the
+   *  other icon to open the conversation in the live session viewer").
+   *  Omit -> spacer. Distinct from `onClick` (the row's own default open
+   *  action) so both can be wired to the same handler without conflating
+   *  "click anywhere on the row" with "this specific icon." */
+  onOpenLive?: () => void;
   /** Omit -> the trash-can column renders as an empty spacer. */
   onDelete?: () => void;
   onClick: () => void;
@@ -62,6 +74,8 @@ export function ListRow({
   selected = false,
   open = false,
   onSelectChange,
+  onOpenViewer,
+  onOpenLive,
   onDelete,
   onClick,
 }: ListRowProps) {
@@ -79,7 +93,7 @@ export function ListRow({
       }}
       aria-label={title}
       className={[
-        "grid h-[34px] cursor-pointer grid-cols-[3px_28px_14px_minmax(0,1fr)_auto_auto_20px]",
+        "grid h-[34px] cursor-pointer grid-cols-[3px_28px_14px_minmax(0,1fr)_auto_auto_20px_20px_20px]",
         "items-center gap-1 rounded-md border pr-2 transition",
         open
           ? "border-ai/60 bg-ai/[0.06]"
@@ -136,6 +150,38 @@ export function ListRow({
       <span className="shrink-0 whitespace-nowrap font-mono text-[10px] text-fg-faint">
         {date}
       </span>
+      {onOpenViewer ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenViewer();
+          }}
+          aria-label={`Open ${title} in the transcript viewer`}
+          title="Open in transcript viewer"
+          className="grid h-5 w-5 place-items-center rounded-sm text-fg-faint transition hover:bg-ai/10 hover:text-ai"
+        >
+          <Icon name="expand" size={12} />
+        </button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
+      {onOpenLive ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenLive();
+          }}
+          aria-label={`Open ${title} in Live`}
+          title="Open in Live"
+          className="grid h-5 w-5 place-items-center rounded-sm text-fg-faint transition hover:bg-primary/10 hover:text-primary"
+        >
+          <Icon name="live" size={12} />
+        </button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
       {onDelete ? (
         <button
           type="button"
