@@ -24,6 +24,7 @@ export type IconName =
   | "chevron"
   | "unfoldMore"
   | "unfoldLess"
+  | "bubbleCollapse"
   | "mic"
   | "system"
   | "account"
@@ -238,6 +239,17 @@ const PATHS: Record<IconName, ReactNode> = {
   unfoldMore: <path d="M8 9l4-4 4 4M8 15l4 4 4-4" />,
   // Collapse-all — chevrons pointing together.
   unfoldLess: <path d="M8 5l4 4 4-4M8 19l4-4 4 4" />,
+  // Chat bubble with an arrow — toggles whether "your" turns start
+  // collapsed by default. Distinct from the plain "chevron" (one turn's
+  // own collapse toggle) and unfoldMore/unfoldLess (every turn at once);
+  // the arrow flips via the caller's className (rotate-180), same
+  // convention as "chevron".
+  bubbleCollapse: (
+    <>
+      <path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H10l-4 3v-3H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+      <path d="M9 9.5l3 3 3-3" />
+    </>
+  ),
   // Microphone — the "you" stream.
   mic: (
     <>

@@ -553,7 +553,15 @@ function FlowText({
             }}
             title="Ask Ally about this"
             aria-label="Ask Ally about this sentence"
-            className="ml-0.5 inline-flex align-middle text-ai/70 opacity-0 transition-opacity hover:text-ai group-hover/u:opacity-100"
+            // `hidden` (not `display: none` via opacity) — a turn commonly
+            // holds many `units` (one per ASR-finalized segment, which
+            // finalizes every ~1-3s of speech, not per sentence), so an
+            // `opacity-0` icon here still reserved ~14px of inline layout
+            // space at EVERY segment boundary, scattered through the
+            // flowing paragraph — the "messy text, large gaps" bug (owner
+            // screenshot report). `hidden`/`group-hover/u:inline-flex`
+            // removes it from layout entirely until its unit is hovered.
+            className="ml-0.5 hidden align-middle text-ai/70 hover:text-ai group-hover/u:inline-flex"
           >
             <Icon name="lightbulb" size={12} />
           </button>
@@ -2442,7 +2450,7 @@ export function TranscriptView() {
                           onClick={toggleCollapseYou}
                           className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-[12px] text-fg hover:bg-white/[0.06]"
                         >
-                          <Icon name="mic" size={13} />
+                          <Icon name="bubbleCollapse" size={13} />
                           {collapseYou ? "Show your turns" : "Collapse your turns"}
                         </button>
                         <button
@@ -2510,7 +2518,11 @@ export function TranscriptView() {
                     aria-label="Collapse your own turns"
                     className={`rounded p-1 transition-colors ${collapseYou ? "text-outbound" : "hover:text-fg"}`}
                   >
-                    <Icon name="mic" size={15} />
+                    <Icon
+                      name="bubbleCollapse"
+                      size={15}
+                      className={collapseYou ? "" : "rotate-180"}
+                    />
                   </button>
                   <span className="mx-0.5 h-4 w-px bg-border" />
                   <button
