@@ -494,7 +494,17 @@ function CollapsedPreview({
         onMouseLeave={() => setRect(null)}
         onClick={onExpand}
         title="Click to expand"
-        className="line-clamp-1 block w-full text-left text-fg-muted"
+        // `line-clamp-1` needs `display: -webkit-box` to do anything — the
+        // `-webkit-line-clamp` property is a no-op without it. `block` here
+        // set `display: block` and, being the later rule in the compiled
+        // stylesheet (equal specificity, so last-declared wins), silently
+        // clobbered it: the "collapsed" bubble rendered as a full, unclamped,
+        // plain-text block instead of one truncated line — read as "the
+        // collapse toggle strips formatting instead of hiding anything"
+        // (owner report). `line-clamp-1`'s own `display: -webkit-box`
+        // already fills the width once paired with `w-full`, so `block`
+        // was redundant as well as actively wrong.
+        className="line-clamp-1 w-full text-left text-fg-muted"
       >
         {text || "…"}
       </button>
