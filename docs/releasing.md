@@ -27,6 +27,13 @@ file — one `CONVA_ENV_KEY` paste unlocks it, and every future rotation is
 `edit .env.<env>.sec` → `npm run env:encrypt:<env>` → commit, never a return
 trip to the GitHub UI.
 
+That paste must be **this repo's** master key (`conva_app/env/master.key`).
+`conva_web` has a separate one; they are not interchangeable, and the committed
+`.enc` files must have been encrypted with whichever key GitHub currently holds
+— `keygen` overwrites `master.key`, orphaning every `.enc` older than it. The
+decrypt step fails the build loudly on a mismatch rather than silently producing
+unsigned installers, and its error names both remedies.
+
 ### Generating the signing keypair (only needed once, or to rotate)
 
 ```

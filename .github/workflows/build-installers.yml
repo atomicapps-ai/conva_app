@@ -128,15 +128,36 @@ jobs:
       # value either way today (.env.dev.sec/.env.prod.sec share one keypair,
       # per those files' own comment: the updater pubkey in tauri.conf.json is
       # fixed, so the private key must match across envs), kept per-env for
-      # when that stops being true. `if: secrets.CONVA_ENV_KEY != ''` makes
-      # this optional during rollout — no key set yet just means unsigned
-      # installers, exactly the old secrets-unset fallback.
+      # when that stops being true. The key stays OPTIONAL during rollout —
+      # unset just means unsigned installers, exactly the old secrets-unset
+      # fallback — but that check has to happen INSIDE the step: the `secrets`
+      # context is not available in a step `if:`, and using it there is a
+      # workflow PARSE error, which fails the whole run before a single job is
+      # scheduled (it is why every release run since d22a811 died instantly
+      # with 0 jobs, and why the v0.3.2 tag could never have built either).
       - name: Decrypt signing secrets (env/*.enc)
-        if: secrets.CONVA_ENV_KEY != ''
         shell: bash
         env:
           CONVA_ENV_KEY: ${{ secrets.CONVA_ENV_KEY }}
-        run: node env/cli.mjs print ${{ inputs.release && 'prod' || 'dev' }} >> "$GITHUB_ENV"
+          CONVA_ENV_NAME: ${{ inputs.release && 'prod' || 'dev' }}
+        run: |
+          if [ -z "${CONVA_ENV_KEY:-}" ]; then
+            echo "CONVA_ENV_KEY is not set — skipping decryption."
+            echo "Installers will still build; update artifacts are skipped."
+            exit 0
+          fi
+          # Decrypt to a temp file first: piping straight into $GITHUB_ENV would
+          # append the CLI's error text as bogus env lines when the key is wrong.
+          out="$(mktemp)"
+          if ! node env/cli.mjs print "$CONVA_ENV_NAME" > "$out"; then
+            rm -f "$out"
+            echo "::error::CONVA_ENV_KEY does not match the key that encrypted .env.$CONVA_ENV_NAME.sec.enc."
+            echo "::error::The secret is set but cannot open the committed file, so the updater signing key is unreachable."
+            echo "::error::Fix either side: re-paste the correct master key as the CONVA_ENV_KEY secret, or re-encrypt with the key GitHub holds (npm run env:encrypt:$CONVA_ENV_NAME) and commit. See docs/releasing.md."
+            exit 1
+          fi
+          cat "$out" >> "$GITHUB_ENV"
+          rm -f "$out"
 
       - name: Build installers
         uses: tauri-apps/tauri-action@v0
