@@ -45,11 +45,22 @@ import {
 import { FoundList } from "@/components/transcript/FoundList";
 import { ViewHistory } from "@/components/transcript/ViewHistory";
 import { AllyAccordion } from "@/components/transcript/AllyAccordion";
-import { TranscriptBubbleHeader } from "@/components/transcript/TranscriptBubbleHeader";
+import {
+  TranscriptBubbleHeader,
+  type SpeakerHeaderInfo,
+} from "@/components/transcript/TranscriptBubbleHeader";
 import {
   revealAnswers,
   type PanelState,
 } from "@/components/transcript/panelSections";
+import {
+  YOU_SPEAKER_ID,
+  fixtureVoiceId,
+  resolveAssignment,
+  useSpeakerStore,
+  type AssignmentStatus,
+  type SpeakerKind,
+} from "@/state/speakers";
 import { useCapabilities } from "@/lib/backend/context";
 import {
   useTranscriptStability,
@@ -591,6 +602,13 @@ function Bubble({
   fontPx,
   sessionStartMs,
   searchHighlight,
+  speaker,
+  speakerStatus,
+  otherSpeakers,
+  onRenameSpeaker,
+  onMergeSpeaker,
+  onSplitSpeaker,
+  onForgetSpeaker,
 }: {
   segments: TranscriptSegment[];
   turnKey: string;
@@ -612,6 +630,17 @@ function Bubble({
   fontPx: number;
   /** Session start (epoch ms) so the time hover can show a wall-clock. */
   sessionStartMs: number | null;
+  /** This turn's resolved session-local voice (speaker-aware conversations —
+   *  see `state/speakers.ts`); "You" on the outbound side, "New voice" /
+   *  "Voice N" / a user-given name on the inbound side. */
+  speaker: SpeakerHeaderInfo;
+  speakerStatus: AssignmentStatus;
+  /** Other known session voices this turn could be merged into. */
+  otherSpeakers: SpeakerHeaderInfo[];
+  onRenameSpeaker: (label: string) => void;
+  onMergeSpeaker: (targetId: string) => void;
+  onSplitSpeaker: () => void;
+  onForgetSpeaker: () => void;
   /** A landed search query (owner request, 2026-08-17) — folded into the
    *  RAG `terms` highlight pass below so every occurrence in this bubble
    *  renders highlighted, same visual treatment as a RAG term. */
@@ -773,7 +802,7 @@ function Bubble({
             The side label is the future voice-name slot; speaker recognition
             can replace "Them" without changing bubble geometry. */}
         <TranscriptBubbleHeader
-          speakerLabel={inbound ? "Them" : "You"}
+          speakerLabel={speaker.label}
           speakerTone={inbound ? "inbound" : "outbound"}
           timeLabel={timeLabel}
           timeTitle={timeTitle}
@@ -782,6 +811,13 @@ function Bubble({
           busy={busy}
           onToggleCollapse={onToggleCollapse}
           onResearch={onResearch}
+          speaker={speaker}
+          status={speakerStatus}
+          otherSpeakers={otherSpeakers}
+          onRename={onRenameSpeaker}
+          onMerge={onMergeSpeaker}
+          onSplit={onSplitSpeaker}
+          onForget={onForgetSpeaker}
         />
 
         {collapsed ? (
@@ -1804,10 +1840,55 @@ export function TranscriptView() {
     ],
     [archived, liveSegments],
   );
-  // Consolidate consecutive same-speaker segments into one turn (bubble). A new
-  // bubble starts only when the speaker switches — no pause/time split. The
-  // turn is keyed by its first segment, so Ally-card links stay stable.
-  const turns = useMemo(() => groupTurns(merged), [merged]);
+
+  // Speaker-aware conversations (doc: speaker-aware-conversations.md, §15
+  // Phase B): resolve each segment's session-local voice — today's
+  // placeholder (fixtureVoiceId, honest single-bucket per side, no real
+  // diarization yet) layered with any user correction/merge — and group
+  // turns on side + voice, not side alone.
+  const speakers = useSpeakerStore((s) => s.speakers);
+  const speakerOverrides = useSpeakerStore((s) => s.overrides);
+  const mergedVoices = useSpeakerStore((s) => s.mergedInto);
+  const ensureSpeaker = useSpeakerStore((s) => s.ensureSpeaker);
+  const createSpeaker = useSpeakerStore((s) => s.createSpeaker);
+  const renameSpeaker = useSpeakerStore((s) => s.renameSpeaker);
+  const forgetSpeaker = useSpeakerStore((s) => s.forgetSpeaker);
+  const reassignSpeakerSegment = useSpeakerStore((s) => s.reassignSegment);
+  const mergeSpeakerInto = useSpeakerStore((s) => s.mergeInto);
+
+  const voiceIdFor = useCallback(
+    (seg: TranscriptSegment) =>
+      resolveAssignment(segmentKey(seg), fixtureVoiceId(seg.side), speakerOverrides, mergedVoices)
+        .speakerId,
+    [speakerOverrides, mergedVoices],
+  );
+  const voiceStatusFor = useCallback(
+    (seg: TranscriptSegment) =>
+      resolveAssignment(segmentKey(seg), fixtureVoiceId(seg.side), speakerOverrides, mergedVoices)
+        .status,
+    [speakerOverrides, mergedVoices],
+  );
+
+  // Consolidate consecutive same-voice segments into one turn (bubble). A new
+  // bubble starts when the voice switches (which includes every side change)
+  // — no pause/time split. The turn is keyed by its first segment, so
+  // Ally-card links stay stable.
+  const turns = useMemo(() => groupTurns(merged, voiceIdFor), [merged, voiceIdFor]);
+
+  // Every voice a turn resolves to needs a profile to render a label from —
+  // "you" always exists; an inbound voice id is created the first time it's
+  // seen. ensureSpeaker is idempotent, so this is cheap once ids stabilize.
+  useEffect(() => {
+    ensureSpeaker(YOU_SPEAKER_ID, "you");
+  }, [ensureSpeaker]);
+  useEffect(() => {
+    for (const turn of turns) {
+      if (!speakers[turn.speakerId]) {
+        const kind: SpeakerKind = turn.side === "outbound" ? "you" : "anonymous";
+        ensureSpeaker(turn.speakerId, kind);
+      }
+    }
+  }, [turns, speakers, ensureSpeaker]);
 
   // Keep the user's own ("you") turns collapsed by default (a persisted pref) —
   // you rarely re-read your own words. Each key is seeded once, so manually
@@ -2536,6 +2617,23 @@ export function TranscriptView() {
                   text: finalText,
                   is_final: turn.segments.some((s) => s.is_final),
                 };
+                // Resolve this turn's voice profile + assignment status from
+                // its first segment (every segment in the turn already
+                // shares the same resolved speakerId by construction).
+                const status = voiceStatusFor(turn.segments[0]!);
+                const profile = speakers[turn.speakerId];
+                const speaker: SpeakerHeaderInfo = profile
+                  ? {
+                      id: profile.id,
+                      kind: profile.kind,
+                      // Doc §1: overlap/insufficient speech shows no
+                      // confident identity claim, never a guessed name.
+                      label: status === "uncertain" ? "Unclear speaker" : profile.label,
+                    }
+                  : { id: turn.speakerId, kind: turn.side === "outbound" ? "you" : "anonymous", label: "…" };
+                const otherSpeakers: SpeakerHeaderInfo[] = Object.values(speakers)
+                  .filter((s) => s.id !== speaker.id && s.kind !== "you")
+                  .map((s) => ({ id: s.id, label: s.label, kind: s.kind }));
                 return (
                   <Bubble
                     key={key}
@@ -2556,6 +2654,22 @@ export function TranscriptView() {
                     fontPx={transcriptFontPx}
                     sessionStartMs={sessionStartMs}
                     searchHighlight={searchHighlight}
+                    speaker={speaker}
+                    speakerStatus={status}
+                    otherSpeakers={otherSpeakers}
+                    onRenameSpeaker={(label) => renameSpeaker(speaker.id, label)}
+                    // A true merge (doc UC5): every turn ever resolved to
+                    // this voice — not just this one — folds into the
+                    // target, via the merge table rather than a one-off
+                    // per-segment override.
+                    onMergeSpeaker={(targetId) => mergeSpeakerInto(speaker.id, targetId)}
+                    onSplitSpeaker={() => {
+                      const fresh = createSpeaker();
+                      turn.segments.forEach((s) =>
+                        reassignSpeakerSegment(segmentKey(s), fresh.id, "confirmed"),
+                      );
+                    }}
+                    onForgetSpeaker={() => forgetSpeaker(speaker.id)}
                   />
                 );
               })
