@@ -48,6 +48,11 @@ jobs:
         with:
           config: cliff.toml
           args: --latest --strip header
+      - name: Require substantive release notes
+        if: github.ref_type == 'tag'
+        env:
+          RELEASE_NOTES: ${{ steps.cliff.outputs.content }}
+        run: node scripts/validate-release-notes.mjs
 
   # Matrix build lives in the reusable build-installers.yml (SDLC §5.2). On a
   # tag it attaches the installers to a DRAFT Release carrying the git-cliff
@@ -63,3 +68,19 @@ jobs:
       tag_name: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
       release_name: ${{ github.ref_type == 'tag' && format('conva {0}', github.ref_name) || '' }}
       release_body: ${{ needs.version-guard.outputs.notes }}
+
+  verify-draft:
+    name: Verify installers, updater manifest, and release notes
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Audit the unpublished release
+        env:
+          RELEASES_REPO_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/verify-draft-release.mjs

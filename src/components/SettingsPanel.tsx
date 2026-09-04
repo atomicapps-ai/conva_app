@@ -26,6 +26,37 @@ import { isTauri } from "@/lib/ipc";
 import { isWeb } from "@/lib/platform";
 import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
+import { useUiPrefs } from "@/state/uiPrefs";
+
+function UpdateSettings() {
+  const autoInstall = useUiPrefs((s) => s.autoInstallUpdates);
+  const setAutoInstall = useUiPrefs((s) => s.setAutoInstallUpdates);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="flex items-start gap-2 text-xs text-fg-muted">
+        <input
+          type="checkbox"
+          checked={autoInstall}
+          onChange={(event) => setAutoInstall(event.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          <b className="text-fg">Automatically install new updates</b>
+          <span className="mt-0.5 block text-[11px] leading-relaxed text-fg-faint">
+            Conva checks shortly after launch and once an hour. When enabled, a
+            downloaded update installs and restarts Conva automatically. An
+            active live session always postpones the restart until it ends.
+          </span>
+        </span>
+      </label>
+      <p className="text-[11px] text-fg-faint">
+        Off by default. You will still be notified immediately when an update
+        is found and can review its required release notes before installing.
+      </p>
+    </div>
+  );
+}
 
 /**
  * About — the exact build the user is running (version + commit + build time),
@@ -1159,6 +1190,15 @@ export function SettingsPanel() {
       {group === "ally" && (
       <Section>
         <AllySettings />
+      </Section>
+      )}
+
+      {group === "privacy" && (
+      <Section
+        title="Updates"
+        description="Choose whether downloaded desktop updates install automatically."
+      >
+        <UpdateSettings />
       </Section>
       )}
 

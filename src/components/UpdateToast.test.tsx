@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UpdateToast } from "@/components/UpdateToast";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 import { BackendProvider } from "@/lib/backend/context";
-import { useNavStore } from "@/state/nav";
+import { useTranscriptStore } from "@/state/transcript";
+import { useUiPrefs } from "@/state/uiPrefs";
 
 const checkMock = vi.hoisted(() => vi.fn());
 const relaunchMock = vi.hoisted(() => vi.fn());
@@ -39,7 +40,8 @@ function fakeUpdate(overrides: { body?: string } = {}) {
 describe("UpdateToast", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useNavStore.setState({ view: "dashboard" });
+    useUiPrefs.setState({ autoInstallUpdates: false });
+    useTranscriptStore.setState({ session: { state: "idle" } });
   });
 
   it("stays hidden when the platform has no updater", async () => {
@@ -161,14 +163,43 @@ describe("UpdateToast", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("See what's new navigates to the What's New view", async () => {
-    checkMock.mockResolvedValueOnce(fakeUpdate());
+  it("shows and hides the complete release notes", async () => {
+    checkMock.mockResolvedValueOnce(
+      fakeUpdate({ body: "## Highlights\n\n- A useful change\n- A second change" }),
+    );
     renderToast();
 
     await screen.findByText("Update ready · conva v0.4.0");
     await userEvent.click(
-      screen.getByRole("button", { name: "See what's new" }),
+      screen.getByRole("button", { name: "Release notes" }),
     );
-    expect(useNavStore.getState().view).toBe("releases");
+    expect(screen.getByText(/A useful change/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Hide release notes" }));
+    expect(screen.queryByText(/A useful change/)).not.toBeInTheDocument();
+  });
+
+  it("auto-installs and relaunches when the preference is enabled", async () => {
+    const update = fakeUpdate({ body: "A clean release." });
+    checkMock.mockResolvedValueOnce(update);
+    useUiPrefs.setState({ autoInstallUpdates: true });
+    renderToast();
+
+    await waitFor(() => expect(update.install).toHaveBeenCalledOnce());
+    await waitFor(() => expect(relaunchMock).toHaveBeenCalledOnce());
+  });
+
+  it("postpones auto-install during a live session, then installs when it ends", async () => {
+    const update = fakeUpdate({ body: "A clean release." });
+    checkMock.mockResolvedValueOnce(update);
+    useUiPrefs.setState({ autoInstallUpdates: true });
+    useTranscriptStore.setState({ session: { state: "listening" } });
+    renderToast();
+
+    await screen.findByText(/Ready to install automatically when your live session ends/);
+    expect(update.install).not.toHaveBeenCalled();
+
+    act(() => useTranscriptStore.setState({ session: { state: "idle" } }));
+    await waitFor(() => expect(update.install).toHaveBeenCalledOnce());
+    await waitFor(() => expect(relaunchMock).toHaveBeenCalledOnce());
   });
 });

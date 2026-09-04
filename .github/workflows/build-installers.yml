@@ -44,16 +44,14 @@ on:
         type: string
         default: ""
     secrets:
-      # Master key for the committed env/*.enc files (env/README.md) — the
-      # ONE secret this repo's owner has to set in the GitHub UI. Everything
+      # Master key for the committed env/*.enc files (env/README.md). Everything
       # it unlocks (TAURI_SIGNING_PRIVATE_KEY[_PASSWORD] today) lives as an
       # encrypted, committed file instead: rotating the signing key from now
       # on is `edit .env.<env>.sec` → `npm run env:encrypt:<env>` → commit,
-      # never a return trip to Settings → Secrets. Optional — without it,
-      # plain installers still build; only the auto-update packages are
-      # skipped (same fallback the old direct secrets gave).
+      # never a return trip to Settings → Secrets. Required because every
+      # installer must be signed and capable of receiving verified updates.
       CONVA_ENV_KEY:
-        required: false
+        required: true
       # Fine-grained PAT scoped to ONLY the public RELEASES_REPOSITORY
       # (Contents: Read and write) — lets this build attach installers +
       # latest.json to a release over there instead of in this private repo.
@@ -131,13 +129,10 @@ jobs:
       # value either way today (.env.dev.sec/.env.prod.sec share one keypair,
       # per those files' own comment: the updater pubkey in tauri.conf.json is
       # fixed, so the private key must match across envs), kept per-env for
-      # when that stops being true. The key stays OPTIONAL during rollout —
-      # unset just means unsigned installers, exactly the old secrets-unset
-      # fallback — but that check has to happen INSIDE the step: the `secrets`
-      # context is not available in a step `if:`, and using it there is a
-      # workflow PARSE error, which fails the whole run before a single job is
-      # scheduled (it is why every release run since d22a811 died instantly
-      # with 0 jobs, and why the v0.3.2 tag could never have built either).
+      # when that stops being true. The reusable workflow requires the master
+      # key so unsigned, non-updatable installers cannot be produced by CI.
+      # Validate inside the step because the `secrets` context is unavailable
+      # in a step `if:` expression; using it there invalidates the workflow.
       - name: Decrypt signing secrets (env/*.enc)
         shell: bash
         env:
@@ -145,9 +140,8 @@ jobs:
           CONVA_ENV_NAME: ${{ inputs.release && 'prod' || 'dev' }}
         run: |
           if [ -z "${CONVA_ENV_KEY:-}" ]; then
-            echo "CONVA_ENV_KEY is not set — skipping decryption."
-            echo "Installers will still build; update artifacts are skipped."
-            exit 0
+            echo "::error::CONVA_ENV_KEY is required for signed, updatable installers."
+            exit 1
           fi
           # Decrypt to a temp file first: piping straight into $GITHUB_ENV would
           # append the CLI's error text as bogus env lines when the key is wrong.
@@ -161,6 +155,16 @@ jobs:
           fi
           cat "$out" >> "$GITHUB_ENV"
           rm -f "$out"
+
+      - name: Require release publishing credentials and notes
+        if: inputs.release
+        shell: bash
+        env:
+          RELEASES_REPO_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          RELEASE_NOTES: ${{ inputs.release_body }}
+        run: |
+          test -n "$RELEASES_REPO_TOKEN" || { echo "RELEASES_REPO_TOKEN is required for releases"; exit 1; }
+          node scripts/validate-release-notes.mjs
 
       - name: Build installers
         uses: tauri-apps/tauri-action@v0

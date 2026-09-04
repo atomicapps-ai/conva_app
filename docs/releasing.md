@@ -12,7 +12,7 @@ this checklist implements.
 
 | Secret | Used for | Required? |
 |---|---|---|
-| `CONVA_ENV_KEY` | The env-toolkit master key (`env/README.md`) — unlocks the committed `.env.<env>.sec.enc` files, which is where `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` actually live now. `build-installers.yml` decrypts straight into `$GITHUB_ENV` before the build step; nothing is ever printed to the log. | Optional — without it, plain installers still build, only update artifacts + `latest.json` are skipped (same fallback the old direct secrets gave) |
+| `CONVA_ENV_KEY` | The env-toolkit master key (`env/README.md`) — unlocks the committed `.env.<env>.sec.enc` files, which is where `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` actually live now. `build-installers.yml` decrypts straight into `$GITHUB_ENV` before the build step; nothing is ever printed to the log. | Required for installer builds. CI must not produce an unsigned installer that cannot receive verified updates. |
 | `RELEASES_REPO_TOKEN` | Fine-grained GitHub PAT scoped to **only** `atomicapps-ai/conva_releases`, permission **Contents: Read and write** — lets the release build attach installers + `latest.json` to a release in that repo instead of this one | Required for a tagged release run to actually publish; a run without it fails loudly at the "Build installers" step with a GitHub API auth error (it never silently falls back to drafting in the wrong, private repo) |
 
 `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` are **no
@@ -106,14 +106,17 @@ refuses to build if the tag doesn't match `package.json`.
      generates the user-facing notes from Conventional Commits via git-cliff.
    - `build` (the reusable `build-installers.yml`) builds Windows
      (MSI + NSIS, Vulkan) and macOS (dmg, Metal) on GitHub-hosted runners,
-     signs updater artifacts (if the signing secrets are set), and opens a
+     signs updater artifacts, and opens a
      **draft** Release in `atomicapps-ai/conva_releases` with those notes.
-4. **Review the draft** at
+4. The `verify-draft` job blocks completion unless the draft has substantive
+   versioned notes, Windows MSI + NSIS assets, a macOS dmg + updater archive,
+   updater signatures, and a `latest.json` covering both platforms.
+5. **Review the draft** at
    https://github.com/atomicapps-ai/conva_releases/releases — check both
    platforms' assets are attached, notes read correctly, then **publish**
    it. The updater feed (`.../releases/latest/download/latest.json`) only
    resolves once a release is published, not while draft.
-5. **Regenerate the local changelog + in-app release notes** (these are not
+6. **Regenerate the local changelog + in-app release notes** (these are not
    yet wired into CI — do them by hand on the release branch/commit):
    ```
    npm run changelog:generate    # git-cliff -o CHANGELOG.md — needs the git-cliff binary on PATH
@@ -123,14 +126,14 @@ refuses to build if the tag doesn't match `package.json`.
    `npm run changelog:preview` (`git-cliff --unreleased`) previews the notes
    for commits since the last tag without writing the file — useful while
    deciding the version in step 1.
-6. **Update `conva_core/docs/product/roadmap.md`** in the same pass if this
+7. **Update `conva_core/docs/product/roadmap.md`** in the same pass if this
    release changes priorities or closes a roadmap item (per that repo's
    CLAUDE.md).
 
 Beta builds (push to `dev`) go through the same `build-installers.yml` matrix
 via `dev-build.yml`, but with `release: false` — they upload as workflow
-artifacts only, never touch `conva_releases`, and need none of the secrets
-above except the signing ones (optional there too).
+artifacts only and never touch `conva_releases`. They still require
+`CONVA_ENV_KEY`, so they exercise the same signed updater path as releases.
 
 ## Cross-repo publishing — the `target_commitish` trap
 

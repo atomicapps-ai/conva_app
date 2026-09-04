@@ -18,6 +18,8 @@
     "version:stamp": "node scripts/version.mjs stamp",
     "version:check": "node scripts/version.mjs check",
     "version:get": "node scripts/version.mjs get",
+    "release-notes:test": "node --test scripts/validate-release-notes.test.mjs",
+    "release-notes:check": "node scripts/validate-release-notes.mjs",
     "changelog:generate": "git-cliff -o CHANGELOG.md",
     "changelog:preview": "git-cliff --unreleased --strip header",
     "tauri": "tauri",
