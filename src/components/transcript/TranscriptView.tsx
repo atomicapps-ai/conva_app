@@ -46,9 +46,21 @@ import { FoundList } from "@/components/transcript/FoundList";
 import { ViewHistory } from "@/components/transcript/ViewHistory";
 import { AllyAccordion } from "@/components/transcript/AllyAccordion";
 import {
+  TranscriptBubbleHeader,
+  type SpeakerHeaderInfo,
+} from "@/components/transcript/TranscriptBubbleHeader";
+import {
   revealAnswers,
   type PanelState,
 } from "@/components/transcript/panelSections";
+import {
+  YOU_SPEAKER_ID,
+  fixtureVoiceId,
+  resolveAssignment,
+  useSpeakerStore,
+  type AssignmentStatus,
+  type SpeakerKind,
+} from "@/state/speakers";
 import { useCapabilities } from "@/lib/backend/context";
 import {
   useTranscriptStability,
@@ -278,7 +290,7 @@ function TermMenu({
       onClick={(e) => e.stopPropagation()}
       role="menu"
       aria-label={`Ask Ally about "${term}"`}
-      className="glass-raised flex items-center gap-0.5 rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
+      className="glass-raised flex items-center gap-1 rounded-[var(--radius-lg)] border border-border-strong border-l-ai/60 bg-panel-raised/95 p-1 shadow-[var(--shadow-md)]"
     >
       {TERM_ACTIONS.map((a) => (
         <button
@@ -291,18 +303,18 @@ function TermMenu({
             void backend.rag.recordTermPick(term);
             onPick(a.action);
           }}
-          className="rounded p-1.5 text-fg-faint transition-colors hover:bg-ai/10 hover:text-ai"
+          className="grid h-7 w-7 place-items-center rounded text-fg-muted transition-colors hover:bg-ai/10 hover:text-ai focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ai/70"
         >
           <Icon name={a.icon} size={16} />
         </button>
       ))}
-      <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+      <span className="mx-0.5 h-4 w-px bg-border-strong" aria-hidden />
       <button
         type="button"
         title="Useful — surface terms like this"
         aria-label={`Mark "${term}" useful`}
         onClick={() => feedback("up")}
-        className="rounded p-1.5 text-fg-faint transition-colors hover:bg-ai/10 hover:text-ai"
+        className="grid h-7 w-7 place-items-center rounded text-fg-muted transition-colors hover:bg-ai/10 hover:text-ai focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ai/70"
       >
         <Icon name="thumbUp" size={16} />
       </button>
@@ -311,7 +323,7 @@ function TermMenu({
         title="Not useful — stop highlighting this"
         aria-label={`Mark "${term}" not useful`}
         onClick={() => feedback("down")}
-        className="rounded p-1.5 text-fg-faint transition-colors hover:bg-rec/10 hover:text-rec"
+        className="grid h-7 w-7 place-items-center rounded text-fg-muted transition-colors hover:bg-rec/10 hover:text-rec focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-rec/70"
       >
         <Icon name="thumbDown" size={16} />
       </button>
@@ -355,7 +367,7 @@ function HighlightedText({
           const r = e.currentTarget.getBoundingClientRect();
           setMenu({ term: word, x: r.left, y: r.top });
         }}
-        className="font-semibold text-ai underline decoration-2 underline-offset-2 hover:decoration-ai"
+        className="rounded-[3px] bg-ai/[0.07] px-0.5 font-semibold text-fg underline decoration-ai/80 decoration-1 decoration-dotted underline-offset-[3px] transition-colors hover:bg-ai/[0.14] hover:text-ai focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ai/70"
       >
         {word}
       </button>,
@@ -429,7 +441,7 @@ function SelectionMenu({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       role="menu"
-      className="glass-raised flex items-center gap-0.5 rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
+      className="glass-raised flex items-center gap-1 rounded-[var(--radius-lg)] border border-border-strong border-l-primary/70 bg-panel-raised/95 p-1 shadow-[var(--shadow-md)]"
     >
       <button
         type="button"
@@ -439,7 +451,7 @@ function SelectionMenu({
           onAsk(text);
           onClose();
         }}
-        className="rounded p-1.5 text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai"
+        className="grid h-7 w-7 place-items-center rounded text-ai/80 transition-colors hover:bg-ai/10 hover:text-ai focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ai/70"
       >
         <Icon name="lightbulb" size={15} />
       </button>
@@ -451,7 +463,7 @@ function SelectionMenu({
           void navigator.clipboard.writeText(text);
           onClose();
         }}
-        className="rounded p-1.5 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+        className="grid h-7 w-7 place-items-center rounded text-fg-muted transition-colors hover:bg-bg/50 hover:text-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/70"
       >
         <Icon name="copy" size={15} />
       </button>
@@ -463,7 +475,7 @@ function SelectionMenu({
           onSendToAsk(text);
           onClose();
         }}
-        className="rounded p-1.5 text-fg-faint transition-colors hover:bg-panel-raised/60 hover:text-fg"
+        className="grid h-7 w-7 place-items-center rounded text-primary transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/70"
       >
         <Icon name="chevron" size={15} className="rotate-90" />
       </button>
@@ -582,10 +594,11 @@ function FlowText({
 }
 
 /** One conversation turn = consecutive segments from the same speaker. Full
- *  width with a 2px voice-colour accent (cyan = them, violet = you); expanded
- *  content flows with `|` separators, collapsed content peeks on hover. The
- *  lightbulb + time sit outside the bubble on the right; the collapse toggle
- *  floats at the top-centre edge. A turn with derived Ally research carries a
+ *  width with a 2px voice-colour accent (green = them, lavender = you); a
+ *  compact in-bubble header owns speaker, time, collapse, and Ally actions so
+ *  transcript text stays dense and visually uninterrupted. Expanded content
+ *  flows with `|` separators; collapsed content peeks on hover. A turn with
+ *  derived Ally research carries a
  *  "N threads" pill below it (V4.0's `.turn-thread`) — replaces the old
  *  single "A#" jump chip now that a turn can have more than one card and
  *  cards no longer live in a separate column to jump *to*. */
@@ -607,6 +620,13 @@ function Bubble({
   fontPx,
   sessionStartMs,
   searchHighlight,
+  speaker,
+  speakerStatus,
+  otherSpeakers,
+  onRenameSpeaker,
+  onMergeSpeaker,
+  onSplitSpeaker,
+  onForgetSpeaker,
 }: {
   segments: TranscriptSegment[];
   turnKey: string;
@@ -628,6 +648,17 @@ function Bubble({
   fontPx: number;
   /** Session start (epoch ms) so the time hover can show a wall-clock. */
   sessionStartMs: number | null;
+  /** This turn's resolved session-local voice (speaker-aware conversations —
+   *  see `state/speakers.ts`); "You" on the outbound side, "New voice" /
+   *  "Voice N" / a user-given name on the inbound side. */
+  speaker: SpeakerHeaderInfo;
+  speakerStatus: AssignmentStatus;
+  /** Other known session voices this turn could be merged into. */
+  otherSpeakers: SpeakerHeaderInfo[];
+  onRenameSpeaker: (label: string) => void;
+  onMergeSpeaker: (targetId: string) => void;
+  onSplitSpeaker: () => void;
+  onForgetSpeaker: () => void;
   /** A landed search query (owner request, 2026-08-17) — folded into the
    *  RAG `terms` highlight pass below so every occurrence in this bubble
    *  renders highlighted, same visual treatment as a RAG term. */
@@ -761,7 +792,7 @@ function Bubble({
           // Contour (V4.0 §10): squared at the speaker's corner, rounded
           // away elsewhere — them bottom-left, you bottom-right. Width,
           // padding, and every other bubble dimension are unchanged.
-          "relative min-w-0 rounded-tl-[var(--radius-bubble)] rounded-tr-[var(--radius-bubble)] border border-border py-1.5 pl-2.5 pr-6 transition-shadow",
+          "relative min-w-0 rounded-tl-[var(--radius-bubble)] rounded-tr-[var(--radius-bubble)] border border-border py-1.5 pl-2.5 pr-2 selection:bg-primary/30 selection:text-fg transition-shadow",
           inbound
             ? "rounded-br-[var(--radius-bubble)] rounded-bl-[4px]"
             : "rounded-bl-[var(--radius-bubble)] rounded-br-[4px]",
@@ -785,42 +816,27 @@ function Bubble({
           className={`absolute inset-y-0 left-0 w-[2px] rounded-l ${accent}`}
           aria-hidden
         />
-        {/* Collapse toggle — floats at the top-centre edge (down = collapsed). */}
-        {hasFinal && (
-          <button
-            type="button"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleCollapse();
-            }}
-            aria-expanded={!collapsed}
-            title={collapsed ? "Expand" : "Collapse"}
-            aria-label={collapsed ? "Expand turn" : "Collapse turn"}
-            className="absolute left-1/2 top-0 z-20 grid h-[16px] w-[18px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-border bg-panel text-fg-faint transition-colors hover:border-ai/50 hover:text-ai"
-          >
-            <Icon
-              name="chevron"
-              size={12}
-              strokeWidth={2.6}
-              className={collapsed ? "" : "rotate-180"}
-            />
-          </button>
-        )}
-        {/* Ask Ally about the whole turn — top-right corner, saves inline space. */}
-        {hasFinal && (
-          <button
-            type="button"
-            disabled={busy}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={onResearch}
-            title="Ask Ally about this turn"
-            aria-label="Ask Ally about this turn"
-            className="absolute right-0.5 top-0.5 z-10 rounded p-0.5 text-ai/60 transition-colors hover:bg-ai/10 hover:text-ai disabled:opacity-40"
-          >
-            <Icon name="lightbulb" size={14} />
-          </button>
-        )}
+        {/* Option B (owner-approved, 2026-09-03): one compact metadata header.
+            The side label is the future voice-name slot; speaker recognition
+            can replace "Them" without changing bubble geometry. */}
+        <TranscriptBubbleHeader
+          speakerLabel={speaker.label}
+          speakerTone={inbound ? "inbound" : "outbound"}
+          timeLabel={timeLabel}
+          timeTitle={timeTitle}
+          isFinal={hasFinal}
+          collapsed={collapsed}
+          busy={busy}
+          onToggleCollapse={onToggleCollapse}
+          onResearch={onResearch}
+          speaker={speaker}
+          status={speakerStatus}
+          otherSpeakers={otherSpeakers}
+          onRename={onRenameSpeaker}
+          onMerge={onMergeSpeaker}
+          onSplit={onSplitSpeaker}
+          onForget={onForgetSpeaker}
+        />
 
         {collapsed ? (
           <CollapsedPreview text={combinedText} onExpand={onToggleCollapse} />
@@ -852,15 +868,6 @@ function Bubble({
             )}
             {finalUnits.length === 0 && !liveConfirmed && !liveTentative && (
               <span className="text-fg-muted">…</span>
-            )}
-            {/* Time — the last item, right after the words; hover = full date. */}
-            {hasFinal && (
-              <span
-                title={timeTitle}
-                className="ml-1.5 cursor-help whitespace-nowrap align-baseline font-mono text-[9px] text-fg-faint"
-              >
-                {timeLabel}
-              </span>
             )}
           </div>
         )}
@@ -1851,10 +1858,55 @@ export function TranscriptView() {
     ],
     [archived, liveSegments],
   );
-  // Consolidate consecutive same-speaker segments into one turn (bubble). A new
-  // bubble starts only when the speaker switches — no pause/time split. The
-  // turn is keyed by its first segment, so Ally-card links stay stable.
-  const turns = useMemo(() => groupTurns(merged), [merged]);
+
+  // Speaker-aware conversations (doc: speaker-aware-conversations.md, §15
+  // Phase B): resolve each segment's session-local voice — today's
+  // placeholder (fixtureVoiceId, honest single-bucket per side, no real
+  // diarization yet) layered with any user correction/merge — and group
+  // turns on side + voice, not side alone.
+  const speakers = useSpeakerStore((s) => s.speakers);
+  const speakerOverrides = useSpeakerStore((s) => s.overrides);
+  const mergedVoices = useSpeakerStore((s) => s.mergedInto);
+  const ensureSpeaker = useSpeakerStore((s) => s.ensureSpeaker);
+  const createSpeaker = useSpeakerStore((s) => s.createSpeaker);
+  const renameSpeaker = useSpeakerStore((s) => s.renameSpeaker);
+  const forgetSpeaker = useSpeakerStore((s) => s.forgetSpeaker);
+  const reassignSpeakerSegment = useSpeakerStore((s) => s.reassignSegment);
+  const mergeSpeakerInto = useSpeakerStore((s) => s.mergeInto);
+
+  const voiceIdFor = useCallback(
+    (seg: TranscriptSegment) =>
+      resolveAssignment(segmentKey(seg), fixtureVoiceId(seg.side), speakerOverrides, mergedVoices)
+        .speakerId,
+    [speakerOverrides, mergedVoices],
+  );
+  const voiceStatusFor = useCallback(
+    (seg: TranscriptSegment) =>
+      resolveAssignment(segmentKey(seg), fixtureVoiceId(seg.side), speakerOverrides, mergedVoices)
+        .status,
+    [speakerOverrides, mergedVoices],
+  );
+
+  // Consolidate consecutive same-voice segments into one turn (bubble). A new
+  // bubble starts when the voice switches (which includes every side change)
+  // — no pause/time split. The turn is keyed by its first segment, so
+  // Ally-card links stay stable.
+  const turns = useMemo(() => groupTurns(merged, voiceIdFor), [merged, voiceIdFor]);
+
+  // Every voice a turn resolves to needs a profile to render a label from —
+  // "you" always exists; an inbound voice id is created the first time it's
+  // seen. ensureSpeaker is idempotent, so this is cheap once ids stabilize.
+  useEffect(() => {
+    ensureSpeaker(YOU_SPEAKER_ID, "you");
+  }, [ensureSpeaker]);
+  useEffect(() => {
+    for (const turn of turns) {
+      if (!speakers[turn.speakerId]) {
+        const kind: SpeakerKind = turn.side === "outbound" ? "you" : "anonymous";
+        ensureSpeaker(turn.speakerId, kind);
+      }
+    }
+  }, [turns, speakers, ensureSpeaker]);
 
   // Keep the user's own ("you") turns collapsed by default (a persisted pref) —
   // you rarely re-read your own words. Each key is seeded once, so manually
@@ -2587,6 +2639,23 @@ export function TranscriptView() {
                   text: finalText,
                   is_final: turn.segments.some((s) => s.is_final),
                 };
+                // Resolve this turn's voice profile + assignment status from
+                // its first segment (every segment in the turn already
+                // shares the same resolved speakerId by construction).
+                const status = voiceStatusFor(turn.segments[0]!);
+                const profile = speakers[turn.speakerId];
+                const speaker: SpeakerHeaderInfo = profile
+                  ? {
+                      id: profile.id,
+                      kind: profile.kind,
+                      // Doc §1: overlap/insufficient speech shows no
+                      // confident identity claim, never a guessed name.
+                      label: status === "uncertain" ? "Unclear speaker" : profile.label,
+                    }
+                  : { id: turn.speakerId, kind: turn.side === "outbound" ? "you" : "anonymous", label: "…" };
+                const otherSpeakers: SpeakerHeaderInfo[] = Object.values(speakers)
+                  .filter((s) => s.id !== speaker.id && s.kind !== "you")
+                  .map((s) => ({ id: s.id, label: s.label, kind: s.kind }));
                 return (
                   <Bubble
                     key={key}
@@ -2607,6 +2676,22 @@ export function TranscriptView() {
                     fontPx={transcriptFontPx}
                     sessionStartMs={sessionStartMs}
                     searchHighlight={searchHighlight}
+                    speaker={speaker}
+                    speakerStatus={status}
+                    otherSpeakers={otherSpeakers}
+                    onRenameSpeaker={(label) => renameSpeaker(speaker.id, label)}
+                    // A true merge (doc UC5): every turn ever resolved to
+                    // this voice — not just this one — folds into the
+                    // target, via the merge table rather than a one-off
+                    // per-segment override.
+                    onMergeSpeaker={(targetId) => mergeSpeakerInto(speaker.id, targetId)}
+                    onSplitSpeaker={() => {
+                      const fresh = createSpeaker();
+                      turn.segments.forEach((s) =>
+                        reassignSpeakerSegment(segmentKey(s), fresh.id, "confirmed"),
+                      );
+                    }}
+                    onForgetSpeaker={() => forgetSpeaker(speaker.id)}
                   />
                 );
               })
