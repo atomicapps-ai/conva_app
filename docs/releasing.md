@@ -132,6 +132,38 @@ via `dev-build.yml`, but with `release: false` — they upload as workflow
 artifacts only, never touch `conva_releases`, and need none of the secrets
 above except the signing ones (optional there too).
 
+## Cross-repo publishing — the `target_commitish` trap
+
+The installers build in `conva_app` but the Release is created in
+`atomicapps-ai/conva_releases`. Those are different repositories, and GitHub
+validates the new release's `target_commitish` **against the target repo**.
+
+`tauri-action` defaults `releaseCommitish` to the SHA of the current commit —
+a `conva_app` SHA, which does not exist in `conva_releases`. The result is a
+failure at the very last step, *after* a complete, successful, signed build:
+
+```
+Finished 2 bundles at: .../conva_0.3.3_aarch64.dmg
+Finished 1 updater signature at: .../conva.app.tar.gz.sig
+Looking for a draft release with tag v0.3.3...
+Couldn't find release with tag v0.3.3. Creating one.
+##[error]Validation Failed: {"resource":"Release","code":"invalid","field":"target_commitish"}
+```
+
+That is v0.3.3, run
+[33925551829](https://github.com/atomicapps-ai/conva_app/actions/runs/33925551829)
+— roughly 10 minutes of build thrown away at the publish call, which is
+exactly the shape of the earlier signing-key failure and just as misleading:
+the logs read as a successful build right up to the last line.
+
+The fix is `releaseCommitish: main` (`RELEASES_REPO_BRANCH` in
+`build-installers.yml`), pinning it to the default branch of
+`conva_releases`. It is only consulted when the tag does not already exist
+there; notes and artifacts still come from this repo's tag. **If
+`conva_releases` ever renames its default branch, update that env var** —
+nothing else references it, and the failure would look like an unrelated
+build break.
+
 ## Rollback
 
 The updater always resolves `conva_releases`' **latest published** (not

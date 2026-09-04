@@ -19,6 +19,9 @@ env:
   # Split into owner/name because the `with:` block below needs them separately.
   RELEASES_REPO_OWNER: atomicapps-ai
   RELEASES_REPO_NAME: conva_releases
+  # Default branch of RELEASES_REPOSITORY — the only valid target_commitish for
+  # a release created over there. See releaseCommitish below.
+  RELEASES_REPO_BRANCH: main
 
 on:
   workflow_call:
@@ -180,6 +183,17 @@ jobs:
           releaseName: ${{ inputs.release && inputs.release_name || '' }}
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release }}
+          # The tag is created in RELEASES_REPOSITORY, so the commitish it
+          # points at must exist THERE. tauri-action defaults releaseCommitish
+          # to the current commit's SHA — which is a conva_app SHA and means
+          # nothing in conva_releases, so GitHub rejects the create with
+          #   Validation Failed: {"resource":"Release","code":"invalid",
+          #                       "field":"target_commitish"}
+          # after a full, successful, signed build (v0.3.3, run 33925551829).
+          # Pin it to that repo's default branch instead. Only consulted when
+          # the tag doesn't already exist there; the release notes and the
+          # artifacts still come from this repo's tag.
+          releaseCommitish: ${{ inputs.release && env.RELEASES_REPO_BRANCH || '' }}
           args: ${{ matrix.args }}
 
       # Non-release (dev/beta or workflow_dispatch) builds keep the bundles as
