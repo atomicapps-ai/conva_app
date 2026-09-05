@@ -405,6 +405,7 @@ export function webOperations(): OperationAvailability {
     "providers.keyStatus": unsupported(NO_KEYRING),
     "providers.test": unsupported(NO_KEYRING),
     "providers.listModels": unimplemented(M1),
+    // Flipped at runtime by WebBackend from GET /api/live/status `ally` (M2 cp3).
     "ally.run": unimplemented(M1),
     "audio.listDevices": unimplemented(M2),
     "audio.listWhisperModels": unsupported(NO_LOCAL_ASR),

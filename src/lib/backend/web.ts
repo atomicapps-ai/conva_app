@@ -32,11 +32,13 @@ import {
 import { AVAILABLE, unavailable, type TranscriptEvent } from "@/lib/capture/contract";
 import { startAudioGraph } from "@/lib/audio/audioGraph";
 import { fetchLiveStatus } from "@/lib/live/liveStatus";
+import { runAlly } from "@/lib/live/allyClient";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
 import type { SocketLike } from "@/lib/live/liveClient";
 import type {
+  AllyKind,
   AppConfig,
   AudioDevice,
   AuthStatus,
@@ -92,7 +94,7 @@ type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;
 
 export class WebBackend implements ConvaBackend {
   private readonly store: CapabilityStore<CapabilitySnapshot>;
-  /** In-page event bus for the browser-sourced events (sessionState, transcriptSegment, audioLevel). */
+  /** In-page event bus for the browser-sourced events (sessionState, transcriptSegment, audioLevel, allyChunk, allySources). */
   private readonly handlers = new Map<keyof EventMap, Set<Handler<keyof EventMap>>>();
   private readonly envelopeHandlers = new Set<(e: TranscriptEvent) => void>();
   private readonly captureHandlers = new Set<(s: CaptureStatus[]) => void>();
@@ -134,6 +136,12 @@ export class WebBackend implements ConvaBackend {
         const why = unavailable(status.reason ?? "Hosted live transcription is not configured on this deployment.");
         for (const op of liveOps) ops[op] = why;
       }
+      // Ally (M2 cp3) is its own server-side key: available exactly when the
+      // gateway says so, otherwise unavailable with the gateway's reason —
+      // never `unimplemented` once a gateway answered (that would be a lie).
+      ops["ally.run"] = status.ally?.configured
+        ? AVAILABLE
+        : unavailable(status.ally?.reason ?? "Ally is not configured on this deployment.");
       this.store.update({ sources, operations: ops });
     });
     void webAuth.ready().then((info) => {
@@ -218,8 +226,15 @@ export class WebBackend implements ConvaBackend {
         handler({ status, error: null } as EventMap[K]);
       });
     }
-    // Browser-sourced live events come from the LiveSessionRunner (M2).
-    if (event === "sessionState" || event === "transcriptSegment" || event === "audioLevel") {
+    // Browser-sourced live events come from the LiveSessionRunner (M2) and
+    // the Ally stream (M2 cp3).
+    if (
+      event === "sessionState" ||
+      event === "transcriptSegment" ||
+      event === "audioLevel" ||
+      event === "allyChunk" ||
+      event === "allySources"
+    ) {
       let set = this.handlers.get(event);
       if (!set) {
         set = new Set();
@@ -254,7 +269,29 @@ export class WebBackend implements ConvaBackend {
   };
 
   ally = {
-    run: (): Promise<void> => todo("POST /v1/inference/complete (SSE)"),
+    // POST /api/live/ally (same-origin cookie auth, server-side model key):
+    // the NDJSON answer stream is replayed as the legacy `allySources` then
+    // `allyChunk` events the Ally store already consumes, so the UI path is
+    // identical to desktop. A refusal before any line rejects with the
+    // server's code (the store marks the card failed); a failure mid-stream
+    // arrives as a terminal chunk with `error`, so `busy` never sticks.
+    run: (requestId: string, kind: AllyKind, question: string | null, segments: TranscriptSegment[]): Promise<void> =>
+      runAlly({ fetch: (input, init) => fetch(input, init) }, { request_id: requestId, kind, question, segments }, (line) => {
+        switch (line.type) {
+          case "sources":
+            this.emit("allySources", { request_id: requestId, sources: line.sources });
+            break;
+          case "chunk":
+            this.emit("allyChunk", { request_id: requestId, token: line.token, done: false, error: null });
+            break;
+          case "done":
+            this.emit("allyChunk", { request_id: requestId, token: "", done: true, error: null });
+            break;
+          case "error":
+            this.emit("allyChunk", { request_id: requestId, token: "", done: true, error: `${line.message} (${line.code})` });
+            break;
+        }
+      }),
   };
 
   audio = {
