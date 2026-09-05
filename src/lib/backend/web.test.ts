@@ -320,3 +320,67 @@ describe("WebBackend — cloud Contexts (M2 cp7)", () => {
     expect(asks[1]).not.toHaveProperty("context_id");
   });
 });
+
+describe("WebBackend — cloud Conversations (M2 cp8)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    webAuth._resetForTests();
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const SEG = { side: "inbound" as const, seq: 1, text: "How much is it?", is_final: true, start_ms: 0, end_ms: 900, confidence: null, latency_ms: 40 };
+  const CONV = { id: "conv-1", title: "How much is it?", created_at_unix_ms: 1, updated_at_unix_ms: 2, segments: [SEG], linked_docs: [], linked_context_id: "ctx-1" };
+
+  function route(status: unknown, handlers: Record<string, (init: RequestInit) => Response> = {}) {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/live/status") return json(status);
+      if (url === "/api/app/session") return json({ signed_in: false, configured: true });
+      const h = handlers[`${init?.method ?? "GET"} ${url}`];
+      return h ? h(init ?? {}) : json({ error: "not_found" }, 404);
+    });
+  }
+
+  it("conversations.* ride the session backend like Contexts: available when it answers, unavailable with its reason otherwise", async () => {
+    route(STATUS_NO_ALLY);
+    const on = new WebBackend(chromeWindows);
+    expect(on.capabilityStore.snapshot().operations["conversations.save"].state).toBe("unimplemented");
+    await tick();
+    for (const op of ["conversations.save", "conversations.list", "conversations.load", "conversations.delete"] as const) {
+      expect(on.capabilityStore.snapshot().operations[op].state, op).toBe("available");
+    }
+    route(STATUS_OFF);
+    const off = new WebBackend(chromeWindows);
+    await tick();
+    expect(off.capabilityStore.snapshot().operations["conversations.save"]).toMatchObject({ state: "unavailable", reason: "session backend: SESSION_SECRET is not set" });
+  });
+
+  it("save posts the store's inputs (id, title, segments, linked docs, active Context) and returns the Worker's record; list/load/delete round-trip; unprovisioned is coded", async () => {
+    const posted: unknown[] = [];
+    route(STATUS_ON, {
+      "POST /api/live/conversations": (init) => {
+        posted.push(JSON.parse(init.body as string));
+        return json({ conversation: CONV });
+      },
+      "GET /api/live/conversations": () => json({ conversations: [{ id: "conv-1", title: CONV.title, segment_count: 1, preview: SEG.text }] }),
+      "GET /api/live/conversations/conv-1": () => json({ conversation: CONV }),
+      "DELETE /api/live/conversations/conv-1": () => json({ ok: true }),
+    });
+    const b = new WebBackend(chromeWindows);
+    await tick();
+    const saved = await b.conversations.save(null, null, [SEG, { ...SEG, seq: 2, text: "partial", is_final: false }], ["d1"], "ctx-1");
+    expect(saved).toEqual(CONV);
+    expect(posted[0]).toEqual({ id: null, title: null, segments: [SEG, { ...SEG, seq: 2, text: "partial", is_final: false }], linked_docs: ["d1"], context_id: "ctx-1" });
+    await b.conversations.save("conv-1", "Renamed", [SEG], [], null);
+    expect(posted[1]).toEqual({ id: "conv-1", title: "Renamed", segments: [SEG], linked_docs: [] });
+    expect(await b.conversations.list()).toEqual([{ id: "conv-1", title: CONV.title, segment_count: 1, preview: SEG.text }]);
+    expect((await b.conversations.load("conv-1")).segments).toEqual([SEG]);
+    await expect(b.conversations.delete("conv-1")).resolves.toBeUndefined();
+
+    route(STATUS_ON, { "POST /api/live/conversations": () => json({ error: "unprovisioned", reason: "Apply migration 0006." }, 503) });
+    await expect(b.conversations.save(null, null, [SEG], [], null)).rejects.toMatchObject({ code: "unprovisioned", message: "Apply migration 0006." });
+  });
+});
