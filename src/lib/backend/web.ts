@@ -34,6 +34,7 @@ import { startAudioGraph } from "@/lib/audio/audioGraph";
 import { fetchLiveStatus } from "@/lib/live/liveStatus";
 import { runAlly } from "@/lib/live/allyClient";
 import { fetchLiveUsage, toUsageSummary } from "@/lib/live/usage";
+import { TelemetryCollector, serializeAggregate, type TelemetrySample } from "@/lib/live/telemetry";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
@@ -102,9 +103,19 @@ export class WebBackend implements ConvaBackend {
   private runner: LiveSessionRunner | null = null;
   /** Ally model id from the last status probe (names the usage bucket). */
   private allyModel: string | null = null;
+  /** Content-free telemetry (M2 cp5): samples fold into one aggregate per
+   *  window, posted to /api/live/telemetry every FLUSH_MS and on stop. */
+  private readonly telemetry: TelemetryCollector;
+  private flushTimer: ReturnType<typeof setInterval> | null = null;
+  static readonly TELEMETRY_FLUSH_MS = 30_000;
 
   /** `probe` is injectable for tests; defaults to the live runtime. */
   constructor(probe: RuntimeProbe = probeRuntime()) {
+    this.telemetry = new TelemetryCollector({ clientBuild: typeof __GIT_SHA__ === "string" ? __GIT_SHA__ : "dev", os: probe.os });
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      // Best effort on tab close: the aggregate is tiny and content-free.
+      window.addEventListener("pagehide", () => this.flushTelemetry(true));
+    }
     // `WEB_CAPABILITIES` (the legacy descriptor) is unchanged. The snapshot
     // around it tells the truth per operation: every `todo()` below is
     // `unimplemented`, every `unsupported()` is `unsupported`, and the
@@ -188,6 +199,36 @@ export class WebBackend implements ConvaBackend {
     });
   }
 
+  /** Record a sample and make sure a flush is scheduled. */
+  private recordTelemetry(sample: TelemetrySample): void {
+    this.telemetry.record(sample);
+    if (this.flushTimer === null && typeof setInterval === "function") {
+      this.flushTimer = setInterval(() => this.flushTelemetry(false), WebBackend.TELEMETRY_FLUSH_MS);
+    }
+  }
+
+  /** Post the current aggregate (if any). Never throws; a failed post drops
+   *  the window — telemetry is best-effort and must never affect the session. */
+  flushTelemetry(final = false): void {
+    const agg = this.telemetry.flush();
+    if (this.flushTimer !== null && (final || agg === null)) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (!agg) return;
+    const body = serializeAggregate(agg);
+    if (!body) return; // the validator refused it: never send anything it did not pass
+    try {
+      if (final && typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        navigator.sendBeacon("/api/live/telemetry", new Blob([body], { type: "application/json" }));
+        return;
+      }
+      void fetch("/api/live/telemetry", { method: "POST", credentials: "same-origin", keepalive: final, headers: { "Content-Type": "application/json" }, body }).catch(() => {});
+    } catch {
+      /* best effort */
+    }
+  }
+
   private emit<K extends keyof EventMap>(event: K, payload: EventMap[K]): void {
     const set = this.handlers.get(event);
     if (!set) return;
@@ -219,6 +260,10 @@ export class WebBackend implements ConvaBackend {
         },
         notice: (code, message) => {
           if (import.meta.env?.DEV) console.info(`[live] ${code}: ${message}`);
+        },
+        telemetry: (sample) => {
+          this.recordTelemetry(sample);
+          if (sample.kind === "session.end") this.flushTelemetry(false);
         },
       },
     );
@@ -285,23 +330,39 @@ export class WebBackend implements ConvaBackend {
     // identical to desktop. A refusal before any line rejects with the
     // server's code (the store marks the card failed); a failure mid-stream
     // arrives as a terminal chunk with `error`, so `busy` never sticks.
-    run: (requestId: string, kind: AllyKind, question: string | null, segments: TranscriptSegment[]): Promise<void> =>
-      runAlly({ fetch: (input, init) => fetch(input, init) }, { request_id: requestId, kind, question, segments }, (line) => {
+    run: (requestId: string, kind: AllyKind, question: string | null, segments: TranscriptSegment[]): Promise<void> => {
+      const startedAt = Date.now();
+      let firstTokenMs: number | undefined;
+      let outcome: "ok" | "error" | "refused" = "ok";
+      let code: string | undefined;
+      return runAlly({ fetch: (input, init) => fetch(input, init) }, { request_id: requestId, kind, question, segments }, (line) => {
         switch (line.type) {
           case "sources":
             this.emit("allySources", { request_id: requestId, sources: line.sources });
             break;
           case "chunk":
+            if (firstTokenMs === undefined) firstTokenMs = Date.now() - startedAt;
             this.emit("allyChunk", { request_id: requestId, token: line.token, done: false, error: null });
             break;
           case "done":
             this.emit("allyChunk", { request_id: requestId, token: "", done: true, error: null });
             break;
           case "error":
+            outcome = "error";
+            code = line.code;
             this.emit("allyChunk", { request_id: requestId, token: "", done: true, error: `${line.message} (${line.code})` });
             break;
         }
-      }),
+      })
+        .catch((e: unknown) => {
+          outcome = "refused";
+          code = (e as { code?: string } | null)?.code ?? "error";
+          throw e;
+        })
+        .finally(() => {
+          this.recordTelemetry({ kind: "ally", ally_kind: kind, outcome, code, first_token_ms: firstTokenMs, total_ms: Date.now() - startedAt });
+        });
+    },
   };
 
   audio = {
