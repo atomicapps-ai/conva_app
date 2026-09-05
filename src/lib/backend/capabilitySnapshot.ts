@@ -141,6 +141,12 @@ export const ALL_OPERATIONS = [
   "audio.deepgramKeyStatus",
   "session.start",
   "session.stop",
+  "capture.enumerateSources",
+  "capture.prepare",
+  "capture.start",
+  "capture.stop",
+  "capture.status",
+  "capture.subscribe",
   "recording.start",
   "recording.stop",
   "recording.status",
@@ -292,10 +298,22 @@ export function desktopSnapshot(
     sources: desktopSources(probe),
     // Every shell command exists today; the static desktop descriptor is what
     // `capabilities()` has always answered. Refining per-command availability
-    // from the shell (e.g. incog_status) is later work, not M0.
-    operations: uniformOperations(AVAILABLE),
+    // from the shell (e.g. incog_status) is later work, not M0. The PAL-only
+    // per-source `capture` control is honest about desktop: both sides start
+    // together on `session.start()`, so per-source start/stop/status is not
+    // something the shell offers yet.
+    operations: {
+      ...uniformOperations(AVAILABLE),
+      "capture.start": unimplemented(DESKTOP_CAPTURE),
+      "capture.stop": unimplemented(DESKTOP_CAPTURE),
+      "capture.status": unimplemented(DESKTOP_CAPTURE),
+      "capture.subscribe": unimplemented(DESKTOP_CAPTURE),
+    },
   };
 }
+
+const DESKTOP_CAPTURE =
+  "Desktop starts microphone and system audio together on session.start(); per-source control is not a shell command yet.";
 
 // ── Web (browser) ────────────────────────────────────────────────────────────
 
@@ -394,6 +412,12 @@ export function webOperations(): OperationAvailability {
     "audio.deepgramKeyStatus": unsupported("ASR keys are held server-side on the web."),
     "session.start": unimplemented(M2),
     "session.stop": unimplemented(M2),
+    "capture.enumerateSources": AVAILABLE,
+    "capture.prepare": AVAILABLE,
+    "capture.start": unimplemented(M2),
+    "capture.stop": unimplemented(M2),
+    "capture.status": AVAILABLE,
+    "capture.subscribe": AVAILABLE,
     "recording.start": unsupported(NO_FS),
     "recording.stop": unsupported(NO_FS),
     "recording.status": unsupported(NO_FS),

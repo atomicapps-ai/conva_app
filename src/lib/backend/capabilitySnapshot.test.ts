@@ -89,9 +89,14 @@ describe("available vs unsupported vs unimplemented", () => {
     const web = webOperations();
     const desktop = desktopSnapshot(DESKTOP_CAPABILITIES, chromeWindows).operations;
     const legacy = legacySnapshot(DESKTOP_CAPABILITIES).operations;
+    // Desktop: every shell command is available; the PAL-only per-source
+    // capture control (start/stop/status/subscribe) is honestly unimplemented
+    // because both sides start together on session.start().
+    const desktopUnimplemented = new Set(["capture.start", "capture.stop", "capture.status", "capture.subscribe"]);
     for (const op of ALL_OPERATIONS) {
       expect(web[op]).toBeDefined();
-      expect(desktop[op]).toEqual({ state: "available" });
+      if (desktopUnimplemented.has(op)) expect(desktop[op].state).toBe("unimplemented");
+      else expect(desktop[op]).toEqual({ state: "available" });
       expect(legacy[op].state).toBe("unimplemented");
     }
     expect(new Set(ALL_OPERATIONS).size).toBe(ALL_OPERATIONS.length);

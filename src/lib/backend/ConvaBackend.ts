@@ -46,6 +46,8 @@ import type { Capabilities } from "@/lib/backend/capabilities";
 import type { CapabilitySnapshot } from "@/lib/backend/capabilitySnapshot";
 import type { EventMap, Unsubscribe } from "@/lib/backend/events";
 import type { CapabilityReader } from "@/lib/capture/capabilityStore";
+import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
+import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { TranscriptEvent } from "@/lib/capture/contract";
 
 export interface ConvaBackend {
@@ -125,6 +127,30 @@ export interface ConvaBackend {
     /** Resolves to the session id. */
     start(): Promise<string>;
     stop(): Promise<void>;
+  };
+
+  /**
+   * Per-source capture control (browser architecture §8). On the web each
+   * source is an explicit user action: `session.start()` owns the microphone,
+   * `capture.start("display", op)` adds "Share call audio" as the remote
+   * channel of the SAME session; losing one never stops the other. Desktop
+   * captures both sides together on `session.start()` and reports these as
+   * `unimplemented` rather than pretending per-source control exists.
+   */
+  capture: {
+    /** What this platform could capture right now (kind + availability). */
+    enumerateSources(): Promise<CaptureSourceCapability[]>;
+    /** Gesture/notice requirements for a kind — never opens a prompt. */
+    prepare(kind: CaptureSourceKind): Promise<CapturePrepare>;
+    /** Prompt + attach a source to the live session. `operationId` lets the
+     *  caller cancel while the browser chooser is open. Resolves to the source id. */
+    start(kind: CaptureSourceKind, operationId: string): Promise<string>;
+    /** Stop one source (idempotent); the session keeps running. */
+    stop(sourceId: string): Promise<void>;
+    /** Every source's phase in the current session. */
+    status(): Promise<CaptureStatus[]>;
+    /** Live status changes. */
+    subscribe(handler: (statuses: CaptureStatus[]) => void): Promise<Unsubscribe>;
   };
 
   /** Stereo call recording (you = left, them = right). Desktop-only (Layer 4). */

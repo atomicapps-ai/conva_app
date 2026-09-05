@@ -167,3 +167,25 @@ describe("LiveClient", () => {
     expect(h.sockets.length).toBe(0);
   });
 });
+
+describe("LiveClient — dynamic sources", () => {
+  it("attachSource on a live socket sends source.attach; detachSource forgets it so a reconnect does not re-attach", async () => {
+    const h = harness();
+    await h.handshake(h.client.start(h.request, "op1"));
+    expect(h.client.attachSource("share-remote", "display", "remote_mix")).toBe(true);
+    expect(h.client.attachSource("share-remote", "display", "remote_mix")).toBe(false);
+    const s = h.sockets[0]!;
+    expect(s.controls().at(-1)).toMatchObject({ type: "source.attach", source_id: "share-remote", channel: "remote_mix", epoch: 0 });
+    h.client.detachSource("share-remote", "user");
+    expect(s.controls().at(-1)).toMatchObject({ type: "source.detach", source_id: "share-remote" });
+    expect(h.client.hasSource("share-remote")).toBe(false);
+    s.drop();
+    h.timers[0]!();
+    await h.untilSockets(2);
+    const s2 = h.sockets[1]!;
+    s2.open();
+    s2.serverSend({ type: "ready", protocol: 1, session_id: "live_2", provider: "fake", initial_credit: 2 });
+    const attaches = s2.controls().filter((c) => c.type === "source.attach").map((c) => c.source_id);
+    expect(attaches).toEqual(["mic-self"]);
+  });
+});

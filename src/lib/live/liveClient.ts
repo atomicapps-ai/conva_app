@@ -339,9 +339,33 @@ export class LiveClient {
     return this.sources.get(sourceId)?.sentMs ?? 0;
   }
 
+  /**
+   * Add a source to a live session (e.g. "Share call audio" after Start). If
+   * the socket is live it is attached now; otherwise it attaches on `ready`.
+   * Returns false when the id already exists or the client is stopping.
+   */
+  attachSource(sourceId: string, kind: CaptureSourceKind, channel: CaptureChannel): boolean {
+    if (this.stopping || this.sources.has(sourceId)) return false;
+    const s: AttachedSource = { id: sourceId, kind, channel, epoch: 0, index: null, credit: 0, queue: [], sentMs: 0 };
+    this.sources.set(sourceId, s);
+    if (this.status === "live") {
+      this.sendControl({ type: "source.attach", source_id: s.id, kind, channel, epoch: 0, sample_rate_hz: 16_000, format: "pcm16" });
+    }
+    return true;
+  }
+
+  /** Detach a source: tells the server, drops queued audio, and forgets it so a
+   *  reconnect does not re-attach it. Idempotent. */
   detachSource(sourceId: string, reason: "user" | "ended" | "device_lost" | "error"): void {
-    if (!this.sources.has(sourceId)) return;
+    const s = this.sources.get(sourceId);
+    if (!s) return;
     this.sendControl({ type: "source.detach", source_id: sourceId, reason });
+    if (s.index !== null) this.byIndex.delete(s.index);
+    this.sources.delete(sourceId);
+  }
+
+  hasSource(sourceId: string): boolean {
+    return this.sources.has(sourceId);
   }
 
   /** Idempotent stop: tells the server, then closes. */

@@ -31,6 +31,9 @@ export type {
 } from "@/lib/backend/capabilitySnapshot";
 export { isTauriRuntime, resolveBackend } from "@/lib/backend/detect";
 export { UnimplementedOnWebError, UnsupportedOnWebError } from "@/lib/backend/web";
+export { UnimplementedOnDesktopError } from "@/lib/backend/tauri";
+export type { CapturePrepare, CaptureStatus, CaptureCoverage, CaptureSourcePhase } from "@/lib/capture/pal";
+export { coverageOf } from "@/lib/capture/pal";
 export {
   BackendProvider,
   useBackend,
