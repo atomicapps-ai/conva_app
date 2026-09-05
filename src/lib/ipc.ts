@@ -6,6 +6,12 @@
  * mirror later in Phase 1).
  */
 
+/**
+ * Legacy two-side model. The versioned capture/source/event contract (browser
+ * product architecture M0) lives in `@/lib/capture/contract` — mirror of
+ * `crates/conva-core/src/capture_contract.rs` — and maps these additively:
+ * `outbound → self`, `inbound → remote_mix`. Nothing here changed.
+ */
 export type StreamSide = "inbound" | "outbound";
 
 export const EVENTS = {
