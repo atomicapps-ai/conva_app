@@ -21,6 +21,8 @@ import {
   type RuntimeProbe,
 } from "@/lib/backend/capabilitySnapshot";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
+import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
+import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import { EVENT_CHANNEL, type EventMap, type Unsubscribe } from "@/lib/backend/events";
 import {
   createCapabilityStore,
@@ -33,6 +35,16 @@ import type { SessionStateEvent, TranscriptSegment } from "@/lib/ipc";
 
 /** Session id used for segments that arrive before a `listening` state. */
 export const DESKTOP_UNKNOWN_SESSION = "desktop:unknown-session";
+
+/** A PAL operation the desktop shell does not offer yet (per-source capture
+ *  control). Rejecting keeps the UI honest — the capability table already says
+ *  `unimplemented` for these. */
+export class UnimplementedOnDesktopError extends Error {
+  constructor(operation: string) {
+    super(`"${operation}" is not implemented on desktop yet.`);
+    this.name = "UnimplementedOnDesktopError";
+  }
+}
 
 export class TauriBackend implements ConvaBackend {
   private readonly store: CapabilityStore<CapabilitySnapshot>;
@@ -119,6 +131,27 @@ export class TauriBackend implements ConvaBackend {
   session = {
     start: cmd.startSession,
     stop: cmd.stopSession,
+  };
+
+  /** Desktop starts mic + system audio together on `session.start()`; there is
+   *  no per-source shell command yet, so the honest answer is "unimplemented"
+   *  (capabilitySnapshot.ts marks these the same way) — never a silent no-op. */
+  capture = {
+    enumerateSources: (): Promise<CaptureSourceCapability[]> => Promise.resolve(this.store.snapshot().sources),
+    prepare: (kind: CaptureSourceKind): Promise<CapturePrepare> => {
+      const src = this.store.snapshot().sources.find((x) => x.kind === kind);
+      return Promise.resolve({
+        kind,
+        channel: src?.channels[0] ?? (kind === "mic" ? "self" : "remote_mix"),
+        availability: src?.availability ?? { state: "unsupported", reason: `Unknown source kind ${kind}.` },
+        requires_user_gesture: false,
+        notice: "Desktop captures your microphone and the system audio together when you press Start.",
+      });
+    },
+    start: (kind: CaptureSourceKind): Promise<string> => Promise.reject(new UnimplementedOnDesktopError(`capture.start(${kind})`)),
+    stop: (sourceId: string): Promise<void> => Promise.reject(new UnimplementedOnDesktopError(`capture.stop(${sourceId})`)),
+    status: (): Promise<CaptureStatus[]> => Promise.reject(new UnimplementedOnDesktopError("capture.status")),
+    subscribe: (): Promise<Unsubscribe> => Promise.reject(new UnimplementedOnDesktopError("capture.subscribe")),
   };
 
   recording = {

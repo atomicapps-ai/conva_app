@@ -33,6 +33,8 @@ import { AVAILABLE, unavailable, type TranscriptEvent } from "@/lib/capture/cont
 import { startAudioGraph } from "@/lib/audio/audioGraph";
 import { fetchLiveStatus } from "@/lib/live/liveStatus";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
+import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
+import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
 import type { SocketLike } from "@/lib/live/liveClient";
 import type {
   AppConfig,
@@ -93,6 +95,7 @@ export class WebBackend implements ConvaBackend {
   /** In-page event bus for the browser-sourced events (sessionState, transcriptSegment, audioLevel). */
   private readonly handlers = new Map<keyof EventMap, Set<Handler<keyof EventMap>>>();
   private readonly envelopeHandlers = new Set<(e: TranscriptEvent) => void>();
+  private readonly captureHandlers = new Set<(s: CaptureStatus[]) => void>();
   private runner: LiveSessionRunner | null = null;
 
   /** `probe` is injectable for tests; defaults to the live runtime. */
@@ -118,17 +121,18 @@ export class WebBackend implements ConvaBackend {
         if (!status.configured) {
           return { ...src, availability: unavailable(status.reason ?? "Hosted live transcription is not configured on this deployment.") };
         }
-        // Mic is wired (M2 checkpoint 1); call-audio sharing is the next checkpoint.
-        return src.kind === "mic" ? { ...src, availability: AVAILABLE } : src;
+        // Mic (session.start) and call-audio sharing (capture.start "display")
+        // are both wired to the live gateway; `tab` is the same getDisplayMedia
+        // chooser (the user picks a tab), so it shares display's availability.
+        return { ...src, availability: AVAILABLE };
       });
       const ops = { ...snap.operations };
+      const liveOps = ["session.start", "session.stop", "capture.start", "capture.stop"] as const;
       if (status.configured) {
-        ops["session.start"] = AVAILABLE;
-        ops["session.stop"] = AVAILABLE;
+        for (const op of liveOps) ops[op] = AVAILABLE;
       } else {
         const why = unavailable(status.reason ?? "Hosted live transcription is not configured on this deployment.");
-        ops["session.start"] = why;
-        ops["session.stop"] = why;
+        for (const op of liveOps) ops[op] = why;
       }
       this.store.update({ sources, operations: ops });
     });
@@ -191,6 +195,9 @@ export class WebBackend implements ConvaBackend {
         audioLevel: (e) => this.emit("audioLevel", e),
         transcriptEvent: (e) => {
           for (const h of this.envelopeHandlers) h(e);
+        },
+        captureStatus: (statuses) => {
+          for (const h of this.captureHandlers) h(statuses);
         },
         notice: (code, message) => {
           if (import.meta.env?.DEV) console.info(`[live] ${code}: ${message}`);
@@ -266,6 +273,33 @@ export class WebBackend implements ConvaBackend {
     start: (): Promise<string> =>
       this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null }),
     stop: (): Promise<void> => (this.runner ? this.runner.stop() : Promise.resolve()),
+  };
+
+  capture = {
+    enumerateSources: (): Promise<CaptureSourceCapability[]> => Promise.resolve(this.store.snapshot().sources),
+    prepare: (kind: CaptureSourceKind): Promise<CapturePrepare> => {
+      const src = this.store.snapshot().sources.find((x) => x.kind === kind);
+      const channel = src?.channels[0] ?? (kind === "mic" ? "self" : "remote_mix");
+      const availability = src?.availability ?? { state: "unsupported" as const, reason: `Unknown source kind ${kind}.` };
+      const notice =
+        kind === "mic"
+          ? "Your microphone is transcribed by conva's hosted service for this session only; audio is not stored."
+          : "You choose a tab or screen and enable “share audio”; only that audio is transcribed (video is never sent). Recording rules for your participants still apply.";
+      return Promise.resolve({ kind, channel, availability, requires_user_gesture: kind !== "mic", notice });
+    },
+    start: (kind: CaptureSourceKind, operationId: string): Promise<string> => {
+      if (kind === "display" || kind === "tab") return this.ensureRunner().startShare(operationId);
+      if (kind === "mic") return this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null });
+      return Promise.reject(new UnimplementedOnWebError(`capture.start(${kind})`));
+    },
+    stop: (sourceId: string): Promise<void> => (this.runner ? this.runner.stopSource(sourceId) : Promise.resolve()),
+    status: (): Promise<CaptureStatus[]> => Promise.resolve(this.runner ? this.runner.statuses() : []),
+    subscribe: (handler: (s: CaptureStatus[]) => void): Promise<Unsubscribe> => {
+      this.captureHandlers.add(handler);
+      return Promise.resolve(() => {
+        this.captureHandlers.delete(handler);
+      });
+    },
   };
 
   recording = {

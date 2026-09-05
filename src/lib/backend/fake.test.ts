@@ -213,3 +213,24 @@ describe("FakeBackend — sessions and legacy conversations", () => {
     expect(await b.conversations.list()).toEqual([]);
   });
 });
+
+describe("FakeBackend — capture group", () => {
+  it("tracks per-source phases: mic on session.start, a started display source, stop, and session.stop ending everything", async () => {
+    const b = new FakeBackend();
+    const seen: string[][] = [];
+    const off = await b.capture.subscribe((s) => seen.push(s.map((x) => `${x.kind}:${x.phase}`)));
+    await expect(b.capture.start("display", "op")).rejects.toThrow(/no live session/);
+    await b.session.start();
+    const id = await b.capture.start("display", "op");
+    expect((await b.capture.status()).map((s) => `${s.kind}:${s.channel}:${s.phase}`)).toEqual(["mic:self:capturing", "display:remote_mix:capturing"]);
+    await b.capture.stop(id);
+    await b.session.stop();
+    expect(seen.at(-1)).toEqual(["mic:ended", "display:ended"]);
+    off();
+    await b.session.start();
+    expect(seen.at(-1)).toEqual(["mic:ended", "display:ended"], "unsubscribed listeners get nothing more");
+    const prep = await b.capture.prepare("display");
+    expect(prep.requires_user_gesture).toBe(true);
+    expect(prep.channel).toBe("remote_mix");
+  });
+});

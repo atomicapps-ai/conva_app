@@ -1,3 +1,4 @@
+import { CaptureControls } from "@/components/web/CaptureControls";
 import type { AudioLevelEvent, StreamSide } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 import { useTranscriptStore } from "@/state/transcript";
@@ -68,7 +69,10 @@ export function HealthStrip() {
   return (
     <footer className="flex h-8 shrink-0 items-center gap-4 border-t border-border bg-panel px-4">
       <Meter side="outbound" label="mic" level={levels.outbound} />
-      <Meter side="inbound" label="system" level={levels.inbound} />
+      <Meter side="inbound" label="call" level={levels.inbound} />
+      {/* Web-only strip (this component only mounts in WebShell): the explicit
+          "Share call audio" action + truthful "both sides / you only" state. */}
+      <CaptureControls />
       <span className="ml-auto font-mono text-[11px] text-fg-faint">
         whisper {config?.whisper_model ?? "…"}
         {lastLatency !== undefined ? ` · ${lastLatency}ms` : ""}

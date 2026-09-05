@@ -8,8 +8,17 @@ import { LiveSessionRunner, MIC_SOURCE_ID } from "./runner";
 import type { SocketLike } from "./liveClient";
 import { decodeAudioFrame, type ServerFrame } from "./protocol";
 
-function track(): TrackLike & { stopped: boolean } {
-  const t = { kind: "audio" as const, readyState: "live" as const, stopped: false, onended: null, stop() { t.stopped = true; } };
+function track(): TrackLike & { stopped: boolean; fireEnded: () => void } {
+  const listeners: Array<() => void> = [];
+  const t = {
+    kind: "audio" as "audio" | "video",
+    readyState: "live" as "live" | "ended",
+    stopped: false,
+    onended: null as (() => void) | null,
+    stop() { t.stopped = true; t.readyState = "ended"; },
+    addEventListener(_: "ended", cb: () => void) { listeners.push(cb); },
+    fireEnded() { t.readyState = "ended"; for (const l of listeners) l(); },
+  };
   return t;
 }
 class FakeSocket implements SocketLike {
@@ -100,5 +109,111 @@ describe("LiveSessionRunner — fake mic → batcher → socket → transcript �
     await expect(runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null })).rejects.toMatchObject({ code: "not_entitled" });
     expect(t.stopped).toBe(true);
     expect(runner.session.phase).toBe("failed");
+  });
+});
+
+describe("LiveSessionRunner — share call audio as a second source", () => {
+  function shareHarness(shareTracks: () => { audio: TrackLike[]; video: TrackLike[] }) {
+    const micTrack = track();
+    const micStream: StreamLike = { getAudioTracks: () => [micTrack], getVideoTracks: () => [] };
+    let shareStream: StreamLike | null = null;
+    const media: MediaAdapter = {
+      getUserMedia: async () => micStream,
+      getDisplayMedia: async () => {
+        const t = shareTracks();
+        shareStream = { getAudioTracks: () => t.audio, getVideoTracks: () => t.video };
+        return shareStream;
+      },
+    };
+    const feeds = new Map<StreamLike, (b: PcmBlock) => void>();
+    const stopped: StreamLike[] = [];
+    const sockets: FakeSocket[] = [];
+    const statuses: string[][] = [];
+    const notices: string[] = [];
+    const runner = new LiveSessionRunner(
+      {
+        media,
+        startGraph: async (s, onBlock) => { feeds.set(s, onBlock); return { stop: async () => { stopped.push(s); } }; },
+        client: {
+          fetch: vi.fn(async () => new Response(JSON.stringify({ session_id: "live_s", ticket: "t", stream_url: "/api/live/stream", expires_at_unix: 0, limits: { max_duration_s: 1, max_sources: 2 } }), { status: 201 })) as unknown as typeof fetch,
+          socket: () => { const s = new FakeSocket(); sockets.push(s); return s; },
+          setTimeout: () => 0,
+        },
+        now: () => 1,
+      },
+      { captureStatus: (s) => statuses.push(s.map((x) => `${x.source_id}:${x.phase}`)), notice: (c) => notices.push(c) },
+    );
+    const startAndReady = async () => {
+      const started = runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null });
+      for (let i = 0; i < 50 && sockets.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
+      const s = sockets[0]!;
+      s.open();
+      s.serverSend({ type: "ready", protocol: 1, session_id: "live_s", provider: "fake", initial_credit: 5 });
+      await started;
+      s.serverSend({ type: "source.attached", source_id: "mic-self", source_index: 0, epoch: 0 });
+      s.serverSend({ type: "credit", source_id: "mic-self", frames: 5 });
+      return s;
+    };
+    return { runner, startAndReady, feeds, stopped, sockets, statuses, notices, micStream, micTrack, get shareStream() { return shareStream; } };
+  }
+
+  it("attaches the shared source to the same socket, routes its audio with its own index, and reports both sides", async () => {
+    const audio = track();
+    const video = track();
+    (video as { kind: string }).kind = "video";
+    const h = shareHarness(() => ({ audio: [audio], video: [video] }));
+    const s = await h.startAndReady();
+    expect(h.statuses.at(-1)).toEqual(["mic-self:capturing"]);
+
+    const id = await h.runner.startShare("share-op-1");
+    expect(id).toBe("share-remote");
+    expect((video as { stopped: boolean }).stopped).toBe(true);
+    const attach = s.sent.filter((x): x is string => typeof x === "string").map((x) => JSON.parse(x)).find((f) => f.type === "source.attach" && f.source_id === "share-remote");
+    expect(attach).toMatchObject({ kind: "display", channel: "remote_mix", epoch: 0 });
+    expect(h.statuses.at(-1)).toEqual(["mic-self:capturing", "share-remote:capturing"]);
+
+    s.serverSend({ type: "source.attached", source_id: "share-remote", source_index: 1, epoch: 0 });
+    s.serverSend({ type: "credit", source_id: "share-remote", frames: 5 });
+    const shareFeed = h.feeds.get(h.shareStream!)!;
+    shareFeed({ capturedAtMs: 0, samples: new Int16Array(3200).fill(3), rmsDbfs: -30 });
+    const frames = s.sent.filter((x): x is ArrayBuffer => x instanceof ArrayBuffer).map((b) => decodeAudioFrame(b)!);
+    expect(frames.at(-1)!.source_index).toBe(1);
+
+    await h.runner.stopSource("share-remote");
+    expect(h.stopped).toContain(h.shareStream);
+    expect(audio.stopped).toBe(true);
+    expect(h.micTrack.stopped).toBe(false);
+    const detach = s.sent.filter((x): x is string => typeof x === "string").map((x) => JSON.parse(x)).find((f) => f.type === "source.detach");
+    expect(detach).toMatchObject({ source_id: "share-remote", reason: "user" });
+    expect(h.notices).toContain("share_ended");
+    expect(h.statuses.at(-1)).toEqual(["mic-self:capturing", "share-remote:ended"]);
+    expect(h.runner.session.phase).toBe("live");
+  });
+
+  it("a selection without audio is a truthful failure and the mic keeps running; sharing before Start is refused", async () => {
+    const video = track();
+    (video as { kind: string }).kind = "video";
+    const h = shareHarness(() => ({ audio: [], video: [video] }));
+    await expect(h.runner.startShare("early")).rejects.toMatchObject({ code: "no_session" });
+    await h.startAndReady();
+    await expect(h.runner.startShare("share-op")).rejects.toMatchObject({ code: "no_audio_track" });
+    expect((video as { stopped: boolean }).stopped).toBe(true);
+    expect(h.runner.session.phase).toBe("live");
+    expect(h.statuses.at(-1)).toEqual(["mic-self:capturing", "share-remote:idle"]);
+  });
+
+  it("when the shared track ends, the share is torn down (detach + graph stop) and the session is 'you only'; sharing again works", async () => {
+    const audios: ReturnType<typeof track>[] = [];
+    const h = shareHarness(() => { const a = track(); audios.push(a); return { audio: [a], video: [] }; });
+    const s = await h.startAndReady();
+    await h.runner.startShare("share-1");
+    audios[0]!.fireEnded();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.statuses.at(-1)).toEqual(["mic-self:capturing", "share-remote:ended"]);
+    expect(s.sent.filter((x): x is string => typeof x === "string").map((x) => JSON.parse(x)).some((f) => f.type === "source.detach" && f.reason === "ended")).toBe(true);
+    expect(h.runner.session.phase).toBe("live");
+    const again = await h.runner.startShare("share-2");
+    expect(again).toBe("share-remote");
+    expect(h.statuses.at(-1)).toEqual(["mic-self:capturing", "share-remote:capturing"]);
   });
 });

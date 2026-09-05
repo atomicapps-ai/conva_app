@@ -43,6 +43,8 @@ import {
   type TranscriptEvent,
 } from "@/lib/capture/contract";
 import type { Conversation, ConversationSummary, TranscriptSegment } from "@/lib/ipc";
+import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
+import type { CaptureSourceKind } from "@/lib/capture/contract";
 
 export class FakeBackendNotConfiguredError extends Error {
   constructor(readonly operation: BackendOperation) {
@@ -59,6 +61,12 @@ export const FAKE_IMPLEMENTED: readonly BackendOperation[] = [
   "conversations.delete",
   "session.start",
   "session.stop",
+  "capture.enumerateSources",
+  "capture.prepare",
+  "capture.start",
+  "capture.stop",
+  "capture.status",
+  "capture.subscribe",
   "diagnostics.trace",
 ];
 
@@ -114,6 +122,9 @@ export class FakeBackend implements ConvaBackend {
   private convCounter = 0;
   private sessionCounter = 0;
   private liveSession: string | null = null;
+  private readonly captureStatuses = new Map<string, CaptureStatus>();
+  private readonly captureHandlers = new Set<(s: CaptureStatus[]) => void>();
+  private captureCounter = 0;
   /** Every envelope delivered, in order — the replay log tests compare. */
   readonly delivered: TranscriptEvent[] = [];
 
@@ -193,11 +204,16 @@ export class FakeBackend implements ConvaBackend {
       this.sessionCounter += 1;
       const id = `fake-session-${this.sessionCounter}`;
       this.liveSession = id;
+      this.captureStatuses.clear();
+      this.captureStatuses.set("fake-mic", { source_id: "fake-mic", kind: "mic", channel: "self", phase: "capturing", reason: null });
+      this.publishCapture();
       this.emit("sessionState", { state: "listening", session_id: id, started_at_unix_ms: this.now() });
       return id;
     },
     stop: async (): Promise<void> => {
       this.liveSession = null;
+      for (const c of this.captureStatuses.values()) if (c.phase !== "ended") { c.phase = "ended"; c.reason = "session_stopped"; }
+      this.publishCapture();
       this.emit("sessionState", { state: "idle" });
     },
   };
@@ -206,6 +222,56 @@ export class FakeBackend implements ConvaBackend {
   currentSessionId(): string | null {
     return this.liveSession;
   }
+
+  private publishCapture(): void {
+    const list = [...this.captureStatuses.values()];
+    for (const h of this.captureHandlers) h(list);
+  }
+
+  /** Tests drive a source's phase directly (e.g. simulate a share ending). */
+  setCapturePhase(sourceId: string, phase: CaptureStatus["phase"], reason: string | null = null): void {
+    const s = this.captureStatuses.get(sourceId);
+    if (!s) return;
+    s.phase = phase;
+    s.reason = reason;
+    this.publishCapture();
+  }
+
+  capture = {
+    enumerateSources: async () => this.store.snapshot().sources,
+    prepare: async (kind: CaptureSourceKind): Promise<CapturePrepare> => {
+      const src = this.store.snapshot().sources.find((x) => x.kind === kind);
+      return {
+        kind,
+        channel: src?.channels[0] ?? (kind === "mic" ? "self" : "remote_mix"),
+        availability: src?.availability ?? AVAILABLE,
+        requires_user_gesture: kind !== "mic",
+        notice: `FakeBackend: ${kind} capture.`,
+      };
+    },
+    start: async (kind: CaptureSourceKind): Promise<string> => {
+      if (!this.liveSession) throw new Error("FakeBackend: no live session — call session.start() first.");
+      const channel = kind === "mic" ? "self" : kind === "meeting" ? "remote_track" : "remote_mix";
+      const id = `fake-${kind}-${++this.captureCounter}`;
+      this.captureStatuses.set(id, { source_id: id, kind, channel, phase: "capturing", reason: null });
+      this.publishCapture();
+      return id;
+    },
+    stop: async (sourceId: string): Promise<void> => {
+      const s = this.captureStatuses.get(sourceId);
+      if (!s) return;
+      s.phase = "ended";
+      s.reason = "user";
+      this.publishCapture();
+    },
+    status: async (): Promise<CaptureStatus[]> => [...this.captureStatuses.values()],
+    subscribe: async (handler: (s: CaptureStatus[]) => void): Promise<Unsubscribe> => {
+      this.captureHandlers.add(handler);
+      return () => {
+        this.captureHandlers.delete(handler);
+      };
+    },
+  };
 
   conversations = {
     save: async (
