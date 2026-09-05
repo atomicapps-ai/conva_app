@@ -11,7 +11,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "dev:web": "vite --port 1430",
-    "build:web": "tsc -b && vite build --outDir dist-web --emptyOutDir",
+    "build:web": "node scripts/build-web.mjs",
     "preview:web": "vite preview --outDir dist-web --port 1431",
     "typecheck": "tsc -b",
     "version:set": "node scripts/version.mjs set",
