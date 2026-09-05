@@ -171,6 +171,7 @@ breaks it. A native path (Core Audio process taps) is future work — see
 |---|---|
 | Core lint + tests (any OS) | `cargo fmt --check` · `cargo clippy -p conva-core --all-targets` · `cargo test -p conva-core` |
 | UI typecheck + build | `npm run build` |
+| Web artifact (served by `conva_web` at `/app/`) | `npm run build:web` → `dist-web/` + `app-manifest.json` (sha256 per file; `conva_web` verifies it before pinning) |
 | Tauri shell | `cargo clippy -p conva-app --all-targets` (needs the UI built first) |
 
 CI runs all three on every PR (`.github/workflows/ci.yml`); the shell job runs on `windows-latest`.

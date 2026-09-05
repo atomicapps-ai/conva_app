@@ -92,6 +92,25 @@ export class WebBackend implements ConvaBackend {
     // `unimplemented`, every `unsupported()` is `unsupported`, and the
     // auth methods that really work are `available`. See `webOperations()`.
     this.store = createCapabilityStore(webSnapshot(WEB_CAPABILITIES, probe));
+    // Auth is the one group that is really implemented on web — through the
+    // same-origin session BFF. If the Worker reports that backend is NOT set
+    // up (503), publish a revision that says so, so the UI shows "sign-in
+    // unavailable: <reason>" instead of a button that can't work.
+    void webAuth.ready().then((info) => {
+      if (info.configured) return;
+      const reason = `Web sign-in backend not configured: ${info.reason ?? info.error ?? "unknown"}`;
+      const unavailable = { state: "unavailable" as const, reason };
+      const ops = this.store.snapshot().operations;
+      this.store.update({
+        operations: {
+          ...ops,
+          "auth.start": unavailable,
+          "auth.signinPassword": unavailable,
+          "auth.signupPassword": unavailable,
+          "auth.signout": unavailable,
+        },
+      });
+    });
   }
 
   get capabilityStore(): CapabilityReader<CapabilitySnapshot> {
@@ -189,11 +208,11 @@ export class WebBackend implements ConvaBackend {
   };
 
   auth = {
-    // Full/OAuth sign-in hands off to the shared getconva.com login page
-    // (Layer 2) and returns; the session lands in the same-origin
-    // `conva.session` record this adapter reads. See webAuth.ts.
+    // OAuth sign-in is a top-level navigation to the same-origin session BFF
+    // (/api/app/login → IdP → /api/app/callback → HttpOnly cookie → back
+    // here). The page never holds a token. See webAuth.ts.
     start: (provider?: string): Promise<void> => {
-      webAuth.loginRedirect(provider);
+      webAuth.loginRedirect(provider ?? "google");
       return Promise.resolve();
     },
     cancel: (): Promise<void> => Promise.resolve(),
@@ -201,7 +220,9 @@ export class WebBackend implements ConvaBackend {
       webAuth.signinPassword(e, p),
     signupPassword: (e: string, p: string): Promise<AuthStatus> =>
       webAuth.signupPassword(e, p),
-    status: (): Promise<AuthStatus> => Promise.resolve(webAuth.status()),
+    // Always a fresh, server-validated answer (the Worker refreshes/re-verifies
+    // as needed); the cached webAuth.status() is for synchronous render paths.
+    status: (): Promise<AuthStatus> => webAuth.load().then(() => webAuth.status()),
     signout: (): Promise<void> => webAuth.signout(),
     openUrl: (url: string): Promise<void> => {
       window.open(url, "_blank", "noopener");
