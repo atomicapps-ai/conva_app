@@ -140,6 +140,30 @@ describe("WebBackend — Ally over the live gateway (M2 cp3)", () => {
     expect(fetchMock.mock.calls.filter((c) => c[0] === "/api/live/telemetry")).toHaveLength(1);
   });
 
+  it("sessions.exportTranscript on web is a browser download of the desktop Markdown (nothing is fetched)", async () => {
+    route(STATUS_ON);
+    const b = new WebBackend(chromeWindows);
+    const urls: string[] = [];
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: (blob: Blob) => { urls.push(`blob:${blob.size}`); return "blob:x"; }, revokeObjectURL: () => {} }));
+    const clicks: string[] = [];
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = origCreate(tag);
+      if (tag === "a") (el as HTMLAnchorElement).click = () => clicks.push((el as HTMLAnchorElement).download);
+      return el;
+    });
+    const before = fetchMock.mock.calls.length;
+    await b.sessions.exportTranscript("C:\\notes\\call.md", [
+      { side: "inbound", seq: 1, text: "How much is it?", is_final: true, start_ms: 0, end_ms: 900, confidence: null, latency_ms: 10 },
+    ]);
+    expect(clicks).toEqual(["call.md"]);
+    expect(urls).toHaveLength(1);
+    expect(fetchMock.mock.calls.length).toBe(before, "export never touches the network");
+    await b.sessions.writeTextFile("report.md", "# analysis");
+    expect(clicks).toEqual(["call.md", "report.md"]);
+    vi.restoreAllMocks();
+  });
+
   it("a refusal before any line rejects with the server's code; a mid-stream error ends the card with a terminal error chunk", async () => {
     route(STATUS_NO_ALLY, () => json({ error: "unconfigured", reason: "ANTHROPIC_API_KEY is not set" }, 503));
     const b = new WebBackend(chromeWindows);

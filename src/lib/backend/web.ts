@@ -35,6 +35,7 @@ import { fetchLiveStatus } from "@/lib/live/liveStatus";
 import { runAlly } from "@/lib/live/allyClient";
 import { fetchLiveUsage, toUsageSummary } from "@/lib/live/usage";
 import { TelemetryCollector, serializeAggregate, type TelemetrySample } from "@/lib/live/telemetry";
+import { downloadName, downloadTextFile, transcriptMarkdown } from "@/lib/live/exportTranscript";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
@@ -514,10 +515,19 @@ export class WebBackend implements ConvaBackend {
     list: (): Promise<SessionSummary[]> => todo("GET /v1/sessions"),
     load: (): Promise<TranscriptSegment[]> => todo("GET /v1/sessions/:id"),
     delete: (): Promise<void> => todo("DELETE /v1/sessions/:id"),
-    exportTranscript: (): Promise<void> => unsupported("sessions.exportTranscript (file path)"),
+    // Web (M2 cp6): the same Markdown the desktop writes to a path is handed
+    // to the browser as a download; `path` only lends its file name. Content
+    // never leaves the tab — export needs no server.
+    exportTranscript: (path: string, segments: TranscriptSegment[]): Promise<void> => {
+      downloadTextFile(downloadName(path), transcriptMarkdown(segments));
+      return Promise.resolve();
+    },
     analyzeConversation: (): Promise<string> =>
       unsupported("sessions.analyzeConversation (desktop LLM analysis)"),
-    writeTextFile: (): Promise<void> => unsupported("sessions.writeTextFile (file path)"),
+    writeTextFile: (path: string, content: string): Promise<void> => {
+      downloadTextFile(downloadName(path, "conva-export.md"), content);
+      return Promise.resolve();
+    },
   };
 
   diagnostics = {

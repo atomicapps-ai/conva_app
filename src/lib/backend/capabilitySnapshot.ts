@@ -478,9 +478,10 @@ export function webOperations(): OperationAvailability {
     "sessions.list": unimplemented(M1),
     "sessions.load": unimplemented(M1),
     "sessions.delete": unimplemented(M1),
-    "sessions.exportTranscript": unimplemented(FILE_PATHS),
+    // Web export is a browser download of the same Markdown (M2 cp6); `path` lends only its name.
+    "sessions.exportTranscript": AVAILABLE,
     "sessions.analyzeConversation": unimplemented("Post-call analysis runs through hosted inference (architecture M1/M2)."),
-    "sessions.writeTextFile": unimplemented(FILE_PATHS),
+    "sessions.writeTextFile": AVAILABLE,
     "diagnostics.saveDebugLog": unimplemented(FILE_PATHS),
     "diagnostics.trace": AVAILABLE,
     "screenshot.save": unimplemented(FILE_PATHS),
