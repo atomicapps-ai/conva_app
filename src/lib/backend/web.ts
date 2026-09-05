@@ -15,9 +15,21 @@ import {
   WEB_CAPABILITIES,
   type Capabilities,
 } from "@/lib/backend/capabilities";
+import {
+  probeRuntime,
+  webSnapshot,
+  type CapabilitySnapshot,
+  type RuntimeProbe,
+} from "@/lib/backend/capabilitySnapshot";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 import type { EventMap, Unsubscribe } from "@/lib/backend/events";
 import * as webAuth from "@/lib/backend/webAuth";
+import {
+  createCapabilityStore,
+  type CapabilityReader,
+  type CapabilityStore,
+} from "@/lib/capture/capabilityStore";
+import type { TranscriptEvent } from "@/lib/capture/contract";
 import type {
   AppConfig,
   AudioDevice,
@@ -51,6 +63,18 @@ function unsupported<T>(feature: string): Promise<T> {
   return Promise.reject(new UnsupportedOnWebError(feature));
 }
 
+/**
+ * Capability the browser COULD have but Conva hasn't built yet — distinct from
+ * {@link UnsupportedOnWebError} on purpose (architecture §8: unsupported vs
+ * unimplemented must stay visible). Matches `Availability.unimplemented`.
+ */
+export class UnimplementedOnWebError extends Error {
+  constructor(feature: string) {
+    super(`"${feature}" is not implemented on the web yet.`);
+    this.name = "UnimplementedOnWebError";
+  }
+}
+
 /** Layer 1–3 method not yet wired to the API. Roadmap 1.3 (proxy) / 1.4 (adapter). */
 function todo<T>(endpoint: string): Promise<T> {
   return Promise.reject(
@@ -59,8 +83,29 @@ function todo<T>(endpoint: string): Promise<T> {
 }
 
 export class WebBackend implements ConvaBackend {
+  private readonly store: CapabilityStore<CapabilitySnapshot>;
+
+  /** `probe` is injectable for tests; defaults to the live runtime. */
+  constructor(probe: RuntimeProbe = probeRuntime()) {
+    // `WEB_CAPABILITIES` (the legacy descriptor) is unchanged. The snapshot
+    // around it tells the truth per operation: every `todo()` below is
+    // `unimplemented`, every `unsupported()` is `unsupported`, and the
+    // auth methods that really work are `available`. See `webOperations()`.
+    this.store = createCapabilityStore(webSnapshot(WEB_CAPABILITIES, probe));
+  }
+
+  get capabilityStore(): CapabilityReader<CapabilitySnapshot> {
+    return this.store;
+  }
+
   async capabilities(): Promise<Capabilities> {
-    return WEB_CAPABILITIES;
+    return this.store.snapshot().legacy;
+  }
+
+  /** No browser capture pipeline exists yet (architecture M2) — honest reject,
+   *  never a subscription that silently never fires. */
+  subscribeEnvelopes(_handler: (event: TranscriptEvent) => void): Promise<Unsubscribe> {
+    return Promise.reject(new UnimplementedOnWebError("subscribeEnvelopes (browser capture)"));
   }
 
   async subscribe<K extends keyof EventMap>(

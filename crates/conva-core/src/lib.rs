@@ -14,6 +14,7 @@ pub mod audio;
 pub mod bm25;
 pub mod bridge;
 pub mod capture;
+pub mod capture_contract;
 pub mod chunk;
 pub mod config;
 pub mod context;

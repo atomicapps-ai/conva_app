@@ -22,12 +22,25 @@ export type {
   SystemAudioMode,
 } from "@/lib/backend/capabilities";
 export type { EventMap, Unsubscribe } from "@/lib/backend/events";
+export type {
+  BackendOperation,
+  CapabilityAdapter,
+  CapabilitySnapshot,
+  OperationAvailability,
+  RuntimeProbe,
+} from "@/lib/backend/capabilitySnapshot";
 export { isTauriRuntime, resolveBackend } from "@/lib/backend/detect";
-export { UnsupportedOnWebError } from "@/lib/backend/web";
+export { UnimplementedOnWebError, UnsupportedOnWebError } from "@/lib/backend/web";
 export {
   BackendProvider,
   useBackend,
   useCapabilities,
+  useCapabilityRevision,
+  useCapabilitySelector,
+  useCapabilitySnapshot,
+  useCaptureSource,
+  useCaptureSources,
+  useOperationAvailability,
 } from "@/lib/backend/context";
 
 let singleton: ConvaBackend | null = null;
