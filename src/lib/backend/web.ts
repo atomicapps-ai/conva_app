@@ -33,6 +33,7 @@ import { AVAILABLE, unavailable, type TranscriptEvent } from "@/lib/capture/cont
 import { startAudioGraph } from "@/lib/audio/audioGraph";
 import { fetchLiveStatus } from "@/lib/live/liveStatus";
 import { runAlly } from "@/lib/live/allyClient";
+import { fetchLiveUsage, toUsageSummary } from "@/lib/live/usage";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
@@ -99,6 +100,8 @@ export class WebBackend implements ConvaBackend {
   private readonly envelopeHandlers = new Set<(e: TranscriptEvent) => void>();
   private readonly captureHandlers = new Set<(s: CaptureStatus[]) => void>();
   private runner: LiveSessionRunner | null = null;
+  /** Ally model id from the last status probe (names the usage bucket). */
+  private allyModel: string | null = null;
 
   /** `probe` is injectable for tests; defaults to the live runtime. */
   constructor(probe: RuntimeProbe = probeRuntime()) {
@@ -129,7 +132,7 @@ export class WebBackend implements ConvaBackend {
         return { ...src, availability: AVAILABLE };
       });
       const ops = { ...snap.operations };
-      const liveOps = ["session.start", "session.stop", "capture.start", "capture.stop"] as const;
+      const liveOps = ["session.start", "session.stop", "capture.start", "capture.stop", "capture.recover"] as const;
       if (status.configured) {
         for (const op of liveOps) ops[op] = AVAILABLE;
       } else {
@@ -142,6 +145,13 @@ export class WebBackend implements ConvaBackend {
       ops["ally.run"] = status.ally?.configured
         ? AVAILABLE
         : unavailable(status.ally?.reason ?? "Ally is not configured on this deployment.");
+      this.allyModel = status.ally?.model ?? null;
+      // Usage (cp4) needs only the session backend: any configured feature
+      // proves it is there; otherwise the same reason the gateway gave.
+      ops["usage.summary"] =
+        status.configured || status.ally?.configured
+          ? AVAILABLE
+          : unavailable(status.reason ?? "The live gateway's session backend is not configured.");
       this.store.update({ sources, operations: ops });
     });
     void webAuth.ready().then((info) => {
@@ -330,6 +340,7 @@ export class WebBackend implements ConvaBackend {
       return Promise.reject(new UnimplementedOnWebError(`capture.start(${kind})`));
     },
     stop: (sourceId: string): Promise<void> => (this.runner ? this.runner.stopSource(sourceId) : Promise.resolve()),
+    recover: (sourceId: string, operationId: string): Promise<string> => this.ensureRunner().recover(sourceId, operationId),
     status: (): Promise<CaptureStatus[]> => Promise.resolve(this.runner ? this.runner.statuses() : []),
     subscribe: (handler: (s: CaptureStatus[]) => void): Promise<Unsubscribe> => {
       this.captureHandlers.add(handler);
@@ -430,8 +441,12 @@ export class WebBackend implements ConvaBackend {
   };
 
   usage = {
-    summary: (): Promise<UsageSummary> => todo("GET /v1/usage"),
-    reset: (): Promise<UsageSummary> => todo("POST /v1/usage/reset"),
+    // Today's hosted counters for the signed-in account (GET /api/live/usage,
+    // M2 cp4) folded into the legacy summary the Settings panel renders.
+    summary: (): Promise<UsageSummary> =>
+      fetchLiveUsage((input, init) => fetch(input, init)).then((u) => toUsageSummary(u, this.allyModel)),
+    // The ledger is server-side and per UTC day — nothing local to clear.
+    reset: (): Promise<UsageSummary> => unsupported("usage.reset (hosted ledger resets daily)"),
   };
 
   sessions = {

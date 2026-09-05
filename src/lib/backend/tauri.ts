@@ -150,6 +150,7 @@ export class TauriBackend implements ConvaBackend {
     },
     start: (kind: CaptureSourceKind): Promise<string> => Promise.reject(new UnimplementedOnDesktopError(`capture.start(${kind})`)),
     stop: (sourceId: string): Promise<void> => Promise.reject(new UnimplementedOnDesktopError(`capture.stop(${sourceId})`)),
+    recover: (sourceId: string): Promise<string> => Promise.reject(new UnimplementedOnDesktopError(`capture.recover(${sourceId})`)),
     status: (): Promise<CaptureStatus[]> => Promise.reject(new UnimplementedOnDesktopError("capture.status")),
     subscribe: (): Promise<Unsubscribe> => Promise.reject(new UnimplementedOnDesktopError("capture.subscribe")),
   };

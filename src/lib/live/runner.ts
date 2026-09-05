@@ -50,6 +50,12 @@ export interface RunnerEvents {
 export const MIC_SOURCE_ID = "mic-self";
 export const SHARE_SOURCE_ID = "share-remote";
 
+/** Content-free copy for a server-ended session, by bye reason. */
+const BYE_COPY: Record<string, string> = {
+  quota: "Live session ended: today's listening budget for this account is used up (it resets at midnight UTC).",
+  error: "Live session ended: the gateway reported an error.",
+};
+
 export class LiveSessionRunner {
   private readonly coordinator: CaptureCoordinator;
   private readonly client: LiveClient;
@@ -88,7 +94,7 @@ export class LiveSessionRunner {
         if (fatal) this.fail(message);
       },
       onBye: (reason) => {
-        if (reason !== "stopped" && reason !== "cancelled") this.fail(`Live session ended: ${reason}`);
+        if (reason !== "stopped" && reason !== "cancelled") this.fail(BYE_COPY[reason] ?? `Live session ended: ${reason}`);
       },
     });
   }
@@ -184,6 +190,19 @@ export class LiveSessionRunner {
     await this.attachGraph(SHARE_SOURCE_ID, out.stream, "inbound");
     this.publishStatus();
     return SHARE_SOURCE_ID;
+  }
+
+  /**
+   * Re-acquire a source that ended or degraded inside the same live session
+   * (architecture §8 `recover(sourceId)`). Today that is the shared call audio:
+   * the chooser opens again (user gesture) and the source re-attaches under the
+   * same id. The mic is the session itself — recovering it means Stop + Start,
+   * so it is refused with a stable code rather than half-done.
+   */
+  async recover(sourceId: string, operationId: string): Promise<string> {
+    if (sourceId === SHARE_SOURCE_ID) return this.startShare(operationId);
+    if (sourceId === MIC_SOURCE_ID) throw new LiveSessionError("unsupported_source", "Press Stop, then Start again to recover your microphone.");
+    throw new LiveSessionError("unknown_source", `No source ${sourceId} in this session.`);
   }
 
   /** Stop one source (idempotent). Stopping the mic source is `stop()`. */

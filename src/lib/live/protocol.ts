@@ -48,6 +48,43 @@ export interface LiveStatus {
   /** Ally (hosted model) readiness — reported separately from transcription
    *  because each needs its own server-side key. Absent from a cp1 gateway. */
   ally?: AllyStatus;
+  /** The deployment's per-account beta budgets (absent before cp4). */
+  limits?: LiveLimits;
+}
+
+/** Technical beta budgets (architecture §16) — not prices. */
+export interface LiveLimits {
+  max_minutes_per_day: number;
+  max_concurrent_sessions: number;
+  max_duration_s: number;
+  ally_max_requests_per_day: number;
+}
+
+/** `GET /api/live/usage` — today's use for the signed-in account (UTC day). */
+export interface LiveUsage {
+  day: string;
+  day_start_unix: number;
+  resets_at_unix: number;
+  live: {
+    used_ms: number;
+    audio_ms: number;
+    limit_ms: number;
+    remaining_ms: number;
+    sessions: number;
+    active_sessions: number;
+    max_concurrent_sessions: number;
+    max_duration_s: number;
+  };
+  ally: {
+    requests: number;
+    failed: number;
+    limit: number;
+    remaining: number;
+    input_tokens: number;
+    output_tokens: number;
+  };
+  limits: LiveLimits;
+  beta_access: boolean;
 }
 
 export interface AllyStatus {
