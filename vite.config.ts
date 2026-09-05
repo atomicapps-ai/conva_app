@@ -62,5 +62,10 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
+    // The AudioWorklet module must ship as a real same-origin FILE: the web
+    // app's CSP is `script-src 'self'` (no data:), and a worklet inlined as a
+    // data: URL (Vite's default for small assets) would be refused by the
+    // browser with no visible error. Everything else keeps the default limit.
+    assetsInlineLimit: (filePath) => (filePath.endsWith(".worklet.js") ? false : undefined),
   },
 });
