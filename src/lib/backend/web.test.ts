@@ -11,6 +11,16 @@ const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { sta
 const ndjson = (lines: unknown[]) => new Response(lines.map((l) => JSON.stringify(l)).join("\n") + "\n", { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
 const STATUS_ON = { configured: true, provider: "deepgram", max_sources: 2, sample_rate_hz: 16000, ally: { configured: true, provider: "anthropic", model: "claude-opus-5" } };
 const STATUS_NO_ALLY = { ...STATUS_ON, ally: { configured: false, provider: null, model: null, reason: "ANTHROPIC_API_KEY is not set on this Worker" } };
+const STATUS_OFF = { configured: false, provider: null, reason: "session backend: SESSION_SECRET is not set", max_sources: 2, sample_rate_hz: 16000, ally: { configured: false, provider: null, model: null, reason: "session backend: SESSION_SECRET is not set" } };
+const USAGE = {
+  day: "2027-01-15",
+  day_start_unix: 1_799_971_200,
+  resets_at_unix: 1_800_057_600,
+  live: { used_ms: 60_000, audio_ms: 50_000, limit_ms: 10_800_000, remaining_ms: 10_740_000, sessions: 1, active_sessions: 0, max_concurrent_sessions: 1, max_duration_s: 10_800 },
+  ally: { requests: 2, failed: 0, limit: 200, remaining: 198, input_tokens: 80, output_tokens: 12 },
+  limits: { max_minutes_per_day: 180, max_concurrent_sessions: 1, max_duration_s: 10_800, ally_max_requests_per_day: 200 },
+  beta_access: true,
+};
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -25,14 +35,38 @@ describe("WebBackend — Ally over the live gateway (M2 cp3)", () => {
     vi.unstubAllGlobals();
   });
 
-  function route(status: unknown, ally?: (init: RequestInit) => Response) {
+  function route(status: unknown, ally?: (init: RequestInit) => Response, usage?: () => Response) {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (url === "/api/live/status") return json(status);
       if (url === "/api/app/session") return json({ signed_in: false, configured: true });
       if (url === "/api/live/ally" && ally) return ally(init!);
+      if (url === "/api/live/usage" && usage) return usage();
       return json({ error: "not_found" }, 404);
     });
   }
+
+  it("usage.summary is available when the gateway's session backend answers (folded hosted counters); reset is unsupported; recover follows capture.start", async () => {
+    route(STATUS_NO_ALLY, undefined, () => json(USAGE));
+    const b = new WebBackend(chromeWindows);
+    expect(b.capabilityStore.snapshot().operations["usage.summary"].state).toBe("unimplemented");
+    await tick();
+    const ops = b.capabilityStore.snapshot().operations;
+    expect(ops["usage.summary"].state).toBe("available");
+    expect(ops["usage.reset"].state).toBe("unsupported");
+    expect(ops["capture.recover"].state).toBe("available");
+    const s = await b.usage.summary();
+    expect(s.listening_ms).toBe(60_000);
+    expect(s.providers).toEqual([{ provider: "anthropic", input_tokens: 80, output_tokens: 12, requests: 2 }]);
+    expect(s.llm_features[0]).toMatchObject({ feature: "ally", model: "hosted" });
+    await expect(b.usage.reset()).rejects.toThrow(/desktop-only/);
+
+    route(STATUS_OFF);
+    const off = new WebBackend(chromeWindows);
+    await tick();
+    const o = off.capabilityStore.snapshot().operations;
+    expect(o["usage.summary"]).toMatchObject({ state: "unavailable", reason: "session backend: SESSION_SECRET is not set" });
+    expect(o["capture.recover"].state).toBe("unavailable");
+  });
 
   it("ally.run is available exactly when the gateway reports Ally configured, else unavailable with its reason", async () => {
     route(STATUS_ON);

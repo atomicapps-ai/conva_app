@@ -216,4 +216,18 @@ describe("LiveSessionRunner — share call audio as a second source", () => {
     expect(again).toBe("share-remote");
     expect(h.statuses.at(-1)).toEqual(["mic-self:capturing", "share-remote:capturing"]);
   });
+
+  it("recover(shareId) re-opens the chooser for an ended share; the mic and unknown ids are refused with codes", async () => {
+    const audios: ReturnType<typeof track>[] = [];
+    const h = shareHarness(() => { const a = track(); audios.push(a); return { audio: [a], video: [] }; });
+    await h.startAndReady();
+    await h.runner.startShare("share-1");
+    audios[0]!.fireEnded();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.statuses.at(-1)).toEqual(["mic-self:capturing", "share-remote:ended"]);
+    expect(await h.runner.recover("share-remote", "rec-1")).toBe("share-remote");
+    expect(h.statuses.at(-1)).toEqual(["mic-self:capturing", "share-remote:capturing"]);
+    await expect(h.runner.recover("mic-self", "rec-2")).rejects.toMatchObject({ code: "unsupported_source" });
+    await expect(h.runner.recover("ghost", "rec-3")).rejects.toMatchObject({ code: "unknown_source" });
+  });
 });

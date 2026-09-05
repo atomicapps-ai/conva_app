@@ -233,4 +233,16 @@ describe("FakeBackend — capture group", () => {
     expect(prep.requires_user_gesture).toBe(true);
     expect(prep.channel).toBe("remote_mix");
   });
+
+  it("recover re-acquires an ended source under the same id inside the live session", async () => {
+    const b = new FakeBackend();
+    await b.session.start();
+    const id = await b.capture.start("display", "op");
+    b.setCapturePhase(id, "ended", "track ended");
+    expect(await b.capture.recover(id, "op2")).toBe(id);
+    expect((await b.capture.status()).find((s) => s.source_id === id)).toMatchObject({ phase: "capturing", reason: null });
+    await expect(b.capture.recover("nope", "op3")).rejects.toThrow(/unknown source/);
+    await b.session.stop();
+    await expect(b.capture.recover(id, "op4")).rejects.toThrow(/no live session/);
+  });
 });

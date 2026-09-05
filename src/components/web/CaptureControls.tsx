@@ -66,7 +66,13 @@ export function CaptureControls() {
     const id = `share-${op + 1}`;
     setOp((n) => n + 1);
     try {
-      await backend.capture.start("display", id);
+      // A share that ended/degraded is recovered under its own id (§8
+      // `recover`); a first share is a fresh start. Both re-open the chooser.
+      if (shareStatus && (shareStatus.phase === "ended" || shareStatus.phase === "degraded")) {
+        await backend.capture.recover(shareStatus.source_id, id);
+      } else {
+        await backend.capture.start("display", id);
+      }
     } catch (e) {
       const code = (e as { code?: string } | null)?.code ?? "";
       setMessage(FAILURE_COPY[code] ?? (e instanceof Error ? e.message : "Could not share call audio."));
@@ -114,7 +120,7 @@ export function CaptureControls() {
           title={cannotShareReason ?? "Pick the tab or screen with your call and enable “share audio”"}
           className="rounded border border-border-strong px-2 py-0.5 text-[11px] font-semibold text-fg transition hover:bg-panel-raised disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {busy ? "Choosing…" : "Share call audio"}
+          {busy ? "Choosing…" : shareStatus?.phase === "ended" || shareStatus?.phase === "degraded" ? "Share again" : "Share call audio"}
         </button>
       )}
       {message && (

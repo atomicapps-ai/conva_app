@@ -11,7 +11,7 @@ import {
 import { Notice, Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { LockedIcon } from "@/components/ui/LockedIcon";
-import { useBackend } from "@/lib/backend";
+import { useBackend, useOperationAvailability } from "@/lib/backend";
 import { useAccount } from "@/lib/useAccount";
 import { BUILD } from "@/lib/debug";
 import type {
@@ -432,6 +432,11 @@ const FEATURE_LABELS: Record<string, string> = {
 
 function UsageSettings() {
   const backend = useBackend();
+  // Web: the ledger is hosted and per UTC day (no local reset); desktop keeps
+  // the local BYO-key ledger. The copy and the Reset control follow the PAL.
+  const resetAvailability = useOperationAvailability("usage.reset");
+  const canReset = resetAvailability?.state === "available";
+  const hosted = resetAvailability?.state === "unsupported";
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [confirming, setConfirming] = useState(false);
@@ -464,12 +469,20 @@ function UsageSettings() {
 
   return (
     <div className="flex flex-col gap-2.5">
-      <p className="text-[12px] leading-relaxed text-fg-muted">
-        What your keys have handled on this machine — LLM tokens per provider,
-        the same tokens broken down by feature and model, and <b>Tavily</b> web
-        searches (billed per search, not per token). Everything runs on your own
-        keys, so this is for your visibility.
-      </p>
+      {hosted ? (
+        <p className="text-[12px] leading-relaxed text-fg-muted">
+          Today's use on your account — Ally requests and tokens, and time
+          listening — against the beta's daily budgets. Counters reset at
+          midnight UTC. The beta is free; this is for your visibility.
+        </p>
+      ) : (
+        <p className="text-[12px] leading-relaxed text-fg-muted">
+          What your keys have handled on this machine — LLM tokens per provider,
+          the same tokens broken down by feature and model, and <b>Tavily</b> web
+          searches (billed per search, not per token). Everything runs on your own
+          keys, so this is for your visibility.
+        </p>
+      )}
 
       {!hasUsage ? (
         <p className="text-[11px] text-fg-faint" role="status">
@@ -615,6 +628,7 @@ function UsageSettings() {
             : "Nothing recorded yet."}
         </span>
         {hasUsage &&
+          canReset &&
           (confirming ? (
             <span className="flex items-center gap-2 text-[11px]">
               <span className="text-fg-muted">Reset all counters?</span>

@@ -65,6 +65,7 @@ export const FAKE_IMPLEMENTED: readonly BackendOperation[] = [
   "capture.prepare",
   "capture.start",
   "capture.stop",
+  "capture.recover",
   "capture.status",
   "capture.subscribe",
   "diagnostics.trace",
@@ -263,6 +264,15 @@ export class FakeBackend implements ConvaBackend {
       s.phase = "ended";
       s.reason = "user";
       this.publishCapture();
+    },
+    recover: async (sourceId: string): Promise<string> => {
+      if (!this.liveSession) throw new Error("FakeBackend: no live session — call session.start() first.");
+      const s = this.captureStatuses.get(sourceId);
+      if (!s) throw new Error(`FakeBackend: unknown source ${sourceId}`);
+      s.phase = "capturing";
+      s.reason = null;
+      this.publishCapture();
+      return sourceId;
     },
     status: async (): Promise<CaptureStatus[]> => [...this.captureStatuses.values()],
     subscribe: async (handler: (s: CaptureStatus[]) => void): Promise<Unsubscribe> => {

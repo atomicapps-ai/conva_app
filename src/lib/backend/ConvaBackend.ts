@@ -147,6 +147,10 @@ export interface ConvaBackend {
     start(kind: CaptureSourceKind, operationId: string): Promise<string>;
     /** Stop one source (idempotent); the session keeps running. */
     stop(sourceId: string): Promise<void>;
+    /** Re-acquire a source that ended or degraded (a shared tab closed, a
+     *  device vanished) inside the SAME live session — re-prompts, so it must
+     *  run from a user gesture. Resolves to the (same) source id. */
+    recover(sourceId: string, operationId: string): Promise<string>;
     /** Every source's phase in the current session. */
     status(): Promise<CaptureStatus[]>;
     /** Live status changes. */

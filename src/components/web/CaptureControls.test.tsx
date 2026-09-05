@@ -39,11 +39,14 @@ describe("CaptureControls (web)", () => {
     expect(await screen.findByText("both sides")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stop sharing" })).toBeInTheDocument();
 
-    // The share ends (tab closed): back to "you only" with the reason.
+    // The share ends (tab closed): back to "you only" with the reason, and the
+    // control becomes "Share again" — capture.recover under the same source id.
     const shareId = (await backend.capture.status()).find((s) => s.kind === "display")!.source_id;
     await act(async () => backend.setCapturePhase(shareId, "ended", "track ended"));
     expect(screen.getByText(/you only/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Share call audio" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Share again" }));
+    expect(await screen.findByText("both sides")).toBeInTheDocument();
+    expect((await backend.capture.status()).filter((s) => s.kind === "display").map((s) => s.source_id)).toEqual([shareId]);
     useTranscriptStore.getState().setSession({ state: "idle" });
   });
 
