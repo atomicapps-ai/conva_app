@@ -61,6 +61,8 @@ export interface LiveClientEvents {
   onStatus?(status: LiveClientStatus, detail?: string): void;
   onError?(code: string, message: string, fatal: boolean): void;
   onBye?(reason: string, usage: Record<string, number>): void;
+  /** Content-free reconnect outcome per attempt (telemetry). */
+  onReconnect?(attempt: number, outcome: "ok" | "failed" | "exhausted"): void;
 }
 
 export type LiveClientStatus = "idle" | "creating" | "connecting" | "live" | "reconnecting" | "stopping" | "stopped" | "failed";
@@ -215,6 +217,7 @@ export class LiveClient {
 
   private onReady(): void {
     this.setStatus("live");
+    if (this.reconnectAttempt > 0) this.events.onReconnect?.(this.reconnectAttempt, "ok");
     this.reconnectAttempt = 0;
     for (const s of this.sources.values()) {
       s.index = null;
@@ -287,6 +290,7 @@ export class LiveClient {
     // across epochs; the server's cursor resets too).
     if (this.reconnectAttempt >= BACKOFF_MS.length) {
       this.setStatus("failed", "reconnect_exhausted");
+      this.events.onReconnect?.(this.reconnectAttempt, "exhausted");
       this.events.onError?.("reconnect_exhausted", "Could not reconnect to the live gateway.", true);
       return;
     }
@@ -307,6 +311,7 @@ export class LiveClient {
           return this.connect(created);
         })
         .catch((e: unknown) => {
+          this.events.onReconnect?.(this.reconnectAttempt, "failed");
           this.events.onError?.("reconnect_failed", e instanceof Error ? e.message : String(e), false);
           // Fake a close to run the backoff again.
           this.onClosed({ code: 1006, reason: "reconnect_failed", wasClean: false });
@@ -352,6 +357,28 @@ export class LiveClient {
       this.sendControl({ type: "source.attach", source_id: s.id, kind, channel, epoch: 0, sample_rate_hz: 16_000, format: "pcm16" });
     }
     return true;
+  }
+
+  /**
+   * Re-attach a source that is still part of the session under a NEW epoch —
+   * used when its capture was re-acquired (e.g. the microphone came back after
+   * the device vanished). Queued audio from the old capture is dropped; the
+   * gateway opens a fresh provider stream and resets the sequence for the new
+   * epoch (never dedupes across epochs). Returns the new epoch, or null when
+   * the source is unknown or the client is stopping.
+   */
+  reattachSource(sourceId: string): number | null {
+    const s = this.sources.get(sourceId);
+    if (!s || this.stopping) return null;
+    if (s.index !== null) this.byIndex.delete(s.index);
+    s.epoch += 1;
+    s.index = null;
+    s.credit = 0;
+    s.queue = [];
+    if (this.status === "live") {
+      this.sendControl({ type: "source.attach", source_id: s.id, kind: s.kind, channel: s.channel, epoch: s.epoch, sample_rate_hz: 16_000, format: "pcm16" });
+    }
+    return s.epoch;
   }
 
   /** Detach a source: tells the server, drops queued audio, and forgets it so a
