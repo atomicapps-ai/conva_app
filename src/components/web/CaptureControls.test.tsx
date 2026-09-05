@@ -70,3 +70,27 @@ describe("CaptureControls (web)", () => {
     useTranscriptStore.getState().setSession({ state: "idle" });
   });
 });
+
+describe("CaptureControls (web) — microphone recovery", () => {
+  it("shows 'Reconnect microphone' when the mic source degrades and recovers it under the same id", async () => {
+    const backend = fake();
+    render(
+      <BackendProvider backend={backend}>
+        <CaptureControls />
+      </BackendProvider>,
+    );
+    await act(async () => {
+      const id = await backend.session.start();
+      useTranscriptStore.getState().setSession({ state: "listening", session_id: id, started_at_unix_ms: 1 });
+    });
+    expect(screen.queryByRole("button", { name: "Reconnect microphone" })).toBeNull();
+    const micId = (await backend.capture.status()).find((s) => s.kind === "mic")!.source_id;
+    await act(async () => backend.setCapturePhase(micId, "degraded", "The audio track ended"));
+    expect(screen.getByText(/microphone lost/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Reconnect microphone" }));
+    expect(await screen.findByText("you only")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reconnect microphone" })).toBeNull();
+    expect((await backend.capture.status()).find((s) => s.kind === "mic")).toMatchObject({ source_id: micId, phase: "capturing" });
+    useTranscriptStore.getState().setSession({ state: "idle" });
+  });
+});

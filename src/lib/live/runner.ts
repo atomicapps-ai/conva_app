@@ -20,6 +20,7 @@ import type { CaptureStatus } from "@/lib/capture/pal";
 
 import { LiveClient, LiveSessionError, type LiveClientDeps } from "./liveClient";
 import type { CreateSessionRequest } from "./protocol";
+import type { TelemetrySample } from "./telemetry";
 
 export interface GraphHandle {
   stop(): Promise<void>;
@@ -45,6 +46,8 @@ export interface RunnerEvents {
   notice?(code: string, message: string): void;
   /** Every source's phase after any change (drives "both sides" / "you only"). */
   captureStatus?(statuses: CaptureStatus[]): void;
+  /** Content-free telemetry samples (telemetry.ts); the adapter aggregates + posts them. */
+  telemetry?(sample: TelemetrySample): void;
 }
 
 export const MIC_SOURCE_ID = "mic-self";
@@ -65,6 +68,8 @@ export class LiveSessionRunner {
   session: SessionRecord = newSession();
   private startedAt = 0;
   private opCounter = 0;
+  /** Wall time of each source's first audio block minus its capture clock → source audio wall start (latency estimate). */
+  private audioWallStart = new Map<string, number>();
 
   constructor(
     private readonly deps: RunnerDeps,
@@ -74,9 +79,13 @@ export class LiveSessionRunner {
       onSourceChange: (source, ev) => {
         if (ev.type === "degrade") {
           this.events.notice?.("source_degraded", `${source.channel === "self" ? "Your microphone" : "Call audio"}: ${ev.reason}`);
+          this.tel({ kind: "source.degraded", channel: source.channel, code: "track_ended" });
           // A shared source whose track ended is over for this session: tell the
           // gateway, release the graph, and leave the mic alone ("you only").
           if (source.id === SHARE_SOURCE_ID) void this.teardownSource(SHARE_SOURCE_ID, "ended");
+          // The mic stays part of the session (degraded) so "Reconnect
+          // microphone" can re-acquire it under a new epoch — recover().
+          if (source.id === MIC_SOURCE_ID) void this.releaseGraph(MIC_SOURCE_ID);
         }
         this.publishStatus();
       },
@@ -85,22 +94,32 @@ export class LiveSessionRunner {
       onTranscript: (e) => {
         this.events.transcriptEvent?.(e);
         this.events.transcriptSegment?.(transcriptEventToLegacy(e));
+        const wallStart = this.audioWallStart.get(e.source_id);
+        if (wallStart !== undefined) {
+          const est = (this.deps.now ?? Date.now)() - wallStart - e.payload.end_ms;
+          if (est >= 0) this.tel({ kind: "transcript", channel: e.channel, final: e.payload.is_final, est_latency_ms: est });
+        }
       },
+      onReconnect: (attempt, outcome) => this.tel({ kind: "source.reconnect", attempt, outcome }),
       onSourceState: (_id, state, reason) => {
         if (state === "reconnecting") this.events.notice?.("reconnecting", reason ?? "Reconnecting to the live gateway…");
       },
       onError: (code, message, fatal) => {
         this.events.notice?.(code, message);
-        if (fatal) this.fail(message);
+        if (fatal) this.fail(message, code);
       },
       onBye: (reason) => {
-        if (reason !== "stopped" && reason !== "cancelled") this.fail(BYE_COPY[reason] ?? `Live session ended: ${reason}`);
+        if (reason !== "stopped" && reason !== "cancelled") this.fail(BYE_COPY[reason] ?? `Live session ended: ${reason}`, `bye_${reason}`);
       },
     });
   }
 
   private nextOp(kind: string): string {
     return `${kind}-${++this.opCounter}`;
+  }
+
+  private tel(sample: TelemetrySample): void {
+    this.events.telemetry?.(sample);
   }
 
   /** Every declared source's phase (content-free). */
@@ -138,6 +157,7 @@ export class LiveSessionRunner {
     if (!mic.ok) {
       this.emitState({ state: "error", message: mic.message });
       this.session.phase = "failed";
+      this.tel({ kind: "session.start", outcome: "refused", code: mic.reason });
       throw new LiveSessionError(mic.reason, mic.message);
     }
     this.emitState({ state: "preparing", message: "Connecting to the live gateway…" });
@@ -149,8 +169,10 @@ export class LiveSessionRunner {
       const msg = e instanceof Error ? e.message : String(e);
       this.emitState({ state: "error", message: msg });
       this.session.phase = "failed";
+      this.tel({ kind: "session.start", outcome: "refused", code: e instanceof LiveSessionError ? e.code : "error" });
       throw e;
     }
+    this.tel({ kind: "session.start", outcome: "ok" });
     sessionLive(this.session, sessionId);
     this.session.sources.set(MIC_SOURCE_ID, mic.source);
     this.startedAt = (this.deps.now ?? Date.now)();
@@ -178,7 +200,8 @@ export class LiveSessionRunner {
     if (this.session.phase !== "live") throw new LiveSessionError("no_session", "Start listening before sharing call audio.");
     if (this.coordinator.sources.get(SHARE_SOURCE_ID)?.phase === "capturing") return SHARE_SOURCE_ID;
     // A previous share that ended leaves an `ended` record; start fresh.
-    if (this.coordinator.sources.get(SHARE_SOURCE_ID)?.phase === "ended") this.coordinator.sources.delete(SHARE_SOURCE_ID);
+    const wasEnded = this.coordinator.sources.get(SHARE_SOURCE_ID)?.phase === "ended";
+    if (wasEnded) this.coordinator.sources.delete(SHARE_SOURCE_ID);
     const out = await this.coordinator.startShare(SHARE_SOURCE_ID, operationId);
     this.publishStatus();
     if (!out.ok) throw new LiveSessionError(out.reason, out.message);
@@ -188,21 +211,59 @@ export class LiveSessionRunner {
       throw new LiveSessionError("attach_failed", "Could not attach call audio to the live session.");
     }
     await this.attachGraph(SHARE_SOURCE_ID, out.stream, "inbound");
+    if (wasEnded) this.tel({ kind: "source.recovered", channel: "remote_mix" });
     this.publishStatus();
     return SHARE_SOURCE_ID;
   }
 
   /**
    * Re-acquire a source that ended or degraded inside the same live session
-   * (architecture §8 `recover(sourceId)`). Today that is the shared call audio:
-   * the chooser opens again (user gesture) and the source re-attaches under the
-   * same id. The mic is the session itself — recovering it means Stop + Start,
-   * so it is refused with a stable code rather than half-done.
+   * (architecture §8 `recover(sourceId)`). Shared call audio: the chooser opens
+   * again (user gesture) and the source re-attaches under the same id. The
+   * microphone (M2 cp5): the device is re-prompted and the SAME gateway source
+   * is re-attached under a new epoch (fresh provider stream, sequence reset) —
+   * the session, the other source and the transcript so far all stay.
    */
   async recover(sourceId: string, operationId: string): Promise<string> {
     if (sourceId === SHARE_SOURCE_ID) return this.startShare(operationId);
-    if (sourceId === MIC_SOURCE_ID) throw new LiveSessionError("unsupported_source", "Press Stop, then Start again to recover your microphone.");
+    if (sourceId === MIC_SOURCE_ID) return this.recoverMic(operationId);
     throw new LiveSessionError("unknown_source", `No source ${sourceId} in this session.`);
+  }
+
+  private async recoverMic(operationId: string): Promise<string> {
+    if (this.session.phase !== "live") throw new LiveSessionError("no_session", "There is no live session to recover the microphone into.");
+    const current = this.coordinator.sources.get(MIC_SOURCE_ID);
+    if (current?.phase === "capturing" || current?.phase === "prompting") return MIC_SOURCE_ID;
+    // The degraded/ended record is terminal for the state machine: release it
+    // and prompt afresh under the same id.
+    await this.releaseGraph(MIC_SOURCE_ID);
+    this.coordinator.stopSource(MIC_SOURCE_ID, "recovering");
+    this.coordinator.sources.delete(MIC_SOURCE_ID);
+    const mic = await this.coordinator.startMic(MIC_SOURCE_ID, operationId);
+    this.publishStatus();
+    if (!mic.ok) throw new LiveSessionError(mic.reason, mic.message);
+    if (this.client.reattachSource(MIC_SOURCE_ID) === null) {
+      this.coordinator.stopSource(MIC_SOURCE_ID, "attach_failed");
+      this.publishStatus();
+      throw new LiveSessionError("attach_failed", "Could not re-attach the microphone to the live session.");
+    }
+    this.session.sources.set(MIC_SOURCE_ID, mic.source);
+    await this.attachGraph(MIC_SOURCE_ID, mic.stream, "outbound");
+    this.events.notice?.("mic_recovered", "Microphone reconnected — transcribing you again.");
+    this.tel({ kind: "source.recovered", channel: "self" });
+    this.publishStatus();
+    return MIC_SOURCE_ID;
+  }
+
+  /** Stop a source's graph + batcher (flushing what it had) without touching the gateway attachment. */
+  private async releaseGraph(sourceId: string): Promise<void> {
+    const batcher = this.batchers.get(sourceId);
+    if (batcher) for (const f of batcher.flush()) this.client.sendAudio(sourceId, f);
+    this.batchers.delete(sourceId);
+    this.audioWallStart.delete(sourceId);
+    const graph = this.graphs.get(sourceId);
+    this.graphs.delete(sourceId);
+    if (graph) await graph.stop().catch(() => {});
   }
 
   /** Stop one source (idempotent). Stopping the mic source is `stop()`. */
@@ -212,17 +273,14 @@ export class LiveSessionRunner {
   }
 
   private async teardownSource(sourceId: string, reason: "user" | "ended" | "device_lost" | "error"): Promise<void> {
-    const batcher = this.batchers.get(sourceId);
-    if (batcher) for (const f of batcher.flush()) this.client.sendAudio(sourceId, f);
-    this.batchers.delete(sourceId);
-    const graph = this.graphs.get(sourceId);
-    this.graphs.delete(sourceId);
-    if (graph) await graph.stop().catch(() => {});
+    await this.releaseGraph(sourceId);
     this.client.detachSource(sourceId, reason);
     this.coordinator.stopSource(sourceId, reason);
     if (sourceId === SHARE_SOURCE_ID) this.events.notice?.("share_ended", reason === "user" ? "Call audio sharing stopped — transcribing you only." : "Call audio ended — transcribing you only. Share again to resume.");
     this.publishStatus();
   }
+
+  /** Share recovery re-uses startShare; bookkeeping for telemetry lives there. */
 
   /** Cancel a pending prompt/operation (e.g. the share chooser). */
   cancel(operationId: string): boolean {
@@ -232,11 +290,15 @@ export class LiveSessionRunner {
   private onBlock(sourceId: string, side: "inbound" | "outbound", block: PcmBlock): void {
     const batcher = this.batchers.get(sourceId);
     if (!batcher || this.session.phase !== "live") return;
+    const now = (this.deps.now ?? Date.now)();
+    if (!this.audioWallStart.has(sourceId)) this.audioWallStart.set(sourceId, now - block.capturedAtMs);
     batcher.push(block.samples, block.capturedAtMs);
     const before = batcher.gaps.length;
     for (const f of batcher.take(batcher.readyCount)) this.client.sendAudio(sourceId, f);
-    if (batcher.gaps.length > before) this.events.notice?.("audio_gap", "Network is behind — some audio was dropped to stay live.");
-    const now = (this.deps.now ?? Date.now)();
+    if (batcher.gaps.length > before) {
+      this.events.notice?.("audio_gap", "Network is behind — some audio was dropped to stay live.");
+      this.tel({ kind: "source.gap", channel: side === "outbound" ? "self" : "remote_mix" });
+    }
     const interval = this.deps.meterIntervalMs ?? 100;
     if (now - (this.lastMeterAt.get(sourceId) ?? 0) >= interval) {
       this.lastMeterAt.set(sourceId, now);
@@ -255,13 +317,17 @@ export class LiveSessionRunner {
     this.batchers.clear();
     this.coordinator.stopAll("user");
     sessionFinalized(this.session);
+    this.audioWallStart.clear();
+    this.tel({ kind: "session.end", reason: "stopped", duration_ms: Math.max(0, (this.deps.now ?? Date.now)() - this.startedAt), sources: this.session.sources.size });
     this.emitState({ state: "idle" });
     this.publishStatus();
   }
 
-  private fail(message: string): void {
+  private fail(message: string, code = "error"): void {
     if (this.session.phase === "failed" || this.session.phase === "finalized") return;
     sessionFailed(this.session, message);
+    this.audioWallStart.clear();
+    this.tel({ kind: "session.end", reason: code, duration_ms: this.startedAt ? Math.max(0, (this.deps.now ?? Date.now)() - this.startedAt) : 0, sources: this.session.sources.size });
     void Promise.all([...this.graphs.values()].map((g) => g.stop().catch(() => {})));
     this.graphs.clear();
     this.batchers.clear();

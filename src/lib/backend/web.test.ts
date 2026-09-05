@@ -115,6 +115,31 @@ describe("WebBackend — Ally over the live gateway (M2 cp3)", () => {
     expect(chunks).toHaveLength(3);
   });
 
+  it("telemetry: Ally runs are recorded content-free and flushTelemetry posts one validated aggregate to /api/live/telemetry", async () => {
+    const question = "Did the buyer, Priya Natarajan, agree to the 14% discount?";
+    route(STATUS_ON, () => ndjson([{ type: "sources", request_id: "t1", sources: [] }, { type: "chunk", request_id: "t1", token: "Yes — Priya agreed." }, { type: "done", request_id: "t1", stop_reason: "end_turn", usage: null }]));
+    const b = new WebBackend(chromeWindows);
+    await b.ally.run("t1", "question", question, []);
+    // The fake answers every request with t1's lines, so t2's stream ends
+    // without a terminal line for t2 → a truthful stream_truncated error.
+    await expect(b.ally.run("t2", "summarize", null, [])).resolves.toBeUndefined();
+    b.flushTelemetry(false);
+    const post = fetchMock.mock.calls.find((c) => c[0] === "/api/live/telemetry") as [string, RequestInit] | undefined;
+    expect(post).toBeDefined();
+    expect(post![1].method).toBe("POST");
+    expect(post![1].credentials).toBe("same-origin");
+    const agg = JSON.parse(post![1].body as string) as { schema: number; ally: { by_kind: Record<string, number>; by_outcome: Record<string, number> }; samples: number };
+    expect(agg.schema).toBe(1);
+    expect(agg.samples).toBe(2);
+    expect(agg.ally.by_kind).toEqual({ question: 1, summarize: 1 });
+    expect(agg.ally.by_outcome).toEqual({ ok: 1, error: 1 });
+    expect((agg.ally as { by_code: Record<string, number> }).by_code).toEqual({ stream_truncated: 1 });
+    for (const s of ["Priya", "Natarajan", "discount", "agreed", "14%"]) expect(post![1].body as string).not.toContain(s);
+    // Nothing left → no second post.
+    b.flushTelemetry(false);
+    expect(fetchMock.mock.calls.filter((c) => c[0] === "/api/live/telemetry")).toHaveLength(1);
+  });
+
   it("a refusal before any line rejects with the server's code; a mid-stream error ends the card with a terminal error chunk", async () => {
     route(STATUS_NO_ALLY, () => json({ error: "unconfigured", reason: "ANTHROPIC_API_KEY is not set" }, 503));
     const b = new WebBackend(chromeWindows);
