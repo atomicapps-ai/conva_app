@@ -117,6 +117,8 @@ export interface AllyRequestBody {
   kind: AllyRequestKind;
   question: string | null;
   segments: AllyEvidenceSegment[];
+  /** The active cloud Context to ground in (M2 cp7); absent → ungrounded. */
+  context_id?: string;
 }
 
 /** Response = newline-delimited JSON, one of these per line, `sources` first

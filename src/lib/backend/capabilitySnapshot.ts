@@ -453,14 +453,15 @@ export function webOperations(): OperationAvailability {
     "conversations.list": unimplemented(M1),
     "conversations.load": unimplemented(M1),
     "conversations.delete": unimplemented(M1),
+    // Flipped at runtime by WebBackend with the session backend (M2 cp7: cloud Contexts).
     "context.save": unimplemented(M1),
     "context.list": unimplemented(M1),
     "context.load": unimplemented(M1),
     "context.delete": unimplemented(M1),
     // Not desktop-only in principle (architecture §8) — a hosted session
     // implementation makes these real; until then they are unimplemented.
-    "context.activateContext": unimplemented("Session grounding needs the hosted live session (architecture M2)."),
-    "context.deactivateContext": unimplemented("Session grounding needs the hosted live session (architecture M2)."),
+    "context.activateContext": unimplemented("Grounding needs the hosted gateway (architecture M2 cp7); flipped at runtime by WebBackend."),
+    "context.deactivateContext": unimplemented("Grounding needs the hosted gateway (architecture M2 cp7); flipped at runtime by WebBackend."),
     "context.storeDocs": unsupported("Copies local file paths — desktop only; browser uploads land with the hosted library."),
     "context.prepare": unimplemented(M1),
     "context.loadProfile": unimplemented(M1),

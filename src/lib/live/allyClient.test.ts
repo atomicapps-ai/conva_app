@@ -114,6 +114,20 @@ describe("runAlly — POST /api/live/ally", () => {
     expect(lines.filter((l) => l.type === "chunk").map((l) => (l as { token: string }).token)).toEqual(["**Yes**", " — $120/mo"]);
   });
 
+  it("carries the active Context id when given, and omits the key entirely when null/absent (cp7)", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const f = (async (_url: string | URL | Request, init?: RequestInit) => {
+      bodies.push(JSON.parse(init!.body as string) as Record<string, unknown>);
+      return ndjsonResponse([{ type: "done", request_id: "r", stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }]);
+    }) as typeof fetch;
+    await runAlly({ fetch: f }, { request_id: "r", kind: "summarize", question: null, segments: [], context_id: "ctx-9" }, () => {});
+    await runAlly({ fetch: f }, { request_id: "r", kind: "summarize", question: null, segments: [], context_id: null }, () => {});
+    await runAlly({ fetch: f }, { request_id: "r", kind: "summarize", question: null, segments: [] }, () => {});
+    expect(bodies[0].context_id).toBe("ctx-9");
+    expect(bodies[1]).not.toHaveProperty("context_id");
+    expect(bodies[2]).not.toHaveProperty("context_id");
+  });
+
   it("turns HTTP refusals into coded LiveSessionErrors before any line", async () => {
     const refuse = (status: number, body: unknown) => (async () => new Response(JSON.stringify(body), { status })) as typeof fetch;
     const req = { request_id: "r", kind: "summarize" as const, question: null, segments: [] };
