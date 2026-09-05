@@ -19,6 +19,7 @@ import { groupTurns } from "@/lib/turns";
 import { useConversationStore } from "@/state/conversation";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useNavStore } from "@/state/nav";
+import { isWeb } from "@/lib/platform";
 import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
 
@@ -444,6 +445,13 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
 
   const exportShown = async () => {
     try {
+      // Web: no native dialog — the browser owns where a download lands, and
+      // the Markdown is built in the tab (nothing is sent anywhere).
+      if (isWeb) {
+        await backend.sessions.exportTranscript("conva-transcript.md", shownSegments);
+        setNotice("Downloaded conva-transcript.md");
+        return;
+      }
       const { save } = await import("@tauri-apps/plugin-dialog");
       const path = await save({
         defaultPath: "conva-transcript.md",
@@ -468,6 +476,11 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
     setAnalyzing(true);
     try {
       const report = await backend.sessions.analyzeConversation(openId);
+      if (isWeb) {
+        await backend.sessions.writeTextFile("conva-analysis.md", report);
+        setNotice("Downloaded conva-analysis.md");
+        return;
+      }
       const { save } = await import("@tauri-apps/plugin-dialog");
       const path = await save({
         defaultPath: "conva-analysis.md",
