@@ -45,6 +45,94 @@ export interface LiveStatus {
   reason?: string;
   max_sources: number;
   sample_rate_hz: number;
+  /** Ally (hosted model) readiness — reported separately from transcription
+   *  because each needs its own server-side key. Absent from a cp1 gateway. */
+  ally?: AllyStatus;
+}
+
+export interface AllyStatus {
+  configured: boolean;
+  /** Model provider id when configured (`anthropic`), else null. */
+  provider: string | null;
+  /** Model id the gateway will use when configured, else null. */
+  model: string | null;
+  /** Human reason when `configured` is false. */
+  reason?: string;
+}
+
+// ── Ally over the live session (`POST /api/live/ally`, M2 checkpoint 3) ─────
+
+export type AllyRequestKind = "suggest_reply" | "summarize" | "question";
+
+/** One transcript line as evidence. `side` accepts the legacy desktop sides
+ *  (`inbound`/`outbound`) or canonical channels (`self`/`remote_mix`). */
+export interface AllyEvidenceSegment {
+  side: string;
+  text: string;
+  is_final: boolean;
+  start_ms: number;
+  end_ms: number;
+}
+
+/** Request body. Idempotent per `request_id` (a retry answers 409). */
+export interface AllyRequestBody {
+  request_id: string;
+  kind: AllyRequestKind;
+  question: string | null;
+  segments: AllyEvidenceSegment[];
+}
+
+/** Response = newline-delimited JSON, one of these per line, `sources` first
+ *  and exactly one terminal `done` | `error`. */
+export type AllyStreamLine =
+  | { type: "sources"; request_id: string; sources: Array<{ file_name: string; location: string }> }
+  | { type: "chunk"; request_id: string; token: string }
+  | { type: "done"; request_id: string; stop_reason: string | null; usage: { input_tokens: number; output_tokens: number } | null }
+  | { type: "error"; request_id: string; code: string; message: string };
+
+/** Parse one NDJSON line; null when it is not a well-formed Ally line. */
+export function parseAllyLine(line: string): AllyStreamLine | null {
+  let v: unknown;
+  try {
+    v = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.request_id !== "string") return null;
+  switch (o.type) {
+    case "sources":
+      return Array.isArray(o.sources)
+        ? {
+            type: "sources",
+            request_id: o.request_id,
+            sources: o.sources.filter(
+              (s): s is { file_name: string; location: string } =>
+                !!s && typeof (s as { file_name?: unknown }).file_name === "string" && typeof (s as { location?: unknown }).location === "string",
+            ),
+          }
+        : null;
+    case "chunk":
+      return typeof o.token === "string" ? { type: "chunk", request_id: o.request_id, token: o.token } : null;
+    case "done": {
+      const u = o.usage as { input_tokens?: unknown; output_tokens?: unknown } | null | undefined;
+      const usage =
+        u && typeof u.input_tokens === "number" && typeof u.output_tokens === "number"
+          ? { input_tokens: u.input_tokens, output_tokens: u.output_tokens }
+          : null;
+      return { type: "done", request_id: o.request_id, stop_reason: typeof o.stop_reason === "string" ? o.stop_reason : null, usage };
+    }
+    case "error":
+      return {
+        type: "error",
+        request_id: o.request_id,
+        code: typeof o.code === "string" ? o.code : "error",
+        message: typeof o.message === "string" ? o.message : "Ally could not answer.",
+      };
+    default:
+      return null;
+  }
 }
 
 export type ProcessingMode = "hosted";
