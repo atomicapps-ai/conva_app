@@ -177,3 +177,146 @@ describe("WebBackend — Ally over the live gateway (M2 cp3)", () => {
     expect(chunks).toEqual([{ request_id: "r2", token: "", done: true, error: "Ally declined to answer this request. (refusal)" }]);
   });
 });
+
+describe("WebBackend — cloud Contexts (M2 cp7)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    webAuth._resetForTests();
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const CTX = {
+    id: "ctx-1",
+    title: "Acme interview",
+    purpose: "Panel interview",
+    job_description: null,
+    category: "interview",
+    status: "ready",
+    created_at_unix_ms: 1,
+    updated_at_unix_ms: 2,
+    source_doc_ids: [],
+    auto_generate_context: false,
+    knowledge_profile_id: null,
+    personas: [],
+    chosen_persona_id: null,
+    conversation_id: null,
+    dossier_doc_id: null,
+  };
+
+  function route(status: unknown, handlers: Record<string, (init: RequestInit) => Response> = {}) {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/live/status") return json(status);
+      if (url === "/api/app/session") return json({ signed_in: false, configured: true });
+      const h = handlers[`${init?.method ?? "GET"} ${url}`];
+      return h ? h(init ?? {}) : json({ error: "not_found" }, 404);
+    });
+  }
+
+  it("context.* ride the session backend: available when it answers (even with Ally off), unavailable with its reason otherwise", async () => {
+    route(STATUS_NO_ALLY);
+    const on = new WebBackend(chromeWindows);
+    expect(on.capabilityStore.snapshot().operations["context.list"].state).toBe("unimplemented");
+    await tick();
+    const ops = on.capabilityStore.snapshot().operations;
+    for (const op of ["context.save", "context.list", "context.load", "context.delete", "context.activateContext", "context.deactivateContext"] as const) {
+      expect(ops[op].state, op).toBe("available");
+    }
+    expect(ops["context.storeDocs"].state).toBe("unsupported");
+
+    route(STATUS_OFF);
+    const off = new WebBackend(chromeWindows);
+    await tick();
+    const o = off.capabilityStore.snapshot().operations;
+    expect(o["context.list"]).toMatchObject({ state: "unavailable", reason: "session backend: SESSION_SECRET is not set" });
+    expect(o["context.activateContext"].state).toBe("unavailable");
+  });
+
+  it("list/save/load/delete go through /api/live/contexts as the signed-in user; `unprovisioned` surfaces as a coded error", async () => {
+    const saved: unknown[] = [];
+    route(STATUS_ON, {
+      "GET /api/live/contexts": () => json({ contexts: [{ id: "ctx-1", title: "Acme interview", category: "interview", status: "ready" }] }),
+      "POST /api/live/contexts": (init) => {
+        saved.push(JSON.parse(init.body as string));
+        return json({ context: CTX });
+      },
+      "GET /api/live/contexts/ctx-1": () => json({ context: CTX }),
+      "DELETE /api/live/contexts/ctx-1": () => json({ ok: true }),
+    });
+    const b = new WebBackend(chromeWindows);
+    await tick();
+    expect(await b.context.list()).toEqual([{ id: "ctx-1", title: "Acme interview", category: "interview", status: "ready" }]);
+    expect(await b.context.save(CTX as never)).toEqual(CTX);
+    expect(saved).toEqual([CTX]);
+    expect((await b.context.load("ctx-1")).title).toBe("Acme interview");
+    await expect(b.context.delete("ctx-1")).resolves.toBeUndefined();
+
+    route(STATUS_ON, { "GET /api/live/contexts": () => json({ error: "unprovisioned", reason: "Apply migration 0005." }, 503) });
+    await expect(b.context.list()).rejects.toMatchObject({ code: "unprovisioned", message: "Apply migration 0005." });
+  });
+
+  it("activateContext loads the record and grounds every following Ally ask with its id; deactivate (or the default Context) goes back to ungrounded", async () => {
+    const asks: { context_id?: string }[] = [];
+    route(STATUS_ON, {
+      "GET /api/live/contexts/ctx-1": () => json({ context: CTX }),
+      "POST /api/live/ally": (init) => {
+        asks.push(JSON.parse(init.body as string));
+        const id = (asks.at(-1) as { request_id: string }).request_id;
+        return ndjson([
+          { type: "sources", request_id: id, sources: [] },
+          { type: "done", request_id: id, stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
+        ]);
+      },
+    });
+    const b = new WebBackend(chromeWindows);
+    await tick();
+
+    await b.ally.run("a0", "summarize", null, []);
+    expect(asks[0]).not.toHaveProperty("context_id");
+
+    const ctx = await b.context.activateContext("ctx-1");
+    expect(ctx.id).toBe("ctx-1");
+    await b.ally.run("a1", "question", "What do they want?", []);
+    expect(asks[1]).toMatchObject({ request_id: "a1", context_id: "ctx-1" });
+
+    await b.context.deactivateContext();
+    await b.ally.run("a2", "summarize", null, []);
+    expect(asks[2]).not.toHaveProperty("context_id");
+
+    // The default Context is synthesised locally — nothing is fetched — and means "ungrounded".
+    await b.context.activateContext("ctx-1");
+    const before = fetchMock.mock.calls.length;
+    const dflt = await b.context.activateContext("default");
+    expect(dflt).toMatchObject({ id: "default", title: "General", status: "ready" });
+    expect(fetchMock.mock.calls.length).toBe(before);
+    expect((await b.context.load("default")).id).toBe("default");
+    await b.ally.run("a3", "summarize", null, []);
+    expect(asks[3]).not.toHaveProperty("context_id");
+  });
+
+  it("deleting the active Context drops the grounding; activating an unknown id rejects with the Worker's code and grounds nothing", async () => {
+    const asks: { context_id?: string }[] = [];
+    route(STATUS_ON, {
+      "GET /api/live/contexts/ctx-1": () => json({ context: CTX }),
+      "GET /api/live/contexts/missing": () => json({ error: "not_found" }, 404),
+      "DELETE /api/live/contexts/ctx-1": () => json({ ok: true }),
+      "POST /api/live/ally": (init) => {
+        asks.push(JSON.parse(init.body as string));
+        const id = (asks.at(-1) as { request_id: string }).request_id;
+        return ndjson([{ type: "done", request_id: id, stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }]);
+      },
+    });
+    const b = new WebBackend(chromeWindows);
+    await tick();
+    await b.context.activateContext("ctx-1");
+    await expect(b.context.activateContext("missing")).rejects.toMatchObject({ code: "not_found" });
+    await b.ally.run("a1", "summarize", null, []);
+    expect(asks[0]).toMatchObject({ context_id: "ctx-1" }); // the failed activation left the previous grounding intact
+    await b.context.delete("ctx-1");
+    await b.ally.run("a2", "summarize", null, []);
+    expect(asks[1]).not.toHaveProperty("context_id");
+  });
+});

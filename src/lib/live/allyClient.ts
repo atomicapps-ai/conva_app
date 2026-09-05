@@ -46,12 +46,13 @@ export function evidenceFrom(segments: readonly TranscriptSegment[]): AllyEviden
  */
 export async function runAlly(
   deps: AllyClientDeps,
-  body: { request_id: string; kind: AllyRequestKind; question: string | null; segments: readonly TranscriptSegment[] },
+  body: { request_id: string; kind: AllyRequestKind; question: string | null; segments: readonly TranscriptSegment[]; context_id?: string | null },
   onLine: (line: AllyStreamLine) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const base = deps.base ?? "/api/live";
   const payload: AllyRequestBody = { request_id: body.request_id, kind: body.kind, question: body.question, segments: evidenceFrom(body.segments) };
+  if (body.context_id) payload.context_id = body.context_id;
   let res: Response;
   try {
     res = await deps.fetch(`${base}/ally`, {

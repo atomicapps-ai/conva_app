@@ -36,6 +36,8 @@ import { runAlly } from "@/lib/live/allyClient";
 import { fetchLiveUsage, toUsageSummary } from "@/lib/live/usage";
 import { TelemetryCollector, serializeAggregate, type TelemetrySample } from "@/lib/live/telemetry";
 import { downloadName, downloadTextFile, transcriptMarkdown } from "@/lib/live/exportTranscript";
+import { deleteContext, listContexts, loadContext, saveContext } from "@/lib/live/contextsClient";
+import { DEFAULT_CONTEXT_ID } from "@/lib/ipc";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
@@ -104,6 +106,8 @@ export class WebBackend implements ConvaBackend {
   private runner: LiveSessionRunner | null = null;
   /** Ally model id from the last status probe (names the usage bucket). */
   private allyModel: string | null = null;
+  /** The cloud Context grounding the next Ally ask (M2 cp7); null = ungrounded. */
+  private activeContextId: string | null = null;
   /** Content-free telemetry (M2 cp5): samples fold into one aggregate per
    *  window, posted to /api/live/telemetry every FLUSH_MS and on stop. */
   private readonly telemetry: TelemetryCollector;
@@ -160,10 +164,14 @@ export class WebBackend implements ConvaBackend {
       this.allyModel = status.ally?.model ?? null;
       // Usage (cp4) needs only the session backend: any configured feature
       // proves it is there; otherwise the same reason the gateway gave.
-      ops["usage.summary"] =
-        status.configured || status.ally?.configured
-          ? AVAILABLE
-          : unavailable(status.reason ?? "The live gateway's session backend is not configured.");
+      const backendUp = status.configured || status.ally?.configured;
+      const backendDown = unavailable(status.reason ?? "The live gateway's session backend is not configured.");
+      ops["usage.summary"] = backendUp ? AVAILABLE : backendDown;
+      // Cloud Contexts (cp7) ride the same session backend; an unprovisioned
+      // table is reported per call as `unprovisioned`, not guessed here.
+      for (const op of ["context.save", "context.list", "context.load", "context.delete", "context.activateContext", "context.deactivateContext"] as const) {
+        ops[op] = backendUp ? AVAILABLE : backendDown;
+      }
       this.store.update({ sources, operations: ops });
     });
     void webAuth.ready().then((info) => {
@@ -336,7 +344,7 @@ export class WebBackend implements ConvaBackend {
       let firstTokenMs: number | undefined;
       let outcome: "ok" | "error" | "refused" = "ok";
       let code: string | undefined;
-      return runAlly({ fetch: (input, init) => fetch(input, init) }, { request_id: requestId, kind, question, segments }, (line) => {
+      return runAlly({ fetch: (input, init) => fetch(input, init) }, { request_id: requestId, kind, question, segments, context_id: this.activeContextId }, (line) => {
         switch (line.type) {
           case "sources":
             this.emit("allySources", { request_id: requestId, sources: line.sources });
@@ -471,15 +479,54 @@ export class WebBackend implements ConvaBackend {
     delete: (): Promise<void> => todo("DELETE /v1/conversations/:id"),
   };
 
+  /** The desktop's always-present default Context, synthesised on web: it
+   *  grounds nothing and lives nowhere — activating it means "ungrounded". */
+  private static defaultContext(): ConversationContext {
+    return {
+      id: DEFAULT_CONTEXT_ID,
+      title: "General",
+      purpose: "",
+      job_description: null,
+      category: "other",
+      status: "ready",
+      created_at_unix_ms: 0,
+      updated_at_unix_ms: 0,
+      source_doc_ids: [],
+      auto_generate_context: false,
+      knowledge_profile_id: null,
+      personas: [],
+      chosen_persona_id: null,
+      conversation_id: null,
+      dossier_doc_id: null,
+    };
+  }
+
   context = {
-    save: (): Promise<ConversationContext> => todo("POST /v1/contexts"),
-    list: (): Promise<ContextSummary[]> => todo("GET /v1/contexts"),
-    load: (): Promise<ConversationContext> => todo("GET /v1/contexts/:id"),
-    delete: (): Promise<void> => todo("DELETE /v1/contexts/:id"),
-    activateContext: (): Promise<ConversationContext> =>
-      unsupported("context.activateContext (desktop session)"),
-    deactivateContext: (): Promise<void> =>
-      unsupported("context.deactivateContext (desktop session)"),
+    // Cloud Contexts (M2 cp7): the Worker reads/writes Supabase as the user
+    // (RLS); `unprovisioned` is the honest answer until migration 0005 runs.
+    save: (context: ConversationContext): Promise<ConversationContext> => saveContext({ fetch: (i, o) => fetch(i, o) }, context),
+    list: (): Promise<ContextSummary[]> => listContexts({ fetch: (i, o) => fetch(i, o) }),
+    load: (id: string): Promise<ConversationContext> =>
+      id === DEFAULT_CONTEXT_ID ? Promise.resolve(WebBackend.defaultContext()) : loadContext({ fetch: (i, o) => fetch(i, o) }, id),
+    delete: (id: string): Promise<void> => {
+      if (this.activeContextId === id) this.activeContextId = null;
+      return deleteContext({ fetch: (i, o) => fetch(i, o) }, id);
+    },
+    // Grounding: the next Ally ask carries this Context's id; the Worker
+    // loads it as the user and cites it in `sources`.
+    activateContext: async (id: string): Promise<ConversationContext> => {
+      if (id === DEFAULT_CONTEXT_ID) {
+        this.activeContextId = null;
+        return WebBackend.defaultContext();
+      }
+      const ctx = await loadContext({ fetch: (i, o) => fetch(i, o) }, id);
+      this.activeContextId = ctx.id;
+      return ctx;
+    },
+    deactivateContext: (): Promise<void> => {
+      this.activeContextId = null;
+      return Promise.resolve();
+    },
     storeDocs: (): Promise<string[]> =>
       unsupported("context.storeDocs (local file paths)"),
     prepare: (): Promise<ConversationContext> => todo("POST /v1/contexts/:id/prepare"),
