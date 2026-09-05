@@ -29,7 +29,11 @@ import {
   type CapabilityReader,
   type CapabilityStore,
 } from "@/lib/capture/capabilityStore";
-import type { TranscriptEvent } from "@/lib/capture/contract";
+import { AVAILABLE, unavailable, type TranscriptEvent } from "@/lib/capture/contract";
+import { startAudioGraph } from "@/lib/audio/audioGraph";
+import { fetchLiveStatus } from "@/lib/live/liveStatus";
+import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
+import type { SocketLike } from "@/lib/live/liveClient";
 import type {
   AppConfig,
   AudioDevice,
@@ -82,8 +86,14 @@ function todo<T>(endpoint: string): Promise<T> {
   );
 }
 
+type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;
+
 export class WebBackend implements ConvaBackend {
   private readonly store: CapabilityStore<CapabilitySnapshot>;
+  /** In-page event bus for the browser-sourced events (sessionState, transcriptSegment, audioLevel). */
+  private readonly handlers = new Map<keyof EventMap, Set<Handler<keyof EventMap>>>();
+  private readonly envelopeHandlers = new Set<(e: TranscriptEvent) => void>();
+  private runner: LiveSessionRunner | null = null;
 
   /** `probe` is injectable for tests; defaults to the live runtime. */
   constructor(probe: RuntimeProbe = probeRuntime()) {
@@ -96,6 +106,32 @@ export class WebBackend implements ConvaBackend {
     // same-origin session BFF. If the Worker reports that backend is NOT set
     // up (503), publish a revision that says so, so the UI shows "sign-in
     // unavailable: <reason>" instead of a button that can't work.
+    // Live gateway probe → SOURCE availability. The browser may well be able to
+    // capture a mic, but without a configured hosted gateway nothing can
+    // transcribe it — so mic/display stay `unavailable` with the server's
+    // reason until /api/live/status says configured. Never `available` early.
+    void fetchLiveStatus().then((status) => {
+      const snap = this.store.snapshot();
+      const sources = snap.sources.map((src) => {
+        if (src.kind !== "mic" && src.kind !== "display" && src.kind !== "tab") return src;
+        if (src.availability.state === "unsupported") return src; // browser can't, regardless of server
+        if (!status.configured) {
+          return { ...src, availability: unavailable(status.reason ?? "Hosted live transcription is not configured on this deployment.") };
+        }
+        // Mic is wired (M2 checkpoint 1); call-audio sharing is the next checkpoint.
+        return src.kind === "mic" ? { ...src, availability: AVAILABLE } : src;
+      });
+      const ops = { ...snap.operations };
+      if (status.configured) {
+        ops["session.start"] = AVAILABLE;
+        ops["session.stop"] = AVAILABLE;
+      } else {
+        const why = unavailable(status.reason ?? "Hosted live transcription is not configured on this deployment.");
+        ops["session.start"] = why;
+        ops["session.stop"] = why;
+      }
+      this.store.update({ sources, operations: ops });
+    });
     void webAuth.ready().then((info) => {
       if (info.configured) return;
       const reason = `Web sign-in backend not configured: ${info.reason ?? info.error ?? "unknown"}`;
@@ -121,10 +157,47 @@ export class WebBackend implements ConvaBackend {
     return this.store.snapshot().legacy;
   }
 
-  /** No browser capture pipeline exists yet (architecture M2) — honest reject,
-   *  never a subscription that silently never fires. */
-  subscribeEnvelopes(_handler: (event: TranscriptEvent) => void): Promise<Unsubscribe> {
-    return Promise.reject(new UnimplementedOnWebError("subscribeEnvelopes (browser capture)"));
+  /** Typed envelopes from the live gateway (already de-duplicated/ordered by
+   *  the client's EventLedger). */
+  subscribeEnvelopes(handler: (event: TranscriptEvent) => void): Promise<Unsubscribe> {
+    this.envelopeHandlers.add(handler);
+    return Promise.resolve(() => {
+      this.envelopeHandlers.delete(handler);
+    });
+  }
+
+  private emit<K extends keyof EventMap>(event: K, payload: EventMap[K]): void {
+    const set = this.handlers.get(event);
+    if (!set) return;
+    for (const h of set) (h as Handler<K>)(payload);
+  }
+
+  private ensureRunner(): LiveSessionRunner {
+    if (this.runner) return this.runner;
+    this.runner = new LiveSessionRunner(
+      {
+        media: browserMedia(),
+        startGraph: (stream, onBlock) => startAudioGraph(stream as unknown as MediaStream, onBlock),
+        client: {
+          fetch: (input, init) => fetch(input, init),
+          // DOM WebSocket satisfies the structural SocketLike (binaryType/onmessage typings differ nominally).
+          socket: (url) => new WebSocket(url) as unknown as SocketLike,
+          clientBuild: typeof __GIT_SHA__ === "string" ? __GIT_SHA__ : "dev",
+        },
+      },
+      {
+        sessionState: (e) => this.emit("sessionState", e),
+        transcriptSegment: (seg) => this.emit("transcriptSegment", seg),
+        audioLevel: (e) => this.emit("audioLevel", e),
+        transcriptEvent: (e) => {
+          for (const h of this.envelopeHandlers) h(e);
+        },
+        notice: (code, message) => {
+          if (import.meta.env?.DEV) console.info(`[live] ${code}: ${message}`);
+        },
+      },
+    );
+    return this.runner;
   }
 
   async subscribe<K extends keyof EventMap>(
@@ -138,11 +211,23 @@ export class WebBackend implements ConvaBackend {
         handler({ status, error: null } as EventMap[K]);
       });
     }
-    // TODO(1.4): bind browser-sourced events — hosted transcription →
-    // `transcriptSegment`, SSE Ally → `allyChunk`/`allySources`, session state
-    // from the mic pipeline. Layer-4-only events (`audioLevel` beyond the mic,
-    // desktop `sessionState`) stay no-ops.
-    if (import.meta.env?.DEV) console.warn(`[web] subscribe("${event}") is a no-op (not wired yet)`);
+    // Browser-sourced live events come from the LiveSessionRunner (M2).
+    if (event === "sessionState" || event === "transcriptSegment" || event === "audioLevel") {
+      let set = this.handlers.get(event);
+      if (!set) {
+        set = new Set();
+        this.handlers.set(event, set);
+      }
+      set.add(handler as Handler<keyof EventMap>);
+      return () => {
+        set?.delete(handler as Handler<keyof EventMap>);
+      };
+    }
+    // Everything else (Ally streaming, radar, tracker, capture, rehearsal,
+    // partner, splash) has no browser producer yet — capabilitySnapshot.ts
+    // reports the matching operations `unimplemented`, so no UI control
+    // depends on a subscription that would never fire.
+    if (import.meta.env?.DEV) console.warn(`[web] subscribe("${event}") has no browser producer yet`);
     return () => {};
   }
 
@@ -174,8 +259,13 @@ export class WebBackend implements ConvaBackend {
   };
 
   session = {
-    start: (): Promise<string> => todo("getUserMedia → hosted transcription"),
-    stop: (): Promise<void> => todo("stop the mic pipeline"),
+    // Explicit user Start: mic prompt → server session (ticket) → WebSocket →
+    // AudioWorklet → PCM16 frames under credit → transcript envelopes. Refused
+    // with a stable code (signed_out / not_entitled / unconfigured / denied…)
+    // when any step can't proceed — never a silent no-op.
+    start: (): Promise<string> =>
+      this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null }),
+    stop: (): Promise<void> => (this.runner ? this.runner.stop() : Promise.resolve()),
   };
 
   recording = {
