@@ -23,6 +23,8 @@
 
 import type { AuthStatus } from "@/lib/ipc";
 
+export type BetaStatus = "applied" | "invited" | "active" | "revoked" | "none" | "legacy";
+
 /** The BFF's session answer. Mirrors `signedOut()`/`infoFrom()` in app-session.js. */
 export interface WebSessionInfo {
   signed_in: boolean;
@@ -34,8 +36,11 @@ export interface WebSessionInfo {
   last_sign_in_at: string | null;
   /** Identity provider of the session ("google", "email", …). */
   provider: string | null;
-  /** Server-verified `app_metadata.beta_access`; null when signed out. */
+  /** Server-resolved beta entitlement (spec 10: an `active` `beta_allowlist` row); null when signed out. */
   beta_access: boolean | null;
+  /** spec 10 status behind `beta_access`: applied | invited | active | revoked | none (no row) |
+   *  legacy (the Worker fell back to the app_metadata boolean) | null (unknown / signed out). */
+  beta_status?: BetaStatus | null;
   /** Set when the Worker could not re-verify upstream and served its last-known record. */
   stale?: boolean;
   /** Machine code from the Worker when something is wrong (e.g. session_backend_unconfigured). */
@@ -172,14 +177,21 @@ export function provider(): string | null {
 }
 
 /**
- * The beta-allowlist entitlement (roadmap 1.2 / owner decision D1) — as
- * VERIFIED BY THE SERVER on `/api/app/session` (app_metadata.beta_access read
- * from Supabase's /auth/v1/user, never a JWT decoded in the page). null when
- * signed out or not yet resolved.
+ * The beta-allowlist entitlement (roadmap 1.2; owner decision 2026-09-05: spec
+ * 10's `beta_allowlist` table, not the app_metadata boolean) — as RESOLVED BY
+ * THE SERVER on `/api/app/session` (the caller's own allowlist row read with
+ * their token; never a JWT decoded in the page). null when signed out or not
+ * yet resolved.
  */
 export function betaAccess(): boolean | null {
   if (!current?.signed_in) return null;
   return current.beta_access === true;
+}
+
+/** The status behind {@link betaAccess} (spec 10), for the held-state copy. */
+export function betaStatus(): BetaStatus | null {
+  if (!current?.signed_in) return null;
+  return current.beta_status ?? null;
 }
 
 // -------------------------------------------------------------------- actions
