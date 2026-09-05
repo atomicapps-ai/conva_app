@@ -67,7 +67,11 @@ the same core will eventually serve a mobile companion.
 
 ## Workflow
 
-- Small, focused branches; don't commit to `main`/`dev` locally. Commit/push
-  only when asked. Keep the IPC Rust↔TS mirror in lockstep within one commit.
+- Small, focused branches, cut from `dev` and PR'd into `dev` — the target here
+  and in `conva_web`; `main` is release-only. (`conva_core` has no `dev` branch —
+  it is documents-only, so PRs there go straight to `main`.) Don't commit to
+  `main`/`dev` locally. Commit/push only when asked. Keep the IPC Rust↔TS mirror in lockstep
+  within one commit. Branching/promotion spec:
+  `conva_core/docs/technical/CONVA_SDLC_RELEASE_STRATEGY.md` §2.1.
 - When asking the owner a question, lead with a recommended option and the
   reasoning — never bare choices.

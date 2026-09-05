@@ -304,7 +304,14 @@ mobile target. Full conventions + how to add iOS/Android targets:
 
 ## Workflow
 
-- Develop on the assigned feature branch; don't commit to `main` locally.
+- **Branches: `feature` → `dev` → `main`.** Cut the assigned task branch from `dev`
+  and PR it into `dev`; `main` is release-only (tags cut from it drive the installer
+  pipeline). Don't commit to `dev` or `main` locally. `conva_web` works the same
+  way, and there the two branches are two live environments, so a web change is
+  validated on dev.getconva.com before promotion. **`conva_core` is the exception —
+  it has no `dev` branch** (owner, 2026-09-05: documents-only, so nothing to build
+  or stage), and core work PRs straight to its `main`. Canonical:
+  `../conva_core/docs/technical/CONVA_SDLC_RELEASE_STRATEGY.md` §2.1 / §2.1.1.
 - Commit/push only when the owner asks. Keep the IPC Rust↔TS mirror and the
   command wrappers in lockstep within a commit.
 - Prefer adding pure logic to core with a unit test over untested shell code.
