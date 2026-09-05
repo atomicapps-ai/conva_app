@@ -12,9 +12,11 @@
  * Canonical model + rationale: `conva_core/docs/technical/CONVA_ARCHITECTURE.md`
  * (§5) and `CONVA_SDLC_RELEASE_STRATEGY.md` §1.2 (adopted as Phase 0 of the SDLC).
  *
- * Method groups mirror the 48-command shell surface (`src/lib/commands.ts` ↔
+ * Method groups mirror the shell's command surface (`src/lib/commands.ts` ↔
  * `crates/conva-core/src/ipc.rs`); keep them in lockstep — a change to the shell
- * contract updates this interface AND both adapters in the same PR.
+ * contract updates this interface, both adapters AND the per-operation
+ * availability tables in `capabilitySnapshot.ts` (typecheck enforces the last)
+ * in the same PR.
  */
 
 import type {
@@ -41,17 +43,41 @@ import type {
   WhisperModelInfo,
 } from "@/lib/ipc";
 import type { Capabilities } from "@/lib/backend/capabilities";
+import type { CapabilitySnapshot } from "@/lib/backend/capabilitySnapshot";
 import type { EventMap, Unsubscribe } from "@/lib/backend/events";
+import type { CapabilityReader } from "@/lib/capture/capabilityStore";
+import type { TranscriptEvent } from "@/lib/capture/contract";
 
 export interface ConvaBackend {
-  /** What this platform can do. Resolved once at bootstrap; drives all UI gating. */
+  /**
+   * What this platform can do — the compatibility shim. Answers the legacy
+   * descriptor once; prefer {@link capabilityStore} for live, revisioned
+   * availability (browser architecture §8). Both MUST agree: this resolves to
+   * `capabilityStore.snapshot().legacy`.
+   */
   capabilities(): Promise<Capabilities>;
+
+  /**
+   * Live capability store (M0): the current {@link CapabilitySnapshot} plus a
+   * subscription. Revisions are monotonic; adapters publish a new snapshot
+   * when a probe, permission, connection or implementation state changes.
+   */
+  readonly capabilityStore: CapabilityReader<CapabilitySnapshot>;
 
   /** Subscribe to a live event. Returns an unsubscribe handle. */
   subscribe<K extends keyof EventMap>(
     event: K,
     handler: (payload: EventMap[K]) => void,
   ): Promise<Unsubscribe>;
+
+  /**
+   * Typed, versioned transcript envelopes (`ConvaEvent<TranscriptPayload>`,
+   * M0 contract). Desktop lifts the legacy `transcriptSegment` stream through
+   * `LegacyEnvelopeAdapter` (outbound → self, inbound → remote_mix); the web
+   * adapter rejects with `UnimplementedOnWebError` until a browser capture
+   * pipeline exists — never a silent no-op.
+   */
+  subscribeEnvelopes(handler: (event: TranscriptEvent) => void): Promise<Unsubscribe>;
 
   /** Portable settings (`conva.config.json`). Layer 1 (synced) + local cache. */
   config: {

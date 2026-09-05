@@ -14,15 +14,45 @@ import {
   DESKTOP_CAPABILITIES,
   type Capabilities,
 } from "@/lib/backend/capabilities";
+import {
+  desktopSnapshot,
+  probeRuntime,
+  type CapabilitySnapshot,
+  type RuntimeProbe,
+} from "@/lib/backend/capabilitySnapshot";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 import { EVENT_CHANNEL, type EventMap, type Unsubscribe } from "@/lib/backend/events";
+import {
+  createCapabilityStore,
+  type CapabilityReader,
+  type CapabilityStore,
+} from "@/lib/capture/capabilityStore";
+import type { TranscriptEvent } from "@/lib/capture/contract";
+import { LegacyEnvelopeAdapter } from "@/lib/capture/legacy";
+import type { SessionStateEvent, TranscriptSegment } from "@/lib/ipc";
+
+/** Session id used for segments that arrive before a `listening` state. */
+export const DESKTOP_UNKNOWN_SESSION = "desktop:unknown-session";
 
 export class TauriBackend implements ConvaBackend {
+  private readonly store: CapabilityStore<CapabilitySnapshot>;
+
+  /** `probe` is injectable for tests; defaults to the live runtime. */
+  constructor(probe: RuntimeProbe = probeRuntime()) {
+    // The legacy descriptor is the SAME static object as before — behavior
+    // unchanged. The snapshot adds the per-source/per-operation truth around
+    // it (WASAPI loopback honest per OS). TODO(M1+): refine dynamic fields
+    // from the shell — gpuBackend from the whisper-backend probe, overlay.incog
+    // from incog_status() once that command exists — and publish revisions.
+    this.store = createCapabilityStore(desktopSnapshot(DESKTOP_CAPABILITIES, probe));
+  }
+
+  get capabilityStore(): CapabilityReader<CapabilitySnapshot> {
+    return this.store;
+  }
+
   async capabilities(): Promise<Capabilities> {
-    // Static desktop descriptor for now. TODO: refine dynamic fields from the
-    // shell — gpuBackend from the whisper-backend probe, systemAudio per-OS,
-    // overlay.incog from incog_status() once that command exists.
-    return DESKTOP_CAPABILITIES;
+    return this.store.snapshot().legacy;
   }
 
   async subscribe<K extends keyof EventMap>(
@@ -30,6 +60,34 @@ export class TauriBackend implements ConvaBackend {
     handler: (payload: EventMap[K]) => void,
   ): Promise<Unsubscribe> {
     return listen<EventMap[K]>(EVENT_CHANNEL[event], (e) => handler(e.payload));
+  }
+
+  /**
+   * Lifts the shell's legacy `transcriptSegment` stream into versioned
+   * envelopes. The session id comes from the `sessionState` stream (each
+   * `listening` starts a fresh adapter: new session, epoch 0, per-source
+   * seq from 0); segments seen before any `listening` fall under
+   * {@link DESKTOP_UNKNOWN_SESSION}. Nothing here changes what the legacy
+   * `subscribe("transcriptSegment")` path delivers.
+   */
+  async subscribeEnvelopes(handler: (event: TranscriptEvent) => void): Promise<Unsubscribe> {
+    let adapter = new LegacyEnvelopeAdapter({ sessionId: DESKTOP_UNKNOWN_SESSION });
+    const unlistenState = await listen<SessionStateEvent>(
+      EVENT_CHANNEL.sessionState,
+      (e) => {
+        if (e.payload.state === "listening") {
+          adapter = new LegacyEnvelopeAdapter({ sessionId: e.payload.session_id });
+        }
+      },
+    );
+    const unlistenSegment = await listen<TranscriptSegment>(
+      EVENT_CHANNEL.transcriptSegment,
+      (e) => handler(adapter.lift(e.payload)),
+    );
+    return () => {
+      unlistenState();
+      unlistenSegment();
+    };
   }
 
   config = {
