@@ -37,6 +37,7 @@ import { fetchLiveUsage, toUsageSummary } from "@/lib/live/usage";
 import { TelemetryCollector, serializeAggregate, type TelemetrySample } from "@/lib/live/telemetry";
 import { downloadName, downloadTextFile, transcriptMarkdown } from "@/lib/live/exportTranscript";
 import { deleteContext, listContexts, loadContext, saveContext } from "@/lib/live/contextsClient";
+import { deleteConversation, listConversations, loadConversation, saveConversation } from "@/lib/live/conversationsClient";
 import { DEFAULT_CONTEXT_ID } from "@/lib/ipc";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
@@ -169,7 +170,19 @@ export class WebBackend implements ConvaBackend {
       ops["usage.summary"] = backendUp ? AVAILABLE : backendDown;
       // Cloud Contexts (cp7) ride the same session backend; an unprovisioned
       // table is reported per call as `unprovisioned`, not guessed here.
-      for (const op of ["context.save", "context.list", "context.load", "context.delete", "context.activateContext", "context.deactivateContext"] as const) {
+      for (const op of [
+        "context.save",
+        "context.list",
+        "context.load",
+        "context.delete",
+        "context.activateContext",
+        "context.deactivateContext",
+        // Cloud Conversations (cp8): the explicit save of a hosted session.
+        "conversations.save",
+        "conversations.list",
+        "conversations.load",
+        "conversations.delete",
+      ] as const) {
         ops[op] = backendUp ? AVAILABLE : backendDown;
       }
       this.store.update({ sources, operations: ops });
@@ -472,11 +485,16 @@ export class WebBackend implements ConvaBackend {
     },
   };
 
+  // Cloud Conversations (M2 cp8): a hosted session is ephemeral — only an
+  // explicit Save persists, written by the Worker as the user (RLS). The
+  // Worker keeps finals, derives the title, and replaces the transcript on a
+  // re-save (append semantics); delete purges. `unprovisioned` until 0006.
   conversations = {
-    save: (): Promise<Conversation> => todo("POST /v1/conversations"),
-    list: (): Promise<ConversationSummary[]> => todo("GET /v1/conversations"),
-    load: (): Promise<Conversation> => todo("GET /v1/conversations/:id"),
-    delete: (): Promise<void> => todo("DELETE /v1/conversations/:id"),
+    save: (id: string | null, title: string | null, segments: TranscriptSegment[], linkedDocs: string[], contextId?: string | null): Promise<Conversation> =>
+      saveConversation({ fetch: (i, o) => fetch(i, o) }, { id, title, segments, linked_docs: linkedDocs, context_id: contextId ?? null }),
+    list: (): Promise<ConversationSummary[]> => listConversations({ fetch: (i, o) => fetch(i, o) }),
+    load: (id: string): Promise<Conversation> => loadConversation({ fetch: (i, o) => fetch(i, o) }, id),
+    delete: (id: string): Promise<void> => deleteConversation({ fetch: (i, o) => fetch(i, o) }, id),
   };
 
   /** The desktop's always-present default Context, synthesised on web: it

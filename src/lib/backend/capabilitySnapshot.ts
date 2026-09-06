@@ -449,6 +449,9 @@ export function webOperations(): OperationAvailability {
     "auth.status": AVAILABLE,
     "auth.signout": AVAILABLE,
     "auth.openUrl": AVAILABLE,
+    // Cloud Conversations (M2 cp8): WebBackend flips these to `available` once
+    // the gateway's session backend answers; an unapplied migration 0006 is a
+    // per-call `unprovisioned` error, not a probe-time guess.
     "conversations.save": unimplemented(M1),
     "conversations.list": unimplemented(M1),
     "conversations.load": unimplemented(M1),
