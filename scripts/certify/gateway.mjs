@@ -20,15 +20,24 @@ const json = (res, status, body) => {
 
 export function startGateway({ distDir, port = 0, sessionId = "live_certify", log = () => {} }) {
   const root = resolve(distDir);
-  const stats = { sessions_created: 0, sockets: 0, hello: null, sources: new Map(), telemetry: [], ally_requests: 0, control_frames: 0, bad_frames: 0, bye_sent: false, closed_by_client: false, protocol_errors: [] };
+  const stats = { sessions_created: 0, consent: null, sockets: 0, hello: null, sources: new Map(), telemetry: [], ally_requests: 0, control_frames: 0, bad_frames: 0, bye_sent: false, closed_by_client: false, protocol_errors: [] };
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     const p = url.pathname;
     if (p === "/api/app/session") return json(res, 200, { signed_in: true, configured: true, email: "certify@example.invalid", user_id: "certify-user", provider: "google", expires_at_unix: Math.floor(Date.now() / 1000) + 3600, last_sign_in_at: null, beta_access: true, beta_status: "active" });
-    if (p === "/api/live/status") return json(res, 200, { configured: true, provider: "certify", max_sources: 2, sample_rate_hz: 16000, ally: { configured: false, provider: null, model: null, reason: "The certification gateway has no model provider." }, limits: { max_minutes_per_day: 180, max_concurrent_sessions: 1, max_duration_s: 10800, ally_max_requests_per_day: 200 }, library: { embeddings: { configured: false, provider: null, model: null, dim: 384, reason: "certification gateway" } } });
+    if (p === "/api/live/status") return json(res, 200, { configured: true, provider: "certify", max_sources: 2, sample_rate_hz: 16000, ally: { configured: false, provider: null, model: null, reason: "The certification gateway has no model provider." }, limits: { max_minutes_per_day: 180, max_concurrent_sessions: 1, max_duration_s: 10800, ally_max_requests_per_day: 200 }, library: { embeddings: { configured: false, provider: null, model: null, dim: 384, reason: "certification gateway" } }, terms: { asr: { provider: "certify", region: "us", mip_opt_out: true }, ally: null }, notice: { id: "hosted-v1" } });
     if (p === "/api/live/sessions" && req.method === "POST") {
       stats.sessions_created += 1;
+      // cp16: record the content-free acknowledgement the build sent (id, kinds, age) — the real gateway refuses without it.
+      let body = "";
+      for await (const c of req) body += c;
+      try {
+        const c = JSON.parse(body).consent;
+        stats.consent = c ? { notice: c.notice, scope: c.scope, age_ms: Date.now() - c.acknowledged_at } : null;
+      } catch {
+        stats.consent = null;
+      }
       return json(res, 201, { session_id: sessionId, ticket: `t-${stats.sessions_created}`, stream_url: "/api/live/stream", expires_at_unix: Math.floor(Date.now() / 1000) + 60, limits: { max_duration_s: 10800, max_sources: 2, remaining_ms_today: 10_800_000 } });
     }
     if (p === "/api/live/usage") return json(res, 200, { day: "2026-01-01", day_start_unix: 0, resets_at_unix: 0, live: { used_ms: 0, audio_ms: 0, limit_ms: 10_800_000, remaining_ms: 10_800_000, sessions: 0, active_sessions: 0, max_concurrent_sessions: 1, max_duration_s: 10800 }, ally: { requests: 0, failed: 0, limit: 200, remaining: 200, input_tokens: 0, output_tokens: 0 }, limits: { max_minutes_per_day: 180, max_concurrent_sessions: 1, max_duration_s: 10800, ally_max_requests_per_day: 200 }, beta_access: true });

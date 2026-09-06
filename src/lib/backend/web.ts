@@ -31,7 +31,9 @@ import {
 } from "@/lib/capture/capabilityStore";
 import { AVAILABLE, unavailable, type TranscriptEvent } from "@/lib/capture/contract";
 import { startAudioGraph } from "@/lib/audio/audioGraph";
+import { HOSTED_NOTICE_ID } from "@/lib/live/hostedNotice";
 import { fetchLiveStatus } from "@/lib/live/liveStatus";
+import { requestHostedConsent, useHostedConsentStore } from "@/state/hostedConsent";
 import { runAlly } from "@/lib/live/allyClient";
 import { fetchLiveUsage, toUsageSummary } from "@/lib/live/usage";
 import { TelemetryCollector, serializeAggregate, type TelemetrySample } from "@/lib/live/telemetry";
@@ -151,7 +153,14 @@ export class WebBackend implements ConvaBackend {
       });
       const ops = { ...snap.operations };
       const liveOps = ["session.start", "session.stop", "capture.start", "capture.stop", "capture.recover"] as const;
-      if (status.configured) {
+      // cp16: the notice text this build shows must be the one the gateway
+      // requires; a stale build says so instead of starting sessions it can't.
+      useHostedConsentStore.getState().setTerms(status.terms);
+      const staleNotice = status.notice && status.notice.id !== HOSTED_NOTICE_ID;
+      if (status.configured && staleNotice) {
+        const why = unavailable(`This build's hosted-processing notice (${HOSTED_NOTICE_ID}) is out of date; the gateway requires ${status.notice!.id}. Reload to get the current build.`);
+        for (const op of liveOps) ops[op] = why;
+      } else if (status.configured) {
         for (const op of liveOps) ops[op] = AVAILABLE;
       } else {
         const why = unavailable(status.reason ?? "Hosted live transcription is not configured on this deployment.");
@@ -412,9 +421,17 @@ export class WebBackend implements ConvaBackend {
     // AudioWorklet → PCM16 frames under credit → transcript envelopes. Refused
     // with a stable code (signed_out / not_entitled / unconfigured / denied…)
     // when any step can't proceed — never a silent no-op.
-    start: (): Promise<string> =>
-      this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null }),
-    stop: (): Promise<void> => (this.runner ? this.runner.stop() : Promise.resolve()),
+    start: async (): Promise<string> => {
+      // cp16: the hosted-processing notice comes BEFORE the mic prompt; the
+      // user's "Start listening" click on it resolves this and carries the
+      // content-free acknowledgement to the gateway.
+      const consent = await requestHostedConsent(["mic"]);
+      return this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null, consent });
+    },
+    stop: async (): Promise<void> => {
+      if (this.runner) await this.runner.stop();
+      useHostedConsentStore.getState().reset();
+    },
   };
 
   capture = {
@@ -429,10 +446,18 @@ export class WebBackend implements ConvaBackend {
           : "You choose a tab or screen and enable “share audio”; only that audio is transcribed (video is never sent). Recording rules for your participants still apply.";
       return Promise.resolve({ kind, channel, availability, requires_user_gesture: kind !== "mic", notice });
     },
-    start: (kind: CaptureSourceKind, operationId: string): Promise<string> => {
-      if (kind === "display" || kind === "tab") return this.ensureRunner().startShare(operationId);
-      if (kind === "mic") return this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null });
-      return Promise.reject(new UnimplementedOnWebError(`capture.start(${kind})`));
+    start: async (kind: CaptureSourceKind, operationId: string): Promise<string> => {
+      if (kind === "display" || kind === "tab") {
+        // Scope expansion (§10): the notice repeats once per session for shared
+        // call audio; the accepting click is the gesture the chooser needs.
+        await requestHostedConsent([kind], true);
+        return this.ensureRunner().startShare(operationId);
+      }
+      if (kind === "mic") {
+        const consent = await requestHostedConsent(["mic"]);
+        return this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null, consent });
+      }
+      throw new UnimplementedOnWebError(`capture.start(${kind})`);
     },
     stop: (sourceId: string): Promise<void> => (this.runner ? this.runner.stopSource(sourceId) : Promise.resolve()),
     recover: (sourceId: string, operationId: string): Promise<string> => this.ensureRunner().recover(sourceId, operationId),
