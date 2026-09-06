@@ -50,6 +50,25 @@ export interface LiveStatus {
   ally?: AllyStatus;
   /** The deployment's per-account beta budgets (absent before cp4). */
   limits?: LiveLimits;
+  /** Cloud library readiness (absent before cp11). The semantic leg is optional:
+   *  `embeddings.configured` false means keyword-only retrieval, never no citations. */
+  library?: LibraryStatus;
+}
+
+export interface LibraryStatus {
+  embeddings: EmbeddingsStatus;
+}
+
+export interface EmbeddingsStatus {
+  configured: boolean;
+  /** Embeddings provider id when configured (`workers-ai`), else null. */
+  provider: string | null;
+  /** Embedding model id when configured, else null. */
+  model: string | null;
+  /** Vector width the store expects (384). */
+  dim: number;
+  /** Human reason when `configured` is false. */
+  reason?: string;
 }
 
 /** Technical beta budgets (architecture §16) — not prices. */
