@@ -185,4 +185,17 @@ describe("fetchLiveStatus — ally readiness", () => {
     expect(down.ally?.configured).toBe(false);
     expect(down.ally?.reason).toMatch(/502/);
   });
+
+  it("reads the cp11 library.embeddings block; a gateway without it reports no library block, one without a provider is keyword-only with a reason", async () => {
+    const base = { configured: true, provider: "deepgram", max_sources: 2, sample_rate_hz: 16000, ally: { configured: true, provider: "anthropic", model: "claude-opus-5" } };
+    const on = await fetchLiveStatus(json({ ...base, library: { embeddings: { configured: true, provider: "workers-ai", model: "@cf/baai/bge-small-en-v1.5", dim: 384 } } }));
+    expect(on.library).toEqual({ embeddings: { configured: true, provider: "workers-ai", model: "@cf/baai/bge-small-en-v1.5", dim: 384, reason: undefined } });
+    const off = await fetchLiveStatus(json({ ...base, library: { embeddings: { configured: false, provider: null, model: null, dim: 384, reason: "No AI binding on this Worker" } } }));
+    expect(off.library?.embeddings).toMatchObject({ configured: false, reason: "No AI binding on this Worker" });
+    const bare = await fetchLiveStatus(json({ ...base, library: { embeddings: { configured: false } } }));
+    expect(bare.library?.embeddings.reason).toMatch(/keyword-only/);
+    expect(bare.library?.embeddings.dim).toBe(384);
+    const pre = await fetchLiveStatus(json(base));
+    expect(pre.library).toBeUndefined();
+  });
 });
