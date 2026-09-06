@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-09-06T01:57:59.929Z",
+  "ran_at": "2026-09-06T20:05:56.890Z",
   "browser": {
     "requested": "chromium",
     "version": "141.0.7390.37",
@@ -24,21 +24,36 @@
   "hello": {
     "protocol": 1,
     "contract_schema_version": 1,
-    "client_build": "9bef040"
+    "client_build": "c499fc8"
   },
   "sessions_created": 1,
-  "first_audio_ms": 405,
+  "notice": {
+    "start": {
+      "title": "Before you start listening"
+    },
+    "share": {
+      "title": "Before you share call audio"
+    },
+    "consent": {
+      "notice": "hosted-v1",
+      "scope": [
+        "mic"
+      ],
+      "age_ms": 161
+    }
+  },
+  "first_audio_ms": 707,
   "sources": [
     {
       "id": "mic-self",
       "kind": "mic",
       "channel": "self",
-      "frames": 67,
-      "samples": 213763,
-      "audio_seconds": 13.36,
+      "frames": 68,
+      "samples": 216967,
+      "audio_seconds": 13.56,
       "mean_frame_ms": 199,
-      "rms_dbfs": -22.1,
-      "peak": 32761,
+      "rms_dbfs": -22.2,
+      "peak": 32730,
       "seq_gaps": 0,
       "voiced_frames": 24
     },
@@ -47,13 +62,13 @@
       "kind": "display",
       "channel": "remote_mix",
       "frames": 66,
-      "samples": 208655,
-      "audio_seconds": 13.04,
-      "mean_frame_ms": 198,
-      "rms_dbfs": -21,
+      "samples": 208004,
+      "audio_seconds": 13,
+      "mean_frame_ms": 197,
+      "rms_dbfs": -21.1,
       "peak": 11468,
       "seq_gaps": 0,
-      "voiced_frames": 26
+      "voiced_frames": 24
     }
   ],
   "transcript": {
@@ -86,12 +101,12 @@
   "telemetry": {
     "final_latency_ms": {
       "self": {
-        "p50": 181,
+        "p50": 182,
         "p95": 182,
         "count": 2
       },
       "remote_mix": {
-        "p50": 181,
+        "p50": 182,
         "p95": 182,
         "count": 2
       }
@@ -99,11 +114,11 @@
     "partial_latency_ms": {
       "self": {
         "p50": 182,
-        "p95": 182,
+        "p95": 183,
         "count": 3
       },
       "remote_mix": {
-        "p50": 181,
+        "p50": 182,
         "p95": 182,
         "count": 3
       }

@@ -62,6 +62,12 @@ function termsOf(raw: unknown): LiveTerms | undefined {
   };
 }
 
+/** A pre-cp16 gateway (no `notice`) requires no acknowledgement id; the client still shows its notice. */
+function noticeOf(raw: unknown): { id: string } | undefined {
+  const n = raw as { id?: unknown } | undefined;
+  return n && typeof n === "object" && typeof n.id === "string" && n.id.length > 0 ? { id: n.id } : undefined;
+}
+
 export async function fetchLiveStatus(f: typeof fetch = fetch, base = "/api/live"): Promise<LiveStatus> {
   try {
     const res = await f(`${base}/status`, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } });
@@ -79,6 +85,7 @@ export async function fetchLiveStatus(f: typeof fetch = fetch, base = "/api/live
       ally: allyOf(body.ally, "This live gateway does not offer Ally yet (no `ally` in /api/live/status)."),
       library: libraryOf(body.library),
       terms: termsOf(body.terms),
+      notice: noticeOf(body.notice),
     };
   } catch (e) {
     const reason = `The live gateway is unreachable: ${e instanceof Error ? e.message : String(e)}`;

@@ -4,6 +4,7 @@ import type { AllyChunkEvent, AllySourcesEvent } from "@/lib/ipc";
 import type { RuntimeProbe } from "@/lib/backend/capabilitySnapshot";
 import { WebBackend } from "@/lib/backend/web";
 import * as webAuth from "@/lib/backend/webAuth";
+import { useHostedConsentStore } from "@/state/hostedConsent";
 
 const chromeWindows: RuntimeProbe = { os: "windows", hasGetUserMedia: true, hasGetDisplayMedia: true, secureContext: true };
 
@@ -487,5 +488,60 @@ describe("WebBackend — cloud library (M2 cp9, text-first)", () => {
 
     route(STATUS_ON, { "GET /api/live/library": () => json({ error: "unprovisioned", reason: "Apply migration 0007." }, 503) });
     await expect(b.rag.list()).rejects.toMatchObject({ code: "unprovisioned", message: "Apply migration 0007." });
+  });
+});
+
+describe("WebBackend — hosted-processing notice (M2 cp16)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    webAuth._resetForTests();
+    useHostedConsentStore.getState().reset();
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+  const TERMS = { asr: { provider: "deepgram", region: "us", mip_opt_out: true }, ally: { provider: "anthropic", inference_geo: "global" } };
+  function route(status: unknown) {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/live/status") return json(status);
+      if (url === "/api/app/session") return json({ signed_in: false, configured: true });
+      return json({ error: "not_found" }, 404);
+    });
+  }
+
+  it("Start asks the notice first — before any mic prompt or gateway call — and a decline is consent_required", async () => {
+    route({ ...STATUS_ON, terms: TERMS, notice: { id: "hosted-v1" } });
+    const b = new WebBackend(chromeWindows);
+    await tick();
+    expect(useHostedConsentStore.getState().terms).toEqual(TERMS);
+    expect(b.capabilityStore.snapshot().operations["session.start"].state).toBe("available");
+    const start = b.session.start();
+    await tick();
+    expect(useHostedConsentStore.getState().pending?.scope).toEqual(["mic"]);
+    useHostedConsentStore.getState().decline();
+    await expect(start).rejects.toMatchObject({ code: "consent_required" });
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/live/sessions")).toBe(false);
+    // Sharing call audio is a scope expansion with its own notice.
+    const share = b.capture.start("display", "share-1");
+    await tick();
+    expect(useHostedConsentStore.getState().pending).toMatchObject({ scope: ["display"], expanding: true });
+    useHostedConsentStore.getState().decline();
+    await expect(share).rejects.toMatchObject({ code: "consent_required" });
+  });
+
+  it("a build whose notice id is not the one the gateway requires cannot start hosted sessions, and says why", async () => {
+    route({ ...STATUS_ON, terms: TERMS, notice: { id: "hosted-v2" } });
+    const b = new WebBackend(chromeWindows);
+    await tick();
+    const op = b.capabilityStore.snapshot().operations["session.start"];
+    expect(op.state).toBe("unavailable");
+    expect(op.state === "unavailable" ? op.reason : "").toMatch(/hosted-v1.*out of date.*hosted-v2/);
+    // A pre-cp16 gateway (no notice id) is not held back — the client still shows its notice.
+    route(STATUS_ON);
+    const old = new WebBackend(chromeWindows);
+    await tick();
+    expect(old.capabilityStore.snapshot().operations["session.start"].state).toBe("available");
   });
 });

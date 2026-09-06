@@ -57,6 +57,10 @@ export interface LiveStatus {
    *  configuration facts for the hosted-processing notice, never a retention
    *  claim — those live in core `docs/platform/14-provider-retention-and-region.md`. */
   terms?: LiveTerms;
+  /** The id of the hosted-processing notice this gateway requires on session
+   *  creation (absent before cp16). A build whose `HOSTED_NOTICE_ID` differs
+   *  is out of date and must not start hosted sessions. */
+  notice?: { id: string };
 }
 
 export interface LiveTerms {
@@ -219,12 +223,27 @@ export function parseAllyLine(line: string): AllyStreamLine | null {
 export type ProcessingMode = "hosted";
 export type RetentionMode = "ephemeral";
 
+/**
+ * The user's acknowledgement of the hosted-processing notice (cp16, architecture
+ * §10: consent is part of session state). `notice` is the id of the text that
+ * was shown (`HOSTED_NOTICE_ID`, `hostedNotice.ts`); the gateway refuses a
+ * session whose notice id is not the one it currently requires. `scope` lists
+ * the capture kinds the user agreed to; sharing call audio later expands it.
+ * Content-free by construction — an id, kinds and a timestamp.
+ */
+export interface SessionConsent {
+  notice: string;
+  scope: CaptureSourceKind[];
+  acknowledged_at: number;
+}
+
 /** `POST /api/live/sessions` request. */
 export interface CreateSessionRequest {
   processing_mode: ProcessingMode;
   retention_mode: RetentionMode;
   context_id: string | null;
   sources: Array<{ kind: CaptureSourceKind; channel: CaptureChannel }>;
+  consent: SessionConsent;
 }
 
 /** `POST /api/live/sessions` 201 response. */

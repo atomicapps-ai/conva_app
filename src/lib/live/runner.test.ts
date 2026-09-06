@@ -59,7 +59,7 @@ describe("LiveSessionRunner — fake mic → batcher → socket → transcript �
       { sessionState: (e) => states.push(e), transcriptSegment: (s) => segments.push(s), audioLevel: (l) => levels.push(l.rms_dbfs) },
     );
 
-    const started = runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null });
+    const started = runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null, consent: { notice: "hosted-v1", scope: ["mic" as const], acknowledged_at: 1 } });
     for (let i = 0; i < 50 && sockets.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
     const s = sockets[0]!;
     s.open();
@@ -97,7 +97,7 @@ describe("LiveSessionRunner — fake mic → batcher → socket → transcript �
     const fetchMock = vi.fn();
     const states: SessionStateEvent[] = [];
     const runner = new LiveSessionRunner({ media, startGraph: async () => ({ stop: async () => {} }), client: { fetch: fetchMock as unknown as typeof fetch, socket: () => new FakeSocket() } }, { sessionState: (e) => states.push(e) });
-    await expect(runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null })).rejects.toMatchObject({ code: "denied" });
+    await expect(runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null, consent: { notice: "hosted-v1", scope: ["mic" as const], acknowledged_at: 1 } })).rejects.toMatchObject({ code: "denied" });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(states.at(-1)).toMatchObject({ state: "error" });
   });
@@ -107,7 +107,7 @@ describe("LiveSessionRunner — fake mic → batcher → socket → transcript �
     const stream: StreamLike = { getAudioTracks: () => [t], getVideoTracks: () => [] };
     const media: MediaAdapter = { getUserMedia: async () => stream, getDisplayMedia: async () => stream };
     const runner = new LiveSessionRunner({ media, startGraph: async () => ({ stop: async () => {} }), client: { fetch: (async () => new Response(JSON.stringify({ error: "not_entitled" }), { status: 403 })) as unknown as typeof fetch, socket: () => new FakeSocket() } });
-    await expect(runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null })).rejects.toMatchObject({ code: "not_entitled" });
+    await expect(runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null, consent: { notice: "hosted-v1", scope: ["mic" as const], acknowledged_at: 1 } })).rejects.toMatchObject({ code: "not_entitled" });
     expect(t.stopped).toBe(true);
     expect(runner.session.phase).toBe("failed");
   });
@@ -145,7 +145,7 @@ describe("LiveSessionRunner — share call audio as a second source", () => {
       { captureStatus: (s) => statuses.push(s.map((x) => `${x.source_id}:${x.phase}`)), notice: (c) => notices.push(c) },
     );
     const startAndReady = async () => {
-      const started = runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null });
+      const started = runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null, consent: { notice: "hosted-v1", scope: ["mic" as const], acknowledged_at: 1 } });
       for (let i = 0; i < 50 && sockets.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
       const s = sockets[0]!;
       s.open();
@@ -262,7 +262,7 @@ describe("LiveSessionRunner — microphone recovery inside the session + content
       { captureStatus: (s) => statuses.push(s.map((x) => `${x.source_id}:${x.phase}`)), notice: (c) => notices.push(c), telemetry: (t) => telemetry.push(t) },
     );
     const startAndReady = async () => {
-      const started = runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null });
+      const started = runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null, consent: { notice: "hosted-v1", scope: ["mic" as const], acknowledged_at: 1 } });
       for (let i = 0; i < 50 && sockets.length === 0; i++) await new Promise((r) => setTimeout(r, 0));
       const s = sockets[0]!;
       s.open();
@@ -330,7 +330,7 @@ describe("LiveSessionRunner — microphone recovery inside the session + content
     const telemetry: TelemetrySample[] = [];
     const media: MediaAdapter = { getUserMedia: async () => { throw Object.assign(new Error("User Jane denied at 3pm"), { name: "NotAllowedError" }); }, getDisplayMedia: async () => { throw new Error("no"); } };
     const runner = new LiveSessionRunner({ media, startGraph: async () => ({ stop: async () => {} }), client: { fetch: vi.fn() as unknown as typeof fetch, socket: () => new FakeSocket() } }, { telemetry: (t) => telemetry.push(t) });
-    await expect(runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null })).rejects.toMatchObject({ code: "denied" });
+    await expect(runner.start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null, consent: { notice: "hosted-v1", scope: ["mic" as const], acknowledged_at: 1 } })).rejects.toMatchObject({ code: "denied" });
     expect(telemetry).toEqual([{ kind: "session.start", outcome: "refused", code: "denied" }]);
   });
 });

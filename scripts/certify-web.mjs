@@ -48,6 +48,23 @@ if (!existsSync(join(distDir, "index.html"))) {
 const { chromium } = require("playwright-core");
 
 /** Pull the latency figures out of the client's aggregates: per-channel final p50/p95 and the source health counts. */
+/**
+ * The hosted-processing notice (M2 cp16) renders as a dialog whose confirm
+ * button carries the action ("Start listening" / "Share call audio"). Click it
+ * when it appears; report what was shown so the row records that the build
+ * asked. Returns null when no dialog appeared within the wait (older artifact).
+ */
+async function acknowledgeNotice(page, confirmName) {
+  const dialog = page.getByRole("dialog");
+  const appeared = await dialog.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false);
+  if (!appeared) return null;
+  const title = await dialog.getByRole("heading").first().innerText().catch(() => "");
+  const confirm = dialog.getByRole("button", { name: confirmName }).first();
+  await confirm.click();
+  await dialog.waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
+  return { title };
+}
+
 function summarizeTelemetry(aggregates) {
   const out = { final_latency_ms: {}, partial_latency_ms: {}, source: null };
   for (const a of aggregates) {
@@ -108,15 +125,23 @@ try {
   await startButton.waitFor({ state: "visible", timeout: 20_000 });
   const t0 = Date.now();
   await startButton.click();
+  // cp16: the hosted-processing notice comes before the mic prompt — its
+  // confirm button is the click that starts. A pre-cp16 artifact shows none.
+  const noticeAck = await acknowledgeNotice(page, /start listening/i);
 
   // Wait for the first audio to reach the gateway (the real pipeline is live).
   const firstAudioDeadline = Date.now() + 15_000;
   while (Date.now() < firstAudioDeadline && ![...gw.stats.sources.values()].some((s) => s.frames > 0)) await page.waitForTimeout(100);
   const firstAudioMs = [...gw.stats.sources.values()].some((s) => s.frames > 0) ? Date.now() - t0 : null;
 
+  let shareAck = null;
   if (tryShare) {
     const share = page.getByRole("button", { name: /share call audio/i }).first();
-    if (await share.isVisible().catch(() => false)) await share.click().catch(() => {});
+    if (await share.isVisible().catch(() => false)) {
+      await share.click().catch(() => {});
+      // Scope expansion has its own notice; its confirm is the gesture the chooser needs.
+      shareAck = await acknowledgeNotice(page, /share call audio/i);
+    }
   }
 
   // Let the fixture play out, then check the finals the page shows.
@@ -161,6 +186,8 @@ try {
     capture_mode: attachedChannels.has("remote_mix") ? "mic+share" : "mic",
     hello: summary.hello,
     sessions_created: summary.sessions_created,
+    // cp16: the notice the build showed before capture and on scope expansion, and what it sent.
+    notice: { start: noticeAck, share: shareAck, consent: summary.consent },
     first_audio_ms: firstAudioMs,
     sources: summary.sources,
     transcript: { expected: expected.length, shown: seen.filter((s) => s.shown).length, finals: seen },
