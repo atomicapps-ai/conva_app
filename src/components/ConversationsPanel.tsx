@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useBackend } from "@/lib/backend";
-import { useCapabilities } from "@/lib/backend/context";
+import { useCapabilities, useCapabilitySnapshot } from "@/lib/backend/context";
+import { isUsable } from "@/lib/capture/contract";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { ListRow } from "@/components/ui/ListRow";
@@ -215,11 +216,20 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const convoBodyCache = useRef(new Map<string, Conversation>());
   const sessionBodyCache = useRef(new Map<string, TranscriptSegment[]>());
 
+  // Raw sessions are the desktop's on-device runs; on web the op is honestly
+  // "unimplemented" (M1) and rejects. Joined with Promise.all that rejection
+  // sank the whole page — saved conversations never listed on web (first-run
+  // rehearsal finding, cp19). Ask only when a live adapter says it can answer.
+  // No snapshot, or the legacy shim (which marks EVERY op unimplemented as a
+  // placeholder, not as knowledge), keeps the old behaviour: try, and surface
+  // a real failure as the notice.
+  const snapshot = useCapabilitySnapshot();
+  const sessionsListable = !snapshot || snapshot.adapter === "legacy" || isUsable(snapshot.operations["sessions.list"]);
   const refresh = useCallback(async () => {
     try {
       const [c, s, x, d] = await Promise.all([
         backend.conversations.list(),
-        backend.sessions.list(),
+        sessionsListable ? backend.sessions.list() : Promise.resolve([]),
         backend.context.list(),
         backend.rag.list(),
       ]);
@@ -230,7 +240,7 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
     } catch (e) {
       setNotice(String(e));
     }
-  }, [backend, setNotice]);
+  }, [backend, sessionsListable, setNotice]);
 
   useEffect(() => {
     void refresh();

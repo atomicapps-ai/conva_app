@@ -36,7 +36,8 @@
     "env:decrypt:prod": "node env/cli.mjs decrypt prod",
     "env:print:dev": "node env/cli.mjs print dev",
     "env:print:prod": "node env/cli.mjs print prod",
-    "certify:web": "node scripts/certify-web.mjs"
+    "certify:web": "node scripts/certify-web.mjs",
+    "rehearse:web": "node scripts/rehearse-web.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

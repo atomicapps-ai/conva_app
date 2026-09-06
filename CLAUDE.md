@@ -278,6 +278,7 @@ then on the other machine set the same env var and the keys load on startup.
 | Shell tests + lint (Windows) | `cargo test -p conva-app` · `cargo clippy -p conva-app --all-targets` |
 | UI typecheck + build | `npm run build` |
 | Browser certification (web build, any OS with Chrome/Edge/Chromium) | `npm run build:web` · `npm run certify:web` (`-- --browser chrome` / `msedge` on Windows; writes a support-matrix row to `certification/`, see `conva_core/docs/technical/browser-support-matrix.md`) |
+| First-run rehearsal (web build; the checklist's app steps against a stubbed cloud slice) | `npm run build:web` · `npm run rehearse:web` (same browser flags; `--share` adds step 7; writes a row to `rehearsal/`, see `conva_core/docs/technical/2026-09-beta-first-run-checklist.md` "Rehearsal") |
 
 CI (`.github/workflows/ci.yml`) runs core lint+test on ubuntu, UI typecheck+build
 on ubuntu, and the shell clippy `-D warnings` on windows-latest. Clippy runs with

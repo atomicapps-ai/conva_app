@@ -108,6 +108,45 @@ jobs:
           path: certification-ci/*.json
           if-no-files-found: warn
 
+  web-rehearse:
+    name: First-run rehearsal (Chromium — checklist steps in the real build, stubbed cloud)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:web
+      - name: Playwright browser cache
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-1.63.0-${{ runner.os }}
+      - name: Install Chromium for the harness
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx --yes playwright@1.63.0 install --with-deps chromium
+      - name: Install Chromium system deps (cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx --yes playwright@1.63.0 install-deps chromium
+      # The owner's first-run checklist, app-side steps (5, 6, 8, 10–12) driven in the
+      # real web build against the certification gateway + the in-memory cloud stub
+      # (M2 cp19). Gating: a step that stops working here would stop the owner's run.
+      - name: Rehearse — mic
+        run: npm run rehearse:web -- --duration 13 --out rehearsal-ci
+      # Informational: the same with "Share call audio" (step 7) through the auto-accept flags.
+      - name: Rehearse — mic+share (informational)
+        continue-on-error: true
+        run: npm run rehearse:web -- --duration 13 --share --out rehearsal-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-rehearsal-rows
+          path: rehearsal-ci/*.json
+          if-no-files-found: warn
+
   shell-windows:
     name: Tauri shell (Windows — Phase 1 target)
     runs-on: windows-latest
