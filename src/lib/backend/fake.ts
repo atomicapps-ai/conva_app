@@ -363,6 +363,7 @@ export class FakeBackend implements ConvaBackend {
   };
   rag = {
     ingest: nc("rag.ingest"),
+    upload: nc("rag.upload"),
     ingestText: nc("rag.ingestText"),
     list: nc("rag.list"),
     setEnabled: nc("rag.setEnabled"),

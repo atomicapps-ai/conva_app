@@ -423,6 +423,40 @@ describe("WebBackend — cloud library (M2 cp9, text-first)", () => {
     expect(off.capabilityStore.snapshot().operations["rag.list"]).toMatchObject({ state: "unavailable", reason: "session backend: SESSION_SECRET is not set" });
   });
 
+  it("rag.upload sends each File through /api/live/library/upload in order; rag.download streams the original into a browser download named after `dest`", async () => {
+    const uploads: { name: string | null; type: string | null; size: number }[] = [];
+    route(STATUS_ON, {
+      "POST /api/live/library/upload": (init) => {
+        const h = init.headers as Record<string, string>;
+        const body = init.body as File;
+        uploads.push({ name: h["X-Conva-File-Name"], type: h["Content-Type"], size: body.size });
+        return json({ report: { document: { ...DOC, id: `doc_${uploads.length}`, source: "file" }, warnings: [] } });
+      },
+      "GET /api/live/library/doc_1/original": () => new Response(new Uint8Array([9, 9]), { status: 200, headers: { "Content-Type": "text/markdown", "Content-Disposition": "attachment; filename=\"server-name.md\"" } }),
+    });
+    const b = new WebBackend(chromeWindows);
+    await tick();
+    for (const op of ["rag.upload", "rag.download"] as const) expect(b.capabilityStore.snapshot().operations[op].state, op).toBe("available");
+    const reports = await b.rag.upload([new File(["a"], "one.md", { type: "text/markdown" }), new File(["bb"], "two.txt", { type: "text/plain" })]);
+    expect(reports.map((r) => r.document.id)).toEqual(["doc_1", "doc_2"]);
+    expect(uploads).toEqual([
+      { name: "one.md", type: "text/markdown", size: 1 },
+      { name: "two.txt", type: "text/plain", size: 2 },
+    ]);
+
+    const clicks: string[] = [];
+    const realCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = realCreate(tag);
+      if (tag === "a") el.addEventListener("click", (e) => { e.preventDefault(); clicks.push((el as HTMLAnchorElement).download); });
+      return el;
+    });
+    vi.stubGlobal("URL", { ...URL, createObjectURL: () => "blob:x", revokeObjectURL: () => {} });
+    await b.rag.download("doc_1", "C:\\Users\\me\\Downloads\\pricing.md");
+    expect(clicks).toEqual(["pricing.md"]);
+    vi.restoreAllMocks();
+  });
+
   it("ingestText / list / setEnabled / attach / detach / delete / documentText round-trip through /api/live/library; unprovisioned is coded", async () => {
     const bodies: unknown[] = [];
     route(STATUS_ON, {
