@@ -53,6 +53,29 @@ export interface LiveStatus {
   /** Cloud library readiness (absent before cp11). The semantic leg is optional:
    *  `embeddings.configured` false means keyword-only retrieval, never no citations. */
   library?: LibraryStatus;
+  /** The provider knobs the gateway actually sends (absent before cp15):
+   *  configuration facts for the hosted-processing notice, never a retention
+   *  claim — those live in core `docs/platform/14-provider-retention-and-region.md`. */
+  terms?: LiveTerms;
+}
+
+export interface LiveTerms {
+  /** Transcription: which regional host the audio streams to and whether the
+   *  per-request training opt-out is sent. Null when the gateway has no ASR provider. */
+  asr: AsrTerms | null;
+  /** Ally: where model inference is pinned. Null when the gateway has no model provider. */
+  ally: AllyTerms | null;
+}
+
+export interface AsrTerms {
+  provider: string;
+  region: "us" | "eu";
+  mip_opt_out: boolean;
+}
+
+export interface AllyTerms {
+  provider: string;
+  inference_geo: "global" | "us";
 }
 
 export interface LibraryStatus {
