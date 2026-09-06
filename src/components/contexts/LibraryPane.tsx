@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 
 import { FilterPopover } from "@/components/contexts/FilterPopover";
 import {
@@ -9,7 +9,7 @@ import {
 } from "@/components/contexts/libraryFilter";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
-import { useCapabilities } from "@/lib/backend/context";
+import { useCapabilities, useOperationAvailability } from "@/lib/backend/context";
 import type { RagDocument } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
@@ -306,6 +306,10 @@ export function LibraryPane({
 }) {
   const backend = useBackend();
   const caps = useCapabilities();
+  // Web (M2 cp10): file originals upload through the Worker; downloads stream back.
+  const uploadAvailable = useOperationAvailability("rag.upload")?.state === "available";
+  const downloadAvailable = useOperationAvailability("rag.download")?.state === "available";
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [documents, setDocuments] = useState<RagDocument[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -367,6 +371,31 @@ export function LibraryPane({
     [backend, refresh],
   );
 
+  // Web: browser File objects go up through the Worker (rag.upload). Same
+  // filter, notices and refresh as the desktop path-based ingest above.
+  const uploadFiles = useCallback(
+    async (files: File[]) => {
+      const usable = files.filter((f) => SUPPORTED.includes(f.name.split(".").pop()?.toLowerCase() ?? ""));
+      if (usable.length === 0) {
+        setNotice("No supported files (pdf, docx, md, txt, html).");
+        return;
+      }
+      setBusy(true);
+      setNotice(`Uploading ${usable.length} file(s)…`);
+      try {
+        const reports = await backend.rag.upload(usable);
+        const warnings = reports.flatMap((r) => r.warnings);
+        setNotice(warnings.length > 0 ? `Done with warnings: ${warnings.join("; ")}` : `Added ${reports.length} document(s).`);
+        await refresh();
+      } catch (e) {
+        setNotice(String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [backend, refresh],
+  );
+
   // Native OS drag-drop delivers file paths through the webview (desktop-only).
   useEffect(() => {
     if (!isTauri()) return;
@@ -402,8 +431,10 @@ export function LibraryPane({
 
   // Quick-add, run once on mount (see the prop doc comment above).
   useEffect(() => {
-    if (quickAction === "upload" && isTauri()) void pickFiles();
-    else if (quickAction === "paste") {
+    if (quickAction === "upload") {
+      if (isTauri()) void pickFiles();
+      else fileInputRef.current?.click();
+    } else if (quickAction === "paste") {
       setPasteOpen(true);
       setNotice(null);
     }
@@ -425,10 +456,15 @@ export function LibraryPane({
   };
 
   const downloadDoc = async (doc: RagDocument) => {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const dest = await save({ defaultPath: doc.file_name });
-    if (!dest) return;
+    let dest = doc.file_name;
+    if (isTauri()) {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const picked = await save({ defaultPath: doc.file_name });
+      if (!picked) return;
+      dest = picked;
+    }
     try {
+      // Web: the original streams through the Worker into a browser download.
       await backend.rag.download(doc.id, dest);
       setNotice(`Downloaded ${doc.file_name}.`);
     } catch (e) {
@@ -502,11 +538,11 @@ export function LibraryPane({
             <Icon name="add" size={13} />
             <Icon name="clipboard" size={16} />
           </button>
-          {isTauri() && (
+          {(isTauri() || uploadAvailable) && (
             <button
               type="button"
               disabled={busy}
-              onClick={() => void pickFiles()}
+              onClick={() => (isTauri() ? void pickFiles() : fileInputRef.current?.click())}
               title="Add a document…"
               aria-label="Add a document"
               className="flex items-center gap-0.5 rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
@@ -514,6 +550,22 @@ export function LibraryPane({
               <Icon name="add" size={13} />
               <Icon name="upload" size={16} />
             </button>
+          )}
+          {!isTauri() && (
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={SUPPORTED.map((e) => `.${e}`).join(",")}
+              className="hidden"
+              aria-hidden="true"
+              tabIndex={-1}
+              onChange={(e) => {
+                const files = Array.from(e.currentTarget.files ?? []);
+                e.currentTarget.value = "";
+                if (files.length) void uploadFiles(files);
+              }}
+            />
           )}
         </div>
       </div>
@@ -769,7 +821,7 @@ export function LibraryPane({
                   onView={() =>
                     void backend.partner.open(doc.file_name, null, null, null, [], doc.id)
                   }
-                  canDownload={isTauri()}
+                  canDownload={isTauri() || (downloadAvailable && doc.source === "file")}
                   onDownload={() => void downloadDoc(doc)}
                   conversationOpen={conversationOpen}
                   conversationTitle={conversationTitle}

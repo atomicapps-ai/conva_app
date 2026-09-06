@@ -168,8 +168,12 @@ export interface ConvaBackend {
 
   /** Document vault + retrieval. Local on desktop; cloud (pgvector) on web. */
   rag: {
-    /** Desktop: ingest files by path. Web: use `ingestText`/uploads. */
+    /** Desktop: ingest files by path. Web: use `ingestText` / `upload`. */
     ingest(paths: string[]): Promise<IngestReport[]>;
+    /** Web: upload file originals (browser `File`s) to the cloud library — the
+     *  Worker stores them as the user and extracts text (M2 cp10). Desktop
+     *  ingests by path instead (`unsupported` there). */
+    upload(files: readonly File[]): Promise<IngestReport[]>;
     ingestText(name: string, text: string): Promise<IngestReport>;
     list(): Promise<RagDocument[]>;
     setEnabled(id: string, enabled: boolean): Promise<void>;

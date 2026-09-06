@@ -35,10 +35,10 @@ import { fetchLiveStatus } from "@/lib/live/liveStatus";
 import { runAlly } from "@/lib/live/allyClient";
 import { fetchLiveUsage, toUsageSummary } from "@/lib/live/usage";
 import { TelemetryCollector, serializeAggregate, type TelemetrySample } from "@/lib/live/telemetry";
-import { downloadName, downloadTextFile, transcriptMarkdown } from "@/lib/live/exportTranscript";
+import { downloadBlobFile, downloadName, downloadTextFile, transcriptMarkdown } from "@/lib/live/exportTranscript";
 import { deleteContext, listContexts, loadContext, saveContext } from "@/lib/live/contextsClient";
 import { deleteConversation, listConversations, loadConversation, saveConversation } from "@/lib/live/conversationsClient";
-import { attachDocumentContext, deleteDocument, detachDocumentContext, documentText, ingestText, listDocuments, setDocumentEnabled } from "@/lib/live/libraryClient";
+import { attachDocumentContext, deleteDocument, detachDocumentContext, documentText, downloadOriginal, ingestText, listDocuments, setDocumentEnabled, uploadDocument } from "@/lib/live/libraryClient";
 import { DEFAULT_CONTEXT_ID } from "@/lib/ipc";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
@@ -185,6 +185,9 @@ export class WebBackend implements ConvaBackend {
         "conversations.delete",
         // Cloud library (cp9, text-first): pasted/generated text; file paths stay unsupported.
         "rag.ingestText",
+        // Cloud library originals (cp10): uploads and downloads through the Worker.
+        "rag.upload",
+        "rag.download",
         "rag.list",
         "rag.setEnabled",
         "rag.delete",
@@ -453,13 +456,24 @@ export class WebBackend implements ConvaBackend {
   // citations name documents. Local file paths stay unsupported on web.
   rag = {
     ingest: (): Promise<IngestReport[]> => unsupported("rag.ingest (file paths)"),
+    // One at a time: uploads are bounded (25 MiB) and the Worker extracts per file.
+    upload: async (files: readonly File[]): Promise<IngestReport[]> => {
+      const out: IngestReport[] = [];
+      for (const f of files) out.push(await uploadDocument({ fetch: (i, o) => fetch(i, o) }, f));
+      return out;
+    },
     ingestText: (name: string, text: string): Promise<IngestReport> => ingestText({ fetch: (i, o) => fetch(i, o) }, name, text),
     list: (): Promise<RagDocument[]> => listDocuments({ fetch: (i, o) => fetch(i, o) }),
     setEnabled: (id: string, enabled: boolean): Promise<void> => setDocumentEnabled({ fetch: (i, o) => fetch(i, o) }, id, enabled).then(() => undefined),
     delete: (id: string): Promise<void> => deleteDocument({ fetch: (i, o) => fetch(i, o) }, id),
     attachContext: (id: string, contextId: string): Promise<void> => attachDocumentContext({ fetch: (i, o) => fetch(i, o) }, id, contextId).then(() => undefined),
     detachContext: (id: string, contextId: string): Promise<void> => detachDocumentContext({ fetch: (i, o) => fetch(i, o) }, id, contextId).then(() => undefined),
-    download: (): Promise<void> => unsupported("rag.download (file path)"),
+    // Web: the stored original streams through the Worker and lands as a browser
+    // download; `dest` only lends its file name (like exportTranscript).
+    download: async (id: string, dest: string): Promise<void> => {
+      const { blob, fileName } = await downloadOriginal({ fetch: (i, o) => fetch(i, o) }, id);
+      downloadBlobFile(downloadName(dest, fileName ?? "document"), blob);
+    },
     syncLibrary: (): Promise<string> => unsupported("rag.syncLibrary (git)"),
     analyzeTerms: (): Promise<string[]> => Promise.resolve([]),
     recordHighlightFeedback: (): Promise<void> => Promise.resolve(),

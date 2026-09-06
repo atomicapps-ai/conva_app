@@ -98,9 +98,12 @@ describe("available vs unsupported vs unimplemented", () => {
     // capture control (start/stop/status/subscribe) is honestly unimplemented
     // because both sides start together on session.start().
     const desktopUnimplemented = new Set(["capture.start", "capture.stop", "capture.recover", "capture.status", "capture.subscribe"]);
+    // Desktop ingests files by path; browser File uploads (cp10) are the web path.
+    const desktopUnsupported = new Set(["rag.upload"]);
     for (const op of ALL_OPERATIONS) {
       expect(web[op]).toBeDefined();
       if (desktopUnimplemented.has(op)) expect(desktop[op].state).toBe("unimplemented");
+      else if (desktopUnsupported.has(op)) expect(desktop[op].state).toBe("unsupported");
       else expect(desktop[op]).toEqual({ state: "available" });
       expect(legacy[op].state).toBe("unimplemented");
     }

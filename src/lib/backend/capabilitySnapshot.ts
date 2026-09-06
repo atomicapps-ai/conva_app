@@ -152,6 +152,7 @@ export const ALL_OPERATIONS = [
   "recording.stop",
   "recording.status",
   "rag.ingest",
+  "rag.upload",
   "rag.ingestText",
   "rag.list",
   "rag.setEnabled",
@@ -310,6 +311,7 @@ export function desktopSnapshot(
       "capture.recover": unimplemented(DESKTOP_CAPTURE),
       "capture.status": unimplemented(DESKTOP_CAPTURE),
       "capture.subscribe": unimplemented(DESKTOP_CAPTURE),
+      "rag.upload": unsupported("Desktop ingests files by path (rag.ingest); browser uploads are the web path."),
     },
   };
 }
@@ -426,7 +428,10 @@ export function webOperations(): OperationAvailability {
     "recording.start": unsupported(NO_FS),
     "recording.stop": unsupported(NO_FS),
     "recording.status": unsupported(NO_FS),
-    "rag.ingest": unsupported("Takes local file paths; browser uploads use ingestText / a future upload descriptor."),
+    "rag.ingest": unsupported("Takes local file paths; browser uploads use rag.upload (File objects) or ingestText."),
+    // Cloud library originals (M2 cp10): WebBackend flips upload / download to
+    // `available` with the session backend; migration 0008 missing = `unprovisioned`.
+    "rag.upload": unimplemented(M1),
     // Cloud library (M2 cp9, text-first): WebBackend flips ingestText / list /
     // setEnabled / delete / attach / detach / documentText to `available` once
     // the session backend answers; migration 0007 missing = per-call `unprovisioned`.

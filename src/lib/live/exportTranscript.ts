@@ -45,8 +45,12 @@ export interface DownloadDeps {
 
 /** Hand text to the browser as a file download. Content never leaves the tab. */
 export function downloadTextFile(name: string, content: string, deps?: DownloadDeps, mime = "text/markdown;charset=utf-8"): void {
+  downloadBlobFile(name, new Blob([content], { type: mime }), deps);
+}
+
+/** Hand any Blob (a fetched library original, cp10) to the browser as a download. */
+export function downloadBlobFile(name: string, blob: Blob, deps?: DownloadDeps): void {
   const d: DownloadDeps = deps ?? { document, createObjectURL: (b) => URL.createObjectURL(b), revokeObjectURL: (u) => URL.revokeObjectURL(u) };
-  const blob = new Blob([content], { type: mime });
   const url = d.createObjectURL(blob);
   const a = d.document.createElement("a");
   a.href = url;
