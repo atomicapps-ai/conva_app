@@ -18,11 +18,13 @@ mod llm;
 mod metering;
 mod models;
 mod partner;
+mod radar_worker;
 mod rag;
 mod recorder;
 mod rehearsal;
 mod secrets;
 mod session;
+mod splash;
 mod trace;
 mod tracker;
 mod tts;
@@ -41,7 +43,9 @@ use conva_core::asr::TranscriptSegment;
 use conva_core::audio::AudioDevice;
 use conva_core::config::AppConfig;
 use conva_core::context::{ContextSummary, ConversationContext, KnowledgeProfile};
-use conva_core::ipc::{events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent};
+use conva_core::ipc::{
+    events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent, SplashProgressEvent,
+};
 use conva_core::llm::{provider_registry, LlmRequest, ModelInfo, ProviderId, ProviderInfo};
 use conva_core::metering::{UsageLedger, UsageSummary};
 use conva_core::prompt::{build_ally_request, AllyKind};
@@ -226,6 +230,11 @@ fn session_load(app: AppHandle, id: String) -> Result<Vec<TranscriptSegment>, St
     session::load_session(&app, &id).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn session_delete(app: AppHandle, id: String) -> Result<(), String> {
+    session::delete_session(&app, &id).map_err(|e| e.to_string())
+}
+
 /// Render finalized transcript segments as speaker-labeled Markdown lines
 /// (shared by `export_transcript` and `analyze_conversation`).
 fn render_transcript_markdown(segments: &[TranscriptSegment]) -> String {
@@ -326,6 +335,13 @@ async fn stop_session(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
     // retrieval scope (session grounding) — a stopped session always returns
     // to the unscoped default.
     clear_active_context(&state);
+    // Meter the time this session ran (best-effort; session_started_ms is 0
+    // if a session was never actually started).
+    let started = state.session.session_started_ms();
+    if started > 0 {
+        let elapsed = session::now_unix_ms().saturating_sub(started);
+        metering::record_listening_ms(&app, elapsed);
+    }
     state.session.stop(&app).map_err(|e| e.to_string())
 }
 
@@ -842,6 +858,130 @@ fn save_debug_log(app: AppHandle, contents: String) -> Result<String, String> {
     let path = dir.join("conva-debug.log");
     fs::write(&path, contents).map_err(|e| e.to_string())?;
     Ok(path.display().to_string())
+}
+
+/// Prints one line to this process's stderr — i.e. the terminal `npm run
+/// tauri:gpu` was launched from. Exists so the Screenshot button's capture
+/// pipeline (owner, 2026-08-30: three rounds of "it still doesn't work" with
+/// zero visible symptoms — no flash, no popover, nothing) has SOME
+/// diagnostic trail the owner can actually see without opening webview
+/// devtools. Most of that pipeline (html2canvas capture, clipboard write,
+/// base64 encode) runs entirely in the webview, where `console.*` only ever
+/// reaches the webview's OWN devtools console (Cargo's `devtools` feature is
+/// on — right-click → Inspect), never this terminal; `screenshot.ts`/
+/// `StatusBar.tsx` call this at each stage specifically to close that gap.
+/// Not wired through `ipc.rs`/`ipc.ts` — a plain fire-and-forget string, same
+/// class as `save_debug_log` below.
+#[tauri::command]
+fn screenshot_trace(msg: String) {
+    eprintln!("[screenshot] {msg}");
+}
+
+/// Decode a base64 PNG (captured client-side via `html2canvas` — see
+/// `src/lib/screenshot.ts`) and write it to `<Pictures>/conva-screenshots/
+/// <timestamped-name>.png` (or the owner's chosen override —
+/// `config.screenshot_save_dir`, right-click → "Set save location…"),
+/// returning the saved path. The Screenshot button's clipboard
+/// copy happens entirely in the webview (`navigator.clipboard.write`); this
+/// command only handles the file half, same division of labor as
+/// `save_debug_log` above.
+#[tauri::command]
+fn save_screenshot(
+    app: AppHandle,
+    state: State<AppState>,
+    png_base64: String,
+) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(png_base64)
+        .map_err(|e| format!("invalid screenshot data: {e}"))?;
+    let config = state.config.lock().expect("config lock").clone();
+    let dir = resolve_screenshot_dir(&app, &config)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let name = conva_core::screenshot::screenshot_filename(session::now_unix_ms());
+    let path = dir.join(name);
+    fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
+}
+
+/// The Screenshot button's effective save folder — the configured override
+/// if set (non-empty), else the OS Pictures folder's `conva-screenshots`
+/// subfolder (owner, 2026-08-30: "the proper location should be the usual
+/// users pictures folder" — discoverable, not buried in app-data).
+/// `picture_dir()` is Tauri's standard known-folder resolver, same family
+/// as `app_data_dir()` above (`%USERPROFILE%\Pictures` on Windows,
+/// `~/Pictures` on macOS). Shared by `save_screenshot` and
+/// `open_screenshots_folder` so they can never disagree on where "the"
+/// folder is.
+fn resolve_screenshot_dir(
+    app: &AppHandle,
+    config: &AppConfig,
+) -> Result<std::path::PathBuf, String> {
+    if let Some(dir) = &config.screenshot_save_dir {
+        if !dir.trim().is_empty() {
+            return Ok(std::path::PathBuf::from(dir));
+        }
+    }
+    Ok(app
+        .path()
+        .picture_dir()
+        .map_err(|e| format!("no pictures dir: {e}"))?
+        .join("conva-screenshots"))
+}
+
+/// The Screenshot button's current effective save folder, for the
+/// right-click menu to display/reveal.
+#[tauri::command]
+fn screenshots_dir(app: AppHandle, state: State<AppState>) -> Result<String, String> {
+    let config = state.config.lock().expect("config lock").clone();
+    resolve_screenshot_dir(&app, &config).map(|p| p.display().to_string())
+}
+
+/// Reveal the Screenshot button's current save folder in the OS file
+/// manager (right-click → "Open screenshots folder"). Creates the folder
+/// first if nothing has been saved there yet, so this never errors on an
+/// otherwise-valid, just-unused location.
+#[tauri::command]
+async fn open_screenshots_folder(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let config = state.config.lock().expect("config lock").clone();
+    let dir = resolve_screenshot_dir(&app, &config)?;
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.display().to_string();
+    tauri::async_runtime::spawn_blocking(move || reveal_in_file_manager(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Open `path` in the OS's file manager — Explorer/Finder/whatever `xdg-open`
+/// resolves to. Distinct from `auth::open_browser` (URLs, routed through
+/// `rundll32 url.dll,FileProtocolHandler` on Windows specifically to dodge
+/// `cmd`'s `&`-splitting) — a plain folder path has none of that risk, and
+/// `explorer.exe <path>` is the standard, correct way to reveal one.
+fn reveal_in_file_manager(path: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
 }
 
 // ------------------------------------------------------------ Conversations
@@ -1567,6 +1707,38 @@ fn redock_partner(app: AppHandle) -> Result<(), String> {
     partner::redock(&app)
 }
 
+/// Wait for `AppState` to be fully constructed. This command deliberately
+/// takes no `State<AppState>`: it is the gate that makes later stateful
+/// commands safe. The condvar wait runs on Tauri's blocking pool.
+#[tauri::command]
+async fn wait_for_startup(app: AppHandle) -> Result<(), String> {
+    let startup = app.state::<splash::StartupState>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || startup.wait())
+        .await
+        .map_err(|e| format!("startup waiter failed: {e}"))?
+}
+
+/// The latest startup-progress stage — the splash view calls this once on
+/// mount to seed its bar, since stages emitted before its event listener
+/// registered would otherwise be lost.
+#[tauri::command]
+fn get_splash_progress(app: AppHandle) -> SplashProgressEvent {
+    app.state::<splash::StartupState>().progress()
+}
+
+/// Reveal the fully rendered splash window. State-free by design: this runs
+/// while the background initializer may still be constructing AppState.
+#[tauri::command]
+fn show_splash(app: AppHandle) -> Result<(), String> {
+    splash::show(&app)
+}
+
+/// Show the initialized main window and close the splash.
+#[tauri::command]
+fn finish_splash(app: AppHandle) -> Result<(), String> {
+    splash::finish(&app)
+}
+
 /// The payload the partner view should render (read on partner-window boot).
 #[tauri::command]
 fn get_partner_payload() -> Option<conva_core::ipc::PartnerPayload> {
@@ -1917,68 +2089,107 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let config = load_config(app.handle());
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("app data dir must resolve");
-            let rag = Arc::new(RagStore::open(&data_dir).expect("open rag store"));
+            // ⚠️ setup() must stay CHEAP: Tauri calls it from inside the
+            // event loop's FIRST callback (RuntimeRunEvent::Ready →
+            // make_run_event_loop_callback, tauri app.rs), and the loop
+            // pumps nothing until it returns — no window paints (the splash
+            // included, its build() notwithstanding), and on Windows
+            // WebView2 can't even finish initializing, since its creation
+            // callbacks arrive via the stalled message pump. Anything slow
+            // goes on the `startup` thread below; only fast, order-critical
+            // work runs inline. See splash.rs's doc comment.
 
-            // Session grounding's "required selection" invariant: a fresh
-            // install always has the always-present default context to select
-            // from. Local-only (no network) — safe to run synchronously here,
-            // before anything can call activate_context("default").
-            if let Err(e) = context::ensure_default_context(app.handle(), &rag) {
-                eprintln!("[conva] couldn't seed the default context: {e}");
+            // StartupState before the splash exists: both startup commands
+            // are safe even if a webview invokes them immediately.
+            app.manage(splash::StartupState::new());
+
+            // The splash is the only thing on screen (the main window
+            // starts hidden — see tauri.conf.json) until `finish_splash`.
+            if let Err(e) = splash::open(app.handle()) {
+                eprintln!("[conva] couldn't open the splash window: {e}");
             }
+            splash::progress(app.handle(), SplashProgressEvent::Started { percent: 0 });
 
-            // One-time retroactive cleanup for generated documents an old bug
-            // orphaned (regenerate's delete-old-then-create-new step used to
-            // silently no-op — see `context::cleanup_orphaned_generated_docs`
-            // for the full story). Idempotent, local-only — safe every launch.
-            if let Err(e) = context::cleanup_orphaned_generated_docs(app.handle(), &rag) {
-                eprintln!("[conva] couldn't clean up orphaned generated docs: {e}");
-            }
-
-            // Performance tracing → <app-data>/perf.jsonl (+ [perf] stderr lines).
-            trace::init(data_dir.join("perf.jsonl"));
-
-            // Seed API keys from a committed encrypted secrets file when the
-            // passphrase env var is set (fills only missing keys). Lets keys
-            // travel to another machine via git without re-entering them.
-            secrets::seed_on_startup();
-
-            // Warm the embedding model off the critical path (first run
-            // downloads ~130 MB), then embed any chunks ingested before it
-            // was ready. Retrieval degrades to BM25-only until this lands.
+            // Everything that can touch disk, keyring, or stores runs after
+            // setup returns, allowing Wry/WebView2 to navigate and paint.
             {
-                let rag = rag.clone();
-                let cache_dir = data_dir.join("models");
-                let _ = std::thread::Builder::new()
-                    .name("embed-warm".into())
-                    .spawn(move || {
-                        embed::warm(cache_dir);
-                        // Git-synced library: pick up documents committed to
-                        // the repo's library/ folder by other machines, then
-                        // embed everything that still lacks vectors.
-                        rag.seed_from_repo_library();
-                        rag.backfill_embeddings();
-                    });
+                let handle = app.handle().clone();
+                let spawn_result =
+                    std::thread::Builder::new()
+                        .name("startup".into())
+                        .spawn(move || {
+                            let result = (|| -> Result<(), String> {
+                                let data_dir = handle.path().app_data_dir().map_err(|e| {
+                                    format!("could not resolve app data directory: {e}")
+                                })?;
+                                let config = load_config(&handle);
+                                trace::init(data_dir.join("perf.jsonl"));
+
+                                let rag = Arc::new(
+                                    RagStore::open(&data_dir)
+                                        .map_err(|e| format!("could not open library: {e}"))?,
+                                );
+                                splash::progress(
+                                    &handle,
+                                    SplashProgressEvent::LibraryLoaded { percent: 35 },
+                                );
+
+                                context::ensure_default_context(&handle, &rag).map_err(|e| {
+                                    format!("could not prepare default context: {e}")
+                                })?;
+                                context::cleanup_orphaned_generated_docs(&handle, &rag).map_err(
+                                    |e| format!("could not clean generated documents: {e}"),
+                                )?;
+                                splash::progress(
+                                    &handle,
+                                    SplashProgressEvent::WorkspaceReady { percent: 60 },
+                                );
+
+                                secrets::seed_on_startup();
+                                let _ = models::ensure_silero(&handle);
+                                let usage = metering::load(&handle);
+
+                                // AppState becomes visible atomically only after all
+                                // of its prerequisites have completed successfully.
+                                if !handle.manage(AppState {
+                                    config: Mutex::new(config),
+                                    session: SessionManager::new(),
+                                    rag: rag.clone(),
+                                    usage: Mutex::new(usage),
+                                    active_context_terms: Mutex::new(Vec::new()),
+                                    active_context_doc_ids: Mutex::new(Vec::new()),
+                                }) {
+                                    return Err("application state was already managed".into());
+                                }
+
+                                let cache_dir = data_dir.join("models");
+                                let _ = std::thread::Builder::new()
+                                    .name("embed-warm".into())
+                                    .spawn(move || {
+                                        embed::warm(cache_dir);
+                                        rag.seed_from_repo_library();
+                                        rag.backfill_embeddings();
+                                    });
+
+                                splash::progress(
+                                    &handle,
+                                    SplashProgressEvent::AlmostReady { percent: 85 },
+                                );
+                                handle.state::<splash::StartupState>().ready();
+                                Ok(())
+                            })();
+
+                            if let Err(error) = result {
+                                eprintln!("[conva] startup failed: {error}");
+                                splash::fail(&handle, error);
+                            }
+                        });
+                if let Err(error) = spawn_result {
+                    let message = format!("could not start initializer: {error}");
+                    eprintln!("[conva] startup failed: {message}");
+                    splash::fail(app.handle(), message);
+                }
             }
-
-            // Fetch the neural-VAD model in the background so it's ready for
-            // the first session (falls back to the energy gate until it lands).
-            let _ = models::ensure_silero(app.handle());
-
-            let usage = metering::load(app.handle());
-            app.manage(AppState {
-                config: Mutex::new(config),
-                session: SessionManager::new(),
-                rag,
-                usage: Mutex::new(usage),
-                active_context_terms: Mutex::new(Vec::new()),
-                active_context_doc_ids: Mutex::new(Vec::new()),
-            });
 
             // Account sign-in return path: catch conva://auth/… deep links,
             // finish the PKCE exchange off the UI thread, and tell the UI via
@@ -2048,8 +2259,13 @@ pub fn run() {
             auth_status,
             auth_signout,
             save_debug_log,
+            screenshot_trace,
+            save_screenshot,
+            screenshots_dir,
+            open_screenshots_folder,
             session_list,
             session_load,
+            session_delete,
             export_transcript,
             write_text_file,
             analyze_conversation,
@@ -2086,6 +2302,10 @@ pub fn run() {
             close_partner,
             redock_partner,
             get_partner_payload,
+            wait_for_startup,
+            get_splash_progress,
+            show_splash,
+            finish_splash,
             set_partner_locked,
             get_partner_locked,
         ])

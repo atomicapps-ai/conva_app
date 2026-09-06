@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { useBackend } from "@/lib/backend";
+import { shouldAutoRefineRadar } from "@/lib/faner";
 import { useAppStore } from "@/state/app";
 import { useAllyStore } from "@/state/ally";
 import { useRehearsalStore } from "@/state/rehearsal";
@@ -30,6 +31,26 @@ export function useIpcBridge(): void {
     let cancelled = false;
 
     void (async () => {
+      const refineWhenFree = async (
+        event: Parameters<typeof applyRadar>[0],
+      ): Promise<void> => {
+        while (!cancelled) {
+          const result = await useAllyStore.getState().request(
+            "question",
+            event.question,
+            { key: event.source_key, quote: event.question },
+            `faner:${event.turn_id}`,
+          );
+          if (result !== "busy") return;
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+        }
+      };
+      const applyRadarAndRefine = (event: Parameters<typeof applyRadar>[0]) => {
+        applyRadar(event);
+        if (shouldAutoRefineRadar(event)) {
+          void refineWhenFree(event);
+        }
+      };
       const subs = await Promise.all([
         backend.subscribe("transcriptSegment", applySegment),
         backend.subscribe("sessionState", setSession),
@@ -37,7 +58,7 @@ export function useIpcBridge(): void {
         backend.subscribe("modelStatus", setModelStatus),
         backend.subscribe("allyChunk", applyAllyChunk),
         backend.subscribe("allySources", applyAllySources),
-        backend.subscribe("radar", applyRadar),
+        backend.subscribe("radar", applyRadarAndRefine),
         backend.subscribe("tracker", applyTracker),
         backend.subscribe("capture", applyCapture),
         backend.subscribe("rehearsalState", applyRehearsalPhase),

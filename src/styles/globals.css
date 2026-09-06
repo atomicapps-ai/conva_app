@@ -34,11 +34,21 @@
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("../assets/fonts/jetbrains-mono-600.woff2") format("woff2"); }
 
 :root {
-  /* ---- Surfaces ---- */
-  --color-bg: #05060e;
-  --color-bg-2: #0a0e1e;
-  --color-panel: #0e1326;
-  --color-panel-raised: #141a31;
+  /* ---- Surfaces ----
+     AppUI V5.0 (`conva_core@1b007ed`, brand/UI/AppUI_V5.0): the four surface
+     steps are matched to the accepted `concept-home.png` reference and are
+     "authoritative over the lighter V4 tokens" (HANDOFF.md). Same four roles,
+     same order, just deeper and cooler:
+       bg     #030B16  outer / window ground (content area)
+       bg-2   #00060F  the navigation rail
+       panel  #040A15  primary content surfaces (cards, list panes)
+       raised #09121E  selected / interactive rows
+     Only these four values changed — every component keeps reading the same
+     semantic token, so nothing structural moves. */
+  --color-bg: #030b16;
+  --color-bg-2: #00060f;
+  --color-panel: #040a15;
+  --color-panel-raised: #09121e;
   --color-border: #1c2340;
   --color-border-strong: #2e3861;
   --color-edge: rgba(255, 255, 255, 0.1);
@@ -136,8 +146,10 @@
   --ai-w: 452px;
   --transcript-min: 520px;
   --compact-w: 360px;
-  --win-min-w: 1040px;
-  --win-min-h: 680px;
+  /* Full-shell floor — AppUI V5.0 §12 (FIXED). Mirrors tauri.conf.json's
+     minWidth/minHeight and lib/compact.ts's SHELL_MIN_*. */
+  --win-min-w: 700px;
+  --win-min-h: 600px;
 
   /* voice aliases — point at the brand tokens; use these in cockpit code */
   --voice-them: var(--color-inbound);
@@ -222,6 +234,29 @@ body {
   overflow: hidden;
 }
 
+/* Tailwind's preflight (v3.3+, still true in v4) resets <button> to the
+ * browser's native default cursor ("default", i.e. the plain arrow) rather
+ * than "pointer" — a deliberate upstream change to match native <button>
+ * behavior, but this app never restored it, so essentially every button in
+ * the whole app (200+, per an owner report 2026-08-29) showed the wrong
+ * cursor on hover. Also covers non-<button> elements marked `role="button"`
+ * (a few custom clickable spans in TranscriptView.tsx/AllyAccordion.tsx) and
+ * <summary> (native disclosure triangles), which have the identical gap for
+ * the identical reason — role doesn't affect CSS, only accessibility. Explicit
+ * cursor utilities elsewhere (drag handles, resize handles) are unaffected —
+ * this only fills in the missing default. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+}
+
 /* Ambient atmosphere — V4.0: the three-voice aurora (brand v2) is retired.
    Two soft azure radials (top-right + bottom-left), single-hue, low opacity —
    surfaces stay "cool navy, no green undertone" per the V4.0 tokens even
@@ -252,11 +287,24 @@ body {
 }
 
 /* ---------------------------------------------------------------- utilities */
+/* Every `color-mix(...)` below interpolates `in srgb`, not `in oklab` —
+   deliberately (owner report, 2026-08-30: the Screenshot button's html2canvas
+   capture threw "Attempting to parse an unsupported color function oklab"
+   and aborted before ever reaching the save step, on every single capture).
+   Chromium serializes a `color-mix(in oklab, ...)`'s *computed* value as a
+   literal `oklab(...)` string, which html2canvas's color parser can't read.
+   Every mix here blends a color against `transparent` — and per the CSS
+   Color 4 spec, blending anything against fully-transparent is alpha-only
+   (the color channels are zeroed by premultiplication), so the interpolation
+   space is invisible to the eye. `in srgb` renders byte-identical to `in
+   oklab` here and serializes as plain `rgb()`/`rgba()`, which html2canvas
+   understands. Don't switch these back to `in oklab` without re-verifying
+   the Screenshot button still works. */
 @layer utilities {
   /* Glass surface: translucent panel + hairline top highlight + blur of
      whatever sits behind it inside the app. The modern "smooth" look. */
   .glass {
-    background: color-mix(in oklab, var(--color-panel) 78%, transparent);
+    background: color-mix(in srgb, var(--color-panel) 78%, transparent);
     backdrop-filter: blur(18px) saturate(1.4);
     -webkit-backdrop-filter: blur(18px) saturate(1.4);
     border: 1px solid var(--color-border);
@@ -265,7 +313,7 @@ body {
       var(--shadow-md);
   }
   .glass-raised {
-    background: color-mix(in oklab, var(--color-panel-raised) 82%, transparent);
+    background: color-mix(in srgb, var(--color-panel-raised) 82%, transparent);
     backdrop-filter: blur(22px) saturate(1.5);
     -webkit-backdrop-filter: blur(22px) saturate(1.5);
     border: 1px solid var(--color-border-strong);
@@ -374,23 +422,23 @@ body {
   }
   /* Ally-accented action (gold) — save/confirm inside Ally-flavored surfaces. */
   .btn-accent {
-    border-color: color-mix(in oklab, var(--color-ai) 55%, transparent);
+    border-color: color-mix(in srgb, var(--color-ai) 55%, transparent);
     color: var(--color-ai);
   }
   .btn-accent:hover {
     color: var(--color-ai);
     border-color: var(--color-ai);
-    background: color-mix(in oklab, var(--color-ai) 12%, transparent);
+    background: color-mix(in srgb, var(--color-ai) 12%, transparent);
   }
   /* Positive/test action (mint). */
   .btn-ok {
-    border-color: color-mix(in oklab, var(--color-ok) 45%, transparent);
+    border-color: color-mix(in srgb, var(--color-ok) 45%, transparent);
     color: var(--color-ok);
   }
   .btn-ok:hover {
     color: var(--color-ok);
     border-color: var(--color-ok);
-    background: color-mix(in oklab, var(--color-ok) 12%, transparent);
+    background: color-mix(in srgb, var(--color-ok) 12%, transparent);
   }
   /* Text-only danger affordance (delete links in list rows). */
   .btn-danger {
@@ -406,7 +454,7 @@ body {
     width: 100%;
     border-radius: var(--radius);
     border: 1px solid var(--color-border);
-    background: color-mix(in oklab, var(--color-bg) 70%, transparent);
+    background: color-mix(in srgb, var(--color-bg) 70%, transparent);
     padding: 4px 8px;
     font-size: 0.75rem;
     color: var(--color-fg);
@@ -434,7 +482,7 @@ body {
   .card {
     border-radius: var(--radius);
     border: 1px solid var(--color-border);
-    background: color-mix(in oklab, var(--color-panel) 55%, transparent);
+    background: color-mix(in srgb, var(--color-panel) 55%, transparent);
   }
   /* A selectable list row — quiet until hovered/active. */
   .row {
@@ -443,7 +491,7 @@ body {
     gap: 0.75rem;
     border-radius: var(--radius);
     border: 1px solid var(--color-border);
-    background: color-mix(in oklab, var(--color-bg) 55%, transparent);
+    background: color-mix(in srgb, var(--color-bg) 55%, transparent);
     padding: 0.5rem 0.75rem;
     text-align: left;
     transition:
@@ -452,7 +500,7 @@ body {
   }
   .row:hover {
     border-color: var(--color-border-strong);
-    background: color-mix(in oklab, var(--color-panel) 55%, transparent);
+    background: color-mix(in srgb, var(--color-panel) 55%, transparent);
   }
 
   /* Pills — V4.0's "a state is always a true pill" contour. Two LOCKED
@@ -588,13 +636,13 @@ body {
 /* Consistent, on-brand focus ring for keyboard users. V4.0: driven by the
    accent, not a voice colour — voice identity is never borrowed by chrome. */
 :focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--color-primary) 70%, transparent);
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
   outline-offset: 2px;
   border-radius: var(--radius);
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--color-outbound) 40%, transparent);
+  background: color-mix(in srgb, var(--color-outbound) 40%, transparent);
   color: var(--color-fg);
 }
 
@@ -628,7 +676,7 @@ body {
 }
 @keyframes conva-pulse-ring {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-rec) 55%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-rec) 55%, transparent);
   }
   70% {
     box-shadow: 0 0 0 7px transparent;
@@ -663,7 +711,7 @@ body {
    a thread should flash its source once, not keep drawing the eye. */
 @keyframes conva-flash-ring {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-primary) 70%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 70%, transparent);
   }
   60% {
     box-shadow: 0 0 0 6px transparent;
@@ -674,6 +722,22 @@ body {
 }
 .animate-flash-ring {
   animation: conva-flash-ring 900ms var(--ease-out) 1;
+}
+
+/* Screenshot button's shutter flash (owner, 2026-08-30: "shows a white
+   flash... while it's taking the picture") — fires the instant the capture
+   completes (never during: the overlay would otherwise get captured into
+   the screenshot itself), a quick bright pulse over the whole window. */
+@keyframes conva-screenshot-flash {
+  0% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.animate-screenshot-flash {
+  animation: conva-screenshot-flash 260ms ease-out 1;
 }
 
 /* The sonar Core (listening instrument): a rotating sweep, an orbiting node,
@@ -715,7 +779,7 @@ body {
    away inspecting an earlier moment, so live activity is felt, not forced. */
 @keyframes conva-ping {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-ai) 55%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-ai) 55%, transparent);
   }
   70% {
     box-shadow: 0 0 0 6px transparent;
@@ -740,6 +804,15 @@ body {
   .pulse-ring,
   .spine-ping,
   .animate-flash-ring,
+  .animate-screenshot-flash,
+  /* Tailwind's own looping animations — the V5.0 skeleton loaders and any
+     spinner use these, and §12 (FIXED) requires prefers-reduced-motion to be
+     respected. The bars/rings stay VISIBLE, they just stop moving, so the
+     loading state still reads as loading. */
+  .animate-pulse,
+  .animate-spin,
+  .animate-ping,
+  .animate-bounce,
   .pill-rec .d {
     transition: none;
     animation: none;
@@ -771,7 +844,7 @@ html[data-window="hud"] #root::before {
   border-radius: var(--radius-xl); /* floating window ceiling — 8px */
   border: 1px solid var(--color-border-strong);
   background: color-mix(
-    in oklab,
+    in srgb,
     var(--color-panel) calc(var(--hud-alpha) * 100%),
     transparent
   );
@@ -808,7 +881,7 @@ html[data-window="hud"] #root::before {
   transition: background 120ms, color 120ms;
 }
 .hud-close:hover {
-  background: color-mix(in oklab, var(--color-panel-raised) 70%, transparent);
+  background: color-mix(in srgb, var(--color-panel-raised) 70%, transparent);
   color: var(--color-fg);
 }
 

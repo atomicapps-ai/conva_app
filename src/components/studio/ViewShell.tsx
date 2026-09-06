@@ -24,7 +24,9 @@ import { Icon, type IconName } from "@/components/ui/Icon";
  */
 export function ViewShell({
   icon,
+  iconColor,
   breadcrumb,
+  eyebrow,
   title,
   subtitle,
   badge,
@@ -35,9 +37,24 @@ export function ViewShell({
   wide = false,
 }: {
   icon: IconName;
+  /** Override the default azure `brand-ring` chip with a category-specific
+   *  color (e.g. `CATEGORY_ICON[category].color` from `ContextsPane.tsx`) —
+   *  glyph + tinted ring + tinted fill, same recipe as `ListRow`'s icon
+   *  chip. Omit for the default brand-gradient ring every other view uses
+   *  unchanged (owner, 2026-09-03: the Context edit/detail header icon
+   *  should reflect the context's type, not always the generic glyph). */
+  iconColor?: string;
   /** Parent segment(s) — omit for a flat, top-level view. */
   breadcrumb?: string;
   title: string;
+  /** Override the small mono eyebrow line above `title` — defaults to
+   *  `title` itself (existing behavior, unchanged for every view that
+   *  doesn't pass this). Use it when the page's own title is long/formal
+   *  and repeating it verbatim reads as redundant right above the real
+   *  headline (Contexts, 2026-08-28: "Conversation Contexts" showing twice
+   *  stacked, plus a third time in the pane's own section header). Ignored
+   *  when `breadcrumb` is set — a real parent trail always wins. */
+  eyebrow?: string;
   subtitle?: ReactNode;
   badge?: ReactNode;
   actions?: ReactNode;
@@ -54,7 +71,10 @@ export function ViewShell({
 }) {
   return (
     <section className={`flex h-full flex-col ${className}`}>
-      <header className="flex shrink-0 items-center gap-3 px-6 py-4">
+      {/* px-4 py-3 matches Live's own top bar (LiveTopBar.tsx) — the one
+          routed view that doesn't compose ViewShell — so every header in
+          the app shares one padding, not two slightly different ones. */}
+      <header className="flex shrink-0 items-center gap-3 px-4 py-3">
         {onBack && (
           <button
             type="button"
@@ -67,7 +87,20 @@ export function ViewShell({
           </button>
         )}
         <span
-          className="brand-ring flex h-9 w-9 items-center justify-center rounded text-primary"
+          className={
+            iconColor
+              ? "flex h-9 w-9 shrink-0 items-center justify-center rounded border"
+              : "brand-ring flex h-9 w-9 items-center justify-center rounded text-primary"
+          }
+          style={
+            iconColor
+              ? {
+                  color: iconColor,
+                  borderColor: `color-mix(in srgb, ${iconColor} 45%, transparent)`,
+                  background: `color-mix(in srgb, ${iconColor} 16%, transparent)`,
+                }
+              : undefined
+          }
           aria-hidden
         >
           <Icon name={icon} size={19} />
@@ -79,7 +112,7 @@ export function ViewShell({
                 {breadcrumb} <span aria-hidden>›</span> {title}
               </>
             ) : (
-              title
+              eyebrow ?? title
             )}
           </p>
           <div className="flex items-center gap-2">

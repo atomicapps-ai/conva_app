@@ -32,8 +32,10 @@ pub const DEFAULT_CONTEXT_ID: &str = "default";
 
 /// The kind of conversation this context is for — drives the setup template
 /// (documents to collect + digest sections), persona generation, and the
-/// web-research default. The launch set (Interview · Company Meeting ·
-/// Sales Call · Other) is fixed but extensible later; see
+/// web-research default. Interview · Company Meeting · Sales Call · Live
+/// Stream · Other (`LiveStream` added 2026-09-02 — podcast/streamer/
+/// live-commerce hosts prepping a broadcast, per
+/// `conva_core/docs/product/use-cases.md`); extensible later — see
 /// `conva_core/docs/technical/conversation-context.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -41,6 +43,7 @@ pub enum ContextCategory {
     Interview,
     CompanyMeeting,
     SalesCall,
+    LiveStream,
     Other,
 }
 
@@ -88,6 +91,17 @@ pub enum ContextStatus {
     Ended,
 }
 
+/// The avatar gender presentation a generated persona was assigned (Ally's
+/// choice, part of how it envisioned the counterparty — Counterparty card
+/// redesign, 2026-08-30). Cosmetic only: drives which silhouette icon
+/// `ContextDetail.tsx` shows, nothing about the roleplay itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersonaGender {
+    Male,
+    Female,
+}
+
 /// One generated counterparty persona/strategy option (three per session,
 /// Step 3), one of which the AI flags [`recommended`](Self::recommended).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +118,11 @@ pub struct ContextPersona {
     pub style_tags: Vec<String>,
     /// The AI's suggested pick for this meeting context.
     pub recommended: bool,
+    /// `None` for personas generated before this field existed, or on the
+    /// rare occasion the model's answer doesn't parse as male/female — the
+    /// UI falls back to a neutral avatar in that case rather than guessing.
+    #[serde(default)]
+    pub gender: Option<PersonaGender>,
 }
 
 /// A web-research source folded into a [`KnowledgeProfile`] (Step 2), kept for
@@ -158,6 +177,18 @@ pub struct ConversationContext {
     /// the ingestion phase folds into the `KnowledgeProfile`.
     #[serde(default)]
     pub source_doc_ids: Vec<String>,
+    /// Which attached document ids are filed under which of the category's
+    /// `ConversationTemplate::file_slots`, keyed by `FileSlot::key`. Purely
+    /// organizational for the setup/detail UI — the grounding pipeline still
+    /// reads `source_doc_ids` (the flat union) for what actually indexes, this
+    /// map only drives per-slot display. A doc id present in `source_doc_ids`
+    /// but absent from every slot's list here is unslotted — rendered under
+    /// the UI's "Other documents" catch-all rather than under a synthetic
+    /// slot key. `#[serde(default)]` so a context saved before this field
+    /// existed deserializes with an empty map (all its docs read as
+    /// unslotted) — no migration, no data loss.
+    #[serde(default)]
+    pub slot_doc_ids: std::collections::BTreeMap<String, Vec<String>>,
     /// Whether Ally should auto-generate context (Step 1, Path B) during ingest.
     #[serde(default)]
     pub auto_generate_context: bool,
@@ -349,6 +380,37 @@ impl ContextCategory {
                 ],
                 default_research_enabled: true,
             },
+            ContextCategory::LiveStream => ConversationTemplate {
+                label: "livestream or podcast",
+                file_slots: &[
+                    FileSlot {
+                        key: "rundown",
+                        label: "Show rundown / outline",
+                        multiple: false,
+                    },
+                    FileSlot {
+                        key: "guest_bio",
+                        label: "Guest bio",
+                        multiple: true,
+                    },
+                    FileSlot {
+                        key: "talking_points",
+                        label: "Talking points / script",
+                        multiple: true,
+                    },
+                ],
+                digest_sections: &[
+                    "Episode outline",
+                    "Core vocabulary",
+                    "Guest background",
+                    "Likely audience questions",
+                ],
+                // On by default — current-events/topic research is exactly
+                // what a host prepping a broadcast wants, same reasoning as
+                // Interview/SalesCall (public info helps; nothing here is
+                // internal/confidential the way a company meeting's is).
+                default_research_enabled: true,
+            },
             ContextCategory::Other => ConversationTemplate {
                 label: "high-stakes conversation",
                 file_slots: &[FileSlot {
@@ -370,9 +432,11 @@ pub fn persona_prompt(context: &ConversationContext) -> (String, String) {
     let system = "You generate realistic counterparty personas for rehearsing a \
 high-stakes conversation. Return ONLY a JSON array of exactly 3 objects, each with \
 keys: \"title\" (a short label), \"summary\" (2–3 sentences on how this person \
-behaves in the room), \"style_tags\" (3–5 short lowercase strings), and \
+behaves in the room), \"style_tags\" (3–5 short lowercase strings), \
 \"recommended\" (boolean — set exactly one persona true, the best fit for this \
-context). No prose, no markdown, no code fences."
+context), and \"gender\" (the string \"male\" or \"female\" — whichever \
+presentation best fits how you're envisioning this counterparty). No prose, no \
+markdown, no code fences."
         .to_string();
 
     let mut user = format!(
@@ -407,6 +471,13 @@ pub fn parse_personas(text: &str) -> Vec<ContextPersona> {
         style_tags: Vec<String>,
         #[serde(default)]
         recommended: bool,
+        // A plain string, not `Option<PersonaGender>` directly: a model
+        // occasionally answers with something that isn't exactly "male" or
+        // "female" (extra words, wrong case, a third option) — deserializing
+        // straight into the enum would fail the WHOLE array over one
+        // cosmetic field. `parse_gender` below is the tolerant mapping.
+        #[serde(default)]
+        gender: Option<String>,
     }
 
     let slice = match (text.find('['), text.rfind(']')) {
@@ -425,6 +496,7 @@ pub fn parse_personas(text: &str) -> Vec<ContextPersona> {
             summary: g.summary,
             style_tags: g.style_tags,
             recommended: g.recommended,
+            gender: parse_gender(g.gender.as_deref()),
         })
         .collect();
 
@@ -432,6 +504,18 @@ pub fn parse_personas(text: &str) -> Vec<ContextPersona> {
         out[0].recommended = true;
     }
     out
+}
+
+/// Tolerant mapping from the model's free-text `gender` answer to
+/// [`PersonaGender`] — exact "male"/"female" (any case) match; anything
+/// else (missing, a third option, stray words) is `None` rather than a
+/// parse failure, since this field is cosmetic (avatar choice only).
+fn parse_gender(raw: Option<&str>) -> Option<PersonaGender> {
+    match raw?.trim().to_ascii_lowercase().as_str() {
+        "male" => Some(PersonaGender::Male),
+        "female" => Some(PersonaGender::Female),
+        _ => None,
+    }
 }
 
 // ── Live rehearsal (Step 4) — the counterparty's spoken turn ────────────────
@@ -872,6 +956,12 @@ the transcript and give concrete suggestions for improvement."
 items and who owns them, and how clearly the user communicated. Cite \
 specific moments from the transcript."
         }
+        Some(ContextCategory::LiveStream) => {
+            "Analyze how well the user performed as HOST of this livestream \
+or podcast — pacing, energy, clarity, how well they kept to the outline, \
+and how they handled the guest or audience questions. Cite specific \
+moments from the transcript and give concrete suggestions for improvement."
+        }
         Some(ContextCategory::Other) | None => {
             "Analyze this conversation's clarity and structure — what \
 went well, what was unclear, and concrete suggestions for improvement. \
@@ -1102,11 +1192,36 @@ mod tests {
     }
 
     #[test]
+    fn parse_maps_gender_case_insensitively_and_defaults_missing_to_none() {
+        let text = r#"[{"title":"Skeptical CFO","summary":"Tough.","gender":"Female"},
+         {"title":"Behavioral VP","summary":"Warm.","gender":"MALE"},
+         {"title":"Wildcard","summary":"?"}]"#;
+        let p = parse_personas(text);
+        assert_eq!(p.len(), 3);
+        assert_eq!(p[0].gender, Some(PersonaGender::Female));
+        assert_eq!(p[1].gender, Some(PersonaGender::Male));
+        assert_eq!(p[2].gender, None, "missing gender defaults to None");
+    }
+
+    #[test]
+    fn parse_treats_an_unrecognized_gender_value_as_none_not_a_parse_failure() {
+        // A single stray gender value must never wipe out all 3 personas —
+        // it's a cosmetic field, not a validity gate.
+        let text = r#"[{"title":"Skeptical CFO","summary":"Tough.","gender":"nonbinary"},
+         {"title":"Behavioral VP","summary":"Warm.","gender":"female"}]"#;
+        let p = parse_personas(text);
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].gender, None);
+        assert_eq!(p[1].gender, Some(PersonaGender::Female));
+    }
+
+    #[test]
     fn every_type_has_a_nonempty_template() {
         for cat in [
             ContextCategory::Interview,
             ContextCategory::CompanyMeeting,
             ContextCategory::SalesCall,
+            ContextCategory::LiveStream,
             ContextCategory::Other,
         ] {
             let t = cat.template();
@@ -1127,11 +1242,49 @@ mod tests {
 
     #[test]
     fn research_defaults_match_decision_two() {
-        // Interview + sales: on (public info helps). Internal meeting: off.
+        // Interview + sales + livestream: on (public info helps). Internal
+        // meeting: off.
         assert!(ContextCategory::Interview.default_research_enabled());
         assert!(ContextCategory::SalesCall.default_research_enabled());
+        assert!(ContextCategory::LiveStream.default_research_enabled());
         assert!(!ContextCategory::CompanyMeeting.default_research_enabled());
         assert!(!ContextCategory::Other.default_research_enabled());
+    }
+
+    #[test]
+    fn old_contexts_without_slot_doc_ids_deserialize_with_an_empty_map() {
+        // A context persisted before slot_doc_ids existed — must still load
+        // (serde default), reading every attached doc as unslotted (it falls
+        // into the UI's "Other documents" catch-all rather than losing data
+        // or failing to deserialize).
+        let old_json = r#"{
+            "id": "s1",
+            "title": "Senior Accountant Interview",
+            "purpose": "Prep for GAAP questions",
+            "job_description": null,
+            "category": "interview",
+            "status": "ready",
+            "created_at_unix_ms": 0,
+            "updated_at_unix_ms": 0,
+            "source_doc_ids": [],
+            "auto_generate_context": false,
+            "research_enabled": true,
+            "key_terms": [],
+            "glossary": [],
+            "glossary_definitions": {},
+            "knowledge_profile_id": null,
+            "personas": [],
+            "chosen_persona_id": null,
+            "conversation_id": null,
+            "dossier_doc_id": null,
+            "research_doc_id": null,
+            "deep_qa_enabled": false,
+            "qa_doc_id": null,
+            "resources_stale": false,
+            "resources_generated_at_unix_ms": null
+        }"#;
+        let ctx: ConversationContext = serde_json::from_str(old_json).unwrap();
+        assert!(ctx.slot_doc_ids.is_empty());
     }
 
     fn sample_context() -> ConversationContext {
@@ -1145,6 +1298,7 @@ mod tests {
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,
             source_doc_ids: vec![],
+            slot_doc_ids: std::collections::BTreeMap::new(),
             auto_generate_context: false,
             research_enabled: true,
             key_terms: vec![],
@@ -1170,6 +1324,7 @@ mod tests {
             summary: "Direct, numbers-first.".into(),
             style_tags: vec!["skeptical".into(), "technical".into()],
             recommended: true,
+            gender: Some(PersonaGender::Female),
         }
     }
 
@@ -1338,6 +1493,7 @@ mod tests {
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,
             source_doc_ids: vec!["doc-a".into(), "doc-b".into()],
+            slot_doc_ids: std::collections::BTreeMap::new(),
             auto_generate_context: false,
             research_enabled: true,
             key_terms: vec!["GAAP".into()],
@@ -1704,5 +1860,13 @@ mod tests {
         let sales = performance_analysis_prompt(Some(ContextCategory::SalesCall), None, &[], "x");
         assert_ne!(interview.system, sales.system);
         assert!(sales.system.to_lowercase().contains("objection"));
+    }
+
+    #[test]
+    fn performance_analysis_prompt_livestream_framing_is_host_specific() {
+        let stream = performance_analysis_prompt(Some(ContextCategory::LiveStream), None, &[], "x");
+        let sys = stream.system.to_lowercase();
+        assert!(sys.contains("host"));
+        assert!(sys.contains("pacing"));
     }
 }

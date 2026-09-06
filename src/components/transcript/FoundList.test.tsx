@@ -13,7 +13,15 @@ const groups: FoundGroups = {
       group: "question",
       label: "What is RRF?",
       detail: null,
-      radar: { question: "What is RRF?", sources: [] },
+      radar: {
+        turn_id: "turn-1",
+        source_key: "inbound-1",
+        question: "What is RRF?",
+        outcome: "miss",
+        confidence: 0,
+        bridge: { kind: "definition", text: "Define it, then explain why it matters." },
+        sources: [],
+      },
     },
   ],
   commitments: [
@@ -78,6 +86,10 @@ describe("FoundList", () => {
       expect(screen.getByText(h)).toBeInTheDocument();
     }
     expect(screen.getByText("What is RRF?")).toBeInTheDocument();
+    expect(screen.getByText("Say now")).toBeInTheDocument();
+    expect(
+      screen.getByText("Define it, then explain why it matters."),
+    ).toBeInTheDocument();
     expect(screen.getByText("send the deck")).toBeInTheDocument();
     expect(screen.getByText("Lambda")).toBeInTheDocument();
     expect(screen.getByText("Kinesis")).toBeInTheDocument();

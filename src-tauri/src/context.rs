@@ -97,6 +97,7 @@ specific is active."
             created_at_unix_ms: now,
             updated_at_unix_ms: now,
             source_doc_ids: vec![doc_id.clone()],
+            slot_doc_ids: std::collections::BTreeMap::new(),
             auto_generate_context: false,
             research_enabled: false,
             deep_qa_enabled: false,

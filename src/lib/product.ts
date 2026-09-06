@@ -102,6 +102,17 @@ export const UPCOMING: UpcomingItem[] = [
     status: "In progress",
   },
   {
+    // AppUI V5.0 §7 lists this on What's Coming, and decision 7 is why it
+    // isn't on the Coaching page yet: analytics stay OFF until there is real
+    // session data to compute them from — no placeholder scores, ever.
+    id: "coaching-analytics",
+    title: "Coaching analytics",
+    blurb:
+      "Progress and trends across coaching sessions. Stays off until you have real session data — conva will never show you a placeholder score.",
+    phase: "Phase 3",
+    status: "Planned",
+  },
+  {
     id: "mock",
     title: "Mock Session practice mode",
     blurb:

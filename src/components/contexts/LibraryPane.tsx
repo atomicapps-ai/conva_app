@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 
+import { FilterPopover } from "@/components/contexts/FilterPopover";
+import {
+  documentTypeLabel,
+  filterDocuments,
+  LIBRARY_FILTERS,
+  type LibraryFilter,
+} from "@/components/contexts/libraryFilter";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
-import { useCapabilities } from "@/lib/backend/context";
+import { useCapabilities, useOperationAvailability } from "@/lib/backend/context";
 import type { RagDocument } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
@@ -11,8 +18,13 @@ const SUPPORTED = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
 /** The custom drag payload MIME a library row carries — read by ContextsPane
  * rows to attach the dragged document. Reinstated (owner decision,
  * 2026-08-16) now that Library sits next to Contexts on one screen again —
- * `AttachMenu` below is still there as the click alternative. */
+ * `LibraryRowMenu` below (its "Attach to a context…" item) is still there
+ * as the click alternative. */
 export const DOC_DRAG_MIME = "application/x-conva-doc-id";
+
+/** The top-level Library page's table grid (AppUI V5.0 §4's column set). */
+const PAGE_ROW_GRID =
+  "grid grid-cols-[24px_minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,0.8fr)_40px] gap-3.5";
 
 /** Default title for a pasted note (owner spec): words + numbers only — no
  *  punctuation/symbols — spaces replaced with underscores, capped at the
@@ -42,33 +54,58 @@ function deriveNoteName(text: string): string {
   return words.replace(/\s+/g, "_");
 }
 
-type Filter = "all" | "pasted" | "generated";
-
-const FILTERS: { key: Filter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "pasted", label: "Pasted" },
-  { key: "generated", label: "By conva" },
-];
 
 /** A row's "attach to a context" control — click, pick a context, done.
  *  Already-attached contexts show a check and are unclickable. Replaces
  *  the earlier drag-to-attach gesture (see the doc comment on
  *  `LibraryPane` for why). */
-function AttachMenu({
+/**
+ * The row's overflow ⋮ menu (owner, 2026-08-28/29 — the row shows only
+ * checkbox/source-icon/name/context-icon inline now; every other action
+ * lives here): Attach to a context… (a second "page" of the same popover —
+ * the former standalone `AttachMenu`, folded in), View (partner window,
+ * when supported), Download (desktop only), and Link/Unlink to the open
+ * conversation (when one is open) — Delete always shows. Same
+ * open/close-on-outside-{click,resize,scroll} shape the old `AttachMenu`
+ * used (and `ContextInfoPopover` in `ContextsPane.tsx` mirrors too).
+ */
+function LibraryRowMenu({
   doc,
   contextTitles,
   onAttach,
+  canView,
+  onView,
+  canDownload,
+  onDownload,
+  conversationOpen,
+  conversationTitle,
+  linked,
+  onToggleLink,
+  onDelete,
 }: {
   doc: RagDocument;
   contextTitles: Record<string, string>;
   onAttach: (docId: string, contextId: string) => void;
+  canView: boolean;
+  onView: () => void;
+  /** Desktop-only (there's no filesystem to save to in the web preview) —
+   *  moved in here from its own standalone row icon (owner, 2026-08-29:
+   *  "move the download icon into the 3 dots menu"). */
+  canDownload: boolean;
+  onDownload: () => void;
+  conversationOpen: boolean;
+  conversationTitle: string | null;
+  linked: boolean;
+  onToggleLink: () => void;
+  onDelete: () => void;
 }) {
-  const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
+  const [view, setView] = useState<"menu" | "attach" | null>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const entries = Object.entries(contextTitles);
 
   useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(null);
+    if (!view) return;
+    const close = () => setView(null);
     window.addEventListener("click", close);
     window.addEventListener("resize", close);
     window.addEventListener("scroll", close, true);
@@ -77,9 +114,11 @@ function AttachMenu({
       window.removeEventListener("resize", close);
       window.removeEventListener("scroll", close, true);
     };
-  }, [open]);
+  }, [view]);
 
-  if (entries.length === 0) return null;
+  // Delete lives here unconditionally now (owner, 2026-08-29 — "put the 3
+  // dots to the far right and include the trashcan inside that 3dot
+  // menu"), so — unlike before — this never has nothing to show.
 
   return (
     <span className="relative shrink-0">
@@ -88,57 +127,122 @@ function AttachMenu({
         onClick={(e) => {
           e.stopPropagation();
           const r = e.currentTarget.getBoundingClientRect();
-          // Same viewport clamp as GroundPicker (owner-reported there,
-          // 2026-08-17) — this menu had the identical unclamped-left bug,
-          // just not yet hit because Library rows sit further from the
-          // right edge than GroundPicker's trigger.
           const MARGIN = 8;
           const MENU_W = 220;
-          const MENU_H = Math.min(entries.length * 30 + 8, 320);
-          const x = Math.max(MARGIN, Math.min(r.left, window.innerWidth - MENU_W - MARGIN));
-          const y = Math.max(MARGIN, Math.min(r.bottom + 4, window.innerHeight - MENU_H - MARGIN));
-          setOpen((o) => (o ? null : { x, y }));
+          const x = Math.max(MARGIN, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - MARGIN));
+          setPos({ x, y: r.bottom + 4 });
+          setView((v) => (v ? null : "menu"));
         }}
-        title="Attach to a context…"
-        aria-label={`Attach ${doc.file_name} to a context`}
+        title="More actions"
+        aria-label={`More actions for ${doc.file_name}`}
         aria-haspopup="menu"
-        aria-expanded={open !== null}
-        className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai"
+        aria-expanded={view !== null}
+        className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
       >
-        <Icon name="simicon" size={13} />
+        <Icon name="more" size={13} />
       </button>
-      {open && (
+      {view && pos && (
         <div
           role="menu"
-          aria-label={`Attach ${doc.file_name} to a context`}
+          aria-label={`Actions for ${doc.file_name}`}
           onClick={(e) => e.stopPropagation()}
-          style={{ position: "fixed", left: open.x, top: open.y, zIndex: 60 }}
+          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 60 }}
           className="glass-raised max-h-[320px] min-w-[180px] max-w-[220px] overflow-y-auto rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
         >
-          {entries.map(([id, title]) => {
-            const attached = doc.context_ids.includes(id);
-            return (
+          {view === "menu" ? (
+            <>
+              {entries.length > 0 && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => setView("attach")}
+                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+                >
+                  Attach to a context…
+                  <Icon name="chevron" size={12} className="-rotate-90 shrink-0 text-fg-faint" />
+                </button>
+              )}
+              {canView && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setView(null);
+                    onView();
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+                >
+                  <Icon name="expand" size={13} className="text-fg-faint" />
+                  View
+                </button>
+              )}
+              {conversationOpen && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setView(null);
+                    onToggleLink();
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+                >
+                  <Icon name="link" size={13} className={linked ? "text-ai" : "text-fg-faint"} />
+                  {linked ? `Unlink from "${conversationTitle}"` : `Link to "${conversationTitle}"`}
+                </button>
+              )}
+              {canDownload && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setView(null);
+                    onDownload();
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+                >
+                  <Icon name="download" size={13} className="text-fg-faint" />
+                  Download
+                </button>
+              )}
               <button
-                key={id}
                 type="button"
-                role="menuitemcheckbox"
-                aria-checked={attached}
-                disabled={attached}
+                role="menuitem"
                 onClick={() => {
-                  onAttach(doc.id, id);
-                  setOpen(null);
+                  setView(null);
+                  onDelete();
                 }}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-rec transition hover:bg-rec/10"
               >
-                <Icon
-                  name="check"
-                  size={12}
-                  className={attached ? "text-ok" : "invisible"}
-                />
-                <span className="min-w-0 flex-1 truncate">{title}</span>
+                <Icon name="trash" size={13} />
+                Delete
               </button>
-            );
-          })}
+            </>
+          ) : (
+            entries.map(([id, title]) => {
+              const attached = doc.context_ids.includes(id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={attached}
+                  disabled={attached}
+                  onClick={() => {
+                    onAttach(doc.id, id);
+                    setView(null);
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent"
+                >
+                  <Icon
+                    name="check"
+                    size={12}
+                    className={attached ? "text-ok" : "invisible"}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{title}</span>
+                </button>
+              );
+            })
+          )}
         </div>
       )}
     </span>
@@ -148,7 +252,8 @@ function AttachMenu({
 /**
  * The Library pane: search + filter chips, add/paste documents, each row a
  * drag SOURCE (`DOC_DRAG_MIME`) for dropping onto a context in
- * `ContextsPane`, plus a click-to-pick popover (`AttachMenu`) as the
+ * `ContextsPane`, plus a click-to-pick popover (`LibraryRowMenu`'s "Attach
+ * to a context…" item) as the
  * always-available alternative — dragging a webview element can fail in
  * ways that are hard to diagnose remotely (this pairing was dropped once
  * this session over exactly that, then reinstated per owner decision,
@@ -157,12 +262,18 @@ function AttachMenu({
  * see that file and CLAUDE.md's drag-and-drop note for the real trade-off
  * this carries for Library's own OS file-drop ingest. `contextTitles`
  * (id → title) drives both the picker and a doc's own context-tag label.
+ * `focusContextId` (set from a context's doc-count control in
+ * `ContextsPane`) filters the list to that context's documents, with a
+ * dismissible banner as the "show everything again" affordance.
  */
 export function LibraryPane({
   contextTitles,
   onAttach,
   refreshToken,
   quickAction,
+  focusContextId,
+  onClearFocus,
+  variant = "dock",
 }: {
   contextTitles: Record<string, string>;
   /** Attach `docId` to `contextId` — the real mutation
@@ -174,9 +285,31 @@ export function LibraryPane({
    *  ⌘K's quick-add commands (`useLibraryQuickAdd`), consumed by the
    *  caller before it ever reaches here, so this only ever fires once. */
   quickAction?: "upload" | "paste" | null;
+  /** Set by clicking a context's doc-count control in `ContextsPane`
+   *  (owner, 2026-08-29: "when I click the document icon in the context
+   *  card it doesn't auto select the documents on the library") — filters
+   *  the list to documents attached to this context. */
+  focusContextId?: string | null;
+  /** Clears `focusContextId` — the banner's ✕, and clicking the same
+   *  doc-count control again (`ContextsView`'s toggle). */
+  onClearFocus?: () => void;
+  /**
+   * `"dock"` (default) is the narrow contextual pane inside Contexts —
+   * relationship-focused, one line per document. `"page"` is the top-level
+   * Library destination (AppUI V5.0 §4): the same component and the same
+   * actions, presented as the management table the spec asks for — visible
+   * filter chips plus Name / Type / In contexts / Added columns. Same
+   * documents, different job; one implementation, so ingest/attach/delete
+   * can't drift between the two.
+   */
+  variant?: "dock" | "page";
 }) {
   const backend = useBackend();
   const caps = useCapabilities();
+  // Web (M2 cp10): file originals upload through the Worker; downloads stream back.
+  const uploadAvailable = useOperationAvailability("rag.upload")?.state === "available";
+  const downloadAvailable = useOperationAvailability("rag.download")?.state === "available";
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [documents, setDocuments] = useState<RagDocument[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -191,7 +324,7 @@ export function LibraryPane({
     if (!titleTouched) setPasteTitle(deriveNoteName(pasteText));
   }, [pasteText, titleTouched]);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<LibraryFilter>("all");
   const conversationOpen = useConversationStore((s) => s.openId !== null);
   const conversationTitle = useConversationStore((s) => s.title);
   const linkedDocs = useConversationStore((s) => s.linkedDocs);
@@ -238,6 +371,31 @@ export function LibraryPane({
     [backend, refresh],
   );
 
+  // Web: browser File objects go up through the Worker (rag.upload). Same
+  // filter, notices and refresh as the desktop path-based ingest above.
+  const uploadFiles = useCallback(
+    async (files: File[]) => {
+      const usable = files.filter((f) => SUPPORTED.includes(f.name.split(".").pop()?.toLowerCase() ?? ""));
+      if (usable.length === 0) {
+        setNotice("No supported files (pdf, docx, md, txt, html).");
+        return;
+      }
+      setBusy(true);
+      setNotice(`Uploading ${usable.length} file(s)…`);
+      try {
+        const reports = await backend.rag.upload(usable);
+        const warnings = reports.flatMap((r) => r.warnings);
+        setNotice(warnings.length > 0 ? `Done with warnings: ${warnings.join("; ")}` : `Added ${reports.length} document(s).`);
+        await refresh();
+      } catch (e) {
+        setNotice(String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [backend, refresh],
+  );
+
   // Native OS drag-drop delivers file paths through the webview (desktop-only).
   useEffect(() => {
     if (!isTauri()) return;
@@ -273,8 +431,10 @@ export function LibraryPane({
 
   // Quick-add, run once on mount (see the prop doc comment above).
   useEffect(() => {
-    if (quickAction === "upload" && isTauri()) void pickFiles();
-    else if (quickAction === "paste") {
+    if (quickAction === "upload") {
+      if (isTauri()) void pickFiles();
+      else fileInputRef.current?.click();
+    } else if (quickAction === "paste") {
       setPasteOpen(true);
       setNotice(null);
     }
@@ -296,10 +456,15 @@ export function LibraryPane({
   };
 
   const downloadDoc = async (doc: RagDocument) => {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const dest = await save({ defaultPath: doc.file_name });
-    if (!dest) return;
+    let dest = doc.file_name;
+    if (isTauri()) {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const picked = await save({ defaultPath: doc.file_name });
+      if (!picked) return;
+      dest = picked;
+    }
     try {
+      // Web: the original streams through the Worker into a browser download.
       await backend.rag.download(doc.id, dest);
       setNotice(`Downloaded ${doc.file_name}.`);
     } catch (e) {
@@ -335,16 +500,12 @@ export function LibraryPane({
     }
   };
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return documents.filter((d) => {
-      if (q && !d.file_name.toLowerCase().includes(q)) return false;
-      if (filter === "pasted") return d.source === "pasted";
-      if (filter === "generated") return d.source === "generated";
-      return true;
-    });
-  }, [documents, search, filter]);
+  const visible = useMemo(
+    () => filterDocuments(documents, { search, filter, focusContextId }),
+    [documents, search, filter, focusContextId],
+  );
 
+  const page = variant === "page";
   const rowIcon = (d: RagDocument) =>
     d.source === "generated" ? "sparkle" : d.source === "pasted" ? "clipboard" : "file";
 
@@ -377,11 +538,11 @@ export function LibraryPane({
             <Icon name="add" size={13} />
             <Icon name="clipboard" size={16} />
           </button>
-          {isTauri() && (
+          {(isTauri() || uploadAvailable) && (
             <button
               type="button"
               disabled={busy}
-              onClick={() => void pickFiles()}
+              onClick={() => (isTauri() ? void pickFiles() : fileInputRef.current?.click())}
               title="Add a document…"
               aria-label="Add a document"
               className="flex items-center gap-0.5 rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
@@ -390,34 +551,91 @@ export function LibraryPane({
               <Icon name="upload" size={16} />
             </button>
           )}
+          {!isTauri() && (
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept={SUPPORTED.map((e) => `.${e}`).join(",")}
+              className="hidden"
+              aria-hidden="true"
+              tabIndex={-1}
+              onChange={(e) => {
+                const files = Array.from(e.currentTarget.files ?? []);
+                e.currentTarget.value = "";
+                if (files.length) void uploadFiles(files);
+              }}
+            />
+          )}
         </div>
       </div>
 
-      <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search documents"
-        aria-label="Search documents"
-        className="input mb-2 h-[30px] text-xs"
-      />
-
-      <div className="mb-2 flex flex-wrap gap-1.5">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            onClick={() => setFilter(f.key)}
-            className={[
-              "rounded-full border px-2 py-0.5 text-[11px] transition",
-              filter === f.key
-                ? "border-primary/50 bg-primary/[0.12] text-fg"
-                : "border-border text-fg-faint hover:text-fg",
-            ].join(" ")}
-          >
-            {f.label}
-          </button>
-        ))}
+      <div className="mb-2 flex items-center gap-1.5">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={page ? "Search files, notes, and briefs" : "Search documents"}
+          aria-label="Search documents"
+          className={page ? "input h-[38px] flex-1 text-[13px]" : "input h-[30px] flex-1 text-xs"}
+        />
+        {!page && (
+          <FilterPopover
+            groups={[
+              {
+                key: "source",
+                label: "Source",
+                options: LIBRARY_FILTERS.map((f) => ({ value: f.key, label: f.label })),
+                selected: filter,
+                onChange: (v) => setFilter(v as LibraryFilter),
+              },
+            ]}
+          />
+        )}
       </div>
+
+      {page && (
+        <div className="mb-3 flex flex-wrap gap-2" role="group" aria-label="Filter documents">
+          {LIBRARY_FILTERS.map((f) => {
+            const on = filter === f.key;
+            return (
+              <button
+                key={f.key}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setFilter(f.key)}
+                className={[
+                  "rounded-full px-4 py-2 text-xs transition",
+                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+                  on
+                    ? "bg-primary font-bold text-primary-ink"
+                    : "border border-border bg-panel font-semibold text-fg-muted hover:text-fg",
+                ].join(" ")}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {focusContextId && (
+        <div className="mb-2 flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/[0.06] px-2 py-1 text-[11px] text-fg">
+          <Icon name="file" size={11} className="shrink-0 text-primary" />
+          <span className="min-w-0 flex-1 truncate">
+            Showing documents for{" "}
+            <span className="font-semibold">{contextTitles[focusContextId] ?? "this context"}</span>
+          </span>
+          <button
+            type="button"
+            onClick={onClearFocus}
+            aria-label="Clear filter"
+            title="Show all documents"
+            className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+          >
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+      )}
 
       {pasteOpen && (
         <div className="mb-2 rounded-md border border-border p-2">
@@ -484,6 +702,17 @@ export function LibraryPane({
         </p>
       )}
 
+      {page && visible.length > 0 && (
+        <div className={`${PAGE_ROW_GRID} shrink-0 items-center border-b border-border bg-bg-2 px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-fg-faint`}>
+          <span aria-hidden />
+          <span>Name</span>
+          <span>Type</span>
+          <span>In contexts</span>
+          <span>Added</span>
+          <span aria-hidden />
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto">
         {visible.length === 0 ? (
           <p className="px-1 py-6 text-center text-[11px] text-fg-faint">
@@ -505,11 +734,12 @@ export function LibraryPane({
                   e.dataTransfer.setData(DOC_DRAG_MIME, doc.id);
                   e.dataTransfer.effectAllowed = "link";
                 }}
-                className="flex items-center gap-1.5 border-b border-border py-1.5 text-[12px] last:border-0"
+                className={
+                  page
+                    ? `${PAGE_ROW_GRID} items-center border-b border-border px-4 py-3 text-[13.5px] last:border-0`
+                    : "flex items-center gap-1.5 border-b border-border py-1.5 text-[12px] last:border-0"
+                }
               >
-                <span className="shrink-0 cursor-grab text-fg-faint" aria-hidden>
-                  <Icon name="dragHandle" size={13} />
-                </span>
                 <input
                   type="checkbox"
                   checked={doc.enabled}
@@ -518,100 +748,87 @@ export function LibraryPane({
                   }
                   aria-label={`Include ${doc.file_name} in retrieval`}
                 />
+                <span className="flex min-w-0 items-center gap-2.5">
                 <Icon
                   name={rowIcon(doc)}
-                  size={14}
+                  size={page ? 18 : 14}
                   className={doc.source === "generated" ? "text-ai shrink-0" : "text-fg-faint shrink-0"}
                 />
                 <span
                   className={[
                     "min-w-0 flex-1 truncate",
-                    doc.enabled ? "text-fg" : "text-fg-faint line-through",
+                    page ? "font-semibold" : "",
+                    doc.enabled ? "text-fg" : "text-fg-faint",
                   ].join(" ")}
-                  title={doc.file_name}
+                  title={
+                    doc.enabled
+                      ? doc.file_name
+                      : `${doc.file_name} — not included in retrieval`
+                  }
                 >
                   {doc.file_name}
                 </span>
-                {doc.source === "generated" && (
-                  <span className="shrink-0 rounded-full bg-ai/10 px-1.5 py-0.5 text-[9px] font-semibold text-ai">
-                    conva
-                  </span>
+                </span>
+
+                {page && (
+                  <>
+                    <span className="truncate font-mono text-xs text-fg-muted">
+                      {documentTypeLabel(doc)}
+                    </span>
+                    <span className="flex min-w-0 flex-wrap gap-1.5">
+                      {doc.context_ids.length === 0 ? (
+                        <span className="font-mono text-[11px] text-fg-faint">—</span>
+                      ) : (
+                        doc.context_ids.map((id) => (
+                          <span
+                            key={id}
+                            className="max-w-[180px] truncate rounded-[5px] bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary"
+                          >
+                            {contextTitles[id] ?? id}
+                          </span>
+                        ))
+                      )}
+                    </span>
+                    <span className="font-mono text-xs text-fg-faint">
+                      {new Date(doc.ingested_at_unix_ms).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                  </>
                 )}
-                {firstContextId && (
+                {/* Passive "which context(s) is this doc in" hint — an icon
+                    now, not the old text chip, since the row has less room.
+                    Wrapped in a <span title=…> rather than passing title to
+                    Icon directly (it doesn't forward one — same pattern as
+                    ContextDetail.tsx's stage icons). */}
+                {!page && firstContextId && (
                   <span
-                    className="shrink-0 truncate text-[10px] text-fg-faint"
+                    className="shrink-0"
                     title={doc.context_ids.map((id) => contextTitles[id] ?? id).join(", ")}
                   >
-                    {contextTitles[firstContextId] ?? firstContextId}
-                    {doc.context_ids.length > 1 ? ` +${doc.context_ids.length - 1}` : ""}
+                    <Icon name="book" size={13} className="text-fg-faint" />
                   </span>
                 )}
-                <AttachMenu doc={doc} contextTitles={contextTitles} onAttach={onAttach} />
-                {conversationOpen && (
-                  <button
-                    type="button"
-                    onClick={() => void toggleLinkedDoc(doc.id)}
-                    aria-pressed={linkedDocs.includes(doc.id)}
-                    aria-label={
-                      linkedDocs.includes(doc.id)
-                        ? `Unlink from "${conversationTitle}"`
-                        : `Link to "${conversationTitle}"`
-                    }
-                    title={
-                      linkedDocs.includes(doc.id)
-                        ? `Linked to "${conversationTitle}" — click to unlink`
-                        : `Link to "${conversationTitle}"`
-                    }
-                    className={[
-                      "shrink-0 rounded-sm p-1 transition",
-                      linkedDocs.includes(doc.id)
-                        ? "text-ai hover:bg-ai/10"
-                        : "text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
-                    ].join(" ")}
-                  >
-                    <Icon name="link" size={12} />
-                  </button>
-                )}
-                {caps?.system.partnerWindow && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void backend.partner.open(
-                        doc.file_name,
-                        null,
-                        null,
-                        null,
-                        [],
-                        doc.id,
-                      )
-                    }
-                    aria-label={`View ${doc.file_name}`}
-                    title="View"
-                    className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-                  >
-                    <Icon name="expand" size={12} />
-                  </button>
-                )}
-                {isTauri() && (
-                  <button
-                    type="button"
-                    onClick={() => void downloadDoc(doc)}
-                    aria-label={`Download ${doc.file_name}`}
-                    title="Download"
-                    className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-                  >
-                    <Icon name="download" size={12} />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void backend.rag.delete(doc.id).then(refresh)}
-                  aria-label={`Delete ${doc.file_name}`}
-                  title="Delete"
-                  className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
-                >
-                  <Icon name="trash" size={12} />
-                </button>
+                {/* Far right (owner, 2026-08-29) — the row's one remaining
+                    "more" surface; Delete and Download both live here now
+                    rather than staying standalone icons. */}
+                <LibraryRowMenu
+                  doc={doc}
+                  contextTitles={contextTitles}
+                  onAttach={onAttach}
+                  canView={caps?.system.partnerWindow === true}
+                  onView={() =>
+                    void backend.partner.open(doc.file_name, null, null, null, [], doc.id)
+                  }
+                  canDownload={isTauri() || (downloadAvailable && doc.source === "file")}
+                  onDownload={() => void downloadDoc(doc)}
+                  conversationOpen={conversationOpen}
+                  conversationTitle={conversationTitle}
+                  linked={linkedDocs.includes(doc.id)}
+                  onToggleLink={() => void toggleLinkedDoc(doc.id)}
+                  onDelete={() => void backend.rag.delete(doc.id).then(refresh)}
+                />
               </li>
               );
             })}

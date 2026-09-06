@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { FilterPopover } from "@/components/contexts/FilterPopover";
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { readinessOf } from "@/components/contexts/readiness";
-import { rowStatus } from "@/components/contexts/rowStatus";
-import { Icon } from "@/components/ui/Icon";
+import { rowStatus, type RowStatus } from "@/components/contexts/rowStatus";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { formatBytes } from "@/lib/formatBytes";
 import { formatRelativeTime } from "@/lib/relativeTime";
@@ -19,7 +20,28 @@ const CATEGORY_LABEL: Record<ContextCategory, string> = {
   interview: "Interview",
   company_meeting: "Company meeting",
   sales_call: "Sales call",
+  live_stream: "Live stream",
   other: "Other",
+};
+
+/**
+ * Per-category row pictogram + color. Icons revised 2026-09-02 (owner:
+ * "try these") to solid-filled Material/FontAwesome-style glyphs —
+ * `chatBubbles`/`groupThree`/`videoCam`/`phoneCall`/`dots` in `Icon.tsx` —
+ * superseding the first outline-style pass (`radar`/`search`/`book`).
+ * `interview` reuses the app's existing azure primary; the rest are
+ * dedicated hex values, not reused voice-lock colors
+ * (`--color-inbound`/`--color-outbound` are exclusively Them/You per the
+ * palette rules) or Ally gold (exclusively Ally-authored content) or
+ * recording-red (exclusively recording/danger) — new, category-only
+ * swatches instead.
+ */
+export const CATEGORY_ICON: Record<ContextCategory, { icon: IconName; color: string }> = {
+  interview: { icon: "chatBubbles", color: "var(--color-primary)" },
+  company_meeting: { icon: "groupThree", color: "#E0B84C" },
+  sales_call: { icon: "phoneCall", color: "#9D7DC4" },
+  live_stream: { icon: "videoCam", color: "#E8608F" },
+  other: { icon: "dots", color: "#67C6C5" },
 };
 
 function formatDate(unixMs: number): string {
@@ -47,27 +69,121 @@ function regenerateTooltip(s: ContextSummary): string {
     : "Never regenerated";
 }
 
-/** Tooltip text for the status pill, draft only (requirement 3-4's
- *  readiness-checklist relocation — rows no longer expand to show it
- *  inline, so it moves here). `undefined` when there's nothing to show
- *  (non-draft contexts never carried this checklist either). */
-function readinessTooltip(s: ContextSummary): string | undefined {
-  if (s.status !== "draft") return undefined;
-  const { checks } = readinessOf(s);
-  return checks
-    .map((c) => `${c.ok ? "✓" : c.advisory ? "💡" : "✗"} ${c.label}`)
-    .join("\n");
+/** Click-triggered popover (owner, 2026-08-28 — the row went to one line,
+ *  so Type/Status/Updated moved off the row itself and behind an "i" icon).
+ *  Same open/close-on-outside-{click,resize,scroll} shape as
+ *  `LibraryRowMenu` in `LibraryPane.tsx` and the retired `RowMenu`. */
+function ContextInfoPopover({
+  s,
+  isDefault,
+  status,
+}: {
+  s: ContextSummary;
+  isDefault: boolean;
+  status: RowStatus;
+}) {
+  const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(null);
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [open]);
+
+  const readinessChecks = s.status === "draft" ? readinessOf(s).checks : null;
+
+  return (
+    <span className="relative shrink-0">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          const MARGIN = 8;
+          const POPOVER_W = 220;
+          const x = Math.max(MARGIN, Math.min(r.left, window.innerWidth - POPOVER_W - MARGIN));
+          setOpen((o) => (o ? null : { x, y: r.bottom + 4 }));
+        }}
+        aria-label={`Info for ${s.title}`}
+        aria-haspopup="dialog"
+        aria-expanded={open !== null}
+        title="Info"
+        className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+      >
+        <Icon name="info" size={13} />
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label={`Info for ${s.title}`}
+          onClick={(e) => e.stopPropagation()}
+          style={{ position: "fixed", left: open.x, top: open.y, zIndex: 60 }}
+          className="glass-raised w-[220px] rounded-lg border border-border p-2.5 shadow-[var(--shadow-lg)]"
+        >
+          <dl className="flex flex-col gap-1.5 text-[11px]">
+            <div>
+              <dt className="text-[9px] font-semibold uppercase tracking-wider text-fg-faint">
+                Type
+              </dt>
+              <dd className="text-fg">{isDefault ? "Default" : CATEGORY_LABEL[s.category]}</dd>
+            </div>
+            <div>
+              <dt className="text-[9px] font-semibold uppercase tracking-wider text-fg-faint">
+                Status
+              </dt>
+              <dd className="text-fg">{status.label}</dd>
+              {readinessChecks && (
+                <ul className="mt-1 flex flex-col gap-0.5">
+                  {readinessChecks.map((c) => (
+                    <li
+                      key={c.label}
+                      className={`flex items-start gap-1 text-[10px] ${c.ok ? "text-ok" : c.advisory ? "text-fg-faint" : "text-rec"}`}
+                    >
+                      <Icon
+                        name={c.ok ? "check" : advisoryOrClose(c.advisory)}
+                        size={10}
+                        className="mt-[1px] shrink-0"
+                      />
+                      <span>{c.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <dt className="text-[9px] font-semibold uppercase tracking-wider text-fg-faint">
+                Updated
+              </dt>
+              <dd className="text-fg">{formatRelativeTime(s.updated_at_unix_ms)}</dd>
+            </div>
+          </dl>
+        </div>
+      )}
+    </span>
+  );
+}
+
+// A failing advisory check reads as a hint, not an error — matches the
+// (now-retired) ChecklistLine's own ok/advisory/blocking icon choice.
+function advisoryOrClose(advisory: boolean | undefined): "lightbulb" | "close" {
+  return advisory ? "lightbulb" : "close";
 }
 
 /**
- * The Contexts pane: create/edit/delete/generate, each row expandable to
- * show the documents grounding it (including anything Ally generated) —
- * and a drop target for a Library row's drag payload, so dragging a
- * document from the Library pane onto a context attaches it (owner
- * decision, 2026-08-16, reinstating drag-and-drop after Library moved back
- * onto this same screen — `AttachMenu`'s click-to-pick popover on the
- * Library row still works too; this is an additional, faster path now that
- * both panes are visible together again, not a replacement for it).
+ * The Contexts pane: create/edit/delete/generate, each row a drop target
+ * for a Library row's drag payload, so dragging a document from the
+ * Library pane onto a context attaches it (owner decision, 2026-08-16,
+ * reinstating drag-and-drop after Library moved back onto this same
+ * screen — `LibraryRowMenu`'s "Attach to a context…" click-to-pick item on
+ * the Library row still works too; this is an additional, faster path now
+ * that both panes are visible together again, not a replacement for it).
  *
  * `onDragOver`/`onDragEnter` call `preventDefault()` unconditionally rather
  * than gating on `dataTransfer.types.includes(DOC_DRAG_MIME)` first — some
@@ -114,6 +230,8 @@ export function ContextsPane({
   const backend = useBackend();
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<"all" | ContextCategory>("all");
 
   const refreshDocs = useCallback(() => {
     backend.rag.list().then(setDocs).catch(() => {});
@@ -122,6 +240,13 @@ export function ContextsPane({
   useEffect(() => {
     refreshDocs();
   }, [refreshDocs, refreshToken]);
+
+  const visibleItems = items.filter((s) => {
+    const q = search.trim().toLowerCase();
+    if (q && !s.title.toLowerCase().includes(q)) return false;
+    if (categoryFilter !== "all" && s.category !== categoryFilter) return false;
+    return true;
+  });
 
   return (
     <div className="card relative flex min-h-0 flex-col p-3">
@@ -147,7 +272,7 @@ export function ContextsPane({
       />
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-fg-muted">
-          Conversation contexts
+          Contexts
         </h3>
         {isDesktop && (
           // Icon-only + tooltip (owner decision, 2026-08-17) — "Brief Ally"
@@ -170,14 +295,39 @@ export function ContextsPane({
         )}
       </div>
 
-      {items.length === 0 ? (
+      <div className="mb-2 flex items-center gap-1.5">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search contexts"
+          aria-label="Search contexts"
+          className="input h-[30px] flex-1 text-xs"
+        />
+        <FilterPopover
+          groups={[
+            {
+              key: "category",
+              label: "Category",
+              options: [
+                { value: "all", label: "All" },
+                ...Object.entries(CATEGORY_LABEL).map(([value, label]) => ({ value, label })),
+              ],
+              selected: categoryFilter,
+              onChange: (v) => setCategoryFilter(v as "all" | ContextCategory),
+            },
+          ]}
+        />
+      </div>
+
+      {visibleItems.length === 0 ? (
         <p className="px-1 py-6 text-center text-[11px] leading-relaxed text-fg-faint">
-          Create a context to prep Ally for an interview, meeting, or call —
-          ground it in your library, then generate its own briefing.
+          {items.length === 0
+            ? "Create a context to prep Ally for an interview, meeting, or call — ground it in your library, then generate its own briefing."
+            : "No contexts match."}
         </p>
       ) : (
         <ul className="min-h-0 flex-1 overflow-y-auto">
-          {items.map((s) => {
+          {visibleItems.map((s) => {
             const readiness = readinessOf(s);
             const status = rowStatus(s);
             const isGenerating = generatingId === s.id;
@@ -213,36 +363,83 @@ export function ContextsPane({
                   if (docId) onAttach(s.id, docId);
                 }}
                 className={[
-                  "mb-1.5 rounded-md border p-2 transition last:mb-0",
+                  "mb-1 rounded-md border px-2 py-1 transition last:mb-0",
                   dragOver
                     ? "border-ai/60 bg-ai/[0.06]"
-                    : selectedId === s.id
-                      ? "border-primary/40 bg-primary/[0.06]"
+                    : // The Default context is a template, not a context the
+                      // owner made — a distinct border says so at a glance
+                      // (owner, 2026-08-29), without claiming the
+                      // "dragging onto" (ai) color above. The row body
+                      // itself has no click handler, so — unlike this and
+                      // the drag state — "focused in Library" (below) is
+                      // never expressed as a whole-row highlight (owner,
+                      // 2026-08-29: "there should only be a click affect on
+                      // the title and icons not the general body of the
+                      // card that has no event tied to it").
+                      isDefault
+                      ? "border-notice/40"
                       : "border-border",
                 ].join(" ")}
               >
                 <div className="flex items-center gap-1.5">
+                  {/* Type-specific pictogram (spec §7 Pane A: "each row shows
+                      a type-specific pictogram"), colorized per category. */}
+                  <span
+                    className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md"
+                    style={{
+                      color: CATEGORY_ICON[s.category].color,
+                      background: `color-mix(in srgb, ${CATEGORY_ICON[s.category].color} 16%, transparent)`,
+                    }}
+                    title={CATEGORY_LABEL[s.category]}
+                    aria-hidden
+                  >
+                    <Icon name={CATEGORY_ICON[s.category].icon} size={11} />
+                  </span>
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dotClass}`}
+                    title={
+                      isGenerating
+                        ? "Generating…"
+                        : status.label === "Stale"
+                          ? "Stale — inputs changed since resources were generated"
+                          : status.label
+                    }
+                    aria-hidden
+                  />
+                  {/* Title opens the context directly (owner, 2026-08-29 —
+                      "the user should be able to click the title to open it
+                      naturally"), replacing the old separate chevron button.
+                      The doc-count control took over what the title used to
+                      do (focus this context in Library). */}
                   <button
                     type="button"
-                    onClick={() => onSelect(s.id)}
+                    onClick={() => onOpen(s.id)}
+                    aria-label={`Open ${s.title}`}
                     title={titleTooltip(s, totalBytes)}
                     className="min-w-0 flex-1 text-left"
                   >
                     <p className="truncate text-[13px] font-semibold text-fg">{s.title}</p>
                   </button>
-                  <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-fg-faint">
-                    <Icon name="file" size={11} />
-                    {s.source_doc_count}
-                  </span>
                   <button
                     type="button"
-                    onClick={() => onOpen(s.id)}
-                    aria-label={`Open ${s.title}`}
-                    title="Open"
-                    className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                    onClick={() => onSelect(s.id)}
+                    aria-label={`Show documents for ${s.title} in Library`}
+                    aria-pressed={selectedId === s.id}
+                    title="Show this context's documents in Library"
+                    className={[
+                      "flex shrink-0 items-center gap-0.5 rounded-sm p-0.5 text-[11px] transition hover:bg-panel-raised/60",
+                      // The click effect lives on this icon, not the row
+                      // (see the row's className comment above) — a light
+                      // fill/tint says "Library is filtered to this one".
+                      selectedId === s.id
+                        ? "bg-primary/10 text-primary hover:text-primary"
+                        : "text-fg-faint hover:text-fg",
+                    ].join(" ")}
                   >
-                    <Icon name="chevron" size={13} className="-rotate-90" />
+                    <Icon name="file" size={11} />
+                    {s.source_doc_count}
                   </button>
+                  <ContextInfoPopover s={s} isDefault={isDefault} status={status} />
                   {!isDefault && (
                     <button
                       type="button"
@@ -287,29 +484,6 @@ export function ContextsPane({
                       <Icon name="trash" size={13} />
                     </button>
                   )}
-                </div>
-
-                <div className="mt-1 flex items-center gap-2 pl-0">
-                  {isDefault ? (
-                    <span className="pill pill-sm pill-accent shrink-0">Default</span>
-                  ) : (
-                    <span className="pill pill-sm pill-idle shrink-0">
-                      {CATEGORY_LABEL[s.category]}
-                    </span>
-                  )}
-                  <span
-                    className={`pill pill-sm shrink-0 ${status.tone}`}
-                    title={
-                      status.label === "Stale"
-                        ? "Inputs changed since resources were generated — regenerate"
-                        : readinessTooltip(s)
-                    }
-                  >
-                    {isGenerating ? "Generating…" : status.label}
-                  </span>
-                  <span className="text-[11px] text-fg-faint">
-                    Updated {formatRelativeTime(s.updated_at_unix_ms)}
-                  </span>
                 </div>
 
                 {dragOver && contextDocs.length === 0 && (

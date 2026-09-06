@@ -284,8 +284,11 @@ on ubuntu, and the shell clippy `-D warnings` on windows-latest. Clippy runs wit
 
 Releases: pushing a `v*` tag runs `.github/workflows/release.yml`, which
 builds Windows MSI/NSIS installers (GPU/Vulkan) and a macOS dmg (GPU/Metal)
-on GitHub runners and drafts a GitHub Release — see README "Release
-installers". Signing/notarization and the auto-updater are not wired yet.
+on GitHub runners and drafts a GitHub Release **in the public
+`atomicapps-ai/conva_releases` repo** (this repo stays private) — see README
+"Release installers" and `docs/releasing.md`. The in-app updater
+(`src/components/UpdateToast.tsx`) is wired and checks that repo's release
+feed; signing/notarization of the installers themselves is not wired yet.
 
 ## One codebase, desktop + mobile
 
@@ -301,7 +304,14 @@ mobile target. Full conventions + how to add iOS/Android targets:
 
 ## Workflow
 
-- Develop on the assigned feature branch; don't commit to `main` locally.
+- **Branches: `feature` → `dev` → `main`.** Cut the assigned task branch from `dev`
+  and PR it into `dev`; `main` is release-only (tags cut from it drive the installer
+  pipeline). Don't commit to `dev` or `main` locally. `conva_web` works the same
+  way, and there the two branches are two live environments, so a web change is
+  validated on dev.getconva.com before promotion. **`conva_core` is the exception —
+  it has no `dev` branch** (owner, 2026-09-05: documents-only, so nothing to build
+  or stage), and core work PRs straight to its `main`. Canonical:
+  `../conva_core/docs/technical/CONVA_SDLC_RELEASE_STRATEGY.md` §2.1 / §2.1.1.
 - Commit/push only when the owner asks. Keep the IPC Rust↔TS mirror and the
   command wrappers in lockstep within a commit.
 - Prefer adding pure logic to core with a unit test over untested shell code.
@@ -360,27 +370,43 @@ Before picking up new work, check open PRs and issues
 (`list_pull_requests`/`list_issues`, `state=open`) so a second session
 doesn't duplicate a branch/PR another session already has open for the same
 thing. If two sessions do end up touching overlapping code anyway, a merge
-conflict on `main` is the **expected, safe outcome** — resolve it like any
-git conflict, it is not silent corruption. The owner's explicit "merge NN"
-per PR is the serialization point: only one PR lands on `main` at a time, in
-the order the owner approves them, so `main` itself never receives two
-concurrent writes.
+conflict on the integration branch is the **expected, safe outcome** —
+resolve it like any git conflict, it is not silent corruption. The owner's
+explicit "merge NN" per PR is the serialization point: only one PR lands at
+a time, in the order the owner approves them, so the branch itself never
+receives two concurrent writes.
 
-**Gap 2 — the dev→live pipeline has never actually been exercised** (still
-true as of 2026-08-29 — `package.json` is still `0.1.1`, no `dev` branch
-exists, `v0.2.0` is the only tag and was never published; see also the
-[SDLC operations plan](../conva_core/docs/technical/conva-sdlc-operations-plan.md)
-in `conva_core`, which formally burns `v0.2.0` and targets **v0.3.0** as the
-first release cut under the new biweekly release train).
-`dev-build.yml` triggers on `push: branches: [dev]` to stamp a `-beta.<run>`
-build, but **the `dev` branch has never been created**, so that pipeline is
-currently dead code. `release.yml` triggers on a `v*` tag push and drafts a
-GitHub Release the owner must manually publish — this has also never
-happened. Until the owner decides to cut a first real release, treat both
-pipelines as unexercised, not as a working deploy path.
+**What this actually looks like in practice (2026-09-05).** Two sessions ran
+these repos all day and the model held — but the cost is real and worth
+knowing. A branch cut before another session's merge lands will re-introduce
+whatever that merge fixed: the same two `roadmap.md` defects (rows 1.5/1.6
+joined by a stray `||`, and a dropped migration reference) had to be repaired
+in three separate merges because each new branch predated the previous fix.
+`conva_core`'s `dev` also had to be reconciled into `main` three times before
+it could be retired, because it kept moving between the check and the delete.
+The lesson isn't "don't run concurrent sessions" — it's **merge the
+integration branch into your branch before you finish, not just before you
+start**, and re-check immediately before any destructive step.
 
-**If/when `dev` is created, the mechanics are (note: `dev` is a branch, not
-a worktree — see above):**
+**~~Gap 2 — the dev→live pipeline has never actually been exercised~~ —
+CLOSED 2026-09-05.** It has now run end to end. `dev` exists in `conva_app`
+and `conva_web` (not in `conva_core` — documents-only, `main` alone, owner
+2026-09-05). `package.json` is at **0.3.3**, and **v0.3.3 is built, signed
+and published** in the public `atomicapps_releases` repo with a working
+updater feed — the first release ever to complete the pipeline. Four faults
+had to be cleared to get there, all fixed: a `secrets` reference in a step
+`if:` that made CI parse-fail and produce zero jobs, an orphaned encrypted
+env file, `tauri-action`'s `releaseCommitish` defaulting to a SHA the
+releases repo doesn't have, and the pre-release flag breaking
+`/releases/latest/download/latest.json`. See `docs/releasing.md`.
+
+`release.yml` triggers on a `v*` tag push and drafts a GitHub Release the
+owner publishes manually — that path is proven. `dev-build.yml` remains
+unwired.
+
+**The mechanics, now that `dev` exists (note: `dev` is a branch, not a
+worktree — see above). Since 2026-09-05 the flow is `feature` → `dev` →
+`main`, so a task branch PRs into `dev`, not `main`:**
 1. `git fetch origin main dev`
 2. Merge or fast-forward `main` into `dev` (ff when clean, merge commit when
    diverged) and push `dev` — that push is what fires the beta build in

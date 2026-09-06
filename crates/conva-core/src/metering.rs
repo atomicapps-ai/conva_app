@@ -88,6 +88,11 @@ pub struct UsageLedger {
     /// Text-to-speech characters synthesized (Deepgram Aura bills per character).
     #[serde(default)]
     pub tts_characters: u64,
+    /// Total time an active session (Live or rehearsal) has run, summed
+    /// across every stop — best-effort; a session ended by a crash or
+    /// force-quit isn't counted, same trade-off as every other counter here.
+    #[serde(default)]
+    pub listening_ms: u64,
     /// When the current accounting window opened (first record, or last reset).
     /// `0` means "not started yet".
     #[serde(default)]
@@ -174,6 +179,16 @@ impl UsageLedger {
         self.tts_characters = self.tts_characters.saturating_add(chars);
     }
 
+    /// Add `ms` of listening time (Live or rehearsal). No-ops on `ms == 0`
+    /// (mirrors `record_tavily_search`/`record_tts_characters`).
+    pub fn record_listening_ms(&mut self, ms: u64, now_unix_ms: u64) {
+        if ms == 0 {
+            return;
+        }
+        self.start_window(now_unix_ms);
+        self.listening_ms = self.listening_ms.saturating_add(ms);
+    }
+
     /// Clear all counters, reopening the window at `now`.
     pub fn reset(&mut self, now_unix_ms: u64) {
         *self = UsageLedger {
@@ -202,6 +217,7 @@ impl UsageLedger {
             total_requests,
             tavily_searches: self.tavily_searches,
             tts_characters: self.tts_characters,
+            listening_ms: self.listening_ms,
             since_unix_ms: self.since_unix_ms,
             updated_at_unix_ms: self.updated_at_unix_ms,
         }
@@ -220,6 +236,7 @@ pub struct UsageSummary {
     pub total_requests: u64,
     pub tavily_searches: u64,
     pub tts_characters: u64,
+    pub listening_ms: u64,
     pub since_unix_ms: u64,
     pub updated_at_unix_ms: u64,
 }
@@ -403,6 +420,29 @@ mod tests {
     }
 
     #[test]
+    fn listening_ms_accumulates_and_ignores_zero() {
+        let mut led = UsageLedger::default();
+        led.record_listening_ms(0, 1);
+        assert_eq!(led.listening_ms, 0);
+        assert_eq!(
+            led.since_unix_ms, 0,
+            "a zero duration must not open the window"
+        );
+        led.record_listening_ms(90_000, 5);
+        led.record_listening_ms(30_000, 6);
+        assert_eq!(led.listening_ms, 120_000);
+        assert_eq!(led.since_unix_ms, 5);
+    }
+
+    #[test]
+    fn deserializes_ledger_missing_listening_ms_as_zero() {
+        // Every UsageLedger field already carries #[serde(default)], so an
+        // old usage.json predating this field parses cleanly.
+        let led: UsageLedger = serde_json::from_str("{}").unwrap();
+        assert_eq!(led.listening_ms, 0);
+    }
+
+    #[test]
     fn reset_clears_everything_and_reopens() {
         let mut led = UsageLedger::default();
         led.record_llm(
@@ -415,12 +455,14 @@ mod tests {
         );
         led.record_tavily_search(4, 2);
         led.record_tts_characters(120, 3);
+        led.record_listening_ms(90_000, 4);
         assert_eq!(led.tts_characters, 120);
         led.reset(50);
         assert!(led.providers.is_empty());
         assert!(led.llm_features.is_empty());
         assert_eq!(led.tavily_searches, 0);
         assert_eq!(led.tts_characters, 0);
+        assert_eq!(led.listening_ms, 0);
         assert_eq!(led.since_unix_ms, 50);
         assert_eq!(led.updated_at_unix_ms, 50);
     }

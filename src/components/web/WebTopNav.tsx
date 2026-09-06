@@ -1,5 +1,5 @@
 import { NAV_ITEMS } from "@/components/studio/navItems";
-import { Icon } from "@/components/ui/Icon";
+import { LockedIcon } from "@/components/ui/LockedIcon";
 import { useNavStore } from "@/state/nav";
 
 /*
@@ -36,7 +36,7 @@ export function WebTopNav() {
                 : "border-transparent text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
             ].join(" ")}
           >
-            <Icon name={item.icon} size={20} />
+            <LockedIcon name={item.icon} size={20} />
           </button>
         );
       })}

@@ -51,10 +51,17 @@ export function CommandPalette() {
       run: () => setView(view),
     });
     const nav: Command[] = [
-      go("live", "Go to Live", "live"),
+      // The six rail destinations (AppUI V5.0), in rail order…
+      go("dashboard", "Go to Home", "home"),
+      go("live", "Go to Live Session", "live"),
       go("context", "Go to Contexts", "simicon"),
-      go("conversations", "Go to Conversations", "conversations"),
+      go("library", "Go to Library", "library"),
+      go("coaching", "Go to Coaching", "rehearsal"),
       go("whatsnew", "Go to What's Coming", "lightbulb"),
+      // …then the surfaces that are NOT rail rows: Conversations is a
+      // sub-view now, Settings opens from the account gear. Both stay one
+      // keystroke away here.
+      go("conversations", "Go to Conversations", "conversations"),
       go("settings", "Go to Settings", "settings"),
       // Off the rail (owner decision, 2026-08-16 — see navItems.ts) but still
       // real views; keep them one keystroke away via the palette.

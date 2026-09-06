@@ -13,17 +13,19 @@
     "macOSPrivateApi": true,
     "windows": [
       {
+        "label": "main",
         "title": "conva",
-        "width": 700,
-        "height": 540,
-        "minWidth": 380,
+        "width": 960,
+        "height": 640,
+        "minWidth": 560,
         "minHeight": 440,
         "decorations": false,
-        "dragDropEnabled": false
+        "dragDropEnabled": false,
+        "visible": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:"
     }
   },
   "bundle": {
@@ -51,9 +53,9 @@
       }
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEwNzhGRTlEM0E2Mzc2OTQKUldTVWRtTTZuZjU0RUtCZW9iYTFNYytjK3pFaWxrY0svQjB2RGJweDV2K0hBZ1BncUY0ZnVnWFUK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZGNkZEMUE1NTM2NEI4MDIKUldRQ3VHUlRwZEZ2LzQwdHJiV0VxWjVnNEE0L0ZuclEra093ZUFXajZqL3ZkNU00ZEZhQkF3MXkK",
       "endpoints": [
-        "https://github.com/atomicapps-ai/conva_app/releases/latest/download/latest.json"
+        "https://github.com/atomicapps-ai/conva_releases/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

@@ -82,7 +82,7 @@ export function LiveControlBar({
   const coreState = coreStateFrom(session.state, recording);
 
   return (
-    <div className="flex h-[52px] shrink-0 items-stretch border-t border-border bg-bg-2">
+    <div className="flex h-[38px] shrink-0 items-stretch border-t border-border bg-bg-2">
       {/* overflow-hidden is load-bearing: every child here is shrink-0 +
           nowrap, so at narrow widths the cluster's content would otherwise
           paint straight across the border into the tab zone / right panel
@@ -90,17 +90,20 @@ export function LiveControlBar({
           the cluster edge guarantees the bar's zones stay separate at any
           window width; the md:-gated placeholders below keep the real
           controls (Record, Start/End) inside the visible range. */}
-      <div className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden px-3.5">
-      {/* Live indicator — NOT a control: lit while listening, dimmed idle. */}
+      <div className="flex min-w-0 flex-1 items-center gap-[11px] overflow-hidden px-3">
+      {/* Live indicator — NOT a control: lit while listening, dimmed idle.
+          Sized deliberately close to the bar's own height (owner,
+          2026-08-30: "keep [it] as large as possible" when the rest of the
+          bar shrank) — 34px in a 38px bar, vs. every button's 28px. */}
       <div
         role="status"
         aria-label={listening ? "Listening" : preparing ? "Preparing" : "Not listening"}
         title={listening ? "Listening" : preparing ? "Preparing" : "Not listening"}
-        className={`grid h-10 w-10 shrink-0 place-items-center rounded-full transition-opacity ${
+        className={`grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full transition-opacity ${
           listening || preparing ? "" : "opacity-35 saturate-50"
         }`}
       >
-        <Core state={coreState} size={34} />
+        <Core state={coreState} size={28} />
       </div>
 
       {statusText ? (
@@ -118,9 +121,9 @@ export function LiveControlBar({
             disabled
             title="Pause — not wired up yet"
             aria-label="Pause (not yet available)"
-            className="hidden h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] border border-border-strong px-3 text-[13px] font-bold text-fg-faint opacity-50 md:flex"
+            className="hidden h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] border border-border-strong px-2 text-xs font-bold text-fg-faint opacity-50 md:flex"
           >
-            <Icon name="pause" size={16} />
+            <Icon name="pause" size={13} />
             <ResponsiveLabel full="Pause" short="" />
           </button>
           <button
@@ -128,18 +131,18 @@ export function LiveControlBar({
             disabled
             title="Mute microphone — not wired up yet"
             aria-label="Mute microphone (not yet available)"
-            className="hidden h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-border-strong text-inbound opacity-50 md:grid"
+            className="hidden h-7 w-7 shrink-0 place-items-center rounded-[6px] border border-border-strong text-inbound opacity-50 md:grid"
           >
-            <Icon name="mic" size={16} />
+            <Icon name="mic" size={13} />
           </button>
           <button
             type="button"
             disabled
             title="Silence Ally — not wired up yet"
             aria-label="Silence Ally (not yet available)"
-            className="hidden h-9 w-9 shrink-0 place-items-center rounded-[6px] border border-border-strong text-ai opacity-50 md:grid"
+            className="hidden h-7 w-7 shrink-0 place-items-center rounded-[6px] border border-border-strong text-ai opacity-50 md:grid"
           >
-            <Icon name="ally" size={16} />
+            <Icon name="ally" size={13} />
           </button>
         </>
       )}
@@ -157,13 +160,13 @@ export function LiveControlBar({
               : "Record the call (stereo WAV: you left, them right)"
         }
         className={[
-          "flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] border px-3 text-[13px] font-bold transition disabled:opacity-40",
+          "flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] border px-2 text-xs font-bold transition disabled:opacity-40",
           recording
             ? "border-rec/50 bg-rec/10 text-rec"
             : "border-border-strong text-fg-muted hover:text-fg",
         ].join(" ")}
       >
-        <Icon name="record" size={15} />
+        <Icon name="record" size={12} />
         <ResponsiveLabel full={recording ? "Recording" : "Record"} short="Rec" />
       </button>
 
@@ -179,29 +182,29 @@ export function LiveControlBar({
             : "Start listening"
         }
         className={[
-          "flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-[6px] px-3 text-[13px] font-bold transition hover:brightness-110 disabled:opacity-40",
+          "flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-2 text-xs font-bold transition hover:brightness-110 disabled:opacity-40",
           listening
             ? "border border-rec/50 bg-rec/10 text-rec"
             : "bg-primary text-primary-ink",
         ].join(" ")}
       >
-        <Icon name={listening ? "record" : "live"} size={15} />
+        <Icon name={listening ? "record" : "live"} size={12} />
         <ResponsiveLabel
           full={listening ? "End" : "Start listening"}
           short={listening ? "End" : "Start"}
         />
         {listening && (
-          <span className="font-mono text-[11px] font-bold text-rec/80">{elapsed}</span>
+          <span className="font-mono text-[10.5px] font-bold text-rec/80">{elapsed}</span>
         )}
       </button>
 
       <span className="flex-1" aria-hidden />
 
       {listening && (
-        <span className="hidden shrink-0 items-center gap-1.5 font-mono text-[10.5px] text-fg-faint sm:flex">
-          <Icon name="lightbulb" size={13} className="text-ai/70" />
+        <span className="hidden shrink-0 items-center gap-[5px] font-mono text-[10.5px] text-fg-faint sm:flex">
+          <Icon name="lightbulb" size={11} className="text-ai/70" />
           Ask Ally
-          <kbd className="rounded border border-border-strong px-1.5 py-0.5 text-[9.5px] text-fg-muted">
+          <kbd className="rounded border border-border-strong px-[5px] py-[1.5px] text-[9.5px] text-fg-muted">
             Ctrl ⇧ Space
           </kbd>
         </span>

@@ -1,35 +1,15 @@
 import { useEffect, useState } from "react";
 
+import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
+import { CATEGORIES, categoryTemplate, researchDefault } from "@/components/context/categoryTemplates";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
-import { splitDocuments } from "@/components/context/documentSplit";
+import { groupBySlot, splitDocuments } from "@/components/context/documentSplit";
 import { buildQaMarkdown, parseQaImport } from "@/components/transcript/qaPairs";
 import type { RagDocument, ContextCategory, ConversationContext } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
-
-// Mirrors conva_core::context templates. `research` = the web-research default
-// for the type (decision 2 — on for interview/sales, off for internal meetings).
-const CATEGORIES: {
-  value: ContextCategory;
-  label: string;
-  hint: string;
-  research: boolean;
-}[] = [
-  { value: "interview", label: "Interview", hint: "Job or panel interview", research: true },
-  {
-    value: "company_meeting",
-    label: "Company meeting",
-    hint: "Internal — financials, reviews, planning",
-    research: false,
-  },
-  { value: "sales_call", label: "Sales call", hint: "Demo, objection handling", research: true },
-  { value: "other", label: "Other", hint: "Anything high-stakes", research: false },
-];
-
-const researchDefault = (c: ContextCategory): boolean =>
-  CATEGORIES.find((x) => x.value === c)?.research ?? false;
 
 const DOC_EXTENSIONS = ["pdf", "docx", "md", "txt", "html"];
 const STEP_LABEL = ["the basics", "context & documents", "review"];
@@ -66,6 +46,9 @@ export function ContextSetup({
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [selected, setSelected] = useState<string[]>(
     initial?.source_doc_ids ?? [],
+  );
+  const [slotDocIds, setSlotDocIds] = useState<Record<string, string[]>>(
+    initial?.slot_doc_ids ?? {},
   );
   const [research, setResearch] = useState(
     initial?.research_enabled ??
@@ -159,7 +142,36 @@ export function ContextSetup({
   const toggleDoc = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
+  // Checking a slot's checkbox files the doc under that slot AND keeps it
+  // in `selected` (the flat source_doc_ids grounding list, unchanged).
+  // Unchecking removes it from that slot only — it stays in `selected` if
+  // another slot (or "Other documents") still claims it, and only leaves
+  // `selected` once nothing does. A doc can be checked under more than one
+  // slot at once (see groupBySlot's doc comment) — allowed, not prevented.
+  const toggleSlotDoc = (slotKey: string, docId: string) => {
+    setSlotDocIds((prev) => {
+      const current = prev[slotKey] ?? [];
+      const checked = current.includes(docId);
+      const next = {
+        ...prev,
+        [slotKey]: checked ? current.filter((id) => id !== docId) : [...current, docId],
+      };
+      if (checked) {
+        const stillClaimed = Object.values(next).some((ids) => ids.includes(docId));
+        if (!stillClaimed) setSelected((s) => s.filter((id) => id !== docId));
+      } else {
+        setSelected((s) => (s.includes(docId) ? s : [...s, docId]));
+      }
+      return next;
+    });
+  };
+
   const { attachable, generated } = splitDocuments(docs, initial?.id);
+  const { slots: slotGroups, other: otherDocs } = groupBySlot(
+    attachable,
+    categoryTemplate(category).fileSlots,
+    slotDocIds,
+  );
 
   const regenerate = async () => {
     if (!initial) return;
@@ -192,7 +204,10 @@ export function ContextSetup({
 
   // Path A — add files directly: copy them into this Context's folder, then
   // ingest into the RAG library so the counterparty is grounded in them.
-  const addDocuments = async () => {
+  // `slotKey` files the newly-added doc(s) under that slot too (when added
+  // from a slot's own "Add documents…" button); omitted (the "Other
+  // documents" section's button) leaves them unslotted.
+  const addDocuments = async (slotKey?: string) => {
     setAdding(true);
     setError(null);
     try {
@@ -208,6 +223,12 @@ export function ContextSetup({
       const newIds = reports.map((r) => r.document.id);
       setDocs(await backend.rag.list());
       setSelected((s) => Array.from(new Set([...s, ...newIds])));
+      if (slotKey) {
+        setSlotDocIds((prev) => ({
+          ...prev,
+          [slotKey]: Array.from(new Set([...(prev[slotKey] ?? []), ...newIds])),
+        }));
+      }
     } catch {
       setError("Couldn't add documents.");
     } finally {
@@ -230,6 +251,7 @@ export function ContextSetup({
     created_at_unix_ms: initial?.created_at_unix_ms ?? 0,
     updated_at_unix_ms: 0,
     source_doc_ids: selected,
+    slot_doc_ids: slotDocIds,
     auto_generate_context: research,
     research_enabled: research,
     deep_qa_enabled: deepQa,
@@ -268,7 +290,8 @@ export function ContextSetup({
 
   return (
     <ViewShell
-      icon="simicon"
+      icon={CATEGORY_ICON[category].icon}
+      iconColor={CATEGORY_ICON[category].color}
       breadcrumb="Contexts"
       title={initial ? "Edit Context" : "New Context"}
       subtitle={`Step ${step} of 3 — ${STEP_LABEL[step - 1]}`}
@@ -312,6 +335,9 @@ export function ContextSetup({
                 ))}
               </div>
             </div>
+            <p className="text-[11px] text-fg-faint">
+              Ally will generate: {categoryTemplate(category).digestSections.join(", ")}
+            </p>
             {category === "interview" && (
               <label className="field">
                 Job description
@@ -330,9 +356,51 @@ export function ContextSetup({
 
       {step === 2 && (
         <>
+          {slotGroups.map(({ slot }) => (
+            <Section
+              key={slot.key}
+              title={slot.label + (slot.multiple ? " (multiple)" : "")}
+              description="conva grounds the counterparty and its questions in these. Add files directly (they're kept in a folder named after this Context) or pick from your library."
+            >
+              {isDesktop && (
+                <div className="mb-3">
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={adding}
+                    onClick={() => void addDocuments(slot.key)}
+                  >
+                    {adding ? "Adding…" : "Add documents…"}
+                  </button>
+                </div>
+              )}
+              {attachable.length === 0 ? (
+                <p className="text-sm text-fg-muted">
+                  No documents yet — add some above, or let Ally research context
+                  below.
+                </p>
+              ) : (
+                <ul className="flex flex-col divide-y divide-border">
+                  {attachable.map((d) => (
+                    <li key={d.id} className="flex items-center gap-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={(slotDocIds[slot.key] ?? []).includes(d.id)}
+                        onChange={() => toggleSlotDoc(slot.key, d.id)}
+                        aria-label={`Attach ${d.file_name} to ${slot.label}`}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm text-fg">
+                        {d.file_name}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Section>
+          ))}
           <Section
-            title="Attached documents"
-            description="conva grounds the counterparty and its questions in these. Add files directly (they're kept in a folder named after this Context) or pick from your library."
+            title="Other documents"
+            description="Anything that doesn't fit a slot above — still grounds the counterparty and its questions."
           >
             {isDesktop && (
               <div className="mb-3">
@@ -346,14 +414,14 @@ export function ContextSetup({
                 </button>
               </div>
             )}
-            {attachable.length === 0 ? (
+            {otherDocs.length === 0 ? (
               <p className="text-sm text-fg-muted">
-                No documents yet — add some above, or let Ally research context
-                below.
+                No other documents — everything attached is filed under a slot
+                above.
               </p>
             ) : (
               <ul className="flex flex-col divide-y divide-border">
-                {attachable.map((d) => (
+                {otherDocs.map((d) => (
                   <li key={d.id} className="flex items-center gap-3 py-2">
                     <input
                       type="checkbox"

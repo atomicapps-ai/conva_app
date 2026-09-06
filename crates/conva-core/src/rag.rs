@@ -8,6 +8,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::CoreError;
 
+const QUERY_STOPWORDS: &[&str] = &[
+    "a", "an", "and", "are", "can", "could", "did", "do", "does", "exact", "for", "from", "how",
+    "i", "in", "is", "it", "many", "me", "much", "of", "on", "or", "should", "that", "the", "this",
+    "to", "was", "were", "what", "when", "where", "which", "who", "why", "will", "with", "would",
+    "you", "your",
+];
+
 /// Where a library document came from — drives the library's provenance badge
 /// and filter chips (Conversation Context UI, "organized library").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -74,6 +81,42 @@ pub struct ScoredChunk {
     pub score: f32,
 }
 
+/// Conservative evidence confidence derived from discriminative query-token
+/// coverage in the returned chunks. This is intentionally not a probability:
+/// it is a stable feature for the first hit/miss gate until an evaluated
+/// calibrated ranker replaces it.
+pub fn evidence_confidence(query: &str, chunks: &[ScoredChunk]) -> f32 {
+    let query_terms: std::collections::HashSet<String> = crate::bm25::tokenize(query)
+        .into_iter()
+        .filter(|term| term.len() > 2 && !QUERY_STOPWORDS.contains(&term.as_str()))
+        .collect();
+    if query_terms.is_empty() || chunks.is_empty() {
+        return 0.0;
+    }
+
+    let evidence_terms: std::collections::HashSet<String> = chunks
+        .iter()
+        .take(3)
+        .flat_map(|chunk| crate::bm25::tokenize(&chunk.text))
+        .collect();
+    let covered = query_terms
+        .iter()
+        .filter(|term| evidence_terms.contains(*term))
+        .count();
+    covered as f32 / query_terms.len() as f32
+}
+
+/// Classify generic chunk retrieval conservatively. `PreparedHit` is never
+/// returned here: only the structured prepared-Q&A matcher may make that
+/// stronger claim.
+pub fn classify_evidence(query: &str, chunks: &[ScoredChunk]) -> crate::bridge::RetrievalKind {
+    if evidence_confidence(query, chunks) >= 2.0 / 3.0 {
+        crate::bridge::RetrievalKind::EvidenceHit
+    } else {
+        crate::bridge::RetrievalKind::Miss
+    }
+}
+
 /// The retrieval boundary used by the LLM orchestrator. Budget: <15 ms for
 /// `retrieve` at k=8 on a warm store (§2.5).
 #[async_trait]
@@ -116,6 +159,42 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&DocSource::Generated).unwrap(),
             "\"generated\""
+        );
+    }
+
+    fn chunk(text: &str) -> ScoredChunk {
+        ScoredChunk {
+            document_id: "d1".into(),
+            file_name: "source.md".into(),
+            location: "§1".into(),
+            text: text.into(),
+            score: 1.0,
+        }
+    }
+
+    #[test]
+    fn evidence_gate_distinguishes_a_grounded_hit_from_weak_top_k() {
+        let hit = vec![chunk(
+            "The maintenance plan costs ninety dollars and includes filters.",
+        )];
+        assert_eq!(
+            classify_evidence("How much does the maintenance plan cost?", &hit),
+            crate::bridge::RetrievalKind::EvidenceHit
+        );
+
+        let weak = vec![chunk("Our office is open Monday through Friday.")];
+        assert_eq!(
+            classify_evidence("What is the exact compressor failure rate?", &weak),
+            crate::bridge::RetrievalKind::Miss
+        );
+    }
+
+    #[test]
+    fn generic_evidence_never_claims_a_prepared_answer() {
+        let chunks = vec![chunk("Terraform stores state for managed resources.")];
+        assert_ne!(
+            classify_evidence("What does Terraform state store?", &chunks),
+            crate::bridge::RetrievalKind::PreparedHit
         );
     }
 }

@@ -1,8 +1,17 @@
 # Desktop env toolkit
 
 Encrypted, git-committed environment config for the desktop app. Same crypto and
-file model as `conva_web/env`, so **one shared `CONVA_ENV_KEY` unlocks both
-repos**.
+file model as `conva_web/env` — but **each repo has its own master key**. They are
+independent: `conva_app/env/master.key` and `conva_web/env/master.key` are
+different keys, and neither opens the other repo's `.enc` files. This repo's
+`CONVA_ENV_KEY` GitHub secret must therefore hold *this* repo's key.
+
+> A `✗ Decryption failed — wrong key or the file was tampered with.` almost always
+> means one of two things, not a corrupt file: the key from the other repo was
+> pasted in, or the `.enc` was encrypted with an older key that has since been
+> regenerated (`keygen` overwrites, and any `.enc` older than `master.key` is
+> orphaned). Re-encrypt with the current key — `npm run env:encrypt:<env>` — and
+> commit the result.
 
 ## Model
 

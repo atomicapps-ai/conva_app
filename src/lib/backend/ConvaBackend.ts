@@ -12,9 +12,11 @@
  * Canonical model + rationale: `conva_core/docs/technical/CONVA_ARCHITECTURE.md`
  * (§5) and `CONVA_SDLC_RELEASE_STRATEGY.md` §1.2 (adopted as Phase 0 of the SDLC).
  *
- * Method groups mirror the 48-command shell surface (`src/lib/commands.ts` ↔
+ * Method groups mirror the shell's command surface (`src/lib/commands.ts` ↔
  * `crates/conva-core/src/ipc.rs`); keep them in lockstep — a change to the shell
- * contract updates this interface AND both adapters in the same PR.
+ * contract updates this interface, both adapters AND the per-operation
+ * availability tables in `capabilitySnapshot.ts` (typecheck enforces the last)
+ * in the same PR.
  */
 
 import type {
@@ -41,17 +43,43 @@ import type {
   WhisperModelInfo,
 } from "@/lib/ipc";
 import type { Capabilities } from "@/lib/backend/capabilities";
+import type { CapabilitySnapshot } from "@/lib/backend/capabilitySnapshot";
 import type { EventMap, Unsubscribe } from "@/lib/backend/events";
+import type { CapabilityReader } from "@/lib/capture/capabilityStore";
+import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
+import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
+import type { TranscriptEvent } from "@/lib/capture/contract";
 
 export interface ConvaBackend {
-  /** What this platform can do. Resolved once at bootstrap; drives all UI gating. */
+  /**
+   * What this platform can do — the compatibility shim. Answers the legacy
+   * descriptor once; prefer {@link capabilityStore} for live, revisioned
+   * availability (browser architecture §8). Both MUST agree: this resolves to
+   * `capabilityStore.snapshot().legacy`.
+   */
   capabilities(): Promise<Capabilities>;
+
+  /**
+   * Live capability store (M0): the current {@link CapabilitySnapshot} plus a
+   * subscription. Revisions are monotonic; adapters publish a new snapshot
+   * when a probe, permission, connection or implementation state changes.
+   */
+  readonly capabilityStore: CapabilityReader<CapabilitySnapshot>;
 
   /** Subscribe to a live event. Returns an unsubscribe handle. */
   subscribe<K extends keyof EventMap>(
     event: K,
     handler: (payload: EventMap[K]) => void,
   ): Promise<Unsubscribe>;
+
+  /**
+   * Typed, versioned transcript envelopes (`ConvaEvent<TranscriptPayload>`,
+   * M0 contract). Desktop lifts the legacy `transcriptSegment` stream through
+   * `LegacyEnvelopeAdapter` (outbound → self, inbound → remote_mix); the web
+   * adapter rejects with `UnimplementedOnWebError` until a browser capture
+   * pipeline exists — never a silent no-op.
+   */
+  subscribeEnvelopes(handler: (event: TranscriptEvent) => void): Promise<Unsubscribe>;
 
   /** Portable settings (`conva.config.json`). Layer 1 (synced) + local cache. */
   config: {
@@ -101,6 +129,34 @@ export interface ConvaBackend {
     stop(): Promise<void>;
   };
 
+  /**
+   * Per-source capture control (browser architecture §8). On the web each
+   * source is an explicit user action: `session.start()` owns the microphone,
+   * `capture.start("display", op)` adds "Share call audio" as the remote
+   * channel of the SAME session; losing one never stops the other. Desktop
+   * captures both sides together on `session.start()` and reports these as
+   * `unimplemented` rather than pretending per-source control exists.
+   */
+  capture: {
+    /** What this platform could capture right now (kind + availability). */
+    enumerateSources(): Promise<CaptureSourceCapability[]>;
+    /** Gesture/notice requirements for a kind — never opens a prompt. */
+    prepare(kind: CaptureSourceKind): Promise<CapturePrepare>;
+    /** Prompt + attach a source to the live session. `operationId` lets the
+     *  caller cancel while the browser chooser is open. Resolves to the source id. */
+    start(kind: CaptureSourceKind, operationId: string): Promise<string>;
+    /** Stop one source (idempotent); the session keeps running. */
+    stop(sourceId: string): Promise<void>;
+    /** Re-acquire a source that ended or degraded (a shared tab closed, a
+     *  device vanished) inside the SAME live session — re-prompts, so it must
+     *  run from a user gesture. Resolves to the (same) source id. */
+    recover(sourceId: string, operationId: string): Promise<string>;
+    /** Every source's phase in the current session. */
+    status(): Promise<CaptureStatus[]>;
+    /** Live status changes. */
+    subscribe(handler: (statuses: CaptureStatus[]) => void): Promise<Unsubscribe>;
+  };
+
   /** Stereo call recording (you = left, them = right). Desktop-only (Layer 4). */
   recording: {
     /** Resolves to the WAV path. */
@@ -112,8 +168,12 @@ export interface ConvaBackend {
 
   /** Document vault + retrieval. Local on desktop; cloud (pgvector) on web. */
   rag: {
-    /** Desktop: ingest files by path. Web: use `ingestText`/uploads. */
+    /** Desktop: ingest files by path. Web: use `ingestText` / `upload`. */
     ingest(paths: string[]): Promise<IngestReport[]>;
+    /** Web: upload file originals (browser `File`s) to the cloud library — the
+     *  Worker stores them as the user and extracts text (M2 cp10). Desktop
+     *  ingests by path instead (`unsupported` there). */
+    upload(files: readonly File[]): Promise<IngestReport[]>;
     ingestText(name: string, text: string): Promise<IngestReport>;
     list(): Promise<RagDocument[]>;
     setEnabled(id: string, enabled: boolean): Promise<void>;
@@ -229,6 +289,7 @@ export interface ConvaBackend {
   sessions: {
     list(): Promise<SessionSummary[]>;
     load(id: string): Promise<TranscriptSegment[]>;
+    delete(id: string): Promise<void>;
     /** Desktop-only: write Markdown to a path. Web → browser download. */
     exportTranscript(path: string, segments: TranscriptSegment[]): Promise<void>;
     /** Analyze a saved conversation's performance (category-aware, grounded
@@ -247,6 +308,23 @@ export interface ConvaBackend {
   diagnostics: {
     /** Desktop-only: write a report to a log file (resolves to the path). */
     saveDebugLog(contents: string): Promise<string>;
+    /** Print one line to this process's own stderr (desktop) or the
+     *  browser console (web) — a diagnostic trail visible without opening
+     *  webview devtools, for pipelines that run mostly client-side. */
+    trace(msg: string): Promise<void>;
+  };
+
+  /** Screenshot button (v1) — capture happens client-side
+   *  (`src/lib/screenshot.ts`); this is just the file-save half. */
+  screenshot: {
+    /** Desktop-only: write a captured PNG (base64) to the current save
+     *  folder (resolves to the saved path). */
+    save(pngBase64: string): Promise<string>;
+    /** Desktop-only: the current effective save folder (override, or the
+     *  default `<Pictures>/conva-screenshots/`). */
+    dir(): Promise<string>;
+    /** Desktop-only: reveal the current save folder in the OS file manager. */
+    openFolder(): Promise<void>;
   };
 
   /** Floating HUD panel (`src-tauri/src/hud.rs`). Desktop-only (Layer 4). */

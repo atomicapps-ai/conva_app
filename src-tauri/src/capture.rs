@@ -1,12 +1,12 @@
 //! FANER capture worker + replay command (design §F11:
 //! `../../conva_core/docs/technical/faner-capture-algorithm.md`).
 //!
-//! One thread per live session, mirroring `tracker.rs`. It buffers finalized
-//! segments and runs a fast-slot LLM *routing* pass when enough new speech
-//! accumulates (≥5 finals, or ≥2 finals and ≥45 s idle) — turning the other
-//! party's speech into routed captures (EXPLAIN / RECALL / ASSIST / SYNTHESIZE)
-//! grounded in the prepared context. Results merge into a session-scoped
-//! deduped state, re-emitted as a full CAPTURE event.
+//! One thread per live session, independent of `tracker.rs`. It debounces a
+//! meaningful inbound final briefly, then runs the fast-slot LLM *routing*
+//! pass — turning the other party's speech into routed captures (EXPLAIN /
+//! RECALL / ASSIST / SYNTHESIZE) grounded in the prepared context. Results
+//! merge into a session-scoped deduped state, re-emitted as a full CAPTURE
+//! event.
 //!
 //! `faner_replay` is the dev/validation path: it routes a scripted transcript
 //! (the golden conversations) straight through the core rubric and returns the
@@ -31,10 +31,13 @@ use conva_core::llm::ModelSelection;
 
 use crate::AppState;
 
-const POLL: Duration = Duration::from_secs(5);
-const MIN_BATCH: usize = 5;
-const IDLE_BATCH: usize = 2;
-const IDLE_AFTER: Duration = Duration::from_secs(45);
+const INBOUND_DEBOUNCE: Duration = Duration::from_millis(750);
+const MAX_CONTEXT_SEGMENTS: usize = 16;
+
+fn capture_due(last_inbound_elapsed: Option<Duration>, disconnected: bool) -> bool {
+    last_inbound_elapsed.is_some_and(|elapsed| elapsed >= INBOUND_DEBOUNCE)
+        || (disconnected && last_inbound_elapsed.is_some())
+}
 
 /// Spawn the worker; returns the sender for finalized segments. Dropping every
 /// sender (session stop) triggers one last pass and shuts it down.
@@ -60,13 +63,19 @@ fn worker(
 ) {
     let mut buffer: Vec<TranscriptSegment> = Vec::new();
     let mut state = CaptureState::new();
-    let mut last_run = Instant::now();
+    let mut last_inbound = None;
 
     loop {
-        let disconnected = match rx.recv_timeout(POLL) {
+        let disconnected = match rx.recv_timeout(INBOUND_DEBOUNCE) {
             Ok(segment) => {
                 if segment.is_final && !segment.text.trim().is_empty() {
+                    if segment.side == StreamSide::Inbound {
+                        last_inbound = Some(Instant::now());
+                    }
                     buffer.push(segment);
+                    if buffer.len() > MAX_CONTEXT_SEGMENTS {
+                        buffer.drain(..buffer.len() - MAX_CONTEXT_SEGMENTS);
+                    }
                 }
                 false
             }
@@ -74,17 +83,29 @@ fn worker(
             Err(RecvTimeoutError::Disconnected) => true,
         };
 
-        let due = buffer.len() >= MIN_BATCH
-            || (buffer.len() >= IDLE_BATCH && last_run.elapsed() >= IDLE_AFTER)
-            || (disconnected && !buffer.is_empty());
+        let due = capture_due(last_inbound.map(|at: Instant| at.elapsed()), disconnected);
 
         if due {
             run_pass(&app, &selection, &api_key, &ctx, &mut buffer, &mut state);
-            last_run = Instant::now();
+            last_inbound = None;
         }
         if disconnected {
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inbound_turn_runs_after_short_debounce_or_disconnect() {
+        assert!(!capture_due(None, false));
+        assert!(!capture_due(Some(Duration::from_millis(749)), false));
+        assert!(capture_due(Some(Duration::from_millis(750)), false));
+        assert!(capture_due(Some(Duration::ZERO), true));
+        assert!(!capture_due(None, true));
     }
 }
 

@@ -24,7 +24,6 @@ pub struct Bm25Index {
     /// term → [(doc_index, term_frequency)]
     postings: HashMap<String, Vec<(usize, u32)>>,
     doc_lengths: Vec<u32>,
-    average_length: f32,
 }
 
 impl Bm25Index {
@@ -44,15 +43,9 @@ impl Bm25Index {
             }
         }
 
-        let average_length = if doc_lengths.is_empty() {
-            0.0
-        } else {
-            doc_lengths.iter().sum::<u32>() as f32 / doc_lengths.len() as f32
-        };
         Self {
             postings,
             doc_lengths,
-            average_length,
         }
     }
 
@@ -82,21 +75,53 @@ impl Bm25Index {
     /// Top-k `(doc_index, score)` for the query, best first. Documents with
     /// zero overlap are never returned.
     pub fn search(&self, query: &str, k: usize) -> Vec<(usize, f32)> {
-        let n = self.doc_lengths.len() as f32;
+        self.search_filtered(query, k, |_| true)
+    }
+
+    /// Top-k `(doc_index, score)` restricted to documents accepted by
+    /// `include`. Filtering happens **before** document frequency, average
+    /// length, scoring, and ranking are calculated. This matters for an active
+    /// conversation Context: searching the global top-k and filtering it after
+    /// the fact can return no result even when the scoped corpus contains an
+    /// exact match.
+    pub fn search_filtered(
+        &self,
+        query: &str,
+        k: usize,
+        include: impl FnMut(usize) -> bool,
+    ) -> Vec<(usize, f32)> {
+        let included: Vec<bool> = (0..self.doc_lengths.len()).map(include).collect();
+        let n = included.iter().filter(|&&keep| keep).count() as f32;
         if n == 0.0 {
             return Vec::new();
         }
+        let average_length = self
+            .doc_lengths
+            .iter()
+            .zip(&included)
+            .filter_map(|(&len, &keep)| keep.then_some(len))
+            .sum::<u32>() as f32
+            / n;
         let mut scores: HashMap<usize, f32> = HashMap::new();
 
         for term in tokenize(query) {
             let Some(posting) = self.postings.get(&term) else {
                 continue;
             };
-            let df = posting.len() as f32;
+            let df = posting
+                .iter()
+                .filter(|(doc, _)| included.get(*doc).copied().unwrap_or(false))
+                .count() as f32;
+            if df == 0.0 {
+                continue;
+            }
             let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
             for &(doc, tf) in posting {
+                if !included.get(doc).copied().unwrap_or(false) {
+                    continue;
+                }
                 let len_norm =
-                    1.0 - B + B * (self.doc_lengths[doc] as f32 / self.average_length.max(1.0));
+                    1.0 - B + B * (self.doc_lengths[doc] as f32 / average_length.max(1.0));
                 let tf = tf as f32;
                 let term_score = idf * (tf * (K1 + 1.0)) / (tf + K1 * len_norm);
                 *scores.entry(doc).or_insert(0.0) += term_score;
@@ -167,5 +192,26 @@ mod tests {
         assert_eq!(idx.token_idf("cat"), 0.0, "present everywhere → not rare");
         assert_eq!(idx.token_idf("absent"), 0.0, "unknown token → 0, not rare");
         assert_eq!(index(&[]).token_idf("cat"), 0.0, "empty index is safe");
+    }
+
+    #[test]
+    fn filtered_search_ranks_inside_the_scope_before_truncating() {
+        let docs: Vec<String> = (0..40)
+            .map(|i| format!("global maintenance plan result {i} repeated repeated"))
+            .chain(std::iter::once(
+                "scoped maintenance plan answer with the verified warranty".to_string(),
+            ))
+            .collect();
+        let idx = Bm25Index::build(docs.iter().map(String::as_str));
+
+        // A post-filtered global top-3 has no reason to contain the last doc.
+        assert!(!idx
+            .search("maintenance plan", 3)
+            .iter()
+            .any(|(doc, _)| *doc == 40));
+
+        // A real scoped search scores/ranks the allowed corpus itself.
+        let scoped = idx.search_filtered("maintenance plan", 3, |doc| doc == 40);
+        assert_eq!(scoped.first().map(|(doc, _)| *doc), Some(40));
     }
 }

@@ -103,18 +103,55 @@ fn repo_library_create_dir() -> Option<PathBuf> {
 }
 
 impl RagStore {
+    /// Open and fully load the corpus. Startup calls this on the named
+    /// background initializer, never from Tauri's synchronous setup hook.
     pub fn open(app_data_dir: &Path) -> Result<Self, CoreError> {
+        let store = Self::open_empty(app_data_dir)?;
+        store.load()?;
+        Ok(store)
+    }
+
+    /// Open the store without reading the corpus off disk. Tests and special
+    /// callers may use [`Self::load`] for the slow half later.
+    pub fn open_empty(app_data_dir: &Path) -> Result<Self, CoreError> {
         let dir = app_data_dir.join("rag");
         fs::create_dir_all(&dir).map_err(|e| CoreError::Rag(e.to_string()))?;
         // Originals live beside the chunk JSON so "download the file back"
         // works; missing dir on older stores is created here idempotently.
         fs::create_dir_all(dir.join("originals")).map_err(|e| CoreError::Rag(e.to_string()))?;
-        let store = Self {
+        Ok(Self {
             dir,
             inner: RwLock::new(Corpus::default()),
-        };
-        store.reload()?;
-        Ok(store)
+        })
+    }
+
+    /// The slow half of [`Self::open`]: read every document JSON (chunks +
+    /// embedding vectors) and build the BM25 index. Multi-second on a real
+    /// library in a debug build — keep it off the UI/event-loop thread.
+    pub fn load(&self) -> Result<(), CoreError> {
+        self.reload()?;
+        self.migrate_unchecked_default_once();
+        Ok(())
+    }
+
+    /// One-time migration (owner, 2026-08-29): a freshly-ingested document
+    /// now defaults to `enabled: false` ("this should not be default
+    /// behavior at all"), but that only covers documents ingested from now
+    /// on — anything already on disk keeps whatever `enabled` it had before
+    /// the change. This walks every existing document once and unchecks it
+    /// too, so the rule applies uniformly rather than only to new adds.
+    /// Guarded by a marker file so it runs exactly once: after this,
+    /// re-checking a document by hand has to stick, not get silently undone
+    /// on the next launch.
+    fn migrate_unchecked_default_once(&self) {
+        let marker = self.dir.join(".migrated-unchecked-default");
+        if marker.exists() {
+            return;
+        }
+        for id in self.list().into_iter().map(|d| d.id) {
+            let _ = self.set_enabled(&id, false);
+        }
+        let _ = fs::write(&marker, b"1");
     }
 
     fn doc_path(&self, id: &str) -> PathBuf {
@@ -424,7 +461,12 @@ impl RagStore {
             document: RagDocument {
                 id: id.clone(),
                 file_name,
-                enabled: true,
+                // A freshly-ingested document starts unchecked (owner,
+                // 2026-08-29: "by default the library documents shouldn't
+                // be auto checked") — the user opts a document into
+                // retrieval explicitly, rather than every add silently
+                // widening what grounds every conversation.
+                enabled: false,
                 chunk_count: chunks.len() as u32,
                 ingested_at_unix_ms: crate::session::now_unix_ms(),
                 source,
@@ -574,14 +616,17 @@ impl RagStore {
         });
         let keep = |entry: &usize| allowed.as_ref().is_none_or(|a| a.contains(entry));
 
-        // Widen the candidate pool when scoped so filtering still yields k.
-        let pool = if allowed.is_some() { k * 12 } else { k * 3 };
-        let lexical: Vec<usize> = index
-            .search(query, pool)
-            .into_iter()
-            .map(|(entry, _)| entry)
-            .filter(|e| keep(e))
-            .collect();
+        // Score the allowed corpus itself. Searching the global top-k and
+        // filtering afterward creates false Context misses when unrelated
+        // documents crowd the global ranking.
+        let pool = k * 3;
+        let lexical: Vec<usize> = match &allowed {
+            Some(allowed) => index.search_filtered(query, pool, |entry| allowed.contains(&entry)),
+            None => index.search(query, pool),
+        }
+        .into_iter()
+        .map(|(entry, _)| entry)
+        .collect();
 
         let semantic: Option<Vec<usize>> = crate::embed::embed_query(query).map(|qvec| {
             conva_core::fuse::top_k_cosine(
@@ -643,6 +688,35 @@ impl RagStore {
                 .collect::<Vec<_>>()
                 .join("\n"),
         )
+    }
+
+    /// Parse prepared Q&A from the active Context's immutable document scope.
+    /// Called by the Radar worker at session start, never by the transcript
+    /// sink, so even large prep documents cannot delay ASR delivery.
+    pub fn prepared_qa_entries(
+        &self,
+        doc_ids: &[String],
+    ) -> Vec<conva_core::prepared_qa::PreparedQaEntry> {
+        let inner = self.inner.read().expect("rag lock");
+        let allowed: std::collections::HashSet<&str> = doc_ids.iter().map(String::as_str).collect();
+        inner
+            .documents
+            .iter()
+            .filter(|doc| allowed.contains(doc.document.id.as_str()))
+            .flat_map(|doc| {
+                let text = doc
+                    .chunks
+                    .iter()
+                    .map(|chunk| chunk.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                conva_core::prepared_qa::parse_prepared_qa(
+                    &text,
+                    &doc.document.id,
+                    &doc.document.file_name,
+                )
+            })
+            .collect()
     }
 
     /// Embed chunks that were ingested before the model was ready (runs on
@@ -889,7 +963,14 @@ mod tests {
         assert_eq!(report.document.file_name, "Warranty terms.txt");
         assert!(report.document.chunk_count >= 1);
 
-        // Retrievable like any other document.
+        // Unchecked by default — not part of retrieval yet.
+        assert!(!report.document.enabled);
+        assert!(store
+            .retrieve("how long is the parts warranty", 3)
+            .is_empty());
+
+        // Enabling it makes it retrievable like any other document.
+        store.set_enabled(&report.document.id, true).unwrap();
         let hits = store.retrieve("how long is the parts warranty", 3);
         assert!(hits.iter().any(|h| h.text.contains("5 year warranty")));
 
@@ -992,7 +1073,9 @@ mod tests {
 
         let docs = store.list();
         assert_eq!(docs.len(), 1);
+        assert!(!docs[0].enabled, "unchecked by default");
 
+        store.set_enabled(&docs[0].id, true).unwrap();
         let hits = store.retrieve("how much does the maintenance plan cost", 3);
         assert!(!hits.is_empty());
         assert!(hits[0].text.contains("$90"));
@@ -1009,6 +1092,62 @@ mod tests {
     }
 
     #[test]
+    fn reopening_the_store_unchecks_existing_documents_exactly_once() {
+        // Simulate a document that already existed on disk *before* this
+        // migration shipped — enabled: true, no marker file yet. Written
+        // directly to the store's file layout rather than through
+        // RagStore::open()+ingest(): opening the store at all runs the
+        // migration (even against zero documents) and writes the marker,
+        // so ingesting through an already-open store would burn the
+        // one-shot before this "pre-existing" document ever existed —
+        // exactly backwards from what a real upgrading user sees (their
+        // documents are already on disk the first time the new build ever
+        // calls RagStore::open()).
+        let dir = std::env::temp_dir().join(format!("conva-rag-migrate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let rag_dir = dir.join("rag");
+        fs::create_dir_all(&rag_dir).unwrap();
+        let id = "doc-legacy";
+        let legacy = StoredDocument {
+            document: RagDocument {
+                id: id.to_string(),
+                file_name: "legacy.txt".into(),
+                enabled: true,
+                chunk_count: 0,
+                ingested_at_unix_ms: 0,
+                source: DocSource::File,
+                context_ids: Vec::new(),
+                size_bytes: 0,
+            },
+            chunks: Vec::new(),
+        };
+        fs::write(
+            rag_dir.join(format!("{id}.json")),
+            serde_json::to_string(&legacy).unwrap(),
+        )
+        .unwrap();
+
+        // First open after the migration ships: the pre-existing document
+        // gets unchecked.
+        let store = RagStore::open(&dir).unwrap();
+        let doc = store.list().into_iter().find(|d| d.id == id).unwrap();
+        assert!(
+            !doc.enabled,
+            "pre-existing document unchecked by the migration"
+        );
+
+        // The owner re-checks it by hand — a later restart must not undo
+        // that (the migration runs exactly once, guarded by its marker).
+        store.set_enabled(id, true).unwrap();
+        drop(store);
+        let restarted = RagStore::open(&dir).unwrap();
+        let doc = restarted.list().into_iter().find(|d| d.id == id).unwrap();
+        assert!(doc.enabled, "manual re-check survives a later restart");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn token_idf_reflects_corpus_rarity() {
         // Distinct dir from the other test — Rust runs tests in parallel.
         let dir = std::env::temp_dir().join(format!("conva-rag-idf-{}", std::process::id()));
@@ -1016,16 +1155,18 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
 
         let store = RagStore::open(&dir).unwrap();
-        // Three chunks: "common" in all; "refrigerant" in one.
-        store
-            .ingest_text("a", "common maintenance details here")
-            .unwrap();
-        store
-            .ingest_text("b", "common refrigerant certification requirement")
-            .unwrap();
-        store
-            .ingest_text("c", "common office hours weekdays")
-            .unwrap();
+        // Three chunks: "common" in all; "refrigerant" in one. Enabled
+        // explicitly — a freshly-ingested document starts unchecked, and
+        // the in-memory BM25 index (which token_idf reads) only covers
+        // enabled documents.
+        for (name, text) in [
+            ("a", "common maintenance details here"),
+            ("b", "common refrigerant certification requirement"),
+            ("c", "common office hours weekdays"),
+        ] {
+            let doc = store.ingest_text(name, text).unwrap().document;
+            store.set_enabled(&doc.id, true).unwrap();
+        }
 
         // The rarity signal (Phase 3b): rarer term → higher IDF.
         assert!(
@@ -1098,6 +1239,9 @@ mod tests {
             .ingest_text("b", "the maintenance plan also covers filters")
             .unwrap()
             .document;
+        // Enabled explicitly — a freshly-ingested document starts unchecked.
+        store.set_enabled(&a.id, true).unwrap();
+        store.set_enabled(&b.id, true).unwrap();
 
         // Unscoped: both documents are eligible.
         let unscoped = store.retrieve("maintenance plan", 5);
@@ -1113,6 +1257,35 @@ mod tests {
         let empty_scope = store.retrieve_scoped("maintenance plan", 5, &[]);
         assert!(empty_scope.iter().any(|c| c.document_id == b.id));
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prepared_qa_snapshot_only_reads_the_active_scope() {
+        let dir = std::env::temp_dir().join(format!("conva-rag-qa-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let store = RagStore::open(&dir).unwrap();
+        let active = store
+            .ingest_text(
+                "Active prep",
+                "## Delivery\nQ: How did you recover the launch?\nA: I reduced scope and shipped in stages.",
+            )
+            .unwrap()
+            .document;
+        let other = store
+            .ingest_text(
+                "Other prep",
+                "Q: What is the private code?\nA: It is outside this Context.",
+            )
+            .unwrap()
+            .document;
+
+        let entries = store.prepared_qa_entries(std::slice::from_ref(&active.id));
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].document_id, active.id);
+        assert_eq!(entries[0].location, "Delivery");
+        assert!(entries.iter().all(|entry| entry.document_id != other.id));
         let _ = fs::remove_dir_all(&dir);
     }
 }

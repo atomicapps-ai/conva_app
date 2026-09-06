@@ -1,78 +1,60 @@
-import type { IconName } from "@/components/ui/Icon";
+import type { LockedIconName } from "@/components/ui/LockedIcon";
 import type { View } from "@/state/nav";
 
 /**
  * The one source of truth for the app's primary navigation, consumed by BOTH
- * the desktop left rail (NavRail) and the web top nav (WebTopNav). `only`
- * omitted → shown on both platforms; set it to gate a row to one.
+ * the desktop left rail (NavRail) and the web top nav (WebTopNav).
+ *
+ * ── AppUI V5.0 (owner-approved, `conva_core@1b007ed`,
+ *    `brand/UI/AppUI_V5.0/HANDOFF.md` §"Navigation (fixed)") ─────────────────
+ *
+ * Primary navigation is EXACTLY these six destinations, in this order:
+ *
+ *   Home · Live Session · Contexts · Library · Coaching · What's Coming
+ *
+ * and they are the whole rail. The rules that came with that decision, written
+ * down here so they don't have to be re-derived from the mockup:
+ *
+ * 1. **Settings is NOT a rail row.** It opens from the gear in the account
+ *    utility row below the user's identity, alongside Notifications and Sign
+ *    out (`NavRail.tsx`). No rail row is active while Settings is open.
+ * 2. **Conversations is a sub-view, not a destination** — reached from Home
+ *    ("View all conversations"), from Live, and from ⌘K. It keeps its `View`
+ *    and its `ViewShell` back/breadcrumb, per CLAUDE.md rule 9.
+ * 3. **Library and Coaching are first-class destinations.** Library was folded
+ *    inside Contexts (2026-08-16) and Rehearsal was folded into Conversations
+ *    (2026-08-17); V5.0 promotes both. The contextual Library dock inside the
+ *    Contexts workspace stays — same documents, different job (attach vs.
+ *    manage), see `LibraryView.tsx`'s header comment.
+ * 4. **Rehearsals is renamed Coaching everywhere**, and Coaching is the
+ *    umbrella: practice templates → coaching setups → coaching sessions.
+ * 5. There is no "Insights" destination, and Ally is still not a rail row —
+ *    it is the Live cockpit's right panel (owner, 2026-08-17; unchanged).
+ * 6. Icons are the **locked** pack (`icons/locked/manifest.json`), rendered by
+ *    `LockedIcon`. Active/inactive change colour and surface only, never
+ *    geometry — so this list stores the locked asset name, not a drawing.
+ *
+ * `only` omitted → shown on both platforms; set it to gate a row to one.
  */
 export type NavItem = {
   view: View;
-  icon: IconName;
+  /** Canonical locked asset (`icons/locked/manifest.json`). */
+  icon: LockedIconName;
   label: string;
   only?: "web" | "desktop";
 };
 
-/**
- * Order + labels follow the V4.0 "Instrument" reference nav's Live/Contexts
- * rows, with the items the mockup doesn't cover — Home and Conversations —
- * appended after it rather than dropped (owner decision, 2026-08-16).
- * "dashboard" (Home) is filtered OUT of the desktop rail specifically in
- * NavRail.tsx — the mockup has no Home row there, only the WindowChrome
- * mark + a small icon above the account block — but stays here so
- * WebTopNav (no equivalent rail-bottom shortcut) still shows it.
- *
- * Ally is NOT its own rail item (owner decision, 2026-08-17). It's the
- * Live session's side panel per the original designer brief
- * (`designer-handoff-2026-08/BRIEF-app-ui.md`, `conva_core`): "an ALLY
- * panel on the right" of the live screen, not its own page — the earlier
- * 2026-08-16 pass added a placeholder page for it by copying the V4.0
- * mockup's reference nav (which lists four rows — Live/Contexts/Ally/
- * Rehearsal — as if they were four independent destinations) without
- * checking whether the app had four separable things to put behind them.
- * `AllyView.tsx` (the placeholder) is deleted, not just unlisted.
- *
- * Rehearsal is NOT its own rail item either (owner decision, 2026-08-17,
- * final form after two earlier passes this same day got it wrong — see
- * git history on this file if the full back-and-forth ever matters).
- * Rehearsal has never been separate code from Contexts: it's Context
- * Phase D, built into it from the start (`roadmap.md` lists "Sim Con
- * rehearsal" under the already-built Conversation Context feature;
- * `conversation-context-ui.md`, owner-approved 2026-08-12, `conva_core`,
- * decision #2: "Rehearsal stays reachable from a context's detail"). It
- * now lives as a launchable tab inside Conversations — "Rehearse"
- * alongside "Saved"/"All activity" (`ConversationsPanel.tsx`) — picking a
- * context there jumps straight to its detail page (personas → start
- * rehearsal) via `state/contextsQuickOpen.ts`'s one-shot intent, same
- * mechanism as ⌘K's quick-add. Grouping it with Conversations rather than
- * Contexts because rehearsing IS a kind of conversation (it saves as one,
- * tagged Sim Con) — Contexts is the prep material, not the act itself.
- *
- * "History" is NOT its own rail item (owner decision, 2026-08-17): it was
- * the automatic per-run session log (`session.rs`) with no UI ever
- * explaining how that differed from Conversations (the named, saved
- * records) — two rail rows for what read as one job. Sessions still get
- * logged exactly as before; they're reachable as the "All activity" filter
- * inside `ConversationsPanel` instead of a sibling destination.
- *
- * Library is NOT its own rail item (owner decision, 2026-08-16, reversing
- * an earlier un-merge of the same date): it lives inside the Contexts
- * screen (`ContextsView` + `LibraryPane`) instead of a separate
- * destination — "don't have library separate... make it part of
- * conversation [Contexts]". Quick-add (add a document / paste a note / new
- * context) from anywhere in the app is ⌘K → the palette jumps to Contexts
- * and triggers the flow — see `state/libraryQuickAdd.ts`.
- *
- * What's Coming (`view: "whatsnew"` → `WhatsComingView` — the view name
- * predates the page rename, left as-is to avoid a wider rename) is back in
- * primary nav, directly above Settings (owner decision, 2026-08-17). What
- * conva does / What's New stay off-rail, reachable from Settings → About.
- */
 export const NAV_ITEMS: NavItem[] = [
-  { view: "dashboard", icon: "home", label: "Home" },
-  { view: "live", icon: "live", label: "Live session" },
-  { view: "context", icon: "simicon", label: "Contexts" },
-  { view: "conversations", icon: "conversations", label: "Conversations" },
-  { view: "whatsnew", icon: "lightbulb", label: "What's Coming" },
-  { view: "settings", icon: "settings", label: "Settings" },
+  { view: "dashboard", icon: "nav-home", label: "Home" },
+  { view: "live", icon: "nav-live-session", label: "Live Session" },
+  { view: "context", icon: "nav-contexts", label: "Contexts" },
+  { view: "library", icon: "nav-library", label: "Library" },
+  { view: "coaching", icon: "nav-coaching", label: "Coaching" },
+  // `view: "whatsnew"` → WhatsComingView; the view name predates the page
+  // rename and is left as-is to avoid a wider rename.
+  { view: "whatsnew", icon: "nav-whats-coming", label: "What's Coming" },
 ];
+
+/** Views that are rail destinations — used to decide whether a view gets a
+ *  breadcrumb/back control (CLAUDE.md rule 9: two levels, never a third). */
+export const RAIL_VIEWS: ReadonlySet<View> = new Set(NAV_ITEMS.map((i) => i.view));

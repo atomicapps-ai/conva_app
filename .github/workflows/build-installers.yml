@@ -1,9 +1,27 @@
 name: Build installers
 
 # Reusable installer build (SDLC §5.2). Called by:
-#   - release.yml  → attaches signed MSI/NSIS/dmg to a DRAFT GitHub Release (on a tag)
+#   - release.yml  → attaches signed MSI/NSIS/dmg to a DRAFT GitHub Release
+#                     **in the public RELEASES_REPOSITORY** (on a tag)
 #   - dev-build.yml → uploads beta bundles as workflow artifacts (on push to dev)
 # The matrix + Vulkan SDK step live here once so the two callers can't drift.
+#
+# conva_app (this repo) is private; installers/update manifests/release notes
+# are public, so a release run publishes to a separate public repo instead of
+# this one — see docs/releasing.md. That needs a cross-repo credential
+# (GITHUB_TOKEN only ever reaches the repo the workflow runs in), so release
+# runs use the RELEASES_REPO_TOKEN secret + explicit owner/repo instead of the
+# default token. Non-release runs (dev-build, workflow_dispatch) never touch
+# the releases repo — they keep using the default GITHUB_TOKEN and just build.
+
+env:
+  # The public releases repo (installers, update manifests, release notes).
+  # Split into owner/name because the `with:` block below needs them separately.
+  RELEASES_REPO_OWNER: atomicapps-ai
+  RELEASES_REPO_NAME: conva_releases
+  # Default branch of RELEASES_REPOSITORY — the only valid target_commitish for
+  # a release created over there. See releaseCommitish below.
+  RELEASES_REPO_BRANCH: main
 
 on:
   workflow_call:
@@ -26,11 +44,24 @@ on:
         type: string
         default: ""
     secrets:
-      # Updater artifact signing. Optional — until the secret is set, plain
-      # installers still build; only the auto-update packages are skipped.
-      TAURI_SIGNING_PRIVATE_KEY:
+      # Master key for the committed env/*.enc files (env/README.md) — the
+      # ONE secret this repo's owner has to set in the GitHub UI. Everything
+      # it unlocks (TAURI_SIGNING_PRIVATE_KEY[_PASSWORD] today) lives as an
+      # encrypted, committed file instead: rotating the signing key from now
+      # on is `edit .env.<env>.sec` → `npm run env:encrypt:<env>` → commit,
+      # never a return trip to Settings → Secrets. Optional — without it,
+      # plain installers still build; only the auto-update packages are
+      # skipped (same fallback the old direct secrets gave).
+      CONVA_ENV_KEY:
         required: false
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+      # Fine-grained PAT scoped to ONLY the public RELEASES_REPOSITORY
+      # (Contents: Read and write) — lets this build attach installers +
+      # latest.json to a release over there instead of in this private repo.
+      # Optional here too: a release run without it fails fast at the "Build
+      # installers" step with a clear GitHub API auth error rather than
+      # silently drafting into the wrong (private) repo. Never required for
+      # non-release runs, which don't touch the releases repo at all.
+      RELEASES_REPO_TOKEN:
         required: false
 
 permissions:
@@ -93,19 +124,76 @@ jobs:
 
       - run: npm ci
 
+      # Decrypt the committed env/*.enc secrets (env/README.md) straight into
+      # $GITHUB_ENV, so "Build installers" below can read them without ever
+      # printing them to the log. A release run is always `prod`; dev-build
+      # and workflow_dispatch runs use `dev` — same TAURI_SIGNING_PRIVATE_KEY
+      # value either way today (.env.dev.sec/.env.prod.sec share one keypair,
+      # per those files' own comment: the updater pubkey in tauri.conf.json is
+      # fixed, so the private key must match across envs), kept per-env for
+      # when that stops being true. The key stays OPTIONAL during rollout —
+      # unset just means unsigned installers, exactly the old secrets-unset
+      # fallback — but that check has to happen INSIDE the step: the `secrets`
+      # context is not available in a step `if:`, and using it there is a
+      # workflow PARSE error, which fails the whole run before a single job is
+      # scheduled (it is why every release run since d22a811 died instantly
+      # with 0 jobs, and why the v0.3.2 tag could never have built either).
+      - name: Decrypt signing secrets (env/*.enc)
+        shell: bash
+        env:
+          CONVA_ENV_KEY: ${{ secrets.CONVA_ENV_KEY }}
+          CONVA_ENV_NAME: ${{ inputs.release && 'prod' || 'dev' }}
+        run: |
+          if [ -z "${CONVA_ENV_KEY:-}" ]; then
+            echo "CONVA_ENV_KEY is not set — skipping decryption."
+            echo "Installers will still build; update artifacts are skipped."
+            exit 0
+          fi
+          # Decrypt to a temp file first: piping straight into $GITHUB_ENV would
+          # append the CLI's error text as bogus env lines when the key is wrong.
+          out="$(mktemp)"
+          if ! node env/cli.mjs print "$CONVA_ENV_NAME" > "$out"; then
+            rm -f "$out"
+            echo "::error::CONVA_ENV_KEY does not match the key that encrypted .env.$CONVA_ENV_NAME.sec.enc."
+            echo "::error::The secret is set but cannot open the committed file, so the updater signing key is unreachable."
+            echo "::error::Fix either side: re-paste the correct master key as the CONVA_ENV_KEY secret, or re-encrypt with the key GitHub holds (npm run env:encrypt:$CONVA_ENV_NAME) and commit. See docs/releasing.md."
+            exit 1
+          fi
+          cat "$out" >> "$GITHUB_ENV"
+          rm -f "$out"
+
       - name: Build installers
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Release runs publish cross-repo (see the top-of-file note) and need
+          # a PAT that can write releases in RELEASES_REPOSITORY; the default
+          # GITHUB_TOKEN can only ever act on the repo the workflow runs in, so
+          # it's used as-is for non-release runs, which don't publish anywhere.
+          GITHUB_TOKEN: ${{ inputs.release && secrets.RELEASES_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          # On a release the tag drives the GitHub Release; otherwise these are
-          # empty and tauri-action just builds (bundles uploaded below).
+          # On a release the tag drives the GitHub Release, created in the
+          # public RELEASES_REPOSITORY (owner/repo below) instead of this
+          # private repo; otherwise these are all empty and tauri-action just
+          # builds (bundles uploaded below).
+          owner: ${{ inputs.release && env.RELEASES_REPO_OWNER || '' }}
+          repo: ${{ inputs.release && env.RELEASES_REPO_NAME || '' }}
           tagName: ${{ inputs.release && inputs.tag_name || '' }}
           releaseName: ${{ inputs.release && inputs.release_name || '' }}
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release }}
+          # The tag is created in RELEASES_REPOSITORY, so the commitish it
+          # points at must exist THERE. tauri-action defaults releaseCommitish
+          # to the current commit's SHA — which is a conva_app SHA and means
+          # nothing in conva_releases, so GitHub rejects the create with
+          #   Validation Failed: {"resource":"Release","code":"invalid",
+          #                       "field":"target_commitish"}
+          # after a full, successful, signed build (v0.3.3, run 33925551829).
+          # Pin it to that repo's default branch instead. Only consulted when
+          # the tag doesn't already exist there; the release notes and the
+          # artifacts still come from this repo's tag.
+          releaseCommitish: ${{ inputs.release && env.RELEASES_REPO_BRANCH || '' }}
           args: ${{ matrix.args }}
 
       # Non-release (dev/beta or workflow_dispatch) builds keep the bundles as

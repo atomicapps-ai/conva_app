@@ -278,4 +278,126 @@ describe("ContextSetup wizard", () => {
     expect(await screen.findByText(genDoc.file_name)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^View /i })).toBeNull();
   });
+
+  it("shows the selected category's slot section labels, and switches them on category change", async () => {
+    renderSetup();
+    const name = await screen.findByPlaceholderText(/Senior Accountant interview/i);
+    fireEvent.change(name, { target: { value: "New one" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    // Interview is the default type.
+    expect(screen.getByRole("heading", { name: /résumé \/ cv/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /job description/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /take-home \/ test \(multiple\)/i }),
+    ).toBeInTheDocument();
+
+    // Two "Back" buttons share this accessible name — ViewShell's own header
+    // chevron (rendered whenever `onBack` is passed, unrelated to the
+    // wizard) and the wizard's own step-nav button. The wizard's is the one
+    // rendered second (DOM order: header chrome, then the step footer).
+    fireEvent.click(screen.getAllByRole("button", { name: "Back" })[1]!);
+    fireEvent.click(screen.getByRole("button", { name: "Company meeting" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(
+      screen.getByRole("heading", { name: /financials \/ reports \(multiple\)/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /résumé \/ cv/i })).toBeNull();
+  });
+
+  it("shows the category's digest-section preview under the Type picker (Step 1)", async () => {
+    renderSetup();
+    await screen.findByRole("button", { name: "Interview" });
+    expect(
+      screen.getByText(
+        "Ally will generate: Role profile, Core vocabulary, Likely questions & strong answers, Facts & figures",
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    expect(
+      screen.getByText("Ally will generate: Core vocabulary, Summary, Likely questions"),
+    ).toBeInTheDocument();
+  });
+
+  it("attaching a doc via a slot's own checkbox adds it to both selected and slotDocIds in the save payload", async () => {
+    const save = vi.fn().mockResolvedValue({ id: "s1" });
+    const prepare = vi.fn().mockResolvedValue({ id: "s1" });
+    const resumeDoc = {
+      id: "d1",
+      file_name: "resume.pdf",
+      enabled: true,
+      chunk_count: 1,
+      ingested_at_unix_ms: 0,
+      source: "file" as const,
+      context_ids: [],
+      size_bytes: 100,
+    };
+    const backend = {
+      rag: { list: vi.fn().mockResolvedValue([resumeDoc]) },
+      context: { save, prepare },
+      capabilities: vi.fn().mockResolvedValue(null),
+    } as unknown as ConvaBackend;
+
+    render(
+      <BackendProvider backend={backend}>
+        <ContextSetup onDone={() => undefined} onCancel={() => undefined} />
+      </BackendProvider>,
+    );
+
+    const name = await screen.findByPlaceholderText(/Senior Accountant interview/i);
+    fireEvent.change(name, { target: { value: "New one" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await screen.findAllByText("resume.pdf");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Attach resume.pdf to Résumé / CV" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    const payload = save.mock.calls[0][0];
+    expect(payload.source_doc_ids).toEqual(["d1"]);
+    expect(payload.slot_doc_ids).toEqual({ resume: ["d1"] });
+  });
+
+  it("'Other documents' still attaches a doc via its flat checkbox without filing it under any slot", async () => {
+    const save = vi.fn().mockResolvedValue({ id: "s1" });
+    const prepare = vi.fn().mockResolvedValue({ id: "s1" });
+    const miscDoc = {
+      id: "d1",
+      file_name: "misc.txt",
+      enabled: true,
+      chunk_count: 1,
+      ingested_at_unix_ms: 0,
+      source: "file" as const,
+      context_ids: [],
+      size_bytes: 50,
+    };
+    const backend = {
+      rag: { list: vi.fn().mockResolvedValue([miscDoc]) },
+      context: { save, prepare },
+      capabilities: vi.fn().mockResolvedValue(null),
+    } as unknown as ConvaBackend;
+
+    render(
+      <BackendProvider backend={backend}>
+        <ContextSetup onDone={() => undefined} onCancel={() => undefined} />
+      </BackendProvider>,
+    );
+
+    const name = await screen.findByPlaceholderText(/Senior Accountant interview/i);
+    fireEvent.change(name, { target: { value: "New one" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    await screen.findAllByText("misc.txt");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Attach misc.txt" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    const payload = save.mock.calls[0][0];
+    expect(payload.source_doc_ids).toEqual(["d1"]);
+    expect(payload.slot_doc_ids).toEqual({});
+  });
 });

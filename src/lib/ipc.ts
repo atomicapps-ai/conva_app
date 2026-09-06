@@ -6,6 +6,12 @@
  * mirror later in Phase 1).
  */
 
+/**
+ * Legacy two-side model. The versioned capture/source/event contract (browser
+ * product architecture M0) lives in `@/lib/capture/contract` — mirror of
+ * `crates/conva-core/src/capture_contract.rs` — and maps these additively:
+ * `outbound → self`, `inbound → remote_mix`. Nothing here changed.
+ */
 export type StreamSide = "inbound" | "outbound";
 
 export const EVENTS = {
@@ -21,6 +27,7 @@ export const EVENTS = {
   authChanged: "conva://auth-changed",
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
+  splashProgress: "conva://splash-progress",
 } as const;
 
 export interface TranscriptSegment {
@@ -155,8 +162,29 @@ export interface ScoredChunk {
   score: number;
 }
 
+export type RetrievalKind = "prepared_hit" | "evidence_hit" | "miss";
+export type BridgeKind =
+  | "evidence"
+  | "comparison"
+  | "process"
+  | "behavioral"
+  | "rationale"
+  | "definition"
+  | "boundary"
+  | "framework";
+
+export interface BridgeResponse {
+  kind: BridgeKind;
+  text: string;
+}
+
 export interface RadarEvent {
+  turn_id: string;
+  source_key: string;
   question: string;
+  outcome: RetrievalKind;
+  confidence: number;
+  bridge: BridgeResponse;
   sources: ScoredChunk[];
 }
 
@@ -284,6 +312,7 @@ export type ContextCategory =
   | "interview"
   | "company_meeting"
   | "sales_call"
+  | "live_stream"
   | "other";
 
 /** Lifecycle of a Context, start to finish. */
@@ -294,6 +323,12 @@ export type ContextStatus =
   | "running"
   | "ended";
 
+/** The avatar gender presentation a generated persona was assigned — Ally's
+ *  choice, cosmetic only (drives which silhouette icon the counterparty
+ *  cards show). `undefined`/absent for personas generated before this
+ *  field existed, or when the model's answer didn't parse as male/female. */
+export type PersonaGender = "male" | "female";
+
 /** One generated counterparty persona/strategy option (3 per context). */
 export interface ContextPersona {
   id: string;
@@ -301,6 +336,7 @@ export interface ContextPersona {
   summary: string;
   style_tags: string[];
   recommended: boolean;
+  gender?: PersonaGender | null;
 }
 
 /** A web-research source folded into a knowledge profile. */
@@ -336,6 +372,12 @@ export interface ConversationContext {
   updated_at_unix_ms: number;
   /** Library docs attached at setup (Path A) — RagDocument ids. */
   source_doc_ids: string[];
+  /** Which attached doc ids are filed under which of the category's file
+   * slots, keyed by slot key (see `categoryTemplates.ts`'s `ContextFileSlot`).
+   * Purely organizational for the setup/detail UI. Optional: older records
+   * (and any object literal that predates this field) read as empty —
+   * every doc renders as unslotted ("Other documents") until re-filed. */
+  slot_doc_ids?: Record<string, string[]>;
   /** Whether Ally should auto-generate context (Path B) during ingest. */
   auto_generate_context: boolean;
   /** Whether web research runs during prep — defaults from the type template,
@@ -401,6 +443,17 @@ export type ModelStatusEvent =
   | { state: "ready"; model: string }
   | { state: "error"; model: string; message: string };
 
+/** Startup progress for the splash window — each stage is a real,
+ *  completed background-initialization milestone. `percent`
+ *  strictly increases across the sequence; there is no "100" stage —
+ *  the splash closes once the main window's own `init()` resolves. */
+export type SplashProgressEvent =
+  | { stage: "started"; percent: number }
+  | { stage: "library_loaded"; percent: number }
+  | { stage: "workspace_ready"; percent: number }
+  | { stage: "almost_ready"; percent: number }
+  | { stage: "failed"; percent: number; message: string };
+
 /** Mirror of conva-core llm::ProviderId (snake_case serde). */
 export type ProviderId =
   | "anthropic"
@@ -465,6 +518,9 @@ export interface UsageSummary {
   tavily_searches: number;
   /** TTS characters synthesized (Aura bills per character). */
   tts_characters: number;
+  /** Milliseconds an active session (Live or rehearsal) has run, summed
+   *  across every stop. */
+  listening_ms: number;
   /** When the current window opened (first record / last reset); 0 = never. */
   since_unix_ms: number;
   updated_at_unix_ms: number;
@@ -481,6 +537,17 @@ export interface AppConfig {
   tracker_enabled: boolean;
   vad_neural: boolean;
   vad_sensitivity: number;
+  /** Screenshot button's save folder override (right-click → "Set save
+   *  location…"). `null` = the default `<Pictures>/conva-screenshots/`. */
+  screenshot_save_dir: string | null;
+  /** Display name for the account block (rail, Home greeting, Settings →
+   *  Account). AppUI V5.0 decision 6: production shows the REAL user, so this
+   *  is the user's own text, edited in Settings. `null` = fall back to the
+   *  account email's local part — never a fabricated name. */
+  profile_display_name: string | null;
+  /** The user's own role/title line under their name. `null` renders no role
+   *  at all rather than guessing one. */
+  profile_role: string | null;
 }
 
 /** Mirror of conva-core audio::AudioDevice. */

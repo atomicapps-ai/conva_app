@@ -153,20 +153,33 @@ export function ViewHistory({
               </div>
             ) : e.item.group === "question" && e.item.radar ? (
               <div className="flex flex-col gap-1">
-                {e.item.radar.sources.length === 0 ? (
-                  <p className="text-[0.86em] text-fg-faint">
-                    No instant match in your documents — Elaborate for a full
-                    answer.
+                <p className="font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-primary">
+                  Say now
+                </p>
+                <p className="text-[0.9em] font-medium leading-relaxed text-fg">
+                  {e.item.radar.bridge.text}
+                </p>
+                {e.item.radar.outcome === "miss" ? (
+                  <p className="mt-1 text-[0.8em] text-fg-faint">
+                    No confident match in this Context — a refined answer is
+                    starting in Answers.
                   </p>
                 ) : (
-                  e.item.radar.sources.slice(0, e.expanded ? 8 : 2).map((s, i) => (
-                    <p key={i} className="text-[0.86em] leading-relaxed text-fg-muted">
-                      <span className="font-mono text-[9px] text-fg-faint">
-                        {s.file_name} · {s.location} —{" "}
-                      </span>
-                      {s.text}
-                    </p>
-                  ))
+                  <div className="mt-1 border-t border-border/60 pt-1">
+                    {e.item.radar.sources
+                      .slice(0, e.expanded ? 8 : 2)
+                      .map((s, i) => (
+                        <p
+                          key={i}
+                          className="text-[0.82em] leading-relaxed text-fg-muted"
+                        >
+                          <span className="font-mono text-[9px] text-fg-faint">
+                            {s.file_name} · {s.location} —{" "}
+                          </span>
+                          {s.text}
+                        </p>
+                      ))}
+                  </div>
                 )}
               </div>
             ) : (

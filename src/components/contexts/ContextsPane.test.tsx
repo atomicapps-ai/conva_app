@@ -59,17 +59,37 @@ const defaultProps = {
 };
 
 describe("ContextsPane", () => {
-  it("disables Generate until the context has a grounding source, and the status pill explains why", () => {
+  it("disables Generate until the context has a grounding source; the info popover's Status explains why for drafts", () => {
     renderPane(<ContextsPane {...defaultProps} items={[summary()]} />);
     expect(
       screen.getByRole("button", { name: /generate resources for acme interview/i }),
     ).toBeDisabled();
-    // The readiness checklist now lives in the status pill's hover tooltip,
-    // not always-visible text.
-    expect(screen.getByText("Draft")).toHaveAttribute(
-      "title",
-      expect.stringContaining("At least one grounding source"),
+    // The row is one line now (owner, 2026-08-28) — the status dot carries
+    // just the plain label on hover; the readiness checklist moved behind
+    // the "i" info popover.
+    expect(screen.getByTitle("Draft")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /info for acme interview/i }));
+    expect(screen.getByText(/at least one grounding source/i)).toBeInTheDocument();
+  });
+
+  it("each row's pictogram matches its own category, not a shared generic icon", () => {
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        items={[
+          summary({ id: "s1", title: "Acme interview", category: "interview" }),
+          summary({ id: "s2", title: "Board sync", category: "company_meeting" }),
+          summary({ id: "s3", title: "Acme discovery call", category: "sales_call" }),
+          summary({ id: "s4", title: "Weekly show", category: "live_stream" }),
+          summary({ id: "s5", title: "War stories", category: "other" }),
+        ]}
+      />,
     );
+    expect(screen.getByTitle("Interview")).toBeInTheDocument();
+    expect(screen.getByTitle("Company meeting")).toBeInTheDocument();
+    expect(screen.getByTitle("Sales call")).toBeInTheDocument();
+    expect(screen.getByTitle("Live stream")).toBeInTheDocument();
+    expect(screen.getByTitle("Other")).toBeInTheDocument();
   });
 
   it("enables Generate once key terms are declared, and calls onGenerate", () => {
@@ -95,10 +115,11 @@ describe("ContextsPane", () => {
     expect(screen.queryByRole("button", { name: "Add a New Context" })).toBeNull();
   });
 
-  it("shows Open, Edit, Regenerate, and Delete as direct icon buttons — no overflow menu", () => {
+  it("the title opens the context directly; the doc-count control selects it (focuses Library) — no overflow menu, no separate chevron", () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
     const onOpen = vi.fn();
+    const onSelect = vi.fn();
     renderPane(
       <ContextsPane
         {...defaultProps}
@@ -106,6 +127,7 @@ describe("ContextsPane", () => {
         onEdit={onEdit}
         onDelete={onDelete}
         onOpen={onOpen}
+        onSelect={onSelect}
       />,
     );
     // No overflow menu of any kind.
@@ -114,6 +136,11 @@ describe("ContextsPane", () => {
     fireEvent.click(screen.getByRole("button", { name: /open acme interview/i }));
     expect(onOpen).toHaveBeenCalledWith("s1");
 
+    fireEvent.click(
+      screen.getByRole("button", { name: /show documents for acme interview in library/i }),
+    );
+    expect(onSelect).toHaveBeenCalledWith("s1");
+
     fireEvent.click(screen.getByRole("button", { name: /edit setup for acme interview/i }));
     expect(onEdit).toHaveBeenCalledWith("s1");
 
@@ -121,14 +148,52 @@ describe("ContextsPane", () => {
     expect(onDelete).toHaveBeenCalledWith("s1");
   });
 
-  it("Ready contexts' status pill carries no readiness tooltip", () => {
+  it("selecting a context never highlights the row body — only the doc-count icon reflects it", () => {
+    renderPane(
+      <ContextsPane {...defaultProps} items={[summary()]} selectedId="s1" />,
+    );
+    const row = screen.getByRole("button", { name: /open acme interview/i }).closest("li");
+    expect(row).not.toHaveClass("border-primary/40");
+    expect(row).toHaveClass("border-border");
+
+    const docCountBtn = screen.getByRole("button", {
+      name: /show documents for acme interview in library/i,
+    });
+    expect(docCountBtn).toHaveClass("bg-primary/10");
+    expect(docCountBtn).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("the Default context's row carries a distinct border — it's a template, not an owner-made context", () => {
     renderPane(
       <ContextsPane
         {...defaultProps}
-        items={[summary({ status: "ready", has_key_terms: true })]}
+        items={[summary({ id: DEFAULT_CONTEXT_ID, title: "General conversation" })]}
       />,
     );
-    expect(screen.getByText("Ready")).not.toHaveAttribute("title");
+    expect(screen.getByRole("button", { name: /open general conversation/i }).closest("li")).toHaveClass(
+      "border-notice/40",
+    );
+  });
+
+  it("Ready contexts' info popover shows Type/Status/Updated and no readiness checklist", () => {
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        items={[
+          summary({
+            status: "ready",
+            has_key_terms: true,
+            updated_at_unix_ms: Date.now() - 3_600_000,
+          }),
+        ]}
+      />,
+    );
+    expect(screen.getByTitle("Ready")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /info for acme interview/i }));
+    expect(screen.getByText("Interview")).toBeInTheDocument();
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.getByText(/ago$/)).toBeInTheDocument();
+    expect(screen.queryByText(/at least one grounding source/i)).toBeNull();
   });
 
   it("Regenerate's tooltip reads 'Never regenerated' until the context has one, then the relative time", () => {
@@ -190,5 +255,38 @@ describe("ContextsPane", () => {
     // flushes it.
     const titleBtn = await screen.findByTitle(/1500 B total|1\.5 KB total/i);
     expect(titleBtn).toHaveTextContent("Acme interview");
+  });
+
+  it("the search box filters rows by title", () => {
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        items={[summary({ id: "s1", title: "Acme interview" }), summary({ id: "s2", title: "Weekly sync" })]}
+      />,
+    );
+    expect(screen.getByText("Acme interview")).toBeInTheDocument();
+    expect(screen.getByText("Weekly sync")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("textbox", { name: /search contexts/i }), {
+      target: { value: "weekly" },
+    });
+    expect(screen.queryByText("Acme interview")).toBeNull();
+    expect(screen.getByText("Weekly sync")).toBeInTheDocument();
+  });
+
+  it("the Category filter narrows rows to the selected category", () => {
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        items={[
+          summary({ id: "s1", title: "Acme interview", category: "interview" }),
+          summary({ id: "s2", title: "Beta sales call", category: "sales_call" }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^filter$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Sales call" }));
+    expect(screen.queryByText("Acme interview")).toBeNull();
+    expect(screen.getByText("Beta sales call")).toBeInTheDocument();
   });
 });

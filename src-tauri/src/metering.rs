@@ -181,6 +181,14 @@ pub fn record_tts_characters(app: &AppHandle, chars: u64) {
     persist(app, &ledger);
 }
 
+/// Add `ms` of listening time (Live or rehearsal), then persist. Best-effort.
+pub fn record_listening_ms(app: &AppHandle, ms: u64) {
+    let state = app.state::<AppState>();
+    let mut ledger = state.usage.lock().expect("usage lock");
+    ledger.record_listening_ms(ms, now_unix_ms());
+    persist(app, &ledger);
+}
+
 /// The Settings → Usage snapshot.
 pub fn summary(app: &AppHandle) -> UsageSummary {
     let state = app.state::<AppState>();

@@ -25,6 +25,7 @@ import type {
   RagDocument,
   SecretsStatus,
   SessionSummary,
+  SplashProgressEvent,
   TranscriptSegment,
   UsageSummary,
   WhisperModelInfo,
@@ -281,6 +282,32 @@ export function saveDebugLog(contents: string): Promise<string> {
   return invoke<string>("save_debug_log", { contents });
 }
 
+/** Print one line to this process's own stderr — the terminal `npm run
+ *  tauri:gpu` was launched from — for pipelines that run mostly in the
+ *  webview (whose `console.*` only ever reaches webview devtools, never
+ *  this terminal) and need a diagnostic trail visible without opening
+ *  them. Fire-and-forget; failures here are never worth surfacing. */
+export function screenshotTrace(msg: string): Promise<void> {
+  return invoke("screenshot_trace", { msg });
+}
+
+/** Write a captured screenshot (base64 PNG) to the Screenshot button's
+ *  current save folder; resolves to the saved path. */
+export function saveScreenshot(pngBase64: string): Promise<string> {
+  return invoke<string>("save_screenshot", { pngBase64 });
+}
+
+/** The Screenshot button's current effective save folder (the configured
+ *  override, or the default `<Pictures>/conva-screenshots/`). */
+export function screenshotsDir(): Promise<string> {
+  return invoke<string>("screenshots_dir");
+}
+
+/** Reveal the Screenshot button's current save folder in the OS file manager. */
+export function openScreenshotsFolder(): Promise<void> {
+  return invoke("open_screenshots_folder");
+}
+
 /**
  * Create or update a named conversation. Passing an existing `id` replaces
  * the stored record with this (fuller) transcript — append semantics.
@@ -434,6 +461,10 @@ export function sessionLoad(id: string): Promise<TranscriptSegment[]> {
   return invoke<TranscriptSegment[]>("session_load", { id });
 }
 
+export function sessionDelete(id: string): Promise<void> {
+  return invoke("session_delete", { id });
+}
+
 export function exportTranscript(
   path: string,
   segments: TranscriptSegment[],
@@ -476,6 +507,33 @@ export function toggleHud(): Promise<boolean> {
 /** Whether the floating HUD panel is currently open. */
 export function hudIsOpen(): Promise<boolean> {
   return invoke<boolean>("hud_is_open");
+}
+
+// --- Splash window (src-tauri/src/splash.rs) ---------------------------------
+
+/** Show the main window and close the splash. Call only after
+ *  `waitForStartup()` and the app's first `init()` round-trip complete. */
+export function finishSplash(): Promise<void> {
+  return invoke("finish_splash");
+}
+
+/** Wait until the backend has fully constructed AppState. This must be the
+ *  first desktop command the main application invokes. */
+export function waitForStartup(): Promise<void> {
+  return invoke("wait_for_startup");
+}
+
+/** Latest startup-progress stage — the splash view calls this once on mount to
+ *  seed its bar, since stages emitted before its event listener registered
+ *  would otherwise be lost. */
+export function getSplashProgress(): Promise<SplashProgressEvent> {
+  return invoke<SplashProgressEvent>("get_splash_progress");
+}
+
+/** Reveal the splash after its artwork has decoded, avoiding WebView2's blank
+ *  pre-navigation native window. */
+export function showSplash(): Promise<void> {
+  return invoke("show_splash");
 }
 
 // --- Partner window (src-tauri/src/partner.rs) -------------------------------

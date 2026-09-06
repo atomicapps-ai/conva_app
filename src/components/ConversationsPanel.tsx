@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useBackend } from "@/lib/backend";
+import { useCapabilities } from "@/lib/backend/context";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
+import { ListRow } from "@/components/ui/ListRow";
+import { formatTranscriptForViewer } from "@/lib/formatTranscript";
 import {
   DEFAULT_CONTEXT_ID,
   type Conversation,
@@ -16,6 +19,7 @@ import { groupTurns } from "@/lib/turns";
 import { useConversationStore } from "@/state/conversation";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useNavStore } from "@/state/nav";
+import { isWeb } from "@/lib/platform";
 import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
 
@@ -30,14 +34,6 @@ const STATUS_LABEL: Record<ContextSummary["status"], string> = {
   ready: "Ready",
   running: "Running",
   ended: "Ended",
-};
-
-const STATUS_TONE: Record<ContextSummary["status"], string> = {
-  draft: "pill-idle",
-  ingesting: "pill-accent",
-  ready: "pill-ready",
-  running: "pill-accent",
-  ended: "pill-idle",
 };
 
 type Filter = "saved" | "all" | "rehearse" | "search";
@@ -184,11 +180,13 @@ function findMatches(
  */
 export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const backend = useBackend();
+  const caps = useCapabilities();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [contexts, setContexts] = useState<ContextSummary[]>([]);
   const [docs, setDocs] = useState<RagDocument[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [analyzing, setAnalyzing] = useState(false);
   const openId = useConversationStore((s) => s.openId);
   const title = useConversationStore((s) => s.title);
@@ -347,8 +345,11 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
         loadPastSession(hit.rowId, cached ?? (await backend.sessions.load(hit.rowId)));
       }
       useTranscriptJump.getState().request(hit.turnKey, searchQuery.trim());
+      // No `onClose()` here — see the note on `open` below. This panel
+      // navigates to Live itself; calling onClose (== backToHome ==
+      // setView("dashboard")) right after would synchronously clobber the
+      // "live" view we just set, in the same tick.
       setView("live");
-      onClose();
     } catch (e) {
       setNotice(String(e));
     }
@@ -357,7 +358,15 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const open = async (id: string) => {
     try {
       openConversation(await backend.conversations.load(id));
-      onClose();
+      // Deliberately no `onClose()` after this. `onClose` in production is
+      // always `backToHome` (`ViewRouter.tsx`'s only call site) — a
+      // synchronous `setView("dashboard")` — and calling it right after
+      // `setView("live")` overwrote "live" back to "dashboard" in the same
+      // tick, silently stranding the app on Home instead of the
+      // conversation it just opened. Once we've navigated to Live
+      // ourselves, this panel unmounts via the view change regardless, so
+      // onClose has nothing left to do.
+      setView("live");
     } catch (e) {
       setNotice(String(e));
     }
@@ -366,7 +375,35 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const openPastSession = async (id: string) => {
     try {
       loadPastSession(id, await backend.sessions.load(id));
-      onClose();
+      // See the note on `open` above — same reasoning, same fix.
+      setView("live");
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
+
+  // Read-only transcript viewer (owner request, 2026-09-04) — opens the
+  // partner window with the conversation formatted as plain, readable
+  // speaker-labeled text (`formatTranscriptForViewer`), same "it IS the
+  // viewer" surface every other "open in viewer" affordance in the app
+  // routes to (CLAUDE.md rule 10) — never a second internal viewer. On web
+  // (no partner window) this falls back to the ordinary Live open below
+  // rather than inventing a second surface just for this.
+  const openViewer = async (id: string, title: string) => {
+    try {
+      if (!caps?.system.partnerWindow) return void (await open(id));
+      const conv = await backend.conversations.load(id);
+      await backend.partner.open(title, null, null, formatTranscriptForViewer(conv.segments), []);
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
+
+  const openPastSessionViewer = async (id: string, title: string) => {
+    try {
+      if (!caps?.system.partnerWindow) return void (await openPastSession(id));
+      const segments = await backend.sessions.load(id);
+      await backend.partner.open(title, null, null, formatTranscriptForViewer(segments), []);
     } catch (e) {
       setNotice(String(e));
     }
@@ -375,7 +412,6 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const rehearse = (id: string) => {
     useContextsQuickOpen.getState().request(id);
     setView("context");
-    onClose();
   };
 
   const remove = async (id: string) => {
@@ -388,8 +424,34 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const deleteSelected = async () => {
+    const ids = Array.from(selected);
+    try {
+      await Promise.all(
+        ids.map((key) =>
+          key.startsWith("c-")
+            ? backend.conversations.delete(key.slice(2))
+            : backend.sessions.delete(key.slice(2)),
+        ),
+      );
+    } catch (e) {
+      setNotice(String(e));
+    } finally {
+      if (selected.has(`c-${openId}`)) newConversation();
+      setSelected(new Set());
+      await refresh();
+    }
+  };
+
   const exportShown = async () => {
     try {
+      // Web: no native dialog — the browser owns where a download lands, and
+      // the Markdown is built in the tab (nothing is sent anywhere).
+      if (isWeb) {
+        await backend.sessions.exportTranscript("conva-transcript.md", shownSegments);
+        setNotice("Downloaded conva-transcript.md");
+        return;
+      }
       const { save } = await import("@tauri-apps/plugin-dialog");
       const path = await save({
         defaultPath: "conva-transcript.md",
@@ -414,6 +476,11 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
     setAnalyzing(true);
     try {
       const report = await backend.sessions.analyzeConversation(openId);
+      if (isWeb) {
+        await backend.sessions.writeTextFile("conva-analysis.md", report);
+        setNotice("Downloaded conva-analysis.md");
+        return;
+      }
       const { save } = await import("@tauri-apps/plugin-dialog");
       const path = await save({
         defaultPath: "conva-analysis.md",
@@ -444,9 +511,14 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   return (
     <ViewShell
       icon="conversations"
+      // AppUI V5.0 decision 2: Conversations is a SUB-VIEW now, not a rail
+      // destination — so it gets the breadcrumb + back chevron that CLAUDE.md
+      // rule 9 reserves for exactly that. Home owns it ("View all
+      // conversations"), which is where `onClose` returns to.
+      breadcrumb="Home"
+      onBack={onClose}
       title="Conversations"
       subtitle="Every listening run is saved automatically — name one to keep it as a conversation you can reopen and continue."
-      onBack={onClose}
       badge={
         openId ? (
           <span className="pill pill-sm pill-ally max-w-[14rem] truncate">open: {title}</span>
@@ -507,7 +579,10 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
           <button
             key={f.key}
             type="button"
-            onClick={() => setFilter(f.key)}
+            onClick={() => {
+              setFilter(f.key);
+              setSelected(new Set());
+            }}
             className={[
               "rounded-full border px-2 py-0.5 text-[11px] transition",
               filter === f.key
@@ -591,7 +666,13 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
                     <button
                       type="button"
                       onClick={() => void openSearchHit(hit)}
-                      className="row w-full flex-col items-start gap-0.5 !py-1.5"
+                      className="row w-full flex-col items-start gap-0.5 border-l-[3px] !py-1.5"
+                      style={{
+                        borderLeftColor:
+                          hit.rowKind === "conversation"
+                            ? "var(--color-primary)"
+                            : "var(--color-fg-faint)",
+                      }}
                     >
                       <div className="flex w-full min-w-0 items-center gap-2">
                         <Icon
@@ -627,24 +708,16 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
             rehearse against it.
           </div>
         ) : (
-          <ul className="flex flex-col gap-1.5">
+          <ul className="flex flex-col gap-1">
             {contexts.map((c) => (
               <li key={c.id}>
-                <button
-                  type="button"
+                <ListRow
+                  accent="ai"
+                  title={c.title}
+                  badge={{ text: STATUS_LABEL[c.status], tone: "ai" }}
+                  date={`${c.source_doc_count} doc${c.source_doc_count === 1 ? "" : "s"}`}
                   onClick={() => rehearse(c.id)}
-                  title={`Rehearse against "${c.title}"`}
-                  className="row w-full"
-                >
-                  <Icon name="rehearsal" size={14} className="shrink-0 text-fg-faint" />
-                  <span className="truncate text-xs text-fg">{c.title}</span>
-                  <span className={`pill pill-sm ${STATUS_TONE[c.status]} shrink-0`}>
-                    {STATUS_LABEL[c.status]}
-                  </span>
-                  <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">
-                    {c.source_doc_count} doc{c.source_doc_count === 1 ? "" : "s"}
-                  </span>
-                </button>
+                />
               </li>
             ))}
           </ul>
@@ -656,71 +729,88 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
             : "Nothing recorded yet — start a live session to begin."}
         </div>
       ) : (
-        <ul className="flex flex-col gap-1.5">
-          {rows.map((row) =>
-            row.kind === "conversation" ? (
-              <li key={`c-${row.id}`} className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void open(row.id)}
-                  className={`row min-w-0 flex-1 ${row.id === openId ? "border-ai/60" : ""}`}
-                >
-                  <span className="truncate text-xs text-fg">{row.data.title}</span>
-                  <span className="font-mono text-[11px] text-fg-muted">
-                    {formatDate(row.data.updated_at_unix_ms)}
-                  </span>
-                  <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">
-                    {row.data.segment_count} segments
-                    {row.data.linked_docs.length > 0 &&
-                      ` · ${row.data.linked_docs.length} linked doc(s)`}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void remove(row.id)}
-                  aria-label={`Delete conversation ${row.data.title}`}
-                  title="Delete"
-                  className="shrink-0 rounded-sm p-1 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
-                >
-                  <Icon name="trash" size={13} />
-                </button>
-              </li>
-            ) : (
-              <li key={`s-${row.id}`}>
-                <button
-                  type="button"
-                  onClick={() => void openPastSession(row.id)}
-                  className="row w-full"
-                >
-                  <span className="font-mono text-[11px] text-fg-muted">
-                    {formatDate(row.data.started_at_unix_ms)}
-                  </span>
-                  {row.data.is_rehearsal && (
-                    <span
-                      title={
-                        row.data.simcon_title
-                          ? `Context rehearsal: ${row.data.simcon_title}`
-                          : "Context rehearsal"
-                      }
-                      className="pill pill-sm pill-ally shrink-0"
-                    >
-                      Context
-                    </span>
-                  )}
-                  <span className="truncate text-xs text-fg">
-                    {row.data.is_rehearsal && row.data.simcon_title
-                      ? row.data.simcon_title
-                      : row.data.preview || "(empty)"}
-                  </span>
-                  <span className="pill pill-sm pill-idle shrink-0">Unsaved</span>
-                  <span className="ml-auto shrink-0 font-mono text-[10px] text-fg-faint">
-                    {row.data.segment_count} segments
-                  </span>
-                </button>
-              </li>
-            ),
-          )}
-        </ul>
+        <div className="flex flex-col gap-2">
+          <div
+            className={`flex items-center justify-between gap-2 overflow-hidden rounded-md border px-2.5 transition-all ${
+              selected.size > 0
+                ? "h-[30px] border-rec/35 bg-rec/[0.12] opacity-100"
+                : "h-0 border-transparent opacity-0"
+            }`}
+          >
+            <span className="font-mono text-[11px] text-fg">{selected.size} selected</span>
+            <span className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSelected(new Set())}
+                className="text-[10.5px] font-bold text-fg-faint hover:text-fg"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => void deleteSelected()}
+                className="rounded bg-rec px-2 py-0.5 text-[10.5px] font-bold text-bg"
+              >
+                Delete selected
+              </button>
+            </span>
+          </div>
+
+          <ul className="flex flex-col gap-1">
+            {rows.map((row) => {
+              const key = row.kind === "conversation" ? `c-${row.id}` : `s-${row.id}`;
+              const toggle = (checked: boolean) =>
+                setSelected((prev) => {
+                  const next = new Set(prev);
+                  if (checked) next.add(key);
+                  else next.delete(key);
+                  return next;
+                });
+              if (row.kind === "conversation") {
+                return (
+                  <li key={key}>
+                    <ListRow
+                      accent="primary"
+                      title={row.data.title}
+                      date={`${formatDate(row.data.updated_at_unix_ms)} · ${row.data.segment_count} segment${row.data.segment_count === 1 ? "" : "s"}${row.data.linked_docs.length > 0 ? ` · ${row.data.linked_docs.length} linked doc(s)` : ""}`}
+                      open={row.id === openId}
+                      selected={selected.has(key)}
+                      onSelectChange={toggle}
+                      onOpenViewer={() => void openViewer(row.id, row.data.title)}
+                      onOpenLive={() => void open(row.id)}
+                      onDelete={() => void remove(row.id)}
+                      onClick={() => void open(row.id)}
+                    />
+                  </li>
+                );
+              }
+              const sessionTitle =
+                row.data.is_rehearsal && row.data.simcon_title
+                  ? row.data.simcon_title
+                  : row.data.preview || "(empty)";
+              return (
+                <li key={key}>
+                  <ListRow
+                    accent={row.data.is_rehearsal ? "ai" : "muted"}
+                    title={sessionTitle}
+                    badge={
+                      row.data.is_rehearsal
+                        ? { text: "Context", tone: "ai" }
+                        : { text: "Unsaved", tone: "muted" }
+                    }
+                    date={`${formatDate(row.data.started_at_unix_ms)} · ${row.data.segment_count} segment${row.data.segment_count === 1 ? "" : "s"}`}
+                    selected={selected.has(key)}
+                    onSelectChange={toggle}
+                    onOpenViewer={() => void openPastSessionViewer(row.id, sessionTitle)}
+                    onOpenLive={() => void openPastSession(row.id)}
+                    onDelete={() => void backend.sessions.delete(row.id).then(refresh)}
+                    onClick={() => void openPastSession(row.id)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
     </ViewShell>
   );

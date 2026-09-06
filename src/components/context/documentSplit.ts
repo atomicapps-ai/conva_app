@@ -1,3 +1,4 @@
+import type { ContextFileSlot } from "@/components/context/categoryTemplates";
 import type { RagDocument } from "@/lib/ipc";
 
 /**
@@ -29,4 +30,39 @@ export function splitDocuments(
     // else: a generated doc for a different/no context — excluded from both.
   }
   return { attachable, generated };
+}
+
+export interface SlotGroup {
+  slot: ContextFileSlot;
+  docs: RagDocument[];
+}
+
+/**
+ * Partition a context's attachable documents (already filtered to exclude
+ * Ally-generated docs, per `splitDocuments`) into the category's file
+ * slots plus an "Other documents" catch-all. A doc id goes into a slot
+ * when `slotDocIds[slot.key]` contains it — a doc id can legitimately
+ * appear under more than one slot (e.g. the same doc filed as both
+ * "Financials" and "Decks") if the user attaches it from both slots'
+ * pickers; that's allowed, not deduped. A doc in `attachable` but not
+ * listed under ANY slot — including every doc on a context saved before
+ * `slot_doc_ids` existed — lands in `other`. Used by both the Setup
+ * wizard (Step 2) and ContextDetail so the two surfaces group identically.
+ */
+export function groupBySlot(
+  attachable: readonly RagDocument[],
+  fileSlots: readonly ContextFileSlot[],
+  slotDocIds: Readonly<Record<string, string[]>>,
+): { slots: SlotGroup[]; other: RagDocument[] } {
+  const byId = new Map(attachable.map((d) => [d.id, d]));
+  const claimed = new Set<string>();
+  const slots = fileSlots.map((slot) => {
+    const docs = (slotDocIds[slot.key] ?? [])
+      .map((id) => byId.get(id))
+      .filter((d): d is RagDocument => !!d);
+    docs.forEach((d) => claimed.add(d.id));
+    return { slot, docs };
+  });
+  const other = attachable.filter((d) => !claimed.has(d.id));
+  return { slots, other };
 }
