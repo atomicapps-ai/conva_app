@@ -427,6 +427,9 @@ export function webOperations(): OperationAvailability {
     "recording.stop": unsupported(NO_FS),
     "recording.status": unsupported(NO_FS),
     "rag.ingest": unsupported("Takes local file paths; browser uploads use ingestText / a future upload descriptor."),
+    // Cloud library (M2 cp9, text-first): WebBackend flips ingestText / list /
+    // setEnabled / delete / attach / detach / documentText to `available` once
+    // the session backend answers; migration 0007 missing = per-call `unprovisioned`.
     "rag.ingestText": unimplemented(M1),
     "rag.list": unimplemented(M1),
     "rag.setEnabled": unimplemented(M1),

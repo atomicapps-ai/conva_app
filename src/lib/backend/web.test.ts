@@ -384,3 +384,74 @@ describe("WebBackend — cloud Conversations (M2 cp8)", () => {
     await expect(b.conversations.save(null, null, [SEG], [], null)).rejects.toMatchObject({ code: "unprovisioned", message: "Apply migration 0006." });
   });
 });
+
+describe("WebBackend — cloud library (M2 cp9, text-first)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    webAuth._resetForTests();
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const DOC = { id: "doc_1", file_name: "pricing.md", enabled: true, chunk_count: 2, ingested_at_unix_ms: 1, source: "pasted", context_ids: [], size_bytes: 9 };
+
+  function route(status: unknown, handlers: Record<string, (init: RequestInit) => Response> = {}) {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/live/status") return json(status);
+      if (url === "/api/app/session") return json({ signed_in: false, configured: true });
+      const h = handlers[`${init?.method ?? "GET"} ${url}`];
+      return h ? h(init ?? {}) : json({ error: "not_found" }, 404);
+    });
+  }
+
+  it("text-based rag.* flip to available with the session backend; rag.ingest (file paths) stays unsupported", async () => {
+    route(STATUS_NO_ALLY);
+    const on = new WebBackend(chromeWindows);
+    expect(on.capabilityStore.snapshot().operations["rag.ingestText"].state).toBe("unimplemented");
+    await tick();
+    const ops = on.capabilityStore.snapshot().operations;
+    for (const op of ["rag.ingestText", "rag.list", "rag.setEnabled", "rag.delete", "rag.attachContext", "rag.detachContext", "rag.documentText"] as const) {
+      expect(ops[op].state, op).toBe("available");
+    }
+    expect(ops["rag.ingest"].state).toBe("unsupported");
+    route(STATUS_OFF);
+    const off = new WebBackend(chromeWindows);
+    await tick();
+    expect(off.capabilityStore.snapshot().operations["rag.list"]).toMatchObject({ state: "unavailable", reason: "session backend: SESSION_SECRET is not set" });
+  });
+
+  it("ingestText / list / setEnabled / attach / detach / delete / documentText round-trip through /api/live/library; unprovisioned is coded", async () => {
+    const bodies: unknown[] = [];
+    route(STATUS_ON, {
+      "POST /api/live/library": (init) => {
+        bodies.push(JSON.parse(init.body as string));
+        return json({ report: { document: DOC, warnings: [] } });
+      },
+      "GET /api/live/library": () => json({ documents: [DOC] }),
+      "PATCH /api/live/library/doc_1": (init) => {
+        bodies.push(JSON.parse(init.body as string));
+        return json({ document: DOC });
+      },
+      "DELETE /api/live/library/doc_1": () => json({ ok: true }),
+      "GET /api/live/library/doc_1/text": () => json({ text: "# Pricing" }),
+    });
+    const b = new WebBackend(chromeWindows);
+    await tick();
+    expect(await b.rag.ingestText("pricing.md", "# Pricing")).toEqual({ document: DOC, warnings: [] });
+    expect(await b.rag.list()).toEqual([DOC]);
+    await expect(b.rag.setEnabled("doc_1", false)).resolves.toBeUndefined();
+    await expect(b.rag.attachContext("doc_1", "ctx-1")).resolves.toBeUndefined();
+    await expect(b.rag.detachContext("doc_1", "ctx-1")).resolves.toBeUndefined();
+    await expect(b.rag.delete("doc_1")).resolves.toBeUndefined();
+    expect(await b.rag.documentText("doc_1")).toBe("# Pricing");
+    expect(await b.rag.documentText("missing")).toBeNull();
+    expect(bodies).toEqual([{ name: "pricing.md", text: "# Pricing" }, { enabled: false }, { attach_context: "ctx-1" }, { detach_context: "ctx-1" }]);
+    await expect(b.rag.ingest(["C:\\\\file.pdf"])).rejects.toThrow(/rag.ingest/);
+
+    route(STATUS_ON, { "GET /api/live/library": () => json({ error: "unprovisioned", reason: "Apply migration 0007." }, 503) });
+    await expect(b.rag.list()).rejects.toMatchObject({ code: "unprovisioned", message: "Apply migration 0007." });
+  });
+});

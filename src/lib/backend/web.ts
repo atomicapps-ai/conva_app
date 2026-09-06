@@ -38,6 +38,7 @@ import { TelemetryCollector, serializeAggregate, type TelemetrySample } from "@/
 import { downloadName, downloadTextFile, transcriptMarkdown } from "@/lib/live/exportTranscript";
 import { deleteContext, listContexts, loadContext, saveContext } from "@/lib/live/contextsClient";
 import { deleteConversation, listConversations, loadConversation, saveConversation } from "@/lib/live/conversationsClient";
+import { attachDocumentContext, deleteDocument, detachDocumentContext, documentText, ingestText, listDocuments, setDocumentEnabled } from "@/lib/live/libraryClient";
 import { DEFAULT_CONTEXT_ID } from "@/lib/ipc";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
@@ -182,6 +183,14 @@ export class WebBackend implements ConvaBackend {
         "conversations.list",
         "conversations.load",
         "conversations.delete",
+        // Cloud library (cp9, text-first): pasted/generated text; file paths stay unsupported.
+        "rag.ingestText",
+        "rag.list",
+        "rag.setEnabled",
+        "rag.delete",
+        "rag.attachContext",
+        "rag.detachContext",
+        "rag.documentText",
       ] as const) {
         ops[op] = backendUp ? AVAILABLE : backendDown;
       }
@@ -439,21 +448,23 @@ export class WebBackend implements ConvaBackend {
     status: () => Promise.resolve(false),
   };
 
+  // Cloud library (M2 cp9, text-first): the Worker chunks and stores pasted /
+  // generated text as the user (RLS) and retrieves for Ally server-side, so
+  // citations name documents. Local file paths stay unsupported on web.
   rag = {
     ingest: (): Promise<IngestReport[]> => unsupported("rag.ingest (file paths)"),
-    ingestText: (_name: string, _text: string): Promise<IngestReport> =>
-      todo("POST /v1/library (server-side embeddings)"),
-    list: (): Promise<RagDocument[]> => todo("GET /v1/library"),
-    setEnabled: (): Promise<void> => todo("PATCH /v1/library/:id"),
-    delete: (): Promise<void> => todo("DELETE /v1/library/:id"),
-    attachContext: (): Promise<void> => todo("PATCH /v1/library/:id (context_ids)"),
-    detachContext: (): Promise<void> => todo("PATCH /v1/library/:id (context_ids)"),
+    ingestText: (name: string, text: string): Promise<IngestReport> => ingestText({ fetch: (i, o) => fetch(i, o) }, name, text),
+    list: (): Promise<RagDocument[]> => listDocuments({ fetch: (i, o) => fetch(i, o) }),
+    setEnabled: (id: string, enabled: boolean): Promise<void> => setDocumentEnabled({ fetch: (i, o) => fetch(i, o) }, id, enabled).then(() => undefined),
+    delete: (id: string): Promise<void> => deleteDocument({ fetch: (i, o) => fetch(i, o) }, id),
+    attachContext: (id: string, contextId: string): Promise<void> => attachDocumentContext({ fetch: (i, o) => fetch(i, o) }, id, contextId).then(() => undefined),
+    detachContext: (id: string, contextId: string): Promise<void> => detachDocumentContext({ fetch: (i, o) => fetch(i, o) }, id, contextId).then(() => undefined),
     download: (): Promise<void> => unsupported("rag.download (file path)"),
     syncLibrary: (): Promise<string> => unsupported("rag.syncLibrary (git)"),
     analyzeTerms: (): Promise<string[]> => Promise.resolve([]),
     recordHighlightFeedback: (): Promise<void> => Promise.resolve(),
     recordTermPick: (): Promise<void> => Promise.resolve(),
-    documentText: (): Promise<string | null> => todo("GET /v1/library/:id/text"),
+    documentText: (id: string): Promise<string | null> => documentText({ fetch: (i, o) => fetch(i, o) }, id),
   };
 
   secrets = {
