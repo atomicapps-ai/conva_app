@@ -5,7 +5,7 @@
  * capture but no gateway can transcribe is `unavailable` with the server's
  * reason, never `available`. Pure apart from the injected fetch.
  */
-import type { AllyStatus, LibraryStatus, LiveStatus } from "./protocol";
+import type { AllyStatus, LibraryStatus, LiveStatus, LiveTerms } from "./protocol";
 
 export const UNREACHABLE: LiveStatus = {
   configured: false,
@@ -44,6 +44,24 @@ function libraryOf(raw: unknown): LibraryStatus | undefined {
   };
 }
 
+/** A pre-cp15 gateway (no `terms`) simply does not say what it sends; nothing is invented for it. */
+function termsOf(raw: unknown): LiveTerms | undefined {
+  const t = raw as { asr?: unknown; ally?: unknown } | undefined;
+  if (!t || typeof t !== "object") return undefined;
+  const asr = t.asr as Partial<NonNullable<LiveTerms["asr"]>> | null | undefined;
+  const ally = t.ally as Partial<NonNullable<LiveTerms["ally"]>> | null | undefined;
+  return {
+    asr:
+      asr && typeof asr === "object" && typeof asr.provider === "string"
+        ? { provider: asr.provider, region: asr.region === "eu" ? "eu" : "us", mip_opt_out: asr.mip_opt_out === true }
+        : null,
+    ally:
+      ally && typeof ally === "object" && typeof ally.provider === "string"
+        ? { provider: ally.provider, inference_geo: ally.inference_geo === "us" ? "us" : "global" }
+        : null,
+  };
+}
+
 export async function fetchLiveStatus(f: typeof fetch = fetch, base = "/api/live"): Promise<LiveStatus> {
   try {
     const res = await f(`${base}/status`, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } });
@@ -60,6 +78,7 @@ export async function fetchLiveStatus(f: typeof fetch = fetch, base = "/api/live
       sample_rate_hz: typeof body.sample_rate_hz === "number" ? body.sample_rate_hz : 16_000,
       ally: allyOf(body.ally, "This live gateway does not offer Ally yet (no `ally` in /api/live/status)."),
       library: libraryOf(body.library),
+      terms: termsOf(body.terms),
     };
   } catch (e) {
     const reason = `The live gateway is unreachable: ${e instanceof Error ? e.message : String(e)}`;
