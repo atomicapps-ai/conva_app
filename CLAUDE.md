@@ -138,30 +138,32 @@ swap a layer without asking the owner.**
     behavior; ◈ Prep = the prepared Q&A bank, gold — pairs parsed by
     `qaPairs.ts` from the context's generated Q&A doc + any attached doc
     with Q/A lines + the setup wizard's "Import Q&A" paste (`question|answer`
-    per line, stored as an attached doc). The chips are an in-header control
-    like Answers' pin, NOT a panel switching pattern; a live question while
+    per line, stored as an attached doc). The chips are an in-header control,
+    NOT a panel switching pattern; a live question while
     in Prep lights a dot, never auto-switches. Tapping a prep pair shows its
-    written answer in Answers instantly — Elaborate is the deeper dig.) ·
-    **Tracking** (`target`;
-    commitments + mentions) · **Terms** (`book`; live + doc term chips,
-    azure dot = detected live, gold = doc) · **Answers** (`ally`, gold; the
-    cards the user selected or asked for, in click order, height-capped
-    with More/Less, each with fetch info / define / open-in-viewer /
-    remove). Each section's icon chip overlays the CENTER DIVIDER at that
+    written answer in the Question–Answer Focus canvas instantly — Elaborate
+    is the deeper dig.) ·
+    **Tracking** (`target`; commitments + mentions) · **Terms** (`book`; live
+    + doc term chips, azure dot = detected live, gold = doc) · **Answers**
+    (`ally`, gold; the archive of prior selected items and Ally cards). Each
+    section's icon chip overlays the CENTER DIVIDER at that
     section's top edge and slides with it as sections expand/collapse —
     stacking order never changes. Exactly ONE content section is open
-    (exclusive accordion; `panelSections.ts` is the pure model —
-    `selectSection`/`togglePin`/`revealAnswers`, prefs
-    `conva.panel.openSection` + `conva.panel.answersPinned`). **Answers is
-    pinnable, default PINNED**: a bottom dock resized by the drag divider
-    (`conva.panel.splitRatio`); unpinned it becomes an ordinary fourth
-    accordion section, and every ask calls `revealAnswers` so a streaming
-    answer is never off-screen. The control bar has NO tabs anymore — in
+    (exclusive accordion; `panelSections.ts` is the pure model). **Owner
+    update 2026-09-07:** the old pinned bottom Answers dock is retired in the
+    live cockpit. A Question–Answer **Focus canvas** sits above the accordion,
+    keeps the active question and untruncated streaming answer together, and
+    uses question-labeled tabs when several threads are active. Answers stays
+    the fourth accordion section as history/archive. Clicking a term opens a
+    local **Term Peek** (cached Context definition or a dedicated definition
+    stream); definition requests never enter Focus or Answers. Ask-more/how-to
+    actions may create a normal Focus answer. The control bar has NO tabs — in
     drawer mode (<640px) it shows one right-edge Ally button that opens
     the panel as an overlay drawer (same accordion inside). The **Ask
     box** lives at the conversation column's foot (compact: h-8,
     12px text) at EVERY width — never in the panel. Live summary is the
-    3-dot "Summarize the call" (lands in Answers); Grounding is a 3-dot
+    3-dot "Summarize the call" (lands in Focus and the Answers archive);
+    Grounding is a 3-dot
     line; TrackerRail/AllyDock stay retired. The A−/A+ pref (3-dot menu)
     scales ALL panel content, not just answer cards. **FANER inline
     transcript marks are retired** (owner, 2026-08-26 — "keep FANER's

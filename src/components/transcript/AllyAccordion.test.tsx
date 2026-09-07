@@ -65,6 +65,23 @@ describe("AllyAccordion", () => {
     setup({ open: "answers", answersPinned: false });
     expect(screen.getByTestId("content-answers")).toBeInTheDocument();
   });
+
+  it("focus mode turns Answers into an archive section and removes the legacy pin", () => {
+    render(
+      <AllyAccordion
+        state={{ open: "terms", answersPinned: true }}
+        onState={() => {}}
+        counts={{ questions: 2, tracking: 1, terms: 3, answers: 1 }}
+        splitRatio={0.5}
+        onSplitRatio={() => {}}
+        answersDockEnabled={false}
+        renderSection={(id) => <div data-testid={`content-${id}`} />}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Answers" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /pin answers/i })).toBeNull();
+    expect(screen.queryByTestId("content-answers")).toBeNull();
+  });
 });
 
 describe("AllyAccordion — Questions mode chips (split-source spec 2026-08-27)", () => {

@@ -43,6 +43,17 @@ import {
   type ViewEntry,
 } from "@/components/transcript/viewEntries";
 import { FoundList } from "@/components/transcript/FoundList";
+import { AllyFocusCanvas } from "@/components/transcript/AllyFocusCanvas";
+import {
+  buildAllyFocusItems,
+  isTermDefinitionCard,
+  makeTermDefinitionRequestId,
+  type AllyFocusItem,
+} from "@/components/transcript/allyFocus";
+import {
+  TermPeek,
+  type TermPeekModel,
+} from "@/components/transcript/TermPeek";
 import type {
   ClaimDisplayItem,
   ClaimRowAction,
@@ -53,10 +64,7 @@ import {
   TranscriptBubbleHeader,
   type SpeakerHeaderInfo,
 } from "@/components/transcript/TranscriptBubbleHeader";
-import {
-  revealAnswers,
-  type PanelState,
-} from "@/components/transcript/panelSections";
+import type { PanelState } from "@/components/transcript/panelSections";
 import {
   YOU_SPEAKER_ID,
   fixtureVoiceId,
@@ -244,6 +252,14 @@ const TERM_ACTIONS: { action: TermAction; icon: IconName; tip: string }[] = [
   { action: "elaborate", icon: "elaborate", tip: "Ask Ally about this" },
 ];
 type TermAction = "definition" | "howto" | "elaborate";
+
+interface ActiveTermPeek {
+  term: string;
+  cachedDefinition: string | null;
+  requestId: string | null;
+  requestState: "idle" | "running" | "busy";
+  pinned: boolean;
+}
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1408,13 +1424,12 @@ function ContextMenu({
  * everything Ally, a spine-icon ACCORDION (spec 2026-08-26, superseding the
  * 2026-08-22 Found/View split + control-bar tabs):
  *
- * - Four sections in fixed order — Questions · Tracking · Terms (all fed by
- *   `FoundList` in single-group mode) · Answers (`ViewHistory` + the answer
- *   feed). Exactly one content section open (`panelSections.ts` is the
- *   model); Answers is pinnable as a bottom dock resized by the divider
- *   (`splitRatio`, persisted — same key as the retired split).
- * - `panelState`/`onPanelState` carry the accordion state; the cockpit
- *   persists it via uiPrefs and calls `revealAnswers` on every ask.
+ * - Focus keeps the current question and full answer together above the
+ *   accordion, with question tabs, pin, refresh, and expand actions.
+ * - Four sections remain in fixed order — Questions · Tracking · Terms ·
+ *   Answers. Answers is now the archive rather than a height-capped bottom
+ *   dock, and definitions stay in Term Peek instead of the archive.
+ * - `panelState`/`onPanelState` carry the exclusive accordion state.
  *
  * Answers never render in the conversation column.
  */
@@ -1427,6 +1442,13 @@ function AllyPanel({
   setReasoningDefaultOpen,
   clearAlly,
   barPad,
+  focusItems,
+  focusItemId,
+  pinnedFocusIds,
+  onSelectFocus,
+  onToggleFocusPin,
+  onRefreshFocus,
+  onOpenFocus,
   renderAnswers,
   scrollRef,
   onBodyScroll,
@@ -1466,6 +1488,13 @@ function AllyPanel({
   setReasoningDefaultOpen: (v: boolean) => void;
   clearAlly: () => void;
   barPad: string;
+  focusItems: readonly AllyFocusItem[];
+  focusItemId: string | null;
+  pinnedFocusIds: ReadonlySet<string>;
+  onSelectFocus: (id: string) => void;
+  onToggleFocusPin: (id: string) => void;
+  onRefreshFocus: (item: AllyFocusItem) => void;
+  onOpenFocus: (item: AllyFocusItem) => void;
   renderAnswers: () => React.ReactNode;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onBodyScroll: () => void;
@@ -1641,60 +1670,79 @@ function AllyPanel({
         style={{ fontSize: `${allyFontPx}px` }}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <AllyAccordion
-          state={panelState}
-          onState={onPanelState}
-          counts={{
-            questions: groups.questions.length,
-            tracking:
-              groups.claims.length +
-              groups.commitments.length +
-              groups.mentions.length,
-            terms: groups.terms.length,
-            answers: viewEntries.length,
-          }}
-          questionsMode={questionsMode}
-          onQuestionsMode={onQuestionsMode}
-          prepCount={groups.prepQa.length}
-          liveUnseen={liveUnseen}
-          splitRatio={splitRatio}
-          onSplitRatio={onSplitRatio}
-          renderSection={(id) =>
-            id === "answers" ? (
-              // The streaming-answers scroll container. `h-full` makes it
-              // exactly fill the accordion's own overflow div (content-box
-              // height), so only THIS div ever scrolls — one scrollbar, and
-              // the auto-scroll ref/onScroll pair keeps working unchanged.
-              <div
-                ref={scrollRef}
-                onScroll={onBodyScroll}
-                className="h-full overflow-y-auto"
-              >
-                <ViewHistory
-                  entries={viewEntries}
-                  focusKey={viewFocusKey}
-                  onToggleExpanded={onToggleEntry}
-                  onRemove={onRemoveEntry}
-                  onFetchInfo={onEntryFetchInfo}
-                  onDefine={onEntryDefine}
-                  onElaborate={onEntryElaborate}
-                  onOpenInViewer={onEntryOpenInViewer}
-                  renderAnswerCards={renderAnswers}
-                />
-              </div>
-            ) : (
-              <FoundList
-                groups={groups}
-                onSelect={onSelectFound}
-                only={id}
-                questionsMode={questionsMode}
-                canOpenClaimEvidence={canOpenClaimEvidence}
-                enabledClaimActions={enabledClaimActions}
-                onClaimAction={onClaimAction}
-              />
-            )
-          }
+        <AllyFocusCanvas
+          items={focusItems}
+          activeId={focusItemId}
+          pinnedIds={pinnedFocusIds}
+          onSelect={onSelectFocus}
+          onTogglePin={onToggleFocusPin}
+          onRefresh={onRefreshFocus}
+          onOpen={onOpenFocus}
+          canOpen={(item) => Boolean(item.cardId || canOpenClaimEvidence)}
+          renderAnswer={(text) => <AnswerBody text={text} />}
         />
+        <div
+          className={
+            focusItems.length > 0 ? "min-h-[144px] flex-[2]" : "min-h-0 flex-1"
+          }
+        >
+          <AllyAccordion
+            state={panelState}
+            onState={onPanelState}
+            counts={{
+              questions: groups.questions.length,
+              tracking:
+                groups.claims.length +
+                groups.commitments.length +
+                groups.mentions.length,
+              terms: groups.terms.length,
+              answers:
+                viewEntries.length +
+                focusItems.filter((item) => item.cardId != null).length,
+            }}
+            questionsMode={questionsMode}
+            onQuestionsMode={onQuestionsMode}
+            prepCount={groups.prepQa.length}
+            liveUnseen={liveUnseen}
+            splitRatio={splitRatio}
+            onSplitRatio={onSplitRatio}
+            answersDockEnabled={false}
+            renderSection={(id) =>
+              id === "answers" ? (
+                // Answers is now the archive. The active question and its
+                // full answer stay in Focus above instead of competing with
+                // the bottom edge of the panel.
+                <div
+                  ref={scrollRef}
+                  onScroll={onBodyScroll}
+                  className="h-full overflow-y-auto"
+                >
+                  <ViewHistory
+                    entries={viewEntries}
+                    focusKey={viewFocusKey}
+                    onToggleExpanded={onToggleEntry}
+                    onRemove={onRemoveEntry}
+                    onFetchInfo={onEntryFetchInfo}
+                    onDefine={onEntryDefine}
+                    onElaborate={onEntryElaborate}
+                    onOpenInViewer={onEntryOpenInViewer}
+                    renderAnswerCards={renderAnswers}
+                  />
+                </div>
+              ) : (
+                <FoundList
+                  groups={groups}
+                  onSelect={onSelectFound}
+                  only={id}
+                  questionsMode={questionsMode}
+                  canOpenClaimEvidence={canOpenClaimEvidence}
+                  enabledClaimActions={enabledClaimActions}
+                  onClaimAction={onClaimAction}
+                />
+              )
+            }
+          />
+        </div>
       </div>
     </aside>
   );
@@ -1861,6 +1909,9 @@ export function TranscriptView({
   // stays as the honest-degraded-state surface where no OS window can be
   // spawned, per capabilities().system.partnerWindow).
   const [viewerCardId, setViewerCardId] = useState<string | null>(null);
+  const [termPeek, setTermPeek] = useState<ActiveTermPeek | null>(null);
+  const termRequestSequence = useRef(0);
+  const focusRequestSequence = useRef(0);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleCollapse = useCallback((k: string) => {
@@ -2055,14 +2106,11 @@ export function TranscriptView({
     },
     [setPanelOpenSection, setAnswersPinned],
   );
-  // Answers/asks must land visibly: reveal the Answers surface (the pinned
-  // dock already is; unpinned → open the Answers section), and in drawer
-  // mode also open the drawer itself so the stream isn't hidden off-screen.
-  const ensureViewVisible = useCallback(() => {
-    const next = revealAnswers(panelState);
-    if (next !== panelState) applyPanelState(next);
+  // Focus is the immediate answer surface. On narrow layouts the Ally drawer
+  // still has to open, but we no longer force the Answers archive open.
+  const ensureAllyVisible = useCallback(() => {
     if (drawer) setDrawerOpen(true);
-  }, [panelState, applyPanelState, drawer]);
+  }, [drawer]);
 
   // The View half's chosen entries (spec §3.3), newest first (owner,
   // 2026-08-27) — a fresh pick pushes the rest down and lands in view
@@ -2071,6 +2119,8 @@ export function TranscriptView({
   // already-present card.
   const [viewEntries, setViewEntries] = useState<ViewEntry[]>([]);
   const [viewFocusKey, setViewFocusKey] = useState<string | null>(null);
+  const [focusItemId, setFocusItemId] = useState<string | null>(null);
+  const [pinnedFocusIds, setPinnedFocusIds] = useState<Set<string>>(new Set());
   const viewSeq = useRef(0);
   const selectFound = useCallback(
     (item: FoundItem) => {
@@ -2080,9 +2130,14 @@ export function TranscriptView({
         setViewFocusKey(r.focusKey);
         return r.entries;
       });
-      ensureViewVisible();
+      if (item.group === "question" || item.group === "prep") {
+        setFocusItemId(`entry:${item.id}`);
+      } else {
+        applyPanelState({ open: "answers", answersPinned: false });
+      }
+      ensureAllyVisible();
     },
-    [ensureViewVisible],
+    [applyPanelState, ensureAllyVisible],
   );
 
   // The Found half's supply: radar history + tracker + FANER captures +
@@ -2203,26 +2258,75 @@ export function TranscriptView({
   }, [questionsMode, liveCount]);
   const liveUnseen = questionsMode === "prep" && liveCount > seenLiveCount;
 
+  // Definition requests share the existing Ally stream but belong only in
+  // Term Peek. They must never appear in the question/answer Focus canvas or
+  // in the Answers archive.
+  const answerCards = useMemo(
+    () => cards.filter((card) => !isTermDefinitionCard(card)),
+    [cards],
+  );
+  const focusItems = useMemo(
+    () => buildAllyFocusItems(answerCards, viewEntries),
+    [answerCards, viewEntries],
+  );
+
+  useEffect(() => {
+    if (focusItems.length === 0) {
+      setFocusItemId(null);
+      return;
+    }
+    if (!focusItems.some((item) => item.id === focusItemId)) {
+      setFocusItemId(focusItems[0]!.id);
+    }
+  }, [focusItemId, focusItems]);
+
+  const termPeekModel = useMemo<TermPeekModel | null>(() => {
+    if (!termPeek) return null;
+    const card = termPeek.requestId
+      ? cards.find((candidate) => candidate.id === termPeek.requestId)
+      : null;
+    const status: TermPeekModel["status"] = termPeek.cachedDefinition
+      ? "cached"
+      : termPeek.requestState === "busy"
+        ? "busy"
+        : card?.error
+          ? "error"
+          : card?.done
+            ? "ready"
+            : "streaming";
+    return {
+      term: termPeek.term,
+      definition: termPeek.cachedDefinition ?? card?.text ?? "",
+      sourceLabel: termPeek.cachedDefinition
+        ? "Grounded Context glossary"
+        : card?.sources.length
+          ? uniqueSourceFiles(card.sources).join(" · ")
+          : "Resolved from the current conversation",
+      status,
+      pinned: termPeek.pinned,
+    };
+  }, [cards, termPeek]);
+
   // sourceKey → ALL cards derived from it, oldest-first (cards itself is
   // newest-first — reverse while grouping). Drives both the turn's thread
   // count/pill and where each inline card renders in the stream.
   const cardsBySource = useMemo(() => {
     const m = new Map<string, AllyCard[]>();
-    for (let i = cards.length - 1; i >= 0; i--) {
-      const c = cards[i]!;
+    for (let i = answerCards.length - 1; i >= 0; i--) {
+      const c = answerCards[i]!;
       if (!c.sourceKey) continue;
       const arr = m.get(c.sourceKey) ?? [];
       arr.push(c);
       m.set(c.sourceKey, arr);
     }
     return m;
-  }, [cards]);
+  }, [answerCards]);
 
   // Freeform "Ask Ally" cards (no turn to attach to) — appended at the end
   // of the stream, oldest-first, in the order they were asked.
   const sourcelessCards = useMemo(
-    () => [...cards].filter((c) => !c.sourceKey).reverse(),
-    [cards],
+    () => [...answerCards].filter((c) => !c.sourceKey).reverse(),
+    [answerCards],
   );
 
   // Answers-column order: derived cards follow their source turn's position
@@ -2256,7 +2360,8 @@ export function TranscriptView({
    *  column so its place in the conversation stays visible. */
   const openThread = useCallback(
     (card: AllyCard) => {
-      ensureViewVisible();
+      ensureAllyVisible();
+      setFocusItemId(`card:${card.id}`);
       flashToken.current += 1;
       setFlash({ key: card.id, token: flashToken.current });
       setCollapsed((prev) => {
@@ -2284,7 +2389,7 @@ export function TranscriptView({
       setViewerCardId(card.id);
       if (drawer) setDrawerOpen(true);
     },
-    [allyScroll, backend, caps, drawer, ensureViewVisible],
+    [allyScroll, backend, caps, drawer, ensureAllyVisible],
   );
 
   /** The UI-only claim checkpoint can inspect already-supplied evidence in
@@ -2313,19 +2418,21 @@ export function TranscriptView({
       convo.ref.current.scrollTop = convo.ref.current.scrollHeight;
   }, [convo]);
 
-  // Every ask lands its answer in the View half — make sure it's on
-  // screen first (owner bug, 2026-08-21: selection → lightbulb looked
-  // dead because the answer streamed into a hidden surface).
+  // Every ask gets a known request id so Focus can select it immediately.
+  // The Answers accordion remains a history/archive and is never forced open.
   const requestVisible = useCallback(
     (
       kind: AllyKind,
       question?: string,
       source?: { key: string; quote: string },
     ) => {
-      ensureViewVisible();
-      return request(kind, question, source);
+      ensureAllyVisible();
+      focusRequestSequence.current += 1;
+      const requestId = `focus:${Date.now()}:${focusRequestSequence.current}`;
+      setFocusItemId(`card:${requestId}`);
+      return request(kind, question, source, requestId);
     },
-    [request, ensureViewVisible],
+    [request, ensureAllyVisible],
   );
 
   const research = useCallback(
@@ -2337,17 +2444,113 @@ export function TranscriptView({
     [requestVisible],
   );
 
+  const openTermDefinition = useCallback(
+    (term: string, cachedDefinition?: string) => {
+      const cached = cachedDefinition?.trim() || null;
+      if (cached) {
+        setTermPeek({
+          term,
+          cachedDefinition: cached,
+          requestId: null,
+          requestState: "idle",
+          pinned: false,
+        });
+        return;
+      }
+
+      termRequestSequence.current += 1;
+      const requestId = makeTermDefinitionRequestId(
+        term,
+        Date.now(),
+        termRequestSequence.current,
+      );
+      setTermPeek({
+        term,
+        cachedDefinition: null,
+        requestId,
+        requestState: "running",
+        pinned: false,
+      });
+      void request(
+        "question",
+        `Define "${term}" concisely, in the context of this conversation. Return the definition directly, without a heading.`,
+        { key: "", quote: term },
+        requestId,
+        "term",
+      ).then((result) => {
+        if (result !== "busy") return;
+        setTermPeek((current) =>
+          current?.requestId === requestId
+            ? { ...current, requestState: "busy" }
+            : current,
+        );
+      });
+    },
+    [request],
+  );
+
   const askTerm = useCallback(
     (action: TermAction, term: string) => {
+      if (action === "definition") {
+        const cached = foundGroups.terms.find(
+          (item) => item.label.toLowerCase() === term.toLowerCase(),
+        )?.chip?.definition;
+        openTermDefinition(term, cached);
+        return;
+      }
       const prompt =
-        action === "definition"
-          ? `Define "${term}" concisely, in the context of this conversation.`
-          : action === "howto"
-            ? `How do I "${term}"? Give concise, actionable steps.`
-            : `Elaborate on "${term}" using the most relevant context from my documents.`;
+        action === "howto"
+          ? `How do I "${term}"? Give concise, actionable steps.`
+          : `Elaborate on "${term}" using the most relevant context from my documents.`;
       void requestVisible("question", prompt, { key: "", quote: term });
     },
+    [foundGroups.terms, openTermDefinition, requestVisible],
+  );
+
+  const selectPanelItem = useCallback(
+    (item: FoundItem) => {
+      if (item.group === "term") {
+        openTermDefinition(item.label, item.chip?.definition);
+        return;
+      }
+      selectFound(item);
+    },
+    [openTermDefinition, selectFound],
+  );
+
+  const toggleFocusPin = useCallback((id: string) => {
+    setPinnedFocusIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const refreshFocus = useCallback(
+    (item: AllyFocusItem) => {
+      void requestVisible("question", item.question);
+    },
     [requestVisible],
+  );
+
+  const openFocus = useCallback(
+    (item: AllyFocusItem) => {
+      if (item.cardId) {
+        const card = answerCards.find((candidate) => candidate.id === item.cardId);
+        if (card) openThread(card);
+        return;
+      }
+      if (!item.entryKey || !caps?.system.partnerWindow) return;
+      const entry = viewEntries.find((candidate) => candidate.key === item.entryKey);
+      if (!entry) return;
+      void backend.partner.open(
+        entry.item.label,
+        entry.item.group,
+        entry.item.radar?.bridge.text ?? entry.item.prep?.answer ?? entry.item.detail,
+      );
+    },
+    [answerCards, backend, caps, openThread, viewEntries],
   );
 
   // Ask Ally about an arbitrary slice (a sentence unit or a text selection).
@@ -2383,7 +2586,7 @@ export function TranscriptView({
     void requestVisible("question", q);
   };
 
-  const allKeys = [...turns.map((t) => t.key), ...cards.map((c) => c.id)];
+  const allKeys = [...turns.map((t) => t.key), ...answerCards.map((c) => c.id)];
   const collapseAll = () => setCollapsed(new Set(allKeys));
   const expandAll = () => setCollapsed(new Set());
 
@@ -2452,8 +2655,8 @@ export function TranscriptView({
 
   // Always-available Ask Ally field — compact, at the conversation
   // column's bottom edge at EVERY width (spec 2026-08-26 §4; the panel's
-  // foot slot is gone with the accordion). Answers stream into the panel's
-  // Answers surface via ensureViewVisible.
+  // foot slot is gone with the accordion). Answers stream into Focus; the
+  // Answers section remains available as history.
   const askAllyField = (
     <div className="shrink-0 border-t border-border px-2.5 py-1.5">
       <label className="flex h-8 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
@@ -2789,13 +2992,24 @@ export function TranscriptView({
         >
           <AllyPanel
             busy={busy}
-            request={request}
+            request={requestVisible}
             allyFontPx={allyFontPx}
             bumpAllyFont={bumpAllyFont}
             reasoningDefaultOpen={reasoningDefaultOpen}
             setReasoningDefaultOpen={setReasoningDefaultOpen}
-            clearAlly={clearAlly}
+            clearAlly={() => {
+              clearAlly();
+              setTermPeek(null);
+              setPinnedFocusIds(new Set());
+            }}
             barPad={barPad}
+            focusItems={focusItems}
+            focusItemId={focusItemId}
+            pinnedFocusIds={pinnedFocusIds}
+            onSelectFocus={setFocusItemId}
+            onToggleFocusPin={toggleFocusPin}
+            onRefreshFocus={refreshFocus}
+            onOpenFocus={openFocus}
             scrollRef={allyScroll.ref}
             onBodyScroll={allyScroll.onScroll}
             panelState={panelState}
@@ -2807,21 +3021,18 @@ export function TranscriptView({
             liveUnseen={liveUnseen}
             viewEntries={viewEntries}
             viewFocusKey={viewFocusKey}
-            onSelectFound={selectFound}
+            onSelectFound={selectPanelItem}
             onToggleEntry={(k) => setViewEntries((p) => toggleExpanded(p, k))}
             onRemoveEntry={(k) => setViewEntries((p) => removeEntry(p, k))}
             onEntryFetchInfo={(e) =>
               e.item.chip?.capture
-                ? (ensureViewVisible(), askFaner(e.item.chip.capture, e.item.label))
-                : (ensureViewVisible(), askTerm("elaborate", e.item.label))
+                ? askFaner(e.item.chip.capture, e.item.label)
+                : askTerm("elaborate", e.item.label)
             }
             onEntryDefine={(e) => {
-              ensureViewVisible();
-              if (e.item.chip?.definition) return;
-              askTerm("definition", e.item.label);
+              openTermDefinition(e.item.label, e.item.chip?.definition);
             }}
             onEntryElaborate={(e) => {
-              ensureViewVisible();
               void requestVisible("question", e.item.label);
             }}
             onEntryOpenInViewer={(e) => {
@@ -2862,7 +3073,7 @@ export function TranscriptView({
                     onOpenViewer={() => openThread(c)}
                     onContextMenu={(e) => cardMenu(e, c)}
                     onRequest={(kind, question, source) =>
-                      void request(kind, question, source)
+                      void requestVisible(kind, question, source)
                     }
                     onSummarize={() => void summarizeCard(c.id)}
                     fontPx={allyFontPx}
@@ -2874,11 +3085,40 @@ export function TranscriptView({
         </div>
 
         <ThreadViewer
-          card={cards.find((c) => c.id === viewerCardId) ?? null}
+          card={answerCards.find((c) => c.id === viewerCardId) ?? null}
           onClose={() => setViewerCardId(null)}
           onRequest={(kind, question, source) =>
-            void request(kind, question, source)
+            void requestVisible(kind, question, source)
           }
+        />
+
+        <TermPeek
+          model={termPeekModel}
+          canOpenDetails={Boolean(caps?.system.partnerWindow)}
+          onClose={() => setTermPeek(null)}
+          onTogglePin={() =>
+            setTermPeek((current) =>
+              current ? { ...current, pinned: !current.pinned } : current,
+            )
+          }
+          onAskMore={() => {
+            if (!termPeek) return;
+            void requestVisible(
+              "question",
+              `Elaborate on "${termPeek.term}" using the current conversation and grounded Context.`,
+              { key: "", quote: termPeek.term },
+            );
+          }}
+          onOpenDetails={() => {
+            if (!termPeekModel || !caps?.system.partnerWindow) return;
+            void backend.partner.open(
+              termPeekModel.term,
+              "definition",
+              termPeekModel.sourceLabel,
+              termPeekModel.definition,
+              [],
+            );
+          }}
         />
 
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
