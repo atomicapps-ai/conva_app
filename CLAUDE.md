@@ -403,8 +403,11 @@ releases repo doesn't have, and the pre-release flag breaking
 `/releases/latest/download/latest.json`. See `docs/releasing.md`.
 
 `release.yml` triggers on a `v*` tag push and drafts a GitHub Release the
-owner publishes manually — that path is proven. `dev-build.yml` remains
-unwired.
+owner publishes manually — that path is proven. `dev-build.yml` is proven
+too (2026-09-07): run 24 produced the first Windows MSI/NSIS beta artifact
+after 23 straight failures — WiX rejects a `-beta.N` version (fixed by the
+`bundle.windows.wix.version` override `scripts/version.mjs` now writes), and
+Windows runners check out with CRLF, which defeated the stamp's anchor.
 
 **The mechanics, now that `dev` exists (note: `dev` is a branch, not a
 worktree — see above). Since 2026-09-05 the flow is `feature` → `dev` →
