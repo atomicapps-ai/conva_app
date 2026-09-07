@@ -144,8 +144,25 @@ export const msiVersion = (version) => {
  *
  * Returns the value written, or null when there is no override.
  */
-const wixLine = (msi) => `    "windows": { "wix": { "version": "${msi}" } },\n`;
-const WIX_LINE_RE = /^ {4}"windows": \{ "wix": \{ "version": "[^"]*" \} \},\n/m;
+// Both the managed line and the anchor tolerate CRLF: Windows runners check
+// out with `core.autocrlf`, so tauri.conf.json arrives with \r\n there and LF
+// everywhere else. Matching only \n made the stamp step fail on the Windows
+// beta build (and ONLY there) — the post-condition below is what caught it.
+const WIX_LINE_RE = /^ {4}"windows": \{ "wix": \{ "version": "[^"]*" \} \},\r?\n/m;
+const BUNDLE_ANCHOR_RE = /^ {2}"bundle": \{\r?\n/m;
+
+/**
+ * Pure transform: tauri.conf.json source + desired MSI version -> new source.
+ * `msi` of null removes the override. Exported so the round-trip is unit-tested
+ * against both line endings rather than only on whichever CI runner runs first.
+ */
+export const patchWixVersion = (src, msi) => {
+  const nl = src.includes("\r\n") ? "\r\n" : "\n";
+  const stripped = src.replace(WIX_LINE_RE, "");
+  if (msi === null) return stripped;
+  const line = `    "windows": { "wix": { "version": "${msi}" } },${nl}`;
+  return stripped.replace(BUNDLE_ANCHOR_RE, (m) => m + line);
+};
 
 const writeMsiVersion = (version) => {
   const msi = msiVersion(version);
@@ -159,11 +176,7 @@ const writeMsiVersion = (version) => {
       `${TAURI_CONF} has a hand-written bundle.windows — fold the wix.version override into this script before stamping`,
     );
 
-  const stripped = src.replace(WIX_LINE_RE, "");
-  const next =
-    msi === null
-      ? stripped
-      : stripped.replace(/^ {2}"bundle": \{\n/m, (m) => m + wixLine(msi));
+  const next = patchWixVersion(src, msi);
 
   // Post-condition: whatever the patch did, the parsed result must say exactly
   // what we intended — this catches an anchor that stopped matching after an
