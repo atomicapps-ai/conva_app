@@ -9,6 +9,8 @@
 //   package.json           ← canonical mirror (also feeds vite → __APP_VERSION__)
 //   Cargo.toml [workspace.package] version   ← Rust crate version (env!("CARGO_PKG_VERSION"))
 //   src-tauri/tauri.conf.json "version"       ← Tauri app version (getVersion, installer, updater)
+//   src-tauri/tauri.conf.json bundle.windows.wix.version  ← the MSI's numeric
+//       ProductVersion, derived from a `-beta.N` prerelease (see msiVersion below)
 //
 // Once `tauri.conf.json` points its "version" at "../package.json" (a Tauri 2
 // feature), that carrier derives automatically and this script leaves it alone.
@@ -97,6 +99,95 @@ const writeTauriVersionIfLiteral = (version) => {
   return true;
 };
 
+// ── MSI version (Windows / WiX) ───────────────────────────────────────────
+// WiX's ProductVersion is four NUMERIC fields, so tauri-bundler refuses any
+// pre-release identifier it cannot read as a number <= 65535:
+//
+//   failed to bundle project: `optional pre-release identifier in app version
+//   must be numeric-only and cannot be greater than 65535 for msi target`
+//
+// Our contract (SDLC §3.2) is `-beta.N`, which is exactly the shape it
+// rejects — so every dev beta died at the MSI bundle step, AFTER a full ~16
+// minute release compile. That is why `dev-build.yml`'s Windows row had never
+// once gone green (21/21 runs red) while macOS passed: dmg has no such rule,
+// and NSIS only warns and pads to `.0`. MSI is the single target that hard-fails.
+//
+// tauri-bundler's escape hatch is `bundle.windows.wix.version`, which bypasses
+// that conversion entirely — so map `X.Y.Z-beta.N` → `X.Y.Z.N` and set it
+// there, and the version contract itself stays `-beta.N` everywhere else
+// (package.json, the updater, What's New). Fix the installer, not the contract.
+
+/** `X.Y.Z-beta.N` → `X.Y.Z.N` for WiX; `null` for a plain release (no override needed). */
+export const msiVersion = (version) => {
+  const m = /^(\d+)\.(\d+)\.(\d+)-(?:alpha|beta|rc)\.(\d+)$/.exec(version);
+  if (!m) return null;
+  const [, major, minor, patch, n] = m;
+  if (Number(n) > 65535)
+    throw new RangeError(
+      `version.mjs: prerelease number ${n} in "${version}" exceeds the WiX limit of 65535`,
+    );
+  return `${major}.${minor}.${patch}.${n}`;
+};
+
+/**
+ * Write (or clear) `bundle.windows.wix.version` in tauri.conf.json.
+ *
+ * Done as a surgical TEXT patch, not `JSON.stringify(conf)`: re-serializing
+ * would reflow unrelated parts of the committed file (it collapses/expands
+ * inline arrays such as `"schemes": ["conva"]`), so a local `version:set`
+ * would leave a dirty tree that has nothing to do with the version.
+ *
+ * Clearing matters as much as writing: a release stamped over a previous beta
+ * would otherwise ship that beta's stale MSI ProductVersion. Because the block
+ * is written as one canonical line, adding and removing it is an exact
+ * round-trip that leaves the rest of the file byte-identical.
+ *
+ * Returns the value written, or null when there is no override.
+ */
+// Both the managed line and the anchor tolerate CRLF: Windows runners check
+// out with `core.autocrlf`, so tauri.conf.json arrives with \r\n there and LF
+// everywhere else. Matching only \n made the stamp step fail on the Windows
+// beta build (and ONLY there) — the post-condition below is what caught it.
+const WIX_LINE_RE = /^ {4}"windows": \{ "wix": \{ "version": "[^"]*" \} \},\r?\n/m;
+const BUNDLE_ANCHOR_RE = /^ {2}"bundle": \{\r?\n/m;
+
+/**
+ * Pure transform: tauri.conf.json source + desired MSI version -> new source.
+ * `msi` of null removes the override. Exported so the round-trip is unit-tested
+ * against both line endings rather than only on whichever CI runner runs first.
+ */
+export const patchWixVersion = (src, msi) => {
+  const nl = src.includes("\r\n") ? "\r\n" : "\n";
+  const stripped = src.replace(WIX_LINE_RE, "");
+  if (msi === null) return stripped;
+  const line = `    "windows": { "wix": { "version": "${msi}" } },${nl}`;
+  return stripped.replace(BUNDLE_ANCHOR_RE, (m) => m + line);
+};
+
+const writeMsiVersion = (version) => {
+  const msi = msiVersion(version);
+  const src = readFileSync(TAURI_CONF, "utf8");
+
+  // Only this script's own one-line form is managed. Anything else under
+  // bundle.windows was put there by hand, and patching around it blindly would
+  // either drop those settings or emit a duplicate key — fail loudly instead.
+  if (JSON.parse(src).bundle?.windows !== undefined && !WIX_LINE_RE.test(src))
+    die(
+      `${TAURI_CONF} has a hand-written bundle.windows — fold the wix.version override into this script before stamping`,
+    );
+
+  const next = patchWixVersion(src, msi);
+
+  // Post-condition: whatever the patch did, the parsed result must say exactly
+  // what we intended — this catches an anchor that stopped matching after an
+  // unrelated edit to tauri.conf.json, instead of silently building a wrong MSI.
+  if ((JSON.parse(next).bundle?.windows?.wix?.version ?? null) !== msi)
+    die(`could not set bundle.windows.wix.version in ${TAURI_CONF}`);
+
+  if (next !== src) writeFileSync(TAURI_CONF, next);
+  return msi;
+};
+
 // ── operations ────────────────────────────────────────────────────────────
 function writeAll(version) {
   if (!SEMVER.test(version))
@@ -105,6 +196,7 @@ function writeAll(version) {
   writeAppVersion(version);
   writeCargoVersion(version);
   const touchedTauri = writeTauriVersionIfLiteral(version);
+  const msi = writeMsiVersion(version);
 
   // Refresh Cargo.lock so the workspace crates record the new version. Best
   // effort: CI/dev have cargo; if it's missing we warn rather than fail (the
@@ -123,6 +215,9 @@ function writeAll(version) {
   console.log(`  Cargo.toml             → ${version}`);
   console.log(
     `  src-tauri/tauri.conf   → ${touchedTauri ? version : "(references package.json — untouched)"}`,
+  );
+  console.log(
+    `  tauri.conf wix.version → ${msi ?? "(release version — no MSI override)"}`,
   );
 }
 
@@ -172,6 +267,15 @@ function check(tagArg) {
     );
   }
 
+  // The WiX override is derived, so it must agree with package.json — a
+  // hand-edited or stale value would silently ship a wrong MSI ProductVersion.
+  const wix = JSON.parse(readFileSync(TAURI_CONF, "utf8")).bundle?.windows?.wix?.version ?? null;
+  const wantWix = msiVersion(app);
+  if (wix !== wantWix)
+    problems.push(
+      `tauri.conf.json bundle.windows.wix.version (${wix ?? "unset"}) ≠ the value derived from package.json (${wantWix ?? "unset"}) — re-run \`version.mjs set ${app}\``,
+    );
+
   if (tagArg) {
     const tag = normalize(tagArg);
     if (tag !== app)
@@ -187,28 +291,36 @@ function check(tagArg) {
 }
 
 // ── CLI ───────────────────────────────────────────────────────────────────
+// Entry guard: this file is also imported by version.test.mjs for the pure
+// helpers above, and without the guard that import would run the CLI and
+// process.exit() out of the test runner.
+const isEntry =
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
 const [cmd, ...rest] = process.argv.slice(2);
-switch (cmd) {
-  case "set": {
-    const v = rest[0];
-    if (!v) die("usage: version.mjs set <x.y.z[-beta.N]>");
-    writeAll(normalize(v));
-    break;
+if (isEntry) {
+  switch (cmd) {
+    case "set": {
+      const v = rest[0];
+      if (!v) die("usage: version.mjs set <x.y.z[-beta.N]>");
+      writeAll(normalize(v));
+      break;
+    }
+    case "stamp":
+      writeAll(resolveStampVersion(rest[0]));
+      break;
+    case "check": {
+      const i = rest.indexOf("--tag");
+      check(i >= 0 ? rest[i + 1] : null);
+      break;
+    }
+    case "get":
+      console.log(readAppVersion());
+      break;
+    default:
+      console.error(
+        "usage: version.mjs <set <x.y.z> | stamp [x.y.z|vX.Y.Z] | check [--tag vX.Y.Z] | get>",
+      );
+      process.exit(1);
   }
-  case "stamp":
-    writeAll(resolveStampVersion(rest[0]));
-    break;
-  case "check": {
-    const i = rest.indexOf("--tag");
-    check(i >= 0 ? rest[i + 1] : null);
-    break;
-  }
-  case "get":
-    console.log(readAppVersion());
-    break;
-  default:
-    console.error(
-      "usage: version.mjs <set <x.y.z> | stamp [x.y.z|vX.Y.Z] | check [--tag vX.Y.Z] | get>",
-    );
-    process.exit(1);
 }

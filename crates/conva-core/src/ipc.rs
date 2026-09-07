@@ -49,6 +49,16 @@ pub mod events {
 /// Re-exported so the IPC module is a one-stop description of the wire.
 pub type TranscriptEvent = TranscriptSegment;
 
+/// The versioned capture/source/session/event contract (browser product
+/// architecture M0) — additive to everything above. Lives in
+/// `capture_contract.rs`, mirrored by hand in `src/lib/capture/contract.ts`.
+pub use crate::capture_contract::{
+    channel_for_side, legacy_segment_id, side_for_channel, speaker_ref_for_side, Availability,
+    CaptureChannel, CaptureOwner, CaptureSourceCapability, CaptureSourceKind, ContinuityModel,
+    ConvaEvent, LegacySegmentRef, ProcessingMode, SpeakerRef, TranscriptPayload,
+    CONTRACT_SCHEMA_VERSION,
+};
+
 /// VU meter + stream-health payload (A4), emitted ~10 Hz per side.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioLevelEvent {

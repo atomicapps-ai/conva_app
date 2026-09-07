@@ -6,16 +6,10 @@ import * as webAuth from "@/lib/backend/webAuth";
  * the app so it's always present above the app's own icon nav (owner spec:
  * "top level = core website links, below that = app navigation icons").
  *
- * These are links to the marketing/account site (conva_web) — login and the
- * account/profile pages live THERE, the app only links out. `target="_top"`
- * breaks out of the embedding iframe so the whole window navigates to the site.
- * The site origin is passed in by the host page (?site=…); standalone falls back
- * to the current origin.
+ * These are links to the marketing/account site (conva_web). The app is served
+ * same-origin at /app/ (no iframe), so the site is simply this origin.
  */
-const SITE_ORIGIN =
-  (typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("site")) ||
-  (typeof window !== "undefined" ? window.location.origin : "");
+const SITE_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
 
 const site = (path: string) => `${SITE_ORIGIN}${path}`;
 

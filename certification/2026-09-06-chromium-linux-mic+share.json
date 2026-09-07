@@ -1,0 +1,145 @@
+{
+  "ran_at": "2026-09-06T20:05:56.890Z",
+  "browser": {
+    "requested": "chromium",
+    "version": "141.0.7390.37",
+    "executable": "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+    "channel": null,
+    "headless": true,
+    "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.0.0 Safari/537.36"
+  },
+  "os": {
+    "platform": "linux",
+    "release": "6.18.44-fc-v24",
+    "arch": "x64"
+  },
+  "capabilities": {
+    "secureContext": true,
+    "getUserMedia": true,
+    "getDisplayMedia": true,
+    "audioWorklet": true,
+    "webSocket": true
+  },
+  "capture_mode": "mic+share",
+  "hello": {
+    "protocol": 1,
+    "contract_schema_version": 1,
+    "client_build": "c499fc8"
+  },
+  "sessions_created": 1,
+  "notice": {
+    "start": {
+      "title": "Before you start listening"
+    },
+    "share": {
+      "title": "Before you share call audio"
+    },
+    "consent": {
+      "notice": "hosted-v1",
+      "scope": [
+        "mic"
+      ],
+      "age_ms": 161
+    }
+  },
+  "first_audio_ms": 707,
+  "sources": [
+    {
+      "id": "mic-self",
+      "kind": "mic",
+      "channel": "self",
+      "frames": 68,
+      "samples": 216967,
+      "audio_seconds": 13.56,
+      "mean_frame_ms": 199,
+      "rms_dbfs": -22.2,
+      "peak": 32730,
+      "seq_gaps": 0,
+      "voiced_frames": 24
+    },
+    {
+      "id": "share-remote",
+      "kind": "display",
+      "channel": "remote_mix",
+      "frames": 66,
+      "samples": 208004,
+      "audio_seconds": 13,
+      "mean_frame_ms": 197,
+      "rms_dbfs": -21.1,
+      "peak": 11468,
+      "seq_gaps": 0,
+      "voiced_frames": 24
+    }
+  ],
+  "transcript": {
+    "expected": 4,
+    "shown": 4,
+    "finals": [
+      {
+        "channel": "self",
+        "text": "Morning — did the vendor send the revised quote?",
+        "shown": true
+      },
+      {
+        "channel": "remote_mix",
+        "text": "They did, it's fourteen thousand now, down from forty.",
+        "shown": true
+      },
+      {
+        "channel": "self",
+        "text": "Great, let's lock it in before Friday.",
+        "shown": true
+      },
+      {
+        "channel": "remote_mix",
+        "text": "I'll send the paperwork tonight.",
+        "shown": true
+      }
+    ]
+  },
+  "telemetry_posts": 1,
+  "telemetry": {
+    "final_latency_ms": {
+      "self": {
+        "p50": 182,
+        "p95": 182,
+        "count": 2
+      },
+      "remote_mix": {
+        "p50": 182,
+        "p95": 182,
+        "count": 2
+      }
+    },
+    "partial_latency_ms": {
+      "self": {
+        "p50": 182,
+        "p95": 183,
+        "count": 3
+      },
+      "remote_mix": {
+        "p50": 182,
+        "p95": 182,
+        "count": 3
+      }
+    },
+    "source": {
+      "degraded_by_channel": {},
+      "degraded_by_code": {},
+      "recovered_by_channel": {},
+      "gaps_by_channel": {},
+      "reconnect": {
+        "attempts": 0,
+        "ok": 0,
+        "failed": 0,
+        "exhausted": 0
+      }
+    }
+  },
+  "bye_sent": true,
+  "console_errors": [],
+  "page_errors": [],
+  "failed_requests": [],
+  "verdict": "pass",
+  "reasons": []
+}

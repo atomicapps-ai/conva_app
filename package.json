@@ -11,7 +11,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "dev:web": "vite --port 1430",
-    "build:web": "tsc -b && vite build --outDir dist-web --emptyOutDir",
+    "build:web": "node scripts/build-web.mjs",
     "preview:web": "vite preview --outDir dist-web --port 1431",
     "typecheck": "tsc -b",
     "version:set": "node scripts/version.mjs set",
@@ -35,7 +35,9 @@
     "env:decrypt:dev": "node env/cli.mjs decrypt dev",
     "env:decrypt:prod": "node env/cli.mjs decrypt prod",
     "env:print:dev": "node env/cli.mjs print dev",
-    "env:print:prod": "node env/cli.mjs print prod"
+    "env:print:prod": "node env/cli.mjs print prod",
+    "certify:web": "node scripts/certify-web.mjs",
+    "rehearse:web": "node scripts/rehearse-web.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",
@@ -58,6 +60,7 @@
     "@vitejs/plugin-react": "^5.1.2",
     "jsdom": "^25.0.1",
     "patch-package": "^8.0.1",
+    "playwright-core": "^1.63.0",
     "tailwindcss": "^4.1.16",
     "typescript": "^5.9.3",
     "vite": "^7.2.7",
