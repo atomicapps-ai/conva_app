@@ -187,6 +187,8 @@ export class WebBackend implements ConvaBackend {
         "context.delete",
         "context.activateContext",
         "context.deactivateContext",
+        // The web no-op that lets the setup wizard finish (cp20).
+        "context.prepare",
         // Cloud Conversations (cp8): the explicit save of a hosted session.
         "conversations.save",
         "conversations.list",
@@ -597,7 +599,25 @@ export class WebBackend implements ConvaBackend {
     },
     storeDocs: (): Promise<string[]> =>
       unsupported("context.storeDocs (local file paths)"),
-    prepare: (): Promise<ConversationContext> => todo("POST /v1/contexts/:id/prepare"),
+    // Desktop's prepare() builds a local KnowledgeProfile file (attached docs
+    // + optional Tavily web research) and marks the Context ready. Neither
+    // half applies on web: retrieval already runs server-side against the
+    // Context's `source_doc_ids` (cp7/cp9) regardless of any local profile,
+    // and web research has no key path here (`setResearchKey` is
+    // server-side-only, still unsupported). So this is honestly a no-op
+    // beyond the one thing that DOES matter to the caller: the setup
+    // wizard's `finish()` (`ContextSetup.tsx`) awaits `prepare()` right
+    // after `save()` and could not complete on web while this rejected —
+    // no Context could ever be created through the web wizard (found by the
+    // first-run rehearsal, M2 cp20). Mark ready and persist; leave every
+    // other field as the caller already saved it.
+    prepare: async (id: string): Promise<ConversationContext> => {
+      const ctx = await loadContext({ fetch: (i, o) => fetch(i, o) }, id);
+      if (ctx.status === "draft" || ctx.status === "ingesting") {
+        return saveContext({ fetch: (i, o) => fetch(i, o) }, { ...ctx, status: "ready" });
+      }
+      return ctx;
+    },
     loadProfile: (): Promise<KnowledgeProfile> =>
       todo("GET /v1/contexts/profiles/:id"),
     generateDossier: (): Promise<ConversationContext> =>
