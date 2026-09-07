@@ -43,6 +43,10 @@ import {
   type ViewEntry,
 } from "@/components/transcript/viewEntries";
 import { FoundList } from "@/components/transcript/FoundList";
+import type {
+  ClaimDisplayItem,
+  ClaimRowAction,
+} from "@/components/transcript/claims";
 import { ViewHistory } from "@/components/transcript/ViewHistory";
 import { AllyAccordion } from "@/components/transcript/AllyAccordion";
 import {
@@ -72,6 +76,9 @@ import { ScrambleText } from "@/components/transcript/ScrambleText";
 // hands React a "new" empty array on every render before the first
 // CaptureEvent lands (same fix `FanerReplayPanel.tsx` uses).
 const EMPTY_CAPTURES: Capture[] = [];
+const EMPTY_CLAIMS: ClaimDisplayItem[] = [];
+const CLAIM_EVIDENCE_ACTIONS: ClaimRowAction[] = ["open_evidence"];
+const NO_CLAIM_ACTIONS: ClaimRowAction[] = [];
 
 function formatMs(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -1439,6 +1446,9 @@ function AllyPanel({
   onEntryDefine,
   onEntryElaborate,
   onEntryOpenInViewer,
+  canOpenClaimEvidence,
+  enabledClaimActions,
+  onClaimAction,
   splitRatio,
   onSplitRatio,
   widthPx,
@@ -1478,6 +1488,9 @@ function AllyPanel({
   onEntryDefine: (entry: ViewEntry) => void;
   onEntryElaborate: (entry: ViewEntry) => void;
   onEntryOpenInViewer: (entry: ViewEntry) => void;
+  canOpenClaimEvidence: boolean;
+  enabledClaimActions: readonly ClaimRowAction[];
+  onClaimAction: (claim: ClaimDisplayItem, action: ClaimRowAction) => void;
   splitRatio: number;
   onSplitRatio: (r: number) => void;
   widthPx: number;
@@ -1633,7 +1646,10 @@ function AllyPanel({
           onState={onPanelState}
           counts={{
             questions: groups.questions.length,
-            tracking: groups.commitments.length + groups.mentions.length,
+            tracking:
+              groups.claims.length +
+              groups.commitments.length +
+              groups.mentions.length,
             terms: groups.terms.length,
             answers: viewEntries.length,
           }}
@@ -1672,6 +1688,9 @@ function AllyPanel({
                 onSelect={onSelectFound}
                 only={id}
                 questionsMode={questionsMode}
+                canOpenClaimEvidence={canOpenClaimEvidence}
+                enabledClaimActions={enabledClaimActions}
+                onClaimAction={onClaimAction}
               />
             )
           }
@@ -1765,7 +1784,12 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
  * removed global `TopBar` — see both files for the mockup mapping and the
  * gaps found along the way (Pause/mic-mute/Ally-mute have no backend yet).
  */
-export function TranscriptView() {
+export function TranscriptView({
+  claimSnapshot = EMPTY_CLAIMS,
+}: {
+  /** Explicit UI injection until the versioned live claim contract lands. */
+  claimSnapshot?: readonly ClaimDisplayItem[];
+} = {}) {
   const backend = useBackend();
   // Gates whether "open in viewer" launches the partner window (desktop —
   // the specced viewer) or falls back to the internal drawer (web, where no
@@ -2147,13 +2171,24 @@ export function TranscriptView() {
       buildFoundGroups({
         radarHistory,
         tracker,
+        claims: claimSnapshot,
         captures,
         liveTerms: [...addedTerms, ...spokenTerms],
         docTerms,
         docDefinitions,
         prepQa,
       }),
-    [radarHistory, tracker, captures, addedTerms, spokenTerms, docTerms, docDefinitions, prepQa],
+    [
+      radarHistory,
+      tracker,
+      claimSnapshot,
+      captures,
+      addedTerms,
+      spokenTerms,
+      docTerms,
+      docDefinitions,
+      prepQa,
+    ],
   );
 
   // Questions sub-mode + the "live questions arrived while reading prep"
@@ -2250,6 +2285,26 @@ export function TranscriptView() {
       if (drawer) setDrawerOpen(true);
     },
     [allyScroll, backend, caps, drawer, ensureViewVisible],
+  );
+
+  /** The UI-only claim checkpoint can inspect already-supplied evidence in
+   *  the existing desktop partner viewer. Verification, correction, and
+   *  dismissal stay disabled until their versioned backend contract lands. */
+  const handleClaimAction = useCallback(
+    (claim: ClaimDisplayItem, action: ClaimRowAction) => {
+      if (action !== "open_evidence" || !caps?.system.partnerWindow) return;
+      const sourceLines = claim.evidence.map((source) =>
+        source.location ? `${source.label} — ${source.location}` : source.label,
+      );
+      void backend.partner.open(
+        claim.proposition,
+        "claim",
+        claim.evidenceSummary,
+        claim.safeWording,
+        sourceLines,
+      );
+    },
+    [backend, caps],
   );
 
   const jumpToLive = useCallback(() => {
@@ -2778,6 +2833,13 @@ export function TranscriptView() {
                 );
               }
             }}
+            canOpenClaimEvidence={Boolean(caps?.system.partnerWindow)}
+            enabledClaimActions={
+              caps?.system.partnerWindow
+                ? CLAIM_EVIDENCE_ACTIONS
+                : NO_CLAIM_ACTIONS
+            }
+            onClaimAction={handleClaimAction}
             splitRatio={panelSplitRatio}
             onSplitRatio={setPanelSplitRatio}
             widthPx={effectivePanelWidth}

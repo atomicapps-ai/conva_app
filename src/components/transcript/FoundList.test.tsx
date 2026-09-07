@@ -24,6 +24,7 @@ const groups: FoundGroups = {
       },
     },
   ],
+  claims: [],
   commitments: [
     {
       id: "c-you-send the deck",
@@ -118,7 +119,7 @@ describe("FoundList", () => {
   it("shows the all-empty placeholder when nothing has been found yet", () => {
     render(
       <FoundList
-        groups={{ questions: [], commitments: [], terms: [], mentions: [], prepQa: [] }}
+        groups={{ questions: [], claims: [], commitments: [], terms: [], mentions: [], prepQa: [] }}
         onSelect={() => {}}
       />,
     );
@@ -146,6 +147,42 @@ describe("FoundList", () => {
     expect(screen.queryByText("Commitments")).toBeNull();
     expect(screen.queryByText("Mentioned")).toBeNull();
     expect(screen.queryByText("What is RRF?")).toBeNull();
+  });
+
+  it("only=tracking renders claims before the existing tracked objects", () => {
+    const onClaimAction = vi.fn();
+    render(
+      <FoundList
+        groups={{
+          ...groups,
+          claims: [
+            {
+              id: "claim-1",
+              proposition: "The candidate reduced cloud spend by 32%.",
+              state: "attributed",
+              attribution: "Candidate → own experience",
+              consequence: "medium",
+              exactQuote: "I reduced our cloud spend by 32%.",
+              attributionDetail: "Candidate-stated experience.",
+              referenceDetail: null,
+              nextAction: "Ask for the baseline and measurement method.",
+              evidenceSummary: "Candidate-stated · not externally checked",
+              processingDisclosure: "Local Context only",
+              safeWording: null,
+              evidence: [],
+              primaryAction: "request_evidence",
+              primaryActionLabel: "Request evidence",
+            },
+          ],
+        }}
+        onSelect={() => {}}
+        onClaimAction={onClaimAction}
+        only="tracking"
+      />,
+    );
+    expect(screen.getByText("Claims · highest consequence first")).toBeInTheDocument();
+    expect(screen.getByText("The candidate reduced cloud spend by 32%.")).toBeInTheDocument();
+    expect(screen.getByText("send the deck")).toBeInTheDocument();
   });
 });
 

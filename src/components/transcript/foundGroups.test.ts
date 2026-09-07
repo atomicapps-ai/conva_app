@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildFoundGroups } from "@/components/transcript/foundGroups";
+import type { ClaimDisplayItem } from "@/components/transcript/claims";
 import type { RadarEvent, TrackerEvent } from "@/lib/ipc";
 
 const tracker: TrackerEvent = {
@@ -62,9 +63,51 @@ describe("buildFoundGroups", () => {
       docTerms: [],
     });
     expect(g.questions).toEqual([]);
+    expect(g.claims).toEqual([]);
     expect(g.commitments).toEqual([]);
     expect(g.terms).toEqual([]);
     expect(g.mentions).toEqual([]);
+  });
+
+  it("orders injected claims by consequence and actionability", () => {
+    const claim = (
+      id: string,
+      consequence: ClaimDisplayItem["consequence"],
+      state: ClaimDisplayItem["state"],
+    ): ClaimDisplayItem => ({
+      id,
+      proposition: id,
+      state,
+      attribution: null,
+      consequence,
+      exactQuote: id,
+      attributionDetail: null,
+      referenceDetail: null,
+      nextAction: "Review it.",
+      evidenceSummary: null,
+      processingDisclosure: null,
+      safeWording: null,
+      evidence: [],
+      primaryAction: "verify",
+      primaryActionLabel: "Check claim",
+    });
+    const g = buildFoundGroups({
+      radarHistory: [],
+      tracker: null,
+      claims: [
+        claim("low conflict", "low", "conflict"),
+        claim("high attributed", "high", "attributed"),
+        claim("high conflict", "high", "conflict"),
+      ],
+      captures: [],
+      liveTerms: [],
+      docTerms: [],
+    });
+    expect(g.claims.map((item) => item.id)).toEqual([
+      "high conflict",
+      "high attributed",
+      "low conflict",
+    ]);
   });
 
   it("commitment detail omits the due part when empty", () => {

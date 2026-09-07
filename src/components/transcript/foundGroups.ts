@@ -3,6 +3,10 @@ import {
   type TermChip,
 } from "@/components/transcript/terms";
 import type { PrepQaPair } from "@/components/transcript/qaPairs";
+import {
+  sortClaimsForTracking,
+  type ClaimDisplayItem,
+} from "@/components/transcript/claims";
 import type {
   Capture,
   RadarEvent,
@@ -37,6 +41,8 @@ export interface FoundItem {
 
 export interface FoundGroups {
   questions: FoundItem[];
+  /** UI-domain claim rows, ordered by consequence and actionability. */
+  claims: ClaimDisplayItem[];
   commitments: FoundItem[];
   terms: FoundItem[];
   mentions: FoundItem[];
@@ -48,6 +54,8 @@ export interface FoundGroups {
 export function buildFoundGroups(args: {
   radarHistory: readonly RadarEvent[];
   tracker: TrackerEvent | null;
+  /** Explicitly injected until the versioned live claim event contract lands. */
+  claims?: readonly ClaimDisplayItem[];
   captures: readonly Capture[];
   liveTerms: readonly string[];
   docTerms: readonly string[];
@@ -109,5 +117,7 @@ export function buildFoundGroups(args: {
     prep: p,
   }));
 
-  return { questions, commitments, terms, mentions, prepQa };
+  const claims = sortClaimsForTracking(args.claims ?? []);
+
+  return { questions, claims, commitments, terms, mentions, prepQa };
 }
