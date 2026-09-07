@@ -22,14 +22,10 @@ import { join, resolve } from "node:path";
 import os from "node:os";
 import { startGateway } from "./certify/gateway.mjs";
 import { synthWav, EXPECTED_FINALS } from "./certify/lib.mjs";
+import { DEFAULT_CHROMIUM, acknowledgeNotice, attachListeners, cliOptions, launchOptions, probeEnvironment, summarizeTelemetry } from "./certify/driver.mjs";
 
 const require = createRequire(import.meta.url);
-const args = process.argv.slice(2);
-const opt = (name, def) => {
-  const i = args.indexOf(`--${name}`);
-  return i >= 0 && args[i + 1] && !args[i + 1].startsWith("--") ? args[i + 1] : def;
-};
-const flag = (name) => args.includes(`--${name}`);
+const { opt, flag } = cliOptions(process.argv.slice(2));
 
 const browserName = opt("browser", "chromium");
 const duration = Number(opt("duration", "14"));
@@ -37,7 +33,6 @@ const outDir = resolve(opt("out", "certification"));
 const distDir = resolve(opt("dist", "dist-web"));
 const headed = flag("headed");
 const tryShare = flag("share");
-const DEFAULT_CHROMIUM = ["/opt/pw-browsers/chromium-1194/chrome-linux/chrome", "/opt/pw-browsers/chromium/chrome-linux/chrome"].find((p) => existsSync(p));
 const executable = opt("executable", process.env.CONVA_CERTIFY_CHROMIUM || (browserName === "chromium" ? DEFAULT_CHROMIUM : undefined));
 
 if (!existsSync(join(distDir, "index.html"))) {
@@ -47,78 +42,25 @@ if (!existsSync(join(distDir, "index.html"))) {
 
 const { chromium } = require("playwright-core");
 
-/** Pull the latency figures out of the client's aggregates: per-channel final p50/p95 and the source health counts. */
-/**
- * The hosted-processing notice (M2 cp16) renders as a dialog whose confirm
- * button carries the action ("Start listening" / "Share call audio"). Click it
- * when it appears; report what was shown so the row records that the build
- * asked. Returns null when no dialog appeared within the wait (older artifact).
- */
-async function acknowledgeNotice(page, confirmName) {
-  const dialog = page.getByRole("dialog");
-  const appeared = await dialog.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false);
-  if (!appeared) return null;
-  const title = await dialog.getByRole("heading").first().innerText().catch(() => "");
-  const confirm = dialog.getByRole("button", { name: confirmName }).first();
-  await confirm.click();
-  await dialog.waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
-  return { title };
-}
-
-function summarizeTelemetry(aggregates) {
-  const out = { final_latency_ms: {}, partial_latency_ms: {}, source: null };
-  for (const a of aggregates) {
-    const t = a && a.transcript ? a.transcript : {};
-    for (const [ch, h] of Object.entries(t.final_by_channel || {})) if (h && typeof h.p50_ms === "number") out.final_latency_ms[ch] = { p50: h.p50_ms, p95: h.p95_ms, count: h.count };
-    for (const [ch, h] of Object.entries(t.partial_by_channel || {})) if (h && typeof h.p50_ms === "number") out.partial_latency_ms[ch] = { p50: h.p50_ms, p95: h.p95_ms, count: h.count };
-    if (a && a.source) out.source = a.source;
-  }
-  return out;
-}
 mkdirSync(outDir, { recursive: true });
 const wavPath = join(outDir, ".certify-mic.wav");
 writeFileSync(wavPath, synthWav({ sampleRate: 48_000, seconds: duration + 2 }));
 
 const gw = await startGateway({ distDir });
-const consoleErrors = [];
-const pageErrors = [];
-const failedRequests = [];
 const startedAt = new Date();
 let browser;
 let row;
+let consoleErrors = [];
+let pageErrors = [];
+let failedRequests = [];
 try {
-  const launch = {
-    headless: !headed,
-    args: [
-      "--use-fake-device-for-media-stream",
-      "--use-fake-ui-for-media-stream",
-      `--use-file-for-fake-audio-capture=${wavPath}`,
-      "--autoplay-policy=no-user-gesture-required",
-      "--no-sandbox",
-      ...(tryShare ? ["--auto-accept-this-tab-capture", "--auto-select-desktop-capture-source=Entire screen"] : []),
-    ],
-  };
-  if (executable) launch.executablePath = executable;
-  else if (browserName !== "chromium") launch.channel = browserName;
-  browser = await chromium.launch(launch);
+  browser = await chromium.launch(launchOptions({ headed, wavPath, share: tryShare, executable, browserName }));
   const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, permissions: ["microphone"] });
   const page = await context.newPage();
-  page.on("console", (m) => {
-    if (m.type() === "error") consoleErrors.push(m.text().slice(0, 300));
-  });
-  page.on("pageerror", (e) => pageErrors.push(String(e).slice(0, 300)));
-  page.on("requestfailed", (r) => failedRequests.push(`${r.method()} ${new URL(r.url()).pathname} ${r.failure()?.errorText ?? ""}`));
+  ({ consoleErrors, pageErrors, failedRequests } = attachListeners(page));
 
   await page.goto(`${gw.origin}/app/`, { waitUntil: "load" });
-  const env = await page.evaluate(() => ({
-    ua: navigator.userAgent,
-    secureContext: window.isSecureContext,
-    getUserMedia: !!navigator.mediaDevices?.getUserMedia,
-    getDisplayMedia: !!navigator.mediaDevices?.getDisplayMedia,
-    audioWorklet: typeof AudioWorkletNode === "function",
-    webSocket: typeof WebSocket === "function",
-    hardwareConcurrency: navigator.hardwareConcurrency,
-  }));
+  const env = await probeEnvironment(page);
 
   // Start listening from wherever the app landed (Home tile or Live control bar).
   const startButton = page.getByRole("button", { name: /start (listening|session)|^start$|listen/i }).first();

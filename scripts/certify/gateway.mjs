@@ -5,7 +5,13 @@
  * WebSocket: hello → ready, source.attach → source.attached + credit, PCM16
  * frames counted and measured (never stored), transcript events from the
  * two-channel fixture scheduled against each source's first audio, stop → bye.
- * Everything it learns is content-free statistics for the support-matrix row. */
+ * Everything it learns is content-free statistics for the support-matrix row.
+ *
+ * With `cloud` (a `createCloudStub()` from `./cloud.mjs`, M2 cp19) the cloud
+ * routes — library, Contexts, conversations and a streaming `/api/live/ally` —
+ * answer from memory instead of 503, and status reports Ally as configured, so
+ * the first-run rehearsal (`scripts/rehearse-web.mjs`) can drive the whole
+ * checklist path in the real build. Without it, nothing changes. */
 import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize, resolve } from "node:path";
@@ -17,8 +23,22 @@ const json = (res, status, body) => {
   res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
   res.end(JSON.stringify(body));
 };
+const readBody = async (req) => {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  return Buffer.concat(chunks);
+};
+const parseJson = (buf) => {
+  try {
+    return JSON.parse(buf.toString("utf8"));
+  } catch {
+    return null;
+  }
+};
+/** Delay between streamed NDJSON lines so the client really streams (ms). */
+const ALLY_TOKEN_DELAY_MS = 20;
 
-export function startGateway({ distDir, port = 0, sessionId = "live_certify", log = () => {} }) {
+export function startGateway({ distDir, port = 0, sessionId = "live_certify", log = () => {}, cloud = null }) {
   const root = resolve(distDir);
   const stats = { sessions_created: 0, consent: null, sockets: 0, hello: null, sources: new Map(), telemetry: [], ally_requests: 0, control_frames: 0, bad_frames: 0, bye_sent: false, closed_by_client: false, protocol_errors: [] };
 
@@ -26,7 +46,7 @@ export function startGateway({ distDir, port = 0, sessionId = "live_certify", lo
     const url = new URL(req.url, "http://localhost");
     const p = url.pathname;
     if (p === "/api/app/session") return json(res, 200, { signed_in: true, configured: true, email: "certify@example.invalid", user_id: "certify-user", provider: "google", expires_at_unix: Math.floor(Date.now() / 1000) + 3600, last_sign_in_at: null, beta_access: true, beta_status: "active" });
-    if (p === "/api/live/status") return json(res, 200, { configured: true, provider: "certify", max_sources: 2, sample_rate_hz: 16000, ally: { configured: false, provider: null, model: null, reason: "The certification gateway has no model provider." }, limits: { max_minutes_per_day: 180, max_concurrent_sessions: 1, max_duration_s: 10800, ally_max_requests_per_day: 200 }, library: { embeddings: { configured: false, provider: null, model: null, dim: 384, reason: "certification gateway" } }, terms: { asr: { provider: "certify", region: "us", mip_opt_out: true }, ally: null }, notice: { id: "hosted-v1" } });
+    if (p === "/api/live/status") return json(res, 200, { configured: true, provider: "certify", max_sources: 2, sample_rate_hz: 16000, ally: cloud ? { configured: true, provider: "rehearsal", model: "rehearsal-stub", reason: null } : { configured: false, provider: null, model: null, reason: "The certification gateway has no model provider." }, limits: { max_minutes_per_day: 180, max_concurrent_sessions: 1, max_duration_s: 10800, ally_max_requests_per_day: 200 }, library: { embeddings: { configured: false, provider: null, model: null, dim: 384, reason: "certification gateway" } }, terms: { asr: { provider: "certify", region: "us", mip_opt_out: true }, ally: null }, notice: { id: "hosted-v1" } });
     if (p === "/api/live/sessions" && req.method === "POST") {
       stats.sessions_created += 1;
       // cp16: record the content-free acknowledgement the build sent (id, kinds, age) — the real gateway refuses without it.
@@ -53,7 +73,25 @@ export function startGateway({ distDir, port = 0, sessionId = "live_certify", lo
     }
     if (p === "/api/live/ally") {
       stats.ally_requests += 1;
-      return json(res, 503, { error: "unconfigured", reason: "certification gateway" });
+      if (!cloud) return json(res, 503, { error: "unconfigured", reason: "certification gateway" });
+      const r = cloud.handle({ method: req.method, path: "/ally", body: parseJson(await readBody(req)) });
+      if (r.status !== 200) return json(res, r.status, r.body);
+      // NDJSON, one line at a time with a small gap — the client's streaming path, not one blob.
+      res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" });
+      let i = 0;
+      const tick = () => {
+        if (i >= r.lines.length) return res.end();
+        res.write(`${JSON.stringify(r.lines[i++])}\n`);
+        setTimeout(tick, ALLY_TOKEN_DELAY_MS);
+      };
+      tick();
+      return undefined;
+    }
+    if (cloud && /^\/api\/live\/(library|contexts|conversations)(\/|$)/.test(p)) {
+      const raw = await readBody(req);
+      const isUpload = p === "/api/live/library/upload";
+      const r = cloud.handle({ method: req.method, path: p.slice("/api/live".length), body: isUpload ? raw : raw.length ? parseJson(raw) : null, headers: req.headers });
+      return json(res, r.status, r.body);
     }
     // Cloud stores: empty and healthy, so console errors stay a real signal.
     if (p === "/api/live/contexts" && req.method === "GET") return json(res, 200, { contexts: [] });
@@ -208,7 +246,7 @@ export function startGateway({ distDir, port = 0, sessionId = "live_certify", lo
         port: address.port,
         origin: `http://127.0.0.1:${address.port}`,
         stats,
-        summary: () => ({ ...stats, sources: [...stats.sources.values()].map(summarizeSource) }),
+        summary: () => ({ ...stats, sources: [...stats.sources.values()].map(summarizeSource), cloud: cloud ? cloud.snapshot() : null }),
         close: () => new Promise((r) => server.close(() => r())),
       });
     });

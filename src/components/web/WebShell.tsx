@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { HealthStrip } from "@/components/HealthStrip";
+import { SaveConversationDialog } from "@/components/SaveConversationDialog";
 import { ViewRouter } from "@/components/studio/ViewRouter";
 import { GateView, useAccessGate } from "@/components/web/GateView";
 import { HostedNoticeGate } from "@/components/web/HostedNoticeGate";
@@ -46,6 +47,11 @@ export function WebShell() {
       </main>
       {/* Band 4 — app meters (mic/system + engine/latency). */}
       {!gated && <HealthStrip />}
+      {/* Overlay — End's "save this conversation?" (and the Conversations
+          page's "Save current conversation…"). The store flag is shared with
+          desktop; the dialog has to be mounted in EACH shell, or End on web
+          sets a flag nothing renders (first-run rehearsal finding, #238). */}
+      {!gated && <SaveConversationDialog />}
     </div>
   );
 }
