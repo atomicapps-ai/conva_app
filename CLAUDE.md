@@ -277,6 +277,7 @@ then on the other machine set the same env var and the keys load on startup.
 | Core lint + tests (any OS) | `cargo fmt --check` · `cargo clippy -p conva-core --all-targets` · `cargo test -p conva-core` |
 | Shell tests + lint (Windows) | `cargo test -p conva-app` · `cargo clippy -p conva-app --all-targets` |
 | UI typecheck + build | `npm run build` |
+| Browser certification (web build, any OS with Chrome/Edge/Chromium) | `npm run build:web` · `npm run certify:web` (`-- --browser chrome` / `msedge` on Windows; writes a support-matrix row to `certification/`, see `conva_core/docs/technical/browser-support-matrix.md`) |
 
 CI (`.github/workflows/ci.yml`) runs core lint+test on ubuntu, UI typecheck+build
 on ubuntu, and the shell clippy `-D warnings` on windows-latest. Clippy runs with
@@ -340,3 +341,79 @@ mobile target. Full conventions + how to add iOS/Android targets:
   lines, no here-strings. Chain with `;` only if collapsing onto one line;
   otherwise plain sequential lines are fine. Never attach it as a file — the
   owner runs these by pasting straight into PowerShell.
+
+### Running concurrent Claude Code sessions (owner Q, 2026-08-27)
+
+Multiple Claude Code Remote sessions can safely work this repo at the same
+time — but "safely" rests on two mechanisms, and there are two real gaps
+that make it easy to duplicate work or think a pipeline exists that doesn't.
+Written down here so it doesn't have to be re-derived.
+
+**Why sessions don't clobber each other.** Each session gets (a) its own
+auto-generated, uniquely-named branch (e.g. `claude/conva-app-ui-modernization-igllsd`)
+and (b) its own fully isolated container/checkout. **(b) is what actually
+prevents collisions** — two sessions never share a working directory, so one
+can't dirty or half-edit a file the other is mid-change on. Branch naming is
+just bookkeeping on top of that.
+
+**Git worktrees are a different, local-machine-only concept — not this.** A
+worktree is one `.git` with multiple checked-out folders *on one machine*,
+used so you don't have to stash/switch to have two branches on disk at once.
+It's relevant to: the `Agent` tool's `isolation: "worktree"` option for
+subagents inside a single session, or the owner wanting `main` and (once it
+exists) `dev` checked out in two local folders side by side. It has no role
+in keeping separate remote sessions from colliding — that's already solved
+by per-session container isolation above. Don't reach for a worktree to
+"coordinate" sessions; there's nothing for it to do there.
+
+**Gap 1 — no session currently checks in-flight work before starting.**
+Before picking up new work, check open PRs and issues
+(`list_pull_requests`/`list_issues`, `state=open`) so a second session
+doesn't duplicate a branch/PR another session already has open for the same
+thing. If two sessions do end up touching overlapping code anyway, a merge
+conflict on the integration branch is the **expected, safe outcome** —
+resolve it like any git conflict, it is not silent corruption. The owner's
+explicit "merge NN" per PR is the serialization point: only one PR lands at
+a time, in the order the owner approves them, so the branch itself never
+receives two concurrent writes.
+
+**What this actually looks like in practice (2026-09-05).** Two sessions ran
+these repos all day and the model held — but the cost is real and worth
+knowing. A branch cut before another session's merge lands will re-introduce
+whatever that merge fixed: the same two `roadmap.md` defects (rows 1.5/1.6
+joined by a stray `||`, and a dropped migration reference) had to be repaired
+in three separate merges because each new branch predated the previous fix.
+`conva_core`'s `dev` also had to be reconciled into `main` three times before
+it could be retired, because it kept moving between the check and the delete.
+The lesson isn't "don't run concurrent sessions" — it's **merge the
+integration branch into your branch before you finish, not just before you
+start**, and re-check immediately before any destructive step.
+
+**~~Gap 2 — the dev→live pipeline has never actually been exercised~~ —
+CLOSED 2026-09-05.** It has now run end to end. `dev` exists in `conva_app`
+and `conva_web` (not in `conva_core` — documents-only, `main` alone, owner
+2026-09-05). `package.json` is at **0.3.3**, and **v0.3.3 is built, signed
+and published** in the public `atomicapps_releases` repo with a working
+updater feed — the first release ever to complete the pipeline. Four faults
+had to be cleared to get there, all fixed: a `secrets` reference in a step
+`if:` that made CI parse-fail and produce zero jobs, an orphaned encrypted
+env file, `tauri-action`'s `releaseCommitish` defaulting to a SHA the
+releases repo doesn't have, and the pre-release flag breaking
+`/releases/latest/download/latest.json`. See `docs/releasing.md`.
+
+`release.yml` triggers on a `v*` tag push and drafts a GitHub Release the
+owner publishes manually — that path is proven. `dev-build.yml` remains
+unwired.
+
+**The mechanics, now that `dev` exists (note: `dev` is a branch, not a
+worktree — see above). Since 2026-09-05 the flow is `feature` → `dev` →
+`main`, so a task branch PRs into `dev`, not `main`:**
+1. `git fetch origin main dev`
+2. Merge or fast-forward `main` into `dev` (ff when clean, merge commit when
+   diverged) and push `dev` — that push is what fires the beta build in
+   `dev-build.yml`. A worktree checkout of `dev` is an optional local
+   convenience for testing the beta artifact without disturbing a `main`
+   checkout elsewhere; it plays no part in the sync itself.
+3. To cut a real release: bump `package.json`'s version, tag it `vX.Y.Z`,
+   push the tag → `release.yml` builds the Windows/macOS installers and
+   drafts a GitHub Release → the owner publishes it manually.

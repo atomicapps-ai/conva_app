@@ -40,7 +40,7 @@ function harness() {
       onBye: (r) => events.byes.push(r),
     },
   );
-  const request = { processing_mode: "hosted" as const, retention_mode: "ephemeral" as const, context_id: null, sources: [{ kind: "mic" as const, channel: "self" as const }] };
+  const request = { processing_mode: "hosted" as const, retention_mode: "ephemeral" as const, context_id: null, consent: { notice: "hosted-v1", scope: ["mic" as const], acknowledged_at: 1 }, sources: [{ kind: "mic" as const, channel: "self" as const }] };
   /** Wait until the client has opened its Nth socket (session creation is async). */
   const untilSockets = async (n: number) => {
     for (let i = 0; i < 50 && sockets.length < n; i++) await new Promise((r) => setTimeout(r, 0));

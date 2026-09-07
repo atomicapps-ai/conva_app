@@ -145,12 +145,14 @@ export const ALL_OPERATIONS = [
   "capture.prepare",
   "capture.start",
   "capture.stop",
+  "capture.recover",
   "capture.status",
   "capture.subscribe",
   "recording.start",
   "recording.stop",
   "recording.status",
   "rag.ingest",
+  "rag.upload",
   "rag.ingestText",
   "rag.list",
   "rag.setEnabled",
@@ -306,8 +308,10 @@ export function desktopSnapshot(
       ...uniformOperations(AVAILABLE),
       "capture.start": unimplemented(DESKTOP_CAPTURE),
       "capture.stop": unimplemented(DESKTOP_CAPTURE),
+      "capture.recover": unimplemented(DESKTOP_CAPTURE),
       "capture.status": unimplemented(DESKTOP_CAPTURE),
       "capture.subscribe": unimplemented(DESKTOP_CAPTURE),
+      "rag.upload": unsupported("Desktop ingests files by path (rag.ingest); browser uploads are the web path."),
     },
   };
 }
@@ -417,12 +421,20 @@ export function webOperations(): OperationAvailability {
     "capture.prepare": AVAILABLE,
     "capture.start": unimplemented(M2),
     "capture.stop": unimplemented(M2),
+    // Flipped at runtime by WebBackend with capture.start/stop (M2 cp4).
+    "capture.recover": unimplemented(M2),
     "capture.status": AVAILABLE,
     "capture.subscribe": AVAILABLE,
     "recording.start": unsupported(NO_FS),
     "recording.stop": unsupported(NO_FS),
     "recording.status": unsupported(NO_FS),
-    "rag.ingest": unsupported("Takes local file paths; browser uploads use ingestText / a future upload descriptor."),
+    "rag.ingest": unsupported("Takes local file paths; browser uploads use rag.upload (File objects) or ingestText."),
+    // Cloud library originals (M2 cp10): WebBackend flips upload / download to
+    // `available` with the session backend; migration 0008 missing = `unprovisioned`.
+    "rag.upload": unimplemented(M1),
+    // Cloud library (M2 cp9, text-first): WebBackend flips ingestText / list /
+    // setEnabled / delete / attach / detach / documentText to `available` once
+    // the session backend answers; migration 0007 missing = per-call `unprovisioned`.
     "rag.ingestText": unimplemented(M1),
     "rag.list": unimplemented(M1),
     "rag.setEnabled": unimplemented(M1),
@@ -445,18 +457,22 @@ export function webOperations(): OperationAvailability {
     "auth.status": AVAILABLE,
     "auth.signout": AVAILABLE,
     "auth.openUrl": AVAILABLE,
+    // Cloud Conversations (M2 cp8): WebBackend flips these to `available` once
+    // the gateway's session backend answers; an unapplied migration 0006 is a
+    // per-call `unprovisioned` error, not a probe-time guess.
     "conversations.save": unimplemented(M1),
     "conversations.list": unimplemented(M1),
     "conversations.load": unimplemented(M1),
     "conversations.delete": unimplemented(M1),
+    // Flipped at runtime by WebBackend with the session backend (M2 cp7: cloud Contexts).
     "context.save": unimplemented(M1),
     "context.list": unimplemented(M1),
     "context.load": unimplemented(M1),
     "context.delete": unimplemented(M1),
     // Not desktop-only in principle (architecture §8) — a hosted session
     // implementation makes these real; until then they are unimplemented.
-    "context.activateContext": unimplemented("Session grounding needs the hosted live session (architecture M2)."),
-    "context.deactivateContext": unimplemented("Session grounding needs the hosted live session (architecture M2)."),
+    "context.activateContext": unimplemented("Grounding needs the hosted gateway (architecture M2 cp7); flipped at runtime by WebBackend."),
+    "context.deactivateContext": unimplemented("Grounding needs the hosted gateway (architecture M2 cp7); flipped at runtime by WebBackend."),
     "context.storeDocs": unsupported("Copies local file paths — desktop only; browser uploads land with the hosted library."),
     "context.prepare": unimplemented(M1),
     "context.loadProfile": unimplemented(M1),
@@ -468,14 +484,16 @@ export function webOperations(): OperationAvailability {
     "context.rehearsalSay": unimplemented("Rehearsal needs the browser mic pipeline + hosted TTS (architecture M2+)."),
     "context.setResearchKey": unsupported("Research keys are held server-side on the web."),
     "context.researchKeyStatus": unsupported("Research keys are held server-side on the web."),
+    // Flipped at runtime by WebBackend when the gateway's session backend answers (M2 cp4).
     "usage.summary": unimplemented(M1),
-    "usage.reset": unimplemented(M1),
+    "usage.reset": unsupported("The hosted usage ledger is server-side and resets every UTC day; there is nothing to clear locally."),
     "sessions.list": unimplemented(M1),
     "sessions.load": unimplemented(M1),
     "sessions.delete": unimplemented(M1),
-    "sessions.exportTranscript": unimplemented(FILE_PATHS),
+    // Web export is a browser download of the same Markdown (M2 cp6); `path` lends only its name.
+    "sessions.exportTranscript": AVAILABLE,
     "sessions.analyzeConversation": unimplemented("Post-call analysis runs through hosted inference (architecture M1/M2)."),
-    "sessions.writeTextFile": unimplemented(FILE_PATHS),
+    "sessions.writeTextFile": AVAILABLE,
     "diagnostics.saveDebugLog": unimplemented(FILE_PATHS),
     "diagnostics.trace": AVAILABLE,
     "screenshot.save": unimplemented(FILE_PATHS),

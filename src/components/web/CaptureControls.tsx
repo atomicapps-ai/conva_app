@@ -53,6 +53,8 @@ export function CaptureControls() {
   const coverage = coverageOf(statuses);
   // The remote-mix source of this session (display/tab share), whatever id the adapter gave it.
   const shareStatus = statuses.find((s) => s.channel === "remote_mix" || s.channel === "remote_track");
+  const micStatus = statuses.find((s) => s.channel === "self");
+  const micLost = micStatus?.phase === "degraded" || micStatus?.phase === "ended";
   const sharing = shareStatus?.phase === "capturing";
   const canShare =
     listening && !sharing && share?.availability.state === "available" && startAvailability?.state === "available";
@@ -66,10 +68,35 @@ export function CaptureControls() {
     const id = `share-${op + 1}`;
     setOp((n) => n + 1);
     try {
-      await backend.capture.start("display", id);
+      // A share that ended/degraded is recovered under its own id (§8
+      // `recover`); a first share is a fresh start. Both re-open the chooser.
+      if (shareStatus && (shareStatus.phase === "ended" || shareStatus.phase === "degraded")) {
+        await backend.capture.recover(shareStatus.source_id, id);
+      } else {
+        await backend.capture.start("display", id);
+      }
     } catch (e) {
       const code = (e as { code?: string } | null)?.code ?? "";
       setMessage(FAILURE_COPY[code] ?? (e instanceof Error ? e.message : "Could not share call audio."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // The mic vanished mid-session (device unplugged, permission revoked): the
+  // session and the other side keep going; this re-prompts and re-attaches the
+  // same source under a new epoch (M2 cp5 `recover(mic)`).
+  const onReconnectMic = async () => {
+    if (busy || !micStatus) return;
+    setBusy(true);
+    setMessage(null);
+    const id = `mic-${op + 1}`;
+    setOp((n) => n + 1);
+    try {
+      await backend.capture.recover(micStatus.source_id, id);
+    } catch (e) {
+      const code = (e as { code?: string } | null)?.code ?? "";
+      setMessage(FAILURE_COPY[code] ?? (e instanceof Error ? e.message : "Could not reconnect the microphone."));
     } finally {
       setBusy(false);
     }
@@ -96,7 +123,19 @@ export function CaptureControls() {
       >
         {coverage === "both" ? "both sides" : coverage === "self_only" ? "you only" : coverage === "remote_only" ? "call only" : "no audio"}
         {shareStatus?.phase === "degraded" || shareStatus?.phase === "ended" ? " · call audio ended" : ""}
+        {micLost ? " · microphone lost" : ""}
       </span>
+      {micLost && (
+        <button
+          type="button"
+          onClick={() => void onReconnectMic()}
+          disabled={busy}
+          title={micStatus?.reason ?? "Your microphone stopped — reconnect it to keep transcribing you"}
+          className="rounded border border-border-strong px-2 py-0.5 text-[11px] font-semibold text-fg transition hover:bg-panel-raised disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy ? "Reconnecting…" : "Reconnect microphone"}
+        </button>
+      )}
       {sharing ? (
         <button
           type="button"
@@ -114,7 +153,7 @@ export function CaptureControls() {
           title={cannotShareReason ?? "Pick the tab or screen with your call and enable “share audio”"}
           className="rounded border border-border-strong px-2 py-0.5 text-[11px] font-semibold text-fg transition hover:bg-panel-raised disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {busy ? "Choosing…" : "Share call audio"}
+          {busy ? "Choosing…" : shareStatus?.phase === "ended" || shareStatus?.phase === "degraded" ? "Share again" : "Share call audio"}
         </button>
       )}
       {message && (

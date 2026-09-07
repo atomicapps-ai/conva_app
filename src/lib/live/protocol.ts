@@ -48,6 +48,89 @@ export interface LiveStatus {
   /** Ally (hosted model) readiness — reported separately from transcription
    *  because each needs its own server-side key. Absent from a cp1 gateway. */
   ally?: AllyStatus;
+  /** The deployment's per-account beta budgets (absent before cp4). */
+  limits?: LiveLimits;
+  /** Cloud library readiness (absent before cp11). The semantic leg is optional:
+   *  `embeddings.configured` false means keyword-only retrieval, never no citations. */
+  library?: LibraryStatus;
+  /** The provider knobs the gateway actually sends (absent before cp15):
+   *  configuration facts for the hosted-processing notice, never a retention
+   *  claim — those live in core `docs/platform/14-provider-retention-and-region.md`. */
+  terms?: LiveTerms;
+  /** The id of the hosted-processing notice this gateway requires on session
+   *  creation (absent before cp16). A build whose `HOSTED_NOTICE_ID` differs
+   *  is out of date and must not start hosted sessions. */
+  notice?: { id: string };
+}
+
+export interface LiveTerms {
+  /** Transcription: which regional host the audio streams to and whether the
+   *  per-request training opt-out is sent. Null when the gateway has no ASR provider. */
+  asr: AsrTerms | null;
+  /** Ally: where model inference is pinned. Null when the gateway has no model provider. */
+  ally: AllyTerms | null;
+}
+
+export interface AsrTerms {
+  provider: string;
+  region: "us" | "eu";
+  mip_opt_out: boolean;
+}
+
+export interface AllyTerms {
+  provider: string;
+  inference_geo: "global" | "us";
+}
+
+export interface LibraryStatus {
+  embeddings: EmbeddingsStatus;
+}
+
+export interface EmbeddingsStatus {
+  configured: boolean;
+  /** Embeddings provider id when configured (`workers-ai`), else null. */
+  provider: string | null;
+  /** Embedding model id when configured, else null. */
+  model: string | null;
+  /** Vector width the store expects (384). */
+  dim: number;
+  /** Human reason when `configured` is false. */
+  reason?: string;
+}
+
+/** Technical beta budgets (architecture §16) — not prices. */
+export interface LiveLimits {
+  max_minutes_per_day: number;
+  max_concurrent_sessions: number;
+  max_duration_s: number;
+  ally_max_requests_per_day: number;
+}
+
+/** `GET /api/live/usage` — today's use for the signed-in account (UTC day). */
+export interface LiveUsage {
+  day: string;
+  day_start_unix: number;
+  resets_at_unix: number;
+  live: {
+    used_ms: number;
+    audio_ms: number;
+    limit_ms: number;
+    remaining_ms: number;
+    sessions: number;
+    active_sessions: number;
+    max_concurrent_sessions: number;
+    max_duration_s: number;
+  };
+  ally: {
+    requests: number;
+    failed: number;
+    limit: number;
+    remaining: number;
+    input_tokens: number;
+    output_tokens: number;
+  };
+  limits: LiveLimits;
+  beta_access: boolean;
 }
 
 export interface AllyStatus {
@@ -80,6 +163,8 @@ export interface AllyRequestBody {
   kind: AllyRequestKind;
   question: string | null;
   segments: AllyEvidenceSegment[];
+  /** The active cloud Context to ground in (M2 cp7); absent → ungrounded. */
+  context_id?: string;
 }
 
 /** Response = newline-delimited JSON, one of these per line, `sources` first
@@ -138,12 +223,27 @@ export function parseAllyLine(line: string): AllyStreamLine | null {
 export type ProcessingMode = "hosted";
 export type RetentionMode = "ephemeral";
 
+/**
+ * The user's acknowledgement of the hosted-processing notice (cp16, architecture
+ * §10: consent is part of session state). `notice` is the id of the text that
+ * was shown (`HOSTED_NOTICE_ID`, `hostedNotice.ts`); the gateway refuses a
+ * session whose notice id is not the one it currently requires. `scope` lists
+ * the capture kinds the user agreed to; sharing call audio later expands it.
+ * Content-free by construction — an id, kinds and a timestamp.
+ */
+export interface SessionConsent {
+  notice: string;
+  scope: CaptureSourceKind[];
+  acknowledged_at: number;
+}
+
 /** `POST /api/live/sessions` request. */
 export interface CreateSessionRequest {
   processing_mode: ProcessingMode;
   retention_mode: RetentionMode;
   context_id: string | null;
   sources: Array<{ kind: CaptureSourceKind; channel: CaptureChannel }>;
+  consent: SessionConsent;
 }
 
 /** `POST /api/live/sessions` 201 response. */

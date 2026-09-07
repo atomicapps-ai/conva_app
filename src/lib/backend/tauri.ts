@@ -20,6 +20,7 @@ import {
   type CapabilitySnapshot,
   type RuntimeProbe,
 } from "@/lib/backend/capabilitySnapshot";
+import type { IngestReport } from "@/lib/ipc";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
@@ -150,6 +151,7 @@ export class TauriBackend implements ConvaBackend {
     },
     start: (kind: CaptureSourceKind): Promise<string> => Promise.reject(new UnimplementedOnDesktopError(`capture.start(${kind})`)),
     stop: (sourceId: string): Promise<void> => Promise.reject(new UnimplementedOnDesktopError(`capture.stop(${sourceId})`)),
+    recover: (sourceId: string): Promise<string> => Promise.reject(new UnimplementedOnDesktopError(`capture.recover(${sourceId})`)),
     status: (): Promise<CaptureStatus[]> => Promise.reject(new UnimplementedOnDesktopError("capture.status")),
     subscribe: (): Promise<Unsubscribe> => Promise.reject(new UnimplementedOnDesktopError("capture.subscribe")),
   };
@@ -162,6 +164,7 @@ export class TauriBackend implements ConvaBackend {
 
   rag = {
     ingest: cmd.ragIngest,
+    upload: (): Promise<IngestReport[]> => Promise.reject(new Error("rag.upload is a web operation; desktop ingests files by path (rag.ingest).")),
     ingestText: cmd.ragIngestText,
     list: cmd.ragList,
     setEnabled: cmd.ragSetEnabled,

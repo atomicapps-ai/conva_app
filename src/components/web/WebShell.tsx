@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { HealthStrip } from "@/components/HealthStrip";
 import { ViewRouter } from "@/components/studio/ViewRouter";
 import { GateView, useAccessGate } from "@/components/web/GateView";
+import { HostedNoticeGate } from "@/components/web/HostedNoticeGate";
 import { WebSiteNav } from "@/components/web/WebSiteNav";
 import { WebTopNav } from "@/components/web/WebTopNav";
 import { useNavStore } from "@/state/nav";
@@ -32,7 +33,9 @@ export function WebShell() {
   }, [togglePalette]);
 
   return (
-    <div className="flex h-full flex-col bg-bg">
+    <div className="relative flex h-full flex-col bg-bg">
+      {/* The hosted-processing notice (cp16) overlays the shell while the backend waits for an answer. */}
+      <HostedNoticeGate />
       {/* Band 1 — core WEBSITE links (owns brand + account, links out to the site). */}
       <WebSiteNav />
       {/* Band 2 — the app's own icon nav. */}

@@ -31,8 +31,17 @@ import {
 } from "@/lib/capture/capabilityStore";
 import { AVAILABLE, unavailable, type TranscriptEvent } from "@/lib/capture/contract";
 import { startAudioGraph } from "@/lib/audio/audioGraph";
+import { HOSTED_NOTICE_ID } from "@/lib/live/hostedNotice";
 import { fetchLiveStatus } from "@/lib/live/liveStatus";
+import { requestHostedConsent, useHostedConsentStore } from "@/state/hostedConsent";
 import { runAlly } from "@/lib/live/allyClient";
+import { fetchLiveUsage, toUsageSummary } from "@/lib/live/usage";
+import { TelemetryCollector, serializeAggregate, type TelemetrySample } from "@/lib/live/telemetry";
+import { downloadBlobFile, downloadName, downloadTextFile, transcriptMarkdown } from "@/lib/live/exportTranscript";
+import { deleteContext, listContexts, loadContext, saveContext } from "@/lib/live/contextsClient";
+import { deleteConversation, listConversations, loadConversation, saveConversation } from "@/lib/live/conversationsClient";
+import { attachDocumentContext, deleteDocument, detachDocumentContext, documentText, downloadOriginal, ingestText, listDocuments, setDocumentEnabled, uploadDocument } from "@/lib/live/libraryClient";
+import { DEFAULT_CONTEXT_ID } from "@/lib/ipc";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
@@ -99,9 +108,23 @@ export class WebBackend implements ConvaBackend {
   private readonly envelopeHandlers = new Set<(e: TranscriptEvent) => void>();
   private readonly captureHandlers = new Set<(s: CaptureStatus[]) => void>();
   private runner: LiveSessionRunner | null = null;
+  /** Ally model id from the last status probe (names the usage bucket). */
+  private allyModel: string | null = null;
+  /** The cloud Context grounding the next Ally ask (M2 cp7); null = ungrounded. */
+  private activeContextId: string | null = null;
+  /** Content-free telemetry (M2 cp5): samples fold into one aggregate per
+   *  window, posted to /api/live/telemetry every FLUSH_MS and on stop. */
+  private readonly telemetry: TelemetryCollector;
+  private flushTimer: ReturnType<typeof setInterval> | null = null;
+  static readonly TELEMETRY_FLUSH_MS = 30_000;
 
   /** `probe` is injectable for tests; defaults to the live runtime. */
   constructor(probe: RuntimeProbe = probeRuntime()) {
+    this.telemetry = new TelemetryCollector({ clientBuild: typeof __GIT_SHA__ === "string" ? __GIT_SHA__ : "dev", os: probe.os });
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      // Best effort on tab close: the aggregate is tiny and content-free.
+      window.addEventListener("pagehide", () => this.flushTelemetry(true));
+    }
     // `WEB_CAPABILITIES` (the legacy descriptor) is unchanged. The snapshot
     // around it tells the truth per operation: every `todo()` below is
     // `unimplemented`, every `unsupported()` is `unsupported`, and the
@@ -129,8 +152,15 @@ export class WebBackend implements ConvaBackend {
         return { ...src, availability: AVAILABLE };
       });
       const ops = { ...snap.operations };
-      const liveOps = ["session.start", "session.stop", "capture.start", "capture.stop"] as const;
-      if (status.configured) {
+      const liveOps = ["session.start", "session.stop", "capture.start", "capture.stop", "capture.recover"] as const;
+      // cp16: the notice text this build shows must be the one the gateway
+      // requires; a stale build says so instead of starting sessions it can't.
+      useHostedConsentStore.getState().setTerms(status.terms);
+      const staleNotice = status.notice && status.notice.id !== HOSTED_NOTICE_ID;
+      if (status.configured && staleNotice) {
+        const why = unavailable(`This build's hosted-processing notice (${HOSTED_NOTICE_ID}) is out of date; the gateway requires ${status.notice!.id}. Reload to get the current build.`);
+        for (const op of liveOps) ops[op] = why;
+      } else if (status.configured) {
         for (const op of liveOps) ops[op] = AVAILABLE;
       } else {
         const why = unavailable(status.reason ?? "Hosted live transcription is not configured on this deployment.");
@@ -142,6 +172,40 @@ export class WebBackend implements ConvaBackend {
       ops["ally.run"] = status.ally?.configured
         ? AVAILABLE
         : unavailable(status.ally?.reason ?? "Ally is not configured on this deployment.");
+      this.allyModel = status.ally?.model ?? null;
+      // Usage (cp4) needs only the session backend: any configured feature
+      // proves it is there; otherwise the same reason the gateway gave.
+      const backendUp = status.configured || status.ally?.configured;
+      const backendDown = unavailable(status.reason ?? "The live gateway's session backend is not configured.");
+      ops["usage.summary"] = backendUp ? AVAILABLE : backendDown;
+      // Cloud Contexts (cp7) ride the same session backend; an unprovisioned
+      // table is reported per call as `unprovisioned`, not guessed here.
+      for (const op of [
+        "context.save",
+        "context.list",
+        "context.load",
+        "context.delete",
+        "context.activateContext",
+        "context.deactivateContext",
+        // Cloud Conversations (cp8): the explicit save of a hosted session.
+        "conversations.save",
+        "conversations.list",
+        "conversations.load",
+        "conversations.delete",
+        // Cloud library (cp9, text-first): pasted/generated text; file paths stay unsupported.
+        "rag.ingestText",
+        // Cloud library originals (cp10): uploads and downloads through the Worker.
+        "rag.upload",
+        "rag.download",
+        "rag.list",
+        "rag.setEnabled",
+        "rag.delete",
+        "rag.attachContext",
+        "rag.detachContext",
+        "rag.documentText",
+      ] as const) {
+        ops[op] = backendUp ? AVAILABLE : backendDown;
+      }
       this.store.update({ sources, operations: ops });
     });
     void webAuth.ready().then((info) => {
@@ -178,6 +242,36 @@ export class WebBackend implements ConvaBackend {
     });
   }
 
+  /** Record a sample and make sure a flush is scheduled. */
+  private recordTelemetry(sample: TelemetrySample): void {
+    this.telemetry.record(sample);
+    if (this.flushTimer === null && typeof setInterval === "function") {
+      this.flushTimer = setInterval(() => this.flushTelemetry(false), WebBackend.TELEMETRY_FLUSH_MS);
+    }
+  }
+
+  /** Post the current aggregate (if any). Never throws; a failed post drops
+   *  the window — telemetry is best-effort and must never affect the session. */
+  flushTelemetry(final = false): void {
+    const agg = this.telemetry.flush();
+    if (this.flushTimer !== null && (final || agg === null)) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (!agg) return;
+    const body = serializeAggregate(agg);
+    if (!body) return; // the validator refused it: never send anything it did not pass
+    try {
+      if (final && typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        navigator.sendBeacon("/api/live/telemetry", new Blob([body], { type: "application/json" }));
+        return;
+      }
+      void fetch("/api/live/telemetry", { method: "POST", credentials: "same-origin", keepalive: final, headers: { "Content-Type": "application/json" }, body }).catch(() => {});
+    } catch {
+      /* best effort */
+    }
+  }
+
   private emit<K extends keyof EventMap>(event: K, payload: EventMap[K]): void {
     const set = this.handlers.get(event);
     if (!set) return;
@@ -209,6 +303,10 @@ export class WebBackend implements ConvaBackend {
         },
         notice: (code, message) => {
           if (import.meta.env?.DEV) console.info(`[live] ${code}: ${message}`);
+        },
+        telemetry: (sample) => {
+          this.recordTelemetry(sample);
+          if (sample.kind === "session.end") this.flushTelemetry(false);
         },
       },
     );
@@ -275,23 +373,39 @@ export class WebBackend implements ConvaBackend {
     // identical to desktop. A refusal before any line rejects with the
     // server's code (the store marks the card failed); a failure mid-stream
     // arrives as a terminal chunk with `error`, so `busy` never sticks.
-    run: (requestId: string, kind: AllyKind, question: string | null, segments: TranscriptSegment[]): Promise<void> =>
-      runAlly({ fetch: (input, init) => fetch(input, init) }, { request_id: requestId, kind, question, segments }, (line) => {
+    run: (requestId: string, kind: AllyKind, question: string | null, segments: TranscriptSegment[]): Promise<void> => {
+      const startedAt = Date.now();
+      let firstTokenMs: number | undefined;
+      let outcome: "ok" | "error" | "refused" = "ok";
+      let code: string | undefined;
+      return runAlly({ fetch: (input, init) => fetch(input, init) }, { request_id: requestId, kind, question, segments, context_id: this.activeContextId }, (line) => {
         switch (line.type) {
           case "sources":
             this.emit("allySources", { request_id: requestId, sources: line.sources });
             break;
           case "chunk":
+            if (firstTokenMs === undefined) firstTokenMs = Date.now() - startedAt;
             this.emit("allyChunk", { request_id: requestId, token: line.token, done: false, error: null });
             break;
           case "done":
             this.emit("allyChunk", { request_id: requestId, token: "", done: true, error: null });
             break;
           case "error":
+            outcome = "error";
+            code = line.code;
             this.emit("allyChunk", { request_id: requestId, token: "", done: true, error: `${line.message} (${line.code})` });
             break;
         }
-      }),
+      })
+        .catch((e: unknown) => {
+          outcome = "refused";
+          code = (e as { code?: string } | null)?.code ?? "error";
+          throw e;
+        })
+        .finally(() => {
+          this.recordTelemetry({ kind: "ally", ally_kind: kind, outcome, code, first_token_ms: firstTokenMs, total_ms: Date.now() - startedAt });
+        });
+    },
   };
 
   audio = {
@@ -307,9 +421,17 @@ export class WebBackend implements ConvaBackend {
     // AudioWorklet → PCM16 frames under credit → transcript envelopes. Refused
     // with a stable code (signed_out / not_entitled / unconfigured / denied…)
     // when any step can't proceed — never a silent no-op.
-    start: (): Promise<string> =>
-      this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null }),
-    stop: (): Promise<void> => (this.runner ? this.runner.stop() : Promise.resolve()),
+    start: async (): Promise<string> => {
+      // cp16: the hosted-processing notice comes BEFORE the mic prompt; the
+      // user's "Start listening" click on it resolves this and carries the
+      // content-free acknowledgement to the gateway.
+      const consent = await requestHostedConsent(["mic"]);
+      return this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null, consent });
+    },
+    stop: async (): Promise<void> => {
+      if (this.runner) await this.runner.stop();
+      useHostedConsentStore.getState().reset();
+    },
   };
 
   capture = {
@@ -324,12 +446,21 @@ export class WebBackend implements ConvaBackend {
           : "You choose a tab or screen and enable “share audio”; only that audio is transcribed (video is never sent). Recording rules for your participants still apply.";
       return Promise.resolve({ kind, channel, availability, requires_user_gesture: kind !== "mic", notice });
     },
-    start: (kind: CaptureSourceKind, operationId: string): Promise<string> => {
-      if (kind === "display" || kind === "tab") return this.ensureRunner().startShare(operationId);
-      if (kind === "mic") return this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null });
-      return Promise.reject(new UnimplementedOnWebError(`capture.start(${kind})`));
+    start: async (kind: CaptureSourceKind, operationId: string): Promise<string> => {
+      if (kind === "display" || kind === "tab") {
+        // Scope expansion (§10): the notice repeats once per session for shared
+        // call audio; the accepting click is the gesture the chooser needs.
+        await requestHostedConsent([kind], true);
+        return this.ensureRunner().startShare(operationId);
+      }
+      if (kind === "mic") {
+        const consent = await requestHostedConsent(["mic"]);
+        return this.ensureRunner().start({ processing_mode: "hosted", retention_mode: "ephemeral", context_id: null, consent });
+      }
+      throw new UnimplementedOnWebError(`capture.start(${kind})`);
     },
     stop: (sourceId: string): Promise<void> => (this.runner ? this.runner.stopSource(sourceId) : Promise.resolve()),
+    recover: (sourceId: string, operationId: string): Promise<string> => this.ensureRunner().recover(sourceId, operationId),
     status: (): Promise<CaptureStatus[]> => Promise.resolve(this.runner ? this.runner.statuses() : []),
     subscribe: (handler: (s: CaptureStatus[]) => void): Promise<Unsubscribe> => {
       this.captureHandlers.add(handler);
@@ -345,21 +476,34 @@ export class WebBackend implements ConvaBackend {
     status: () => Promise.resolve(false),
   };
 
+  // Cloud library (M2 cp9, text-first): the Worker chunks and stores pasted /
+  // generated text as the user (RLS) and retrieves for Ally server-side, so
+  // citations name documents. Local file paths stay unsupported on web.
   rag = {
     ingest: (): Promise<IngestReport[]> => unsupported("rag.ingest (file paths)"),
-    ingestText: (_name: string, _text: string): Promise<IngestReport> =>
-      todo("POST /v1/library (server-side embeddings)"),
-    list: (): Promise<RagDocument[]> => todo("GET /v1/library"),
-    setEnabled: (): Promise<void> => todo("PATCH /v1/library/:id"),
-    delete: (): Promise<void> => todo("DELETE /v1/library/:id"),
-    attachContext: (): Promise<void> => todo("PATCH /v1/library/:id (context_ids)"),
-    detachContext: (): Promise<void> => todo("PATCH /v1/library/:id (context_ids)"),
-    download: (): Promise<void> => unsupported("rag.download (file path)"),
+    // One at a time: uploads are bounded (25 MiB) and the Worker extracts per file.
+    upload: async (files: readonly File[]): Promise<IngestReport[]> => {
+      const out: IngestReport[] = [];
+      for (const f of files) out.push(await uploadDocument({ fetch: (i, o) => fetch(i, o) }, f));
+      return out;
+    },
+    ingestText: (name: string, text: string): Promise<IngestReport> => ingestText({ fetch: (i, o) => fetch(i, o) }, name, text),
+    list: (): Promise<RagDocument[]> => listDocuments({ fetch: (i, o) => fetch(i, o) }),
+    setEnabled: (id: string, enabled: boolean): Promise<void> => setDocumentEnabled({ fetch: (i, o) => fetch(i, o) }, id, enabled).then(() => undefined),
+    delete: (id: string): Promise<void> => deleteDocument({ fetch: (i, o) => fetch(i, o) }, id),
+    attachContext: (id: string, contextId: string): Promise<void> => attachDocumentContext({ fetch: (i, o) => fetch(i, o) }, id, contextId).then(() => undefined),
+    detachContext: (id: string, contextId: string): Promise<void> => detachDocumentContext({ fetch: (i, o) => fetch(i, o) }, id, contextId).then(() => undefined),
+    // Web: the stored original streams through the Worker and lands as a browser
+    // download; `dest` only lends its file name (like exportTranscript).
+    download: async (id: string, dest: string): Promise<void> => {
+      const { blob, fileName } = await downloadOriginal({ fetch: (i, o) => fetch(i, o) }, id);
+      downloadBlobFile(downloadName(dest, fileName ?? "document"), blob);
+    },
     syncLibrary: (): Promise<string> => unsupported("rag.syncLibrary (git)"),
     analyzeTerms: (): Promise<string[]> => Promise.resolve([]),
     recordHighlightFeedback: (): Promise<void> => Promise.resolve(),
     recordTermPick: (): Promise<void> => Promise.resolve(),
-    documentText: (): Promise<string | null> => todo("GET /v1/library/:id/text"),
+    documentText: (id: string): Promise<string | null> => documentText({ fetch: (i, o) => fetch(i, o) }, id),
   };
 
   secrets = {
@@ -391,22 +535,66 @@ export class WebBackend implements ConvaBackend {
     },
   };
 
+  // Cloud Conversations (M2 cp8): a hosted session is ephemeral — only an
+  // explicit Save persists, written by the Worker as the user (RLS). The
+  // Worker keeps finals, derives the title, and replaces the transcript on a
+  // re-save (append semantics); delete purges. `unprovisioned` until 0006.
   conversations = {
-    save: (): Promise<Conversation> => todo("POST /v1/conversations"),
-    list: (): Promise<ConversationSummary[]> => todo("GET /v1/conversations"),
-    load: (): Promise<Conversation> => todo("GET /v1/conversations/:id"),
-    delete: (): Promise<void> => todo("DELETE /v1/conversations/:id"),
+    save: (id: string | null, title: string | null, segments: TranscriptSegment[], linkedDocs: string[], contextId?: string | null): Promise<Conversation> =>
+      saveConversation({ fetch: (i, o) => fetch(i, o) }, { id, title, segments, linked_docs: linkedDocs, context_id: contextId ?? null }),
+    list: (): Promise<ConversationSummary[]> => listConversations({ fetch: (i, o) => fetch(i, o) }),
+    load: (id: string): Promise<Conversation> => loadConversation({ fetch: (i, o) => fetch(i, o) }, id),
+    delete: (id: string): Promise<void> => deleteConversation({ fetch: (i, o) => fetch(i, o) }, id),
   };
 
+  /** The desktop's always-present default Context, synthesised on web: it
+   *  grounds nothing and lives nowhere — activating it means "ungrounded". */
+  private static defaultContext(): ConversationContext {
+    return {
+      id: DEFAULT_CONTEXT_ID,
+      title: "General",
+      purpose: "",
+      job_description: null,
+      category: "other",
+      status: "ready",
+      created_at_unix_ms: 0,
+      updated_at_unix_ms: 0,
+      source_doc_ids: [],
+      auto_generate_context: false,
+      knowledge_profile_id: null,
+      personas: [],
+      chosen_persona_id: null,
+      conversation_id: null,
+      dossier_doc_id: null,
+    };
+  }
+
   context = {
-    save: (): Promise<ConversationContext> => todo("POST /v1/contexts"),
-    list: (): Promise<ContextSummary[]> => todo("GET /v1/contexts"),
-    load: (): Promise<ConversationContext> => todo("GET /v1/contexts/:id"),
-    delete: (): Promise<void> => todo("DELETE /v1/contexts/:id"),
-    activateContext: (): Promise<ConversationContext> =>
-      unsupported("context.activateContext (desktop session)"),
-    deactivateContext: (): Promise<void> =>
-      unsupported("context.deactivateContext (desktop session)"),
+    // Cloud Contexts (M2 cp7): the Worker reads/writes Supabase as the user
+    // (RLS); `unprovisioned` is the honest answer until migration 0005 runs.
+    save: (context: ConversationContext): Promise<ConversationContext> => saveContext({ fetch: (i, o) => fetch(i, o) }, context),
+    list: (): Promise<ContextSummary[]> => listContexts({ fetch: (i, o) => fetch(i, o) }),
+    load: (id: string): Promise<ConversationContext> =>
+      id === DEFAULT_CONTEXT_ID ? Promise.resolve(WebBackend.defaultContext()) : loadContext({ fetch: (i, o) => fetch(i, o) }, id),
+    delete: (id: string): Promise<void> => {
+      if (this.activeContextId === id) this.activeContextId = null;
+      return deleteContext({ fetch: (i, o) => fetch(i, o) }, id);
+    },
+    // Grounding: the next Ally ask carries this Context's id; the Worker
+    // loads it as the user and cites it in `sources`.
+    activateContext: async (id: string): Promise<ConversationContext> => {
+      if (id === DEFAULT_CONTEXT_ID) {
+        this.activeContextId = null;
+        return WebBackend.defaultContext();
+      }
+      const ctx = await loadContext({ fetch: (i, o) => fetch(i, o) }, id);
+      this.activeContextId = ctx.id;
+      return ctx;
+    },
+    deactivateContext: (): Promise<void> => {
+      this.activeContextId = null;
+      return Promise.resolve();
+    },
     storeDocs: (): Promise<string[]> =>
       unsupported("context.storeDocs (local file paths)"),
     prepare: (): Promise<ConversationContext> => todo("POST /v1/contexts/:id/prepare"),
@@ -430,18 +618,31 @@ export class WebBackend implements ConvaBackend {
   };
 
   usage = {
-    summary: (): Promise<UsageSummary> => todo("GET /v1/usage"),
-    reset: (): Promise<UsageSummary> => todo("POST /v1/usage/reset"),
+    // Today's hosted counters for the signed-in account (GET /api/live/usage,
+    // M2 cp4) folded into the legacy summary the Settings panel renders.
+    summary: (): Promise<UsageSummary> =>
+      fetchLiveUsage((input, init) => fetch(input, init)).then((u) => toUsageSummary(u, this.allyModel)),
+    // The ledger is server-side and per UTC day — nothing local to clear.
+    reset: (): Promise<UsageSummary> => unsupported("usage.reset (hosted ledger resets daily)"),
   };
 
   sessions = {
     list: (): Promise<SessionSummary[]> => todo("GET /v1/sessions"),
     load: (): Promise<TranscriptSegment[]> => todo("GET /v1/sessions/:id"),
     delete: (): Promise<void> => todo("DELETE /v1/sessions/:id"),
-    exportTranscript: (): Promise<void> => unsupported("sessions.exportTranscript (file path)"),
+    // Web (M2 cp6): the same Markdown the desktop writes to a path is handed
+    // to the browser as a download; `path` only lends its file name. Content
+    // never leaves the tab — export needs no server.
+    exportTranscript: (path: string, segments: TranscriptSegment[]): Promise<void> => {
+      downloadTextFile(downloadName(path), transcriptMarkdown(segments));
+      return Promise.resolve();
+    },
     analyzeConversation: (): Promise<string> =>
       unsupported("sessions.analyzeConversation (desktop LLM analysis)"),
-    writeTextFile: (): Promise<void> => unsupported("sessions.writeTextFile (file path)"),
+    writeTextFile: (path: string, content: string): Promise<void> => {
+      downloadTextFile(downloadName(path, "conva-export.md"), content);
+      return Promise.resolve();
+    },
   };
 
   diagnostics = {

@@ -71,6 +71,11 @@ describe("available vs unsupported vs unimplemented", () => {
     const ops = webOperations();
     expect(ops["session.start"].state).toBe("unimplemented");
     expect(ops["ally.run"].state).toBe("unimplemented");
+    expect(ops["usage.summary"].state).toBe("unimplemented");
+    expect(ops["usage.reset"].state).toBe("unsupported");
+    expect(ops["capture.recover"].state).toBe("unimplemented");
+    expect(ops["sessions.exportTranscript"].state).toBe("available"); // browser download (M2 cp6)
+    expect(ops["sessions.writeTextFile"].state).toBe("available");
     expect(ops["conversations.load"].state).toBe("unimplemented");
     expect(ops["hud.open"].state).toBe("unsupported");
     expect(ops["partner.open"].state).toBe("unsupported");
@@ -92,10 +97,13 @@ describe("available vs unsupported vs unimplemented", () => {
     // Desktop: every shell command is available; the PAL-only per-source
     // capture control (start/stop/status/subscribe) is honestly unimplemented
     // because both sides start together on session.start().
-    const desktopUnimplemented = new Set(["capture.start", "capture.stop", "capture.status", "capture.subscribe"]);
+    const desktopUnimplemented = new Set(["capture.start", "capture.stop", "capture.recover", "capture.status", "capture.subscribe"]);
+    // Desktop ingests files by path; browser File uploads (cp10) are the web path.
+    const desktopUnsupported = new Set(["rag.upload"]);
     for (const op of ALL_OPERATIONS) {
       expect(web[op]).toBeDefined();
       if (desktopUnimplemented.has(op)) expect(desktop[op].state).toBe("unimplemented");
+      else if (desktopUnsupported.has(op)) expect(desktop[op].state).toBe("unsupported");
       else expect(desktop[op]).toEqual({ state: "available" });
       expect(legacy[op].state).toBe("unimplemented");
     }
