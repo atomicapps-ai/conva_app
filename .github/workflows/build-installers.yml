@@ -124,9 +124,14 @@ jobs:
 
       - run: npm ci
 
-      # Decrypt the committed env/*.enc secrets (env/README.md) straight into
-      # $GITHUB_ENV, so "Build installers" below can read them without ever
-      # printing them to the log. A release run is always `prod`; dev-build
+      # Decrypt the committed env/*.enc secrets (env/README.md) into
+      # $GITHUB_ENV, so "Build installers" below can read them. Every value is
+      # registered with `::add-mask::` FIRST: GitHub only auto-masks the
+      # `secrets.*` context, not what a step puts in $GITHUB_ENV, and the next
+      # step's "Run tauri-apps/tauri-action" log header dumps its whole `env:`
+      # block — which is how TAURI_SIGNING_PRIVATE_KEY ended up verbatim in the
+      # logs of every build that reached this step (dev-build run 24, release
+      # run 14 / v0.3.3). A release run is always `prod`; dev-build
       # and workflow_dispatch runs use `dev` — same TAURI_SIGNING_PRIVATE_KEY
       # value either way today (.env.dev.sec/.env.prod.sec share one keypair,
       # per those files' own comment: the updater pubkey in tauri.conf.json is
@@ -159,6 +164,15 @@ jobs:
             echo "::error::Fix either side: re-paste the correct master key as the CONVA_ENV_KEY secret, or re-encrypt with the key GitHub holds (npm run env:encrypt:$CONVA_ENV_NAME) and commit. See docs/releasing.md."
             exit 1
           fi
+          # Mask before export. `print` emits one KEY=VALUE per line (vars and
+          # secrets alike); masking the non-secret vars too is harmless, and
+          # cheaper than teaching this step which file each line came from.
+          # Skip empty values: masking "" is a GitHub warning, not a mask.
+          while IFS= read -r line || [ -n "$line" ]; do
+            v="${line#*=}"
+            [ "$v" = "$line" ] && continue   # not KEY=VALUE — nothing to mask
+            [ -n "$v" ] && echo "::add-mask::$v"
+          done < "$out"
           cat "$out" >> "$GITHUB_ENV"
           rm -f "$out"
 
