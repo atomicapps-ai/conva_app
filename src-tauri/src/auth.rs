@@ -88,19 +88,31 @@ const KR_REFRESH: &str = "auth-refresh-token";
 const KR_ACCESS: &str = "auth-access-token";
 const META_FILE: &str = "auth.json";
 
-// Backend resolution precedence (first non-empty wins):
+// Backend resolution precedence (first CONFIGURED value wins):
 //   1. runtime env  CONVA_SUPABASE_URL  — local `tauri dev` against any project
 //   2. compile-time env (option_env!)   — baked by CI (dev-build.yml sets it from
 //      the decrypted .env.dev), so a DISTRIBUTED dev installer points at
-//      conva-core-dev even though the tester has no env vars set
+//      conva-core-dev (maxpilxnmcbrebxjjbrp) even though the tester has no env
+//      vars set
 //   3. DEFAULT_*                          — live prod (conva-core)
+//
+// "Configured" excludes a value that still carries a `<…>` template
+// placeholder: the committed .env.dev.enc shipped
+// `https://<conva-core-dev-project-ref>.supabase.co` into the first three beta
+// installers (dev-build runs 24–26) before anyone noticed, and a URL that can
+// never resolve is worse than the fallback. build-installers.yml warns when it
+// sees one at build time; this is the belt to that brace.
+fn configured(s: &str) -> bool {
+    !s.is_empty() && !s.contains('<') && !s.contains('>')
+}
+
 fn supabase_url() -> String {
     std::env::var("CONVA_SUPABASE_URL")
         .ok()
-        .filter(|s| !s.is_empty())
+        .filter(|s| configured(s))
         .or_else(|| {
             option_env!("CONVA_SUPABASE_URL")
-                .filter(|s| !s.is_empty())
+                .filter(|s| configured(s))
                 .map(str::to_string)
         })
         .unwrap_or_else(|| DEFAULT_SUPABASE_URL.to_string())
@@ -109,10 +121,10 @@ fn supabase_url() -> String {
 fn anon_key() -> String {
     std::env::var("CONVA_SUPABASE_ANON_KEY")
         .ok()
-        .filter(|s| !s.is_empty())
+        .filter(|s| configured(s))
         .or_else(|| {
             option_env!("CONVA_SUPABASE_ANON_KEY")
-                .filter(|s| !s.is_empty())
+                .filter(|s| configured(s))
                 .map(str::to_string)
         })
         .unwrap_or_else(|| DEFAULT_ANON_KEY.to_string())
@@ -588,6 +600,17 @@ mod tests {
         cancel_sign_in();
         let r = complete_sign_in("conva://auth/callback?code=abc", Path::new("."));
         assert!(matches!(r, Ok(None)));
+    }
+
+    #[test]
+    fn template_placeholders_do_not_count_as_configured() {
+        assert!(configured("https://maxpilxnmcbrebxjjbrp.supabase.co"));
+        assert!(configured("eyJhbGciOiJIUzI1NiJ9.x.y"));
+        assert!(!configured(""));
+        assert!(!configured(
+            "https://<conva-core-dev-project-ref>.supabase.co"
+        ));
+        assert!(!configured("<conva-core-dev-anon-key>"));
     }
 
     #[test]

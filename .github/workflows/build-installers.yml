@@ -171,6 +171,10 @@ jobs:
           while IFS= read -r line || [ -n "$line" ]; do
             v="${line#*=}"
             [ "$v" = "$line" ] && continue   # not KEY=VALUE — nothing to mask
+            # A `<…>` template placeholder means the committed .env was never
+            # filled in: the app ignores such a value (auth.rs `configured`) and
+            # falls back to prod, so say so here rather than ship it silently.
+            case "$v" in *'<'*'>'*) echo "::warning::${line%%=*} in .env.$CONVA_ENV_NAME still holds a <placeholder> — fill it in and re-encrypt (env/README.md)";; esac
             [ -n "$v" ] && echo "::add-mask::$v"
           done < "$out"
           cat "$out" >> "$GITHUB_ENV"

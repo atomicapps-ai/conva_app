@@ -23,6 +23,13 @@ Per environment (`dev`, `prod`) two plaintext files live at the repo root and
 | `.env.<env>` | config vars — `CONVA_SUPABASE_URL`, `CONVA_SUPABASE_ANON_KEY`, … |
 | `.env.<env>.sec` | secrets — `TAURI_SIGNING_PRIVATE_KEY`, … |
 
+**Supabase project per env** (wired 2026-09-07): `dev` → `conva-core-dev`
+(`maxpilxnmcbrebxjjbrp`), `prod` → `conva-core` (`hbxftjyooblxiiapaeei`). The
+`.env.*.example` templates carry the right public values — copy them, don't
+type the refs by hand. A `<…>` placeholder left in `.env.dev` is baked into
+every beta installer: the app now treats it as unset (falls back to prod) and
+`build-installers.yml` prints a warning naming the key.
+
 Their encrypted twins **are committed**: `.env.<env>.enc`, `.env.<env>.sec.enc`
 (AES-256-GCM). The 32-byte master key lives only in `env/master.key` (gitignored)
 or the `CONVA_ENV_KEY` env var — **never committed**; share it out-of-band.
