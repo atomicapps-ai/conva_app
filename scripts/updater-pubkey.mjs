@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /* Set plugins.updater.pubkey in src-tauri/tauri.conf.json.
  *
  *   node scripts/updater-pubkey.mjs <base64-public-key>

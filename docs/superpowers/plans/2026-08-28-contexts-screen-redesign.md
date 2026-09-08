@@ -1417,7 +1417,7 @@ import { useUiPrefs } from "@/state/uiPrefs";
   Why a CSS custom property gated inside the `lg:` utility class, not an
   inline `gridTemplateColumns` style directly: an inline `style` always
   wins regardless of breakpoint, which would break the `grid-cols-1` mobile
-  stack. Referencing the variable only inside `lg:grid-cols-[var(...)]`
+  stack. Referencing the variable only inside the large-screen grid utility
   means the variable has zero effect until that breakpoint's utility class
   is actually active — exactly the same reasoning `TranscriptView.tsx`
   never had to solve (its `AllyPanel` isn't responsive, so a direct inline

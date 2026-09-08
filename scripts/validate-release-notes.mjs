@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { pathToFileURL } from "node:url";
 
 /** Fail a release before packaging if its public notes are empty or generic. */

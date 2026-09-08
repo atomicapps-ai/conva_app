@@ -112,7 +112,13 @@ describe("libraryClient — file originals (M2 cp10)", () => {
     const bytes = new Uint8Array([1, 2, 3]);
     const f = (async () => new Response(bytes, { status: 200, headers: { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="Q3 _Plan_.docx"; filename*=UTF-8''${encodeURIComponent("Q3 Plän.docx")}` } })) as typeof fetch;
     const { blob, fileName } = await downloadOriginal({ fetch: f }, "doc_1");
-    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(bytes);
+    const downloaded = await new Promise<ArrayBuffer>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsArrayBuffer(blob);
+    });
+    expect(new Uint8Array(downloaded)).toEqual(bytes);
     expect(fileName).toBe("Q3 Plän.docx");
     expect(fileNameFromDisposition('attachment; filename="plain.txt"')).toBe("plain.txt");
     expect(fileNameFromDisposition("attachment; filename=bare.md")).toBe("bare.md");
