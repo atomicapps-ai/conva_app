@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // scripts/version.mjs — conva's single version writer (zero-dep, Node ≥ 18).
 //
 // The **git tag `vX.Y.Z` is the release source of truth** (SDLC §2.3, §3.1);

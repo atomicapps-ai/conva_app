@@ -1,16 +1,16 @@
-# cliff.toml — git-cliff config for conva's release notes / CHANGELOG.
+# cliff.toml — git-cliff config for auditing changes and regenerating CHANGELOG.
 #
-# The generated notes ARE the "release message" the user sees (SDLC §3.2/§4.3):
-# the release pipeline runs `git-cliff` between the previous tag and the new one
-# to produce both the GitHub Release body and CHANGELOG.md, and the app's
-# "What's New" view renders the same notes.
+# Public release messages are deliberately owner-curated in
+# `release-notes/vX.Y.Z.md`; the raw commit list is too implementation-heavy.
+# Git-cliff remains the complete Conventional-Commit audit and can regenerate
+# CHANGELOG.md when a detailed engineering history is wanted.
 #
 # git-cliff is a CI/dev tool (a single static binary) — it is NOT an app runtime
 # dependency, so the zero-runtime-dep ethos holds. It reads Conventional-Commit
 # subjects, which the `version-check` PR job enforces (SDLC §3.1).
 #
 # Usage:
-#   git-cliff --latest            # notes for the most recent tag (release body)
+#   git-cliff --latest            # audit the most recent tagged range
 #   git-cliff -o CHANGELOG.md     # regenerate the full changelog
 #   git-cliff --unreleased        # preview notes for commits since the last tag
 

@@ -15,7 +15,7 @@ Linux and mobile are not yet built (see [`docs/multiplatform.md`](docs/multiplat
 
 ## Download
 
-Installers (currently **unsigned** — see "Auto-updates" below) are published as
+Installers (currently **not OS code-signed** — see "Auto-updates" below) are published as
 GitHub Releases in the public
 **[atomicapps-ai/conva_releases](https://github.com/atomicapps-ai/conva_releases)**
 repo. This repo (`conva_app`) is the private source — releases, installers, update
@@ -112,23 +112,26 @@ to CPU — the flag is safe to use everywhere.
 
 Installers are built by CI — no toolchain needed on the target machine. Full
 checklist, SemVer rules, rollback: [`docs/releasing.md`](docs/releasing.md).
-Short version:
+Short version (the owner performs the final tag and publish actions):
 
-1. Tag a version and push it:
+1. On a release-prep branch, add the curated public notes at
+   `release-notes/vX.Y.Z.md`, set the version with the only supported writer,
+   and merge the validated candidate through `dev` into `main`:
 
 ```powershell
-git tag v0.1.0
-git push origin v0.1.0
+npm run version:set X.Y.Z
 ```
 
-2. The **Release** workflow (`.github/workflows/release.yml`) builds on
+2. From the clean, validated `main` commit, the owner creates and pushes
+   `vX.Y.Z`. The **Release** workflow (`.github/workflows/release.yml`) builds on
    GitHub's Windows and macOS runners and attaches everything to a **draft
    GitHub Release in the public `atomicapps-ai/conva_releases` repo** (this
    repo stays private): Windows `.msi` + `.exe` installers (GPU/Vulkan
    whisper — falls back to CPU at runtime on machines without a usable GPU)
    and a macOS `.dmg` (GPU/Metal whisper, Apple Silicon). Review the draft at
    https://github.com/atomicapps-ai/conva_releases/releases and publish it.
-3. Install on any Windows 10/11 PC by running the installer (WebView2
+3. Review the generated draft and its curated notes in `conva_releases`, then
+   publish it. Install on any Windows 10/11 PC by running the installer (WebView2
    auto-installs on Win10). Models download on first launch.
 
 Not yet wired: code signing. Windows shows a SmartScreen "unrecognized app"
@@ -138,10 +141,11 @@ time (deliberately deferred until market-ready).
 **Auto-updates:** installed copies check `conva_releases`' latest published
 release for a `latest.json` a few seconds after startup (never blocking first
 render) and, once the download completes in the background, show an
-"Update ready" toast — version, a link to release notes, **Download and
-restart**, and **Later** (`src/components/UpdateToast.tsx`,
-`tauri-plugin-updater`). An unreachable/offline update feed is never shown to
-the user as an error (diagnostics log to the console in dev builds only).
+"Update ready" toast — version, complete release notes, **Restart and install**,
+and **Later** (`src/components/UpdateToast.tsx`, `tauri-plugin-updater`). Users
+can optionally enable automatic installation; Conva still waits until an
+active live session ends. An unreachable/offline update feed is never shown
+to the user as an error (diagnostics log to the console in dev builds only).
 Update packages are signed with the Tauri updater keypair: the public key
 lives in `tauri.conf.json`; the private key must be in the **`conva_app`**
 repo's Actions secret `TAURI_SIGNING_PRIVATE_KEY` (no password) for the

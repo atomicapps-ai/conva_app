@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /* Merge KEY=VALUE lines from one env file into another, in place.
  *
  *   node scripts/env-merge.mjs <target> <source>
