@@ -7,9 +7,11 @@ import type {
   AllySource,
   AllySourcesEvent,
   CaptureEvent,
+  ClaimSnapshotEvent,
   RadarEvent,
   TrackerEvent,
 } from "@/lib/ipc";
+import { CLAIM_SNAPSHOT_CONTRACT_VERSION } from "@/lib/ipc";
 import { useTranscriptStore } from "@/state/transcript";
 
 export interface AllyCard {
@@ -108,6 +110,8 @@ interface AllyState {
   tracker: TrackerEvent | null;
   /** Cumulative FANER routed captures for the session (F11). */
   capture: CaptureEvent | null;
+  /** Latest accepted cumulative claim snapshot for the active live session. */
+  claimSnapshot: ClaimSnapshotEvent | null;
 
   request: (
     kind: AllyKind,
@@ -124,6 +128,7 @@ interface AllyState {
   applyRadar: (event: RadarEvent) => void;
   applyTracker: (event: TrackerEvent) => void;
   applyCapture: (event: CaptureEvent) => void;
+  applyClaimSnapshot: (event: ClaimSnapshotEvent) => void;
   clear: () => void;
 }
 
@@ -135,6 +140,7 @@ export const useAllyStore = create<AllyState>((set, get) => ({
   radarHistory: [],
   tracker: null,
   capture: null,
+  claimSnapshot: null,
 
   request: async (kind, question, source, requestId, presentation = "answer") => {
     if (get().busy) return "busy";
@@ -260,10 +266,50 @@ export const useAllyStore = create<AllyState>((set, get) => ({
 
   applyTracker: (event) => set({ tracker: event }),
   applyCapture: (event) => set({ capture: event }),
+  applyClaimSnapshot: (event) =>
+    set((state) => {
+      const session = useTranscriptStore.getState().session;
+      const activeSessionId =
+        session.state === "listening" || session.state === "paused"
+          ? session.session_id
+          : null;
+      if (
+        !shouldAcceptClaimSnapshot(state.claimSnapshot, event, activeSessionId)
+      ) {
+        return {};
+      }
+      return { claimSnapshot: event };
+    }),
 
   clear: () => {
     // Reset the A# counter so each conversation numbers from A1.
     counter = 0;
-    set({ cards: [], radarHistory: [], tracker: null, capture: null });
+    set({
+      cards: [],
+      radarHistory: [],
+      tracker: null,
+      capture: null,
+      claimSnapshot: null,
+    });
   },
 }));
+
+/** Fail closed on wrong-session, duplicate, reordered, or stale snapshots. */
+export function shouldAcceptClaimSnapshot(
+  current: ClaimSnapshotEvent | null,
+  incoming: ClaimSnapshotEvent,
+  activeSessionId: string | null,
+): boolean {
+  if (
+    incoming.contract_version !== CLAIM_SNAPSHOT_CONTRACT_VERSION ||
+    incoming.session_id.length === 0 ||
+    activeSessionId !== incoming.session_id
+  ) {
+    return false;
+  }
+  if (current == null || current.session_id !== incoming.session_id) return true;
+  return (
+    incoming.epoch > current.epoch ||
+    (incoming.epoch === current.epoch && incoming.revision > current.revision)
+  );
+}

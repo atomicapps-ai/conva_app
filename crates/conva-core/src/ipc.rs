@@ -30,6 +30,8 @@ pub mod events {
     pub const TRACKER: &str = "conva://tracker";
     /// Payload: [`super::CaptureEvent`]
     pub const CAPTURE: &str = "conva://capture";
+    /// Payload: [`super::ClaimSnapshotEvent`]
+    pub const CLAIM_SNAPSHOT: &str = "conva://claim-snapshot";
     /// Payload: [`super::RehearsalStateEvent`]
     pub const REHEARSAL_STATE: &str = "conva://rehearsal-state";
     /// Payload: `AuthChangedEvent` — defined shell-side in
@@ -138,6 +140,20 @@ pub struct TrackerEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureEvent {
     pub captures: Vec<crate::capture::Capture>,
+}
+
+pub const CLAIM_SNAPSHOT_CONTRACT_VERSION: u32 = 1;
+
+/// Cumulative claim state for one live-session epoch. Consumers accept only a
+/// greater revision in the same epoch, or the first revision of a newer epoch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaimSnapshotEvent {
+    pub contract_version: u32,
+    pub session_id: String,
+    pub epoch: u64,
+    pub revision: u64,
+    #[serde(default)]
+    pub claims: Vec<crate::claim::ClaimRecord>,
 }
 
 /// What the partner window shows (owner mockup, 2026-08-21): the term it was
@@ -261,11 +277,31 @@ mod tests {
             events::SESSION_STATE,
             events::ALLY_CHUNK,
             events::RADAR,
+            events::CLAIM_SNAPSHOT,
             events::AUTH_CHANGED,
             events::SPLASH_PROGRESS,
         ] {
             assert!(name.starts_with("conva://"), "{name}");
         }
+    }
+
+    #[test]
+    fn claim_snapshot_serializes_the_versioned_cumulative_contract() {
+        let event = ClaimSnapshotEvent {
+            contract_version: CLAIM_SNAPSHOT_CONTRACT_VERSION,
+            session_id: "session-1".into(),
+            epoch: 2,
+            revision: 7,
+            claims: Vec::new(),
+        };
+
+        let json = serde_json::to_value(event).unwrap();
+        assert_eq!(events::CLAIM_SNAPSHOT, "conva://claim-snapshot");
+        assert_eq!(json["contract_version"], 1);
+        assert_eq!(json["session_id"], "session-1");
+        assert_eq!(json["epoch"], 2);
+        assert_eq!(json["revision"], 7);
+        assert_eq!(json["claims"], serde_json::json!([]));
     }
 
     #[test]

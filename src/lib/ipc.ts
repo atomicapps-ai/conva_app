@@ -24,6 +24,7 @@ export const EVENTS = {
   radar: "conva://radar",
   tracker: "conva://tracker",
   capture: "conva://capture",
+  claimSnapshot: "conva://claim-snapshot",
   authChanged: "conva://auth-changed",
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
@@ -230,6 +231,190 @@ export interface Capture {
 /** The full deduped list of routed captures, re-emitted after each pass. */
 export interface CaptureEvent {
   captures: Capture[];
+}
+
+// ── FANER claim snapshot — mirrors claim/evidence/source_policy + ipc.rs ────
+export const CLAIM_SNAPSHOT_CONTRACT_VERSION = 1;
+
+export type FrameKind =
+  | "question"
+  | "request"
+  | "claim"
+  | "attributed_claim"
+  | "decision"
+  | "commitment"
+  | "objection"
+  | "requirement"
+  | "definition"
+  | "observation"
+  | "opinion"
+  | "prediction"
+  | "correction";
+export type Confidence = "unknown" | "low" | "medium" | "high";
+export type Modality =
+  | "asserted"
+  | "reported"
+  | "hedged"
+  | "possible"
+  | "hypothetical"
+  | "questioned";
+export type Sensitivity = "public" | "internal" | "private_personal" | "restricted";
+export type ClaimConsequence = "low" | "medium" | "high";
+export type ClaimState =
+  | "detected"
+  | "attributed"
+  | "needs_clarification"
+  | "queued"
+  | "checking"
+  | "supported"
+  | "partly_supported"
+  | "conflicting_evidence"
+  | "not_verified"
+  | "not_externally_verifiable"
+  | "superseded"
+  | "dismissed";
+export type SuggestedAction =
+  | "explain"
+  | "recall"
+  | "assist"
+  | "synthesize"
+  | "verify"
+  | "resolve"
+  | "link"
+  | "track_claim"
+  | "flag_conflict";
+export interface ClaimAttribution {
+  source_label: string;
+  reporting_verb: string;
+  directness: "direct_statement" | "reported_by_speaker" | "hearsay" | "unknown";
+}
+export interface ClaimQualifier {
+  kind: "quantity" | "date" | "time" | "location" | "condition" | "scope" | "cause" | "other";
+  value: string;
+  unit: string | null;
+}
+export interface ClaimReferenceCandidate {
+  target_id: string;
+  label: string;
+  confidence: Confidence;
+}
+export interface ClaimReferenceEdge {
+  surface_text: string;
+  kind: "pronoun" | "demonstrative" | "person_alias" | "artifact" | "event" | "place";
+  required_for_verification: boolean;
+  resolved_target_id: string | null;
+  candidates: ClaimReferenceCandidate[];
+}
+export type ClaimImportanceReason =
+  | "purpose_relevant"
+  | "consequence_if_wrong"
+  | "novel"
+  | "specific_and_checkable"
+  | "named_detail"
+  | "conflicts_with_known_material"
+  | "unresolved_reference"
+  | "changes_decision"
+  | "time_sensitive"
+  | "repeated_without_change"
+  | "already_supported_by_fresh_evidence"
+  | "private_personal_assertion";
+export type SourceClass =
+  | "context_document"
+  | "approved_internal_repository"
+  | "primary_official"
+  | "recognized_reporting"
+  | "specialist_reference"
+  | "community_material"
+  | "general_web_discovery"
+  | "model_knowledge";
+export type AdmissionRejection =
+  | "model_knowledge_cannot_verify"
+  | "automatic_check_requires_user"
+  | "normalized_claim_egress_denied"
+  | "private_claim_egress_denied"
+  | "open_web_disabled"
+  | "source_class_not_allowed"
+  | "blocked_domain"
+  | "domain_not_allowed";
+export type AdmissionDecision =
+  | { decision: "admitted" }
+  | { decision: "rejected"; reason: AdmissionRejection };
+export type EvidenceScope = "attribution" | "underlying_proposition";
+export type EvidenceStance = "supports" | "partly_supports" | "contradicts" | "inconclusive";
+export type QualityAssessment = "unknown" | "weak" | "adequate" | "strong";
+export interface EvidenceQuality {
+  authority: QualityAssessment;
+  directness: QualityAssessment;
+  specificity: QualityAssessment;
+  freshness: QualityAssessment;
+  independence: QualityAssessment;
+  completeness: QualityAssessment;
+  provenance: QualityAssessment;
+}
+export interface ClaimEvidenceRecord {
+  source_id: string;
+  source_class: SourceClass;
+  publisher: string;
+  title: string;
+  url: string | null;
+  local_document_id: string | null;
+  excerpt: string;
+  addressed_claim_part: string;
+  scope: EvidenceScope;
+  stance: EvidenceStance;
+  quality: EvidenceQuality;
+  independence_group: string | null;
+  admission: AdmissionDecision;
+  admission_policy_id: string;
+  admission_policy_version: number;
+  published_at_unix_ms: number | null;
+  retrieved_at_unix_ms: number;
+}
+export type ClaimConfidence = "none" | "limited" | "moderate" | "strong" | "conflicted";
+export interface ClaimCorrection {
+  kind: "transcript" | "attribution" | "reference" | "proposition" | "consequence";
+  previous_value: string;
+  corrected_value: string;
+  corrected_by: string;
+  created_at_unix_ms: number;
+}
+export interface ClaimRecord {
+  id: string;
+  source_segment_ids: string[];
+  speaker_side: StreamSide;
+  speaker_label: string | null;
+  exact_quote: string;
+  normalized_proposition: string;
+  predicate: string;
+  subject: string | null;
+  object: string | null;
+  frame_kind: FrameKind;
+  attribution_chain: ClaimAttribution[];
+  qualifiers: ClaimQualifier[];
+  references: ClaimReferenceEdge[];
+  modality: Modality;
+  negated: boolean;
+  sensitivity: Sensitivity;
+  consequence: ClaimConsequence;
+  importance_reasons: ClaimImportanceReason[];
+  state: ClaimState;
+  recommended_action: SuggestedAction | null;
+  policy_id: string;
+  extraction_confidence: Confidence;
+  resolution_confidence: Confidence;
+  claim_confidence: ClaimConfidence | null;
+  evidence: ClaimEvidenceRecord[];
+  corrections: ClaimCorrection[];
+  created_at_unix_ms: number;
+  updated_at_unix_ms: number;
+}
+
+export interface ClaimSnapshotEvent {
+  contract_version: number;
+  session_id: string;
+  epoch: number;
+  revision: number;
+  claims: ClaimRecord[];
 }
 
 /** What the partner window shows (mirror of `ipc.rs::PartnerPayload`) — the

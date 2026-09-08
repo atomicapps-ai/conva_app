@@ -84,4 +84,15 @@ describe("ClaimRow", () => {
     );
     expect(screen.getByRole("status")).toHaveTextContent(label);
   });
+
+  it("shows a more specific canonical state label when supplied", () => {
+    render(
+      <ClaimRow
+        claim={{ ...claim, state: "supported", stateLabel: "Partly supported" }}
+        canOpenEvidence
+        onAction={() => {}}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Partly supported");
+  });
 });

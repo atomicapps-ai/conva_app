@@ -5,6 +5,13 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::audio::StreamSide;
+use crate::evidence::{ClaimConfidence, EvidenceRecord};
+use crate::meaning_frame::{
+    Attribution, Confidence, FrameKind, FrameQualifier, Modality, ReferenceEdge, Sensitivity,
+    SuggestedAction,
+};
+
 /// A stable, explainable dedupe key. Attribution is part of identity because
 /// "ABC News reported X" and an unattributed assertion of X are not the same
 /// conversational claim.
@@ -198,6 +205,70 @@ pub struct ImportanceRanking {
     /// Relative priority only. It is not a truth or confidence score.
     pub score: i16,
     pub reasons: Vec<ImportanceReason>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaimCorrectionKind {
+    Transcript,
+    Attribution,
+    Reference,
+    Proposition,
+    Consequence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaimCorrection {
+    pub kind: ClaimCorrectionKind,
+    pub previous_value: String,
+    pub corrected_value: String,
+    pub corrected_by: String,
+    pub created_at_unix_ms: u64,
+}
+
+/// Durable claim shape carried by the later versioned snapshot event. It keeps
+/// extraction, resolution, source quality, and claim confidence separate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaimRecord {
+    pub id: String,
+    pub source_segment_ids: Vec<String>,
+    pub speaker_side: StreamSide,
+    #[serde(default)]
+    pub speaker_label: Option<String>,
+    pub exact_quote: String,
+    pub normalized_proposition: String,
+    pub predicate: String,
+    #[serde(default)]
+    pub subject: Option<String>,
+    #[serde(default)]
+    pub object: Option<String>,
+    pub frame_kind: FrameKind,
+    #[serde(default)]
+    pub attribution_chain: Vec<Attribution>,
+    #[serde(default)]
+    pub qualifiers: Vec<FrameQualifier>,
+    #[serde(default)]
+    pub references: Vec<ReferenceEdge>,
+    pub modality: Modality,
+    pub negated: bool,
+    pub sensitivity: Sensitivity,
+    pub consequence: Consequence,
+    #[serde(default)]
+    pub importance_reasons: Vec<ImportanceReason>,
+    pub state: ClaimState,
+    #[serde(default)]
+    pub recommended_action: Option<SuggestedAction>,
+    pub policy_id: String,
+    pub extraction_confidence: Confidence,
+    pub resolution_confidence: Confidence,
+    #[serde(default)]
+    pub claim_confidence: Option<ClaimConfidence>,
+    #[serde(default)]
+    pub evidence: Vec<EvidenceRecord>,
+    #[serde(default)]
+    pub corrections: Vec<ClaimCorrection>,
+    pub created_at_unix_ms: u64,
+    pub updated_at_unix_ms: u64,
 }
 
 /// Rank surfacing value with an audit-friendly list of contributing reasons.

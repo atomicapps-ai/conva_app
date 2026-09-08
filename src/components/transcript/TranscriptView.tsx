@@ -58,6 +58,7 @@ import type {
   ClaimDisplayItem,
   ClaimRowAction,
 } from "@/components/transcript/claims";
+import { projectClaimRecords } from "@/components/transcript/claims";
 import { ViewHistory } from "@/components/transcript/ViewHistory";
 import { AllyAccordion } from "@/components/transcript/AllyAccordion";
 import {
@@ -84,7 +85,6 @@ import { ScrambleText } from "@/components/transcript/ScrambleText";
 // hands React a "new" empty array on every render before the first
 // CaptureEvent lands (same fix `FanerReplayPanel.tsx` uses).
 const EMPTY_CAPTURES: Capture[] = [];
-const EMPTY_CLAIMS: ClaimDisplayItem[] = [];
 const CLAIM_EVIDENCE_ACTIONS: ClaimRowAction[] = ["open_evidence"];
 const NO_CLAIM_ACTIONS: ClaimRowAction[] = [];
 
@@ -1833,9 +1833,9 @@ function CompactFeed({ segments }: { segments: TranscriptSegment[] }) {
  * gaps found along the way (Pause/mic-mute/Ally-mute have no backend yet).
  */
 export function TranscriptView({
-  claimSnapshot = EMPTY_CLAIMS,
+  claimSnapshot,
 }: {
-  /** Explicit UI injection until the versioned live claim contract lands. */
+  /** Optional test/story injection; production reads the versioned live snapshot. */
   claimSnapshot?: readonly ClaimDisplayItem[];
 } = {}) {
   const backend = useBackend();
@@ -1848,6 +1848,7 @@ export function TranscriptView({
   const archived = useTranscriptStore((s) => s.archived);
   const compact = useAppStore((s) => s.compact);
   const cards = useAllyStore((s) => s.cards);
+  const liveClaimSnapshot = useAllyStore((s) => s.claimSnapshot);
   const busy = useAllyStore((s) => s.busy);
   const request = useAllyStore((s) => s.request);
   const summarizeCard = useAllyStore((s) => s.summarize);
@@ -1856,6 +1857,10 @@ export function TranscriptView({
   // marks were retired (owner, 2026-08-26 — Highlighter kept); captures now
   // feed only the Found groups' Terms chips via `buildFoundGroups`.
   const captures = useAllyStore((s) => s.capture?.captures ?? EMPTY_CAPTURES);
+  const displayedClaims = useMemo(
+    () => claimSnapshot ?? projectClaimRecords(liveClaimSnapshot?.claims ?? []),
+    [claimSnapshot, liveClaimSnapshot],
+  );
   // While a rehearsal is running, the floating RehearsalBar sits over the
   // bottom of both panes — pad them so their last content stays reachable.
   const rehearsing = useRehearsalStore((s) => s.active);
@@ -2226,7 +2231,7 @@ export function TranscriptView({
       buildFoundGroups({
         radarHistory,
         tracker,
-        claims: claimSnapshot,
+        claims: displayedClaims,
         captures,
         liveTerms: [...addedTerms, ...spokenTerms],
         docTerms,
@@ -2236,7 +2241,7 @@ export function TranscriptView({
     [
       radarHistory,
       tracker,
-      claimSnapshot,
+      displayedClaims,
       captures,
       addedTerms,
       spokenTerms,

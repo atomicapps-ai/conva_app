@@ -65,7 +65,7 @@ export function ClaimRow({
           aria-live="polite"
           className={`shrink-0 rounded-full border px-1.5 py-0.5 font-mono text-[9px] font-bold ${STATE_TONE[state.tone]}`}
         >
-          {state.label}
+          {claim.stateLabel ?? state.label}
         </span>
         <Icon
           name="chevron"
