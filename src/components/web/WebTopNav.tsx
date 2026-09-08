@@ -40,6 +40,28 @@ export function WebTopNav() {
           </button>
         );
       })}
+
+      <span className="mx-2 h-6 w-px shrink-0 bg-border" aria-hidden />
+
+      {/* Settings is deliberately NOT a NAV_ITEMS rail row (architecture rule
+          9 — "Settings is NOT a rail row"); it's reached the same way desktop
+          reaches it, a dedicated utility button (NavRail.tsx's UtilityButton,
+          icon="utility-settings", onClick={() => go("settings")}). */}
+      <button
+        type="button"
+        onClick={() => setView("settings")}
+        title="Settings"
+        aria-label="Settings"
+        aria-current={view === "settings" ? "page" : undefined}
+        className={[
+          "grid h-9 w-9 place-items-center rounded-lg border transition",
+          view === "settings"
+            ? "border-primary/34 bg-primary/[0.14] text-primary"
+            : "border-transparent text-fg-faint hover:bg-panel-raised/60 hover:text-fg",
+        ].join(" ")}
+      >
+        <LockedIcon name="utility-settings" size={20} />
+      </button>
     </nav>
   );
 }

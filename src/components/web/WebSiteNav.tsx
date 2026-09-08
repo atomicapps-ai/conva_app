@@ -16,16 +16,19 @@ const SITE_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
 
 const site = (path: string) => `${SITE_ORIGIN}${path}`;
 
-const LINKS = [
-  { label: "Product", href: "/#features" },
-  { label: "Pricing", href: "/#pricing" },
-  { label: "Beta", href: "/#join" },
+// Mirrors conva_web's real header nav (index.html: "How it works | About |
+// Download") — these must stay in lockstep with that markup, hrefs included.
+const SITE_LINKS = [
+  { label: "How it works", href: "/how-it-works.html" },
+  { label: "About", href: "/about.html" },
+  { label: "Download", href: "/download.html" },
 ];
 
 export function WebSiteNav() {
   const email = webAuth.status().email;
   const initial = (email?.trim()?.[0] ?? "?").toUpperCase();
   const setView = useNavStore((s) => s.setView);
+  const view = useNavStore((s) => s.view);
   const [avatarBroken, setAvatarBroken] = useState(false);
 
   return (
@@ -36,12 +39,41 @@ export function WebSiteNav() {
         aria-label="conva home"
         className="flex items-center gap-2 text-fg no-underline"
       >
-        <img src={mark} alt="" className="h-[22px] w-[22px]" draggable={false} />
+        {/* Same technique as the site's `.mark` class (conva_web/CLAUDE.md
+            "The mark"): a currentColor CSS mask over the white cutout SVG,
+            never an <img> — an <img> can't be recolored/theme-flipped. */}
+        <span
+          aria-hidden="true"
+          className="h-[22px] w-[22px] shrink-0 bg-current"
+          style={{
+            WebkitMaskImage: `url(${mark})`,
+            maskImage: `url(${mark})`,
+            WebkitMaskRepeat: "no-repeat",
+            maskRepeat: "no-repeat",
+            WebkitMaskPosition: "center",
+            maskPosition: "center",
+            WebkitMaskSize: "contain",
+            maskSize: "contain",
+          }}
+        />
         <span className="text-[15px] font-extrabold tracking-tight">conva</span>
       </a>
 
       <nav aria-label="Site" className="flex items-center gap-4 text-sm">
-        {LINKS.map((l) => (
+        {/* My Account leads the link group (owner mockup) — same destination
+            as the avatar button, just reachable without spotting the avatar. */}
+        <button
+          type="button"
+          onClick={() => setView("profile")}
+          aria-current={view === "profile" ? "page" : undefined}
+          className={[
+            "no-underline transition",
+            view === "profile" ? "text-fg" : "text-fg-muted hover:text-fg",
+          ].join(" ")}
+        >
+          My Account
+        </button>
+        {SITE_LINKS.map((l) => (
           <a
             key={l.href}
             href={site(l.href)}
