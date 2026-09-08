@@ -52,6 +52,13 @@ npm run env:encrypt:dev
 npm run env:encrypt:prod
 ```
 
+**No local master key?** The same rotation runs in CI: Actions → *Re-encrypt
+env (owner-triggered)* → tick *rotate_signing_key*. It generates the keypair
+on the runner, writes the private key into both `.sec` files and the public
+key into `tauri.conf.json`, re-encrypts with the `CONVA_ENV_KEY` secret and
+pushes a `chore/env-reencrypt-<run>` branch; only the public key is printed
+(`env/README.md`).
+
 commits the encrypted `.env.dev.sec.enc` / `.env.prod.sec.enc` twins (see
 `env/README.md` for the full model). **Rotating the key also means updating
 `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`** to the newly

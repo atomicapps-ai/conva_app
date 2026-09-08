@@ -1,0 +1,178 @@
+name: Re-encrypt env (owner-triggered)
+
+# Owner-triggered, one job: re-encrypt the committed env/*.enc files with the
+# CONVA_ENV_KEY GitHub secret — for when the master key is NOT on any local
+# machine (this repo's key was generated in a cloud session and only ever
+# pasted into the secret; env/README.md). Nothing secret is printed: every
+# decrypted value is registered with ::add-mask:: before use, plaintext lives
+# only on the ephemeral runner and is deleted before the commit, and only the
+# .enc twins (+ tauri.conf.json when rotating) are committed — to a NEW branch
+# chore/env-reencrypt-<run> off the chosen base. Open a PR from it: the push
+# uses GITHUB_TOKEN, so CI does not run on the push itself; the PR triggers it.
+#
+# What it applies:
+#   • the PUBLIC dev-project values from .env.dev.example (CONVA_SUPABASE_URL /
+#     CONVA_SUPABASE_ANON_KEY → conva-core-dev) into .env.dev — closes the
+#     <placeholder> gap (#254) while keeping the existing master key;
+#   • optionally (rotate_signing_key) a NEW updater signing keypair into
+#     .env.dev.sec AND .env.prod.sec (one keypair across envs — docs/releasing.md)
+#     plus its public key into tauri.conf.json — the rotation #246 asks for
+#     after the old key was printed in CI logs. The private key never leaves
+#     the runner except inside the .enc files; only the PUBLIC key is echoed.
+#     Existing installs signed with the old key need a reinstall afterwards.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch whose .enc files are re-encrypted; the result is pushed to a new chore/env-reencrypt-<run> branch off it"
+        type: string
+        default: dev
+      rotate_signing_key:
+        description: "Also generate a NEW updater signing keypair (dev + prod .sec, tauri.conf.json pubkey)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: env-reencrypt
+  cancel-in-progress: false
+
+jobs:
+  reencrypt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # env/cli.mjs is dependency-free; node_modules is only needed for the
+      # Tauri CLI's signer when rotating.
+      - name: Install (Tauri CLI, for the signer)
+        if: inputs.rotate_signing_key
+        run: npm ci
+
+      - name: Decrypt with the CI master key (values masked, never printed)
+        shell: bash
+        env:
+          CONVA_ENV_KEY: ${{ secrets.CONVA_ENV_KEY }}
+          ROTATE: ${{ inputs.rotate_signing_key }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CONVA_ENV_KEY:-}" ]; then
+            echo "::error::CONVA_ENV_KEY secret is not set — nothing can be decrypted."
+            exit 1
+          fi
+          node env/cli.mjs decrypt dev --force > /dev/null
+          if [ "$ROTATE" = "true" ]; then node env/cli.mjs decrypt prod --force > /dev/null; fi
+          # Register every value as a secret BEFORE anything else touches the
+          # files: GitHub masks only the secrets.* context on its own.
+          for f in .env.dev .env.dev.sec .env.prod .env.prod.sec; do
+            [ -f "$f" ] || continue
+            while IFS= read -r line || [ -n "$line" ]; do
+              v="${line#*=}"
+              [ "$v" = "$line" ] && continue
+              [ -n "$v" ] && echo "::add-mask::$v"
+            done < "$f"
+            echo "decrypted $f ($(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$f") keys)"
+          done
+
+      - name: Apply the public dev-project values from .env.dev.example
+        run: node scripts/env-merge.mjs .env.dev .env.dev.example
+
+      - name: Rotate the updater signing keypair
+        if: inputs.rotate_signing_key
+        shell: bash
+        env:
+          CI: "true"
+        run: |
+          set -euo pipefail
+          # The CLI writes BOTH files already base64-encoded on one line: the
+          # private file's content IS the TAURI_SIGNING_PRIVATE_KEY value and
+          # the .pub file's content IS the tauri.conf.json pubkey value (same
+          # shapes as the values in use today).
+          npx tauri signer generate -w "$RUNNER_TEMP/conva.key" --ci --force > /dev/null
+          priv="$(cat "$RUNNER_TEMP/conva.key")"
+          pub="$(cat "$RUNNER_TEMP/conva.key.pub")"
+          echo "::add-mask::$priv"
+          printf 'TAURI_SIGNING_PRIVATE_KEY=%s\nTAURI_SIGNING_PRIVATE_KEY_PASSWORD=\n' "$priv" > "$RUNNER_TEMP/signing.env"
+          node scripts/env-merge.mjs .env.dev.sec "$RUNNER_TEMP/signing.env"
+          node scripts/env-merge.mjs .env.prod.sec "$RUNNER_TEMP/signing.env"
+          node scripts/updater-pubkey.mjs "$pub"
+          rm -f "$RUNNER_TEMP/conva.key" "$RUNNER_TEMP/signing.env"
+          echo "New updater PUBLIC key (safe to share): $pub"
+          echo "::notice::Updater signing keypair rotated — the public key is above and in tauri.conf.json on the result branch."
+
+      - name: Re-encrypt with the same master key
+        shell: bash
+        env:
+          CONVA_ENV_KEY: ${{ secrets.CONVA_ENV_KEY }}
+          ROTATE: ${{ inputs.rotate_signing_key }}
+        run: |
+          set -euo pipefail
+          node env/cli.mjs encrypt dev
+          if [ "$ROTATE" = "true" ]; then node env/cli.mjs encrypt prod; fi
+
+      # Read back from the COMMITTED .enc files (what CI will see), never the
+      # plaintext; compare in the shell, print only pass/fail.
+      - name: Verify the result
+        shell: bash
+        env:
+          CONVA_ENV_KEY: ${{ secrets.CONVA_ENV_KEY }}
+          ROTATE: ${{ inputs.rotate_signing_key }}
+        run: |
+          set -euo pipefail
+          url="$(node env/cli.mjs print dev | grep -E '^CONVA_SUPABASE_URL=' | cut -d= -f2- || true)"
+          case "$url" in
+            https://maxpilxnmcbrebxjjbrp.supabase.co) echo "CONVA_SUPABASE_URL → conva-core-dev ✓" ;;
+            *) echo "::error::CONVA_SUPABASE_URL is not the dev project after re-encrypt"; exit 1 ;;
+          esac
+          if node env/cli.mjs print dev | grep -q '<'; then
+            echo "::error::a <placeholder> value survived in .env.dev — fill it in .env.dev.example or the source file"
+            exit 1
+          fi
+          if [ "$ROTATE" = "true" ]; then
+            d="$(node env/cli.mjs print dev | grep -E '^TAURI_SIGNING_PRIVATE_KEY=' | cut -d= -f2- || true)"
+            p="$(node env/cli.mjs print prod | grep -E '^TAURI_SIGNING_PRIVATE_KEY=' | cut -d= -f2- || true)"
+            if [ -z "$d" ] || [ "$d" != "$p" ]; then
+              echo "::error::dev and prod do not carry the same new signing key"
+              exit 1
+            fi
+            echo "dev + prod carry the same new signing key ✓"
+          fi
+
+      - name: Commit the .enc files to a new branch and push
+        shell: bash
+        env:
+          ROTATE: ${{ inputs.rotate_signing_key }}
+          BASE: ${{ inputs.branch }}
+          RUN: ${{ github.run_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          rm -f .env.dev .env.dev.sec .env.prod .env.prod.sec
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          b="chore/env-reencrypt-$RUN"
+          git checkout -b "$b"
+          git add .env.dev.enc .env.dev.sec.enc
+          if [ "$ROTATE" = "true" ]; then git add .env.prod.enc .env.prod.sec.enc src-tauri/tauri.conf.json; fi
+          git status --short
+          if git diff --cached --quiet; then
+            echo "::error::nothing changed — the committed files already carry these values"
+            exit 1
+          fi
+          msg="chore(env): re-encrypt dev config with the CI master key (dev project values)"
+          if [ "$ROTATE" = "true" ]; then
+            msg="chore(env): re-encrypt env with the CI master key — dev project values + rotated updater signing key"
+          fi
+          git commit -q -m "$msg" -m "Produced by .github/workflows/env-reencrypt.yml run $RUN from $BASE. Only the encrypted twins (and tauri.conf.json's public key when rotating) change; the master key is unchanged."
+          git push -u origin "$b"
+          echo "::notice::Pushed $b — open a PR into $BASE: https://github.com/$REPO/compare/$BASE...$b?expand=1"

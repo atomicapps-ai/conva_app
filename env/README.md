@@ -61,6 +61,20 @@ node env/cli.mjs print dev              # dump KEY=VALUE (used by CI → $GITHUB
   `option_env!` so a distributed dev installer points at `conva-core-dev`, and
   the `TAURI_SIGNING_PRIVATE_KEY` signs the updater artifacts.
 
+## No master key on this machine? Re-encrypt from CI
+
+This repo's master key was generated in a cloud session and lives only in the
+`CONVA_ENV_KEY` GitHub secret (GitHub cannot show it back). To change what the
+committed `.enc` files hold **without** a local key — e.g. to point `.env.dev`
+at `conva-core-dev`, or to rotate the updater signing key — run
+**Actions → "Re-encrypt env (owner-triggered)" → Run workflow** (branch `dev`;
+tick *rotate_signing_key* to mint a new keypair into both `.sec` files and
+`tauri.conf.json`). It decrypts on the runner with the secret, applies the
+public values from `.env.dev.example`, re-encrypts with the **same** key,
+masks every value, and pushes only the `.enc` twins to a new
+`chore/env-reencrypt-<run>` branch — open a PR from it. Details in the
+workflow's header comment (`.github/workflows/env-reencrypt.yml`).
+
 ## Commands
 
 | Command | Does |
