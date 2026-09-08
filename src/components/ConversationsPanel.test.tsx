@@ -269,6 +269,33 @@ describe("ConversationsPanel", () => {
     expect(useNavStore.getState().view).toBe("live");
   });
 
+  it("opens an explicitly supplied post-conversation claim review without leaving Conversations", async () => {
+    useNavStore.setState({ view: "conversations" });
+    const backend = fakeBackend([], [conversationRow({ title: "Nolan Wells coverage" })]);
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel
+          onClose={vi.fn()}
+          claimReviews={[{ conversation_id: "conv-1", claims: [] }]}
+        />
+      </BackendProvider>,
+    );
+    await screen.findByText("Nolan Wells coverage");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review claims from Nolan Wells coverage" }),
+    );
+
+    expect(
+      screen.getByRole("region", { name: "Claim review for Nolan Wells coverage" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("No claims were recorded for this conversation.")).toBeInTheDocument();
+    expect(useNavStore.getState().view).toBe("conversations");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close claim review" }));
+    expect(screen.getByText("Nolan Wells coverage")).toBeInTheDocument();
+  });
+
   it("a session row's transcript-viewer icon opens the partner window with its formatted transcript", async () => {
     useNavStore.setState({ view: "conversations" });
     const segments: TranscriptSegment[] = [

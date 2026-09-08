@@ -3,12 +3,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities, useCapabilitySnapshot } from "@/lib/backend/context";
 import { isUsable } from "@/lib/capture/contract";
+import { ConversationClaimReview } from "@/components/conversations/ConversationClaimReview";
+import type { ConversationClaimReviewData } from "@/components/conversations/claimReview";
+import { ClaimEvidenceView } from "@/components/partner/ClaimEvidenceView";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { ListRow } from "@/components/ui/ListRow";
 import { formatTranscriptForViewer } from "@/lib/formatTranscript";
 import {
   DEFAULT_CONTEXT_ID,
+  type ClaimRecord,
   type Conversation,
   type ConversationSummary,
   type RagDocument,
@@ -179,7 +183,16 @@ function findMatches(
  * best-effort matches, not a stored link — a real fix needs a backend
  * schema change (out of scope here).
  */
-export function ConversationsPanel({ onClose }: { onClose: () => void }) {
+export function ConversationsPanel({
+  onClose,
+  claimReviews = [],
+}: {
+  onClose: () => void;
+  /** Explicit checkpoint-3.6c input. The saved Conversation schema does not
+   *  persist claims yet, so production callers omit this until that contract
+   *  lands instead of showing live-session claims against the wrong record. */
+  claimReviews?: readonly ConversationClaimReviewData[];
+}) {
   const backend = useBackend();
   const caps = useCapabilities();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -189,6 +202,8 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [analyzing, setAnalyzing] = useState(false);
+  const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
+  const [reviewViewerClaim, setReviewViewerClaim] = useState<ClaimRecord | null>(null);
   const openId = useConversationStore((s) => s.openId);
   const title = useConversationStore((s) => s.title);
   const notice = useConversationStore((s) => s.notice);
@@ -202,6 +217,16 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
   const shownSegments = [...archived, ...liveSegments];
   const viewingSession = useTranscriptStore((s) => s.viewingPastSessionId);
   const setView = useNavStore((s) => s.setView);
+  const reviewByConversationId = useMemo(
+    () => new Map(claimReviews.map((review) => [review.conversation_id, review])),
+    [claimReviews],
+  );
+  const activeReview = activeReviewId
+    ? reviewByConversationId.get(activeReviewId) ?? null
+    : null;
+  const activeReviewTitle =
+    conversations.find((conversation) => conversation.id === activeReviewId)?.title ??
+    "Conversation";
 
   // Search (owner request, 2026-08-17). Query text + optional file/context
   // scope; results are computed by the debounced effect below. Full
@@ -419,6 +444,18 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const inspectClaimEvidence = async (claim: ClaimRecord) => {
+    try {
+      if (!caps?.system.partnerWindow) {
+        setReviewViewerClaim(claim);
+        return;
+      }
+      await backend.partner.open("Claim evidence", null, null, null, [], null, claim);
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
+
   const rehearse = (id: string) => {
     useContextsQuickOpen.getState().request(id);
     setView("context");
@@ -584,6 +621,15 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
     >
       {notice && <Notice>{notice}</Notice>}
 
+      {activeReview ? (
+        <ConversationClaimReview
+          title={activeReviewTitle}
+          data={activeReview}
+          onClose={() => setActiveReviewId(null)}
+          onInspectEvidence={(claim) => void inspectClaimEvidence(claim)}
+        />
+      ) : (
+        <>
       <div className="mb-2 flex gap-1.5">
         {FILTERS.map((f) => (
           <button
@@ -787,6 +833,11 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
                       selected={selected.has(key)}
                       onSelectChange={toggle}
                       onOpenViewer={() => void openViewer(row.id, row.data.title)}
+                      onOpenClaimReview={
+                        reviewByConversationId.has(row.id)
+                          ? () => setActiveReviewId(row.id)
+                          : undefined
+                      }
                       onOpenLive={() => void open(row.id)}
                       onDelete={() => void remove(row.id)}
                       onClick={() => void open(row.id)}
@@ -820,6 +871,38 @@ export function ConversationsPanel({ onClose }: { onClose: () => void }) {
               );
             })}
           </ul>
+        </div>
+      )}
+        </>
+      )}
+
+      {reviewViewerClaim && (
+        <div
+          role="dialog"
+          aria-label="Claim evidence, full detail"
+          className="glass-raised fixed inset-y-0 right-0 z-50 flex w-[min(600px,88%)] flex-col border-l border-border-strong shadow-[var(--shadow-lg)]"
+        >
+          <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
+            <span className="h-2.5 w-2.5 rounded-full bg-primary" aria-hidden />
+            <h3 className="min-w-0 flex-1 truncate text-[15px] font-bold text-fg">
+              Claim evidence
+            </h3>
+            <button
+              type="button"
+              onClick={() => setReviewViewerClaim(null)}
+              title="Close"
+              aria-label="Close viewer"
+              className="grid h-8 w-8 place-items-center rounded border border-border-strong bg-bg-2 text-fg-muted transition hover:text-fg"
+            >
+              <Icon name="close" size={15} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-5 py-5">
+            <ClaimEvidenceView
+              claim={reviewViewerClaim}
+              onOpenUrl={(url) => void backend.auth.openUrl(url)}
+            />
+          </div>
         </div>
       )}
     </ViewShell>
