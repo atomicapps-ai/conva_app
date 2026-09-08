@@ -27,6 +27,16 @@ describe("MarkdownDocument", () => {
     render(<MarkdownDocument text={"[Open](javascript:alert(1))"} />);
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
+
+  it("provides a dedicated scrollbar when filling a constrained viewer", () => {
+    const { container } = render(<MarkdownDocument text={"# Long document"} fill />);
+    expect(container.firstElementChild).toHaveClass("flex", "min-h-0", "flex-1");
+    expect(screen.getByTestId("markdown-document-scroll")).toHaveClass(
+      "min-h-0",
+      "flex-1",
+      "overflow-y-scroll",
+    );
+  });
 });
 
 describe("parseMarkdownBlocks", () => {

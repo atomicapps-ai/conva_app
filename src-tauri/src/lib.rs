@@ -1302,17 +1302,33 @@ fn context_load_profile(app: AppHandle, profile_id: String) -> Result<KnowledgeP
 /// the profile's only generated runtime source. Q&A is produced for every
 /// Context category; Interview's deep toggle expands its research breadth.
 #[tauri::command]
-fn context_generate_dossier(
+async fn context_generate_dossier(
     app: AppHandle,
-    state: State<AppState>,
     id: String,
 ) -> Result<ConversationContext, String> {
-    let mut session = context::load(&app, &id).map_err(|e| e.to_string())?;
+    // This pipeline performs blocking HTTP streams, filesystem writes, and
+    // embedding/index work. A synchronous Tauri command can freeze the
+    // Windows event loop (including repaint and resize) until every stage is
+    // finished, so the complete transaction belongs on the blocking pool.
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        context_generate_dossier_blocking(&app, state, id)
+    })
+    .await
+    .map_err(|e| format!("Context resource worker failed: {e}"))?
+}
+
+fn context_generate_dossier_blocking(
+    app: &AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ConversationContext, String> {
+    let mut session = context::load(app, &id).map_err(|e| e.to_string())?;
     let profile_id = session
         .knowledge_profile_id
         .clone()
         .ok_or_else(|| "Prepare this Context before generating a prep document.".to_string())?;
-    let mut profile = context::load_profile(&app, &profile_id).map_err(|e| e.to_string())?;
+    let mut profile = context::load_profile(app, &profile_id).map_err(|e| e.to_string())?;
     let previous_profile_doc_ids = profile.doc_ids.clone();
 
     // Compilation reads exactly the attached Context documents, independent
@@ -1350,14 +1366,14 @@ fn context_generate_dossier(
         );
         let (sources, searches) =
             context::research(queries, context::RESEARCH_MAX_SOURCES).map_err(|e| e.to_string())?;
-        metering::record_tavily_search(&app, searches);
+        metering::record_tavily_search(app, searches);
         research_sources = sources;
         if !research_sources.is_empty() {
             let request =
                 conva_core::context::research_findings_prompt(&session, &research_sources);
             let mut buffer = String::new();
             metering::metered_stream(
-                &app,
+                app,
                 "context_research_findings",
                 &selection,
                 &key,
@@ -1389,7 +1405,7 @@ fn context_generate_dossier(
         );
         let (additional, searches) =
             context::research(qa_queries, context::QA_MAX_SOURCES).map_err(|e| e.to_string())?;
-        metering::record_tavily_search(&app, searches);
+        metering::record_tavily_search(app, searches);
         let mut seen: std::collections::HashSet<String> =
             qa_sources.iter().map(|source| source.url.clone()).collect();
         for source in additional {
@@ -1408,7 +1424,7 @@ fn context_generate_dossier(
     );
     let mut qa_buffer = String::new();
     metering::metered_stream(
-        &app,
+        app,
         "context_qa",
         &selection,
         &key,
@@ -1427,7 +1443,7 @@ fn context_generate_dossier(
         conva_core::context::knowledge_prompt(&session, &qa_sources, &chunks, 3000);
     let mut knowledge_buffer = String::new();
     metering::metered_stream(
-        &app,
+        app,
         "context_knowledge",
         &selection,
         &key,
@@ -1501,13 +1517,13 @@ fn context_generate_dossier(
     session.resources_stale = false;
 
     profile.updated_at_unix_ms = session::now_unix_ms();
-    context::save_profile(&app, &profile).map_err(|e| e.to_string())?;
+    context::save_profile(app, &profile).map_err(|e| e.to_string())?;
 
     // Contexts-screen-redesign spec, requirement 5 — records when the
     // dossier pipeline actually ran, distinct from `updated_at_unix_ms`
     // (which also bumps on a plain title/purpose edit).
     session.resources_generated_at_unix_ms = Some(session::now_unix_ms());
-    let saved = context::save(&app, session).map_err(|e| e.to_string())?;
+    let saved = context::save(app, session).map_err(|e| e.to_string())?;
 
     // If this Context is already active, switch its live scope atomically to
     // the new pack instead of leaving the session pointed at the deleted one.

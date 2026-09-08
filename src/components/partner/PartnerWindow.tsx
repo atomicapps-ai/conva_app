@@ -12,6 +12,7 @@ import {
   type PartnerTab,
 } from "@/components/partner/partnerTabs";
 import { Icon } from "@/components/ui/Icon";
+import { MarkdownDocument } from "@/components/ui/MarkdownDocument";
 import { useBackend } from "@/lib/backend";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAllyStore } from "@/state/ally";
@@ -378,7 +379,9 @@ export function PartnerWindow() {
       <div
         data-testid="partner-body"
         style={{ fontSize: partnerFontPx }}
-        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
+        className={`flex min-h-0 flex-1 flex-col gap-3 p-4 ${
+          active?.kind === "document" ? "overflow-hidden" : "overflow-y-auto"
+        }`}
       >
         {!active ? (
           <p className="mt-8 text-center text-[0.86em] text-fg-faint">
@@ -387,19 +390,19 @@ export function PartnerWindow() {
         ) : active.kind === "document" ? (
           <>
             <h2 className="text-[1.3em] font-extrabold">{active.fileName}</h2>
-            <div className="rounded-[var(--radius)] border border-border bg-bg-2 p-3">
-              {!docTexts.has(active.docId) ? (
+            {!docTexts.has(active.docId) ? (
+              <div className="rounded-[var(--radius)] border border-border bg-bg-2 p-3">
                 <p className="text-[0.9em] text-fg-faint">Loading…</p>
-              ) : docTexts.get(active.docId) === null ? (
+              </div>
+            ) : docTexts.get(active.docId) === null ? (
+              <div className="rounded-[var(--radius)] border border-border bg-bg-2 p-3">
                 <p className="text-[0.9em] text-fg-faint">
                   This document's text isn't available.
                 </p>
-              ) : (
-                <p className="whitespace-pre-wrap text-[0.9em] leading-relaxed text-fg-muted">
-                  {docTexts.get(active.docId)}
-                </p>
-              )}
-            </div>
+              </div>
+            ) : (
+              <MarkdownDocument text={docTexts.get(active.docId) ?? ""} fill />
+            )}
           </>
         ) : active.payload.claim ? (
           <ClaimEvidenceView

@@ -112,17 +112,21 @@ export function MarkdownDocument({
   text,
   className = "",
   maxHeight,
+  fill = false,
 }: {
   text: string;
   className?: string;
   maxHeight?: string;
+  /** Fill a constrained flex parent and give the document body one explicit
+   * scroll region. Used by the resizable partner-window document viewer. */
+  fill?: boolean;
 }) {
   const [raw, setRaw] = useState(false);
   const blocks = parseMarkdownBlocks(text);
 
   return (
-    <section className={`overflow-hidden rounded-lg border border-border bg-bg/45 ${className}`}>
-      <div className="flex items-center justify-end border-b border-border/70 bg-bg-elevated/35 px-2 py-1">
+    <section className={`${fill ? "flex min-h-0 flex-1 flex-col " : ""}overflow-hidden rounded-lg border border-border bg-bg/45 ${className}`}>
+      <div className="flex shrink-0 items-center justify-end border-b border-border/70 bg-bg-elevated/35 px-2 py-1">
         <div className="flex rounded-md border border-border bg-bg p-0.5" aria-label="Document view">
           {([false, true] as const).map((isRaw) => (
             <button
@@ -139,7 +143,11 @@ export function MarkdownDocument({
           ))}
         </div>
       </div>
-      <div className="overflow-y-auto px-4 py-3" style={maxHeight ? { maxHeight } : undefined}>
+      <div
+        data-testid="markdown-document-scroll"
+        className={`${fill ? "min-h-0 flex-1 overflow-y-scroll [scrollbar-gutter:stable] " : "overflow-y-auto "}px-4 py-3`}
+        style={maxHeight ? { maxHeight } : undefined}
+      >
         {raw ? (
           <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-fg-muted">
             {text}

@@ -356,6 +356,29 @@ describe("PartnerWindow document tabs", () => {
     expect(useAllyStore.getState().cards).toHaveLength(0);
   });
 
+  it("renders generated document Markdown in formatted mode by default", async () => {
+    backend.rag.documentText.mockResolvedValue(
+      "# Context Intelligence\n\nThe boat had **seven people** aboard.",
+    );
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    await deliver(
+      payload({
+        term: "Nolan Wells — Context Intelligence Pack.txt",
+        doc_id: "doc-1",
+        answer: null,
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Context Intelligence" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("seven people").tagName).toBe("STRONG");
+    expect(screen.queryByText(/\*\*seven people\*\*/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Raw" })).toBeInTheDocument();
+  });
+
   it("the same doc_id delivered twice focuses the one tab instead of duplicating", async () => {
     await act(async () => {
       render(<PartnerWindow />);
