@@ -9,19 +9,28 @@ entries, only the `[Unreleased]` section between releases.
 
 ## [Unreleased]
 
-### Features
+No user-facing changes recorded yet.
 
-- Point the in-app updater and the release pipeline at a separate public
-  releases repo (`atomicapps-ai/conva_releases`), so installers, the
-  updater's `latest.json`, and public release notes no longer require the
-  private `conva_app` repo to be reachable unauthenticated.
+## [0.4.0] — 2026-09-08
 
-### Documentation
+### Highlights
 
-- Add `docs/development.md`, `docs/releasing.md`, `docs/ai-workflow.md`,
-  `AGENTS.md`, and a PR template describing the release/dev workflow and
-  AI-assistant guardrails (no secrets, no direct releases, small branches,
-  tests required).
+- Conversation claim intelligence with attribution, evidence status,
+  source-policy controls, verification planning, and saved post-call review.
+- Type-aware preparation for interviews, company meetings, sales calls, live
+  streams, and other conversations, producing separate Research and Q&A plus
+  one fast Context Intelligence Pack for live retrieval.
+- A focused Ally question-and-answer workspace with visible grounding,
+  separate term definitions, and formatted, scrollable generated documents.
+- Background Context regeneration that keeps the application responsive.
+- Background update downloads and an optional safe automatic-install setting.
+
+### Experience and reliability
+
+- Improved startup progress, narrow-window navigation and Context controls,
+  avatar handling, and brand geometry.
+- Added release gates for curated notes, signed update artifacts, platform
+  installers, and the cross-platform updater manifest.
 
 ## [0.1.1] — 2026-07-31
 

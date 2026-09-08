@@ -23,39 +23,49 @@ permissions:
 
 jobs:
   # Gate the release: the tag MUST equal the checked-in version (the tag is the
-  # source of truth, SDLC §3.1), and generate the user-facing release notes from
-  # the Conventional-Commit log with git-cliff (SDLC §3.2). A mismatch fails the
-  # whole run before any installer is built.
+  # source of truth, SDLC §3.1), and load the owner-curated, user-facing notes
+  # committed for that tag. A mismatch or missing/placeholder notes file fails
+  # the whole run before any installer is built.
   version-guard:
     name: Version guard + release notes
     runs-on: ubuntu-latest
     outputs:
-      notes: ${{ steps.cliff.outputs.content }}
+      notes: ${{ steps.notes.outputs.content }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # full history + tags for the changelog range
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Tag equals package.json version
         if: github.ref_type == 'tag'
         run: node scripts/version.mjs check --tag "${{ github.ref_name }}"
-      - name: Generate release notes (git-cliff)
-        id: cliff
+      - name: Load curated release notes
+        id: notes
         if: github.ref_type == 'tag'
-        uses: orhun/git-cliff-action@v4
-        with:
-          config: cliff.toml
-          args: --latest --strip header
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          file="release-notes/${RELEASE_TAG}.md"
+          test -f "$file" || { echo "::error::Missing curated release notes: $file"; exit 1; }
+          delimiter="CONVA_RELEASE_NOTES_EOF"
+          if grep -Fxq "$delimiter" "$file"; then
+            echo "::error::Reserved output delimiter appears in $file"
+            exit 1
+          fi
+          {
+            echo "content<<$delimiter"
+            cat "$file"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
       - name: Require substantive release notes
         if: github.ref_type == 'tag'
         env:
-          RELEASE_NOTES: ${{ steps.cliff.outputs.content }}
+          RELEASE_NOTES: ${{ steps.notes.outputs.content }}
         run: node scripts/validate-release-notes.mjs
 
   # Matrix build lives in the reusable build-installers.yml (SDLC §5.2). On a
-  # tag it attaches the installers to a DRAFT Release carrying the git-cliff
+  # tag it attaches the installers to a DRAFT Release carrying the curated
   # notes; the owner publishes, which is what activates the updater rollout
   # (§5.3, the single most dangerous auto-action). A workflow_dispatch run
   # (no tag) builds and uploads bundles as artifacts instead.
