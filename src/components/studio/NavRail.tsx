@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import orbitArtwork from "@/assets/brand/raster/conva-core-orbit-reference@2x.png";
 import { NAV_ITEMS } from "@/components/studio/navItems";
@@ -89,7 +89,6 @@ export function NavRail({
   const { account, auth, refresh } = useAccount();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   // The rail is rendered in `expanded` form inside the ☰ drawer, so treat
   // "menu" as expanded here; StudioShell decides where it lives.
@@ -100,6 +99,17 @@ export function NavRail({
     setMenuOpen(false);
     setNotifOpen(false);
   }, [view]);
+
+  useEffect(() => {
+    if (!menuOpen && !notifOpen) return;
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuOpen(false);
+      setNotifOpen(false);
+    };
+    window.addEventListener("keydown", dismissOnEscape);
+    return () => window.removeEventListener("keydown", dismissOnEscape);
+  }, [menuOpen, notifOpen]);
 
   const go = (next: typeof view) => {
     setView(next);
@@ -137,7 +147,9 @@ export function NavRail({
       )}
 
       {/* ── the six destinations ──────────────────────────────────────── */}
-      <div className="flex flex-1 flex-col gap-[3px]">
+      <div
+        className={`flex flex-1 flex-col gap-[3px] ${compact ? "min-h-0 overflow-x-hidden overflow-y-auto" : ""}`}
+      >
         {NAV_ITEMS.map((item) => {
           const isActive = active === item.view;
           return (
@@ -218,10 +230,54 @@ export function NavRail({
 
       {/* ── account block ─────────────────────────────────────────────── */}
       {compact ? (
-        <div ref={menuRef} className="relative flex justify-center border-t border-border pt-3">
+        <div className="relative flex w-full shrink-0 flex-col flex-nowrap items-center border-t border-border pt-2">
+          {/* Icon mode keeps the same three utilities as the expanded rail,
+              but stacks them vertically so they remain visible and never
+              wrap inside the 52px rail. */}
+          <div
+            role="group"
+            aria-label="Account utilities"
+            className="relative flex w-full flex-col flex-nowrap items-center gap-1"
+          >
+            <UtilityButton
+              compact
+              icon="utility-notifications"
+              label="Notifications"
+              active={notifOpen}
+              onClick={() => {
+                setMenuOpen(false);
+                setNotifOpen((open) => !open);
+              }}
+            />
+            {notifOpen && (
+              <NotificationMenu
+                className="absolute bottom-0 left-[calc(100%+8px)] z-50 w-60"
+                onClose={() => setNotifOpen(false)}
+              />
+            )}
+            <UtilityButton
+              compact
+              icon="utility-settings"
+              label="Settings"
+              active={view === "settings"}
+              onClick={() => go("settings")}
+            />
+            <UtilityButton
+              compact
+              icon="utility-sign-out"
+              label={account.signedIn ? "Sign out" : "Sign in"}
+              onClick={() => (account.signedIn ? signOut() : go("settings"))}
+            />
+          </div>
+
+          <span className="my-2 block h-px w-8 bg-border" aria-hidden />
           <button
             type="button"
-            onClick={() => (account.signedIn ? setMenuOpen((o) => !o) : go("settings"))}
+            onClick={() => {
+              setNotifOpen(false);
+              if (account.signedIn) setMenuOpen((open) => !open);
+              else go("settings");
+            }}
             aria-haspopup="menu"
             aria-expanded={account.signedIn ? menuOpen : undefined}
             title={account.signedIn ? `${account.displayName} — account` : "Sign in"}
@@ -234,10 +290,13 @@ export function NavRail({
           </button>
           {menuOpen && account.signedIn && (
             <AccountMenu
-              className="absolute bottom-[52px] left-1 right-1 z-50"
+              className="absolute bottom-0 left-[calc(100%+8px)] z-50 w-60 max-w-[calc(100vw-68px)] whitespace-nowrap"
               onClose={() => setMenuOpen(false)}
               onSettings={() => go("settings")}
-              onSearch={openPalette}
+              onSearch={() => {
+                setMenuOpen(false);
+                openPalette();
+              }}
               onSignOut={signOut}
               account={account}
               auth={auth}
@@ -246,10 +305,14 @@ export function NavRail({
         </div>
       ) : (
         <div className="border-t border-border pt-2.5">
-          <div ref={menuRef} className="relative">
+          <div className="relative">
             <button
               type="button"
-              onClick={() => (account.signedIn ? setMenuOpen((o) => !o) : go("settings"))}
+              onClick={() => {
+                setNotifOpen(false);
+                if (account.signedIn) setMenuOpen((open) => !open);
+                else go("settings");
+              }}
               aria-haspopup="menu"
               aria-expanded={account.signedIn ? menuOpen : undefined}
               aria-label={
@@ -294,7 +357,10 @@ export function NavRail({
                 className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-50"
                 onClose={() => setMenuOpen(false)}
                 onSettings={() => go("settings")}
-                onSearch={openPalette}
+                onSearch={() => {
+                  setMenuOpen(false);
+                  openPalette();
+                }}
                 onSignOut={signOut}
                 account={account}
                 auth={auth}
@@ -313,27 +379,16 @@ export function NavRail({
               icon="utility-notifications"
               label="Notifications"
               active={notifOpen}
-              onClick={() => setNotifOpen((o) => !o)}
+              onClick={() => {
+                setMenuOpen(false);
+                setNotifOpen((open) => !open);
+              }}
             />
             {notifOpen && (
-              <>
-                <button
-                  type="button"
-                  aria-label="Close notifications"
-                  onClick={() => setNotifOpen(false)}
-                  className="fixed inset-0 z-40 cursor-default"
-                />
-                <div
-                  role="status"
-                  className="glass-raised absolute bottom-[calc(100%+8px)] left-0 right-0 z-50 rounded-lg border border-border-strong p-3 shadow-[var(--shadow-lg)]"
-                >
-                  <p className="text-[12px] font-bold text-fg">No notifications</p>
-                  <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
-                    Alerts about your account and long-running preparation will
-                    appear here.
-                  </p>
-                </div>
-              </>
+              <NotificationMenu
+                className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-50"
+                onClose={() => setNotifOpen(false)}
+              />
             )}
             <UtilityButton
               icon="utility-settings"
@@ -387,11 +442,13 @@ function UtilityButton({
   icon,
   label,
   active = false,
+  compact = false,
   onClick,
 }: {
   icon: "utility-notifications" | "utility-settings" | "utility-sign-out";
   label: string;
   active?: boolean;
+  compact?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -401,7 +458,8 @@ function UtilityButton({
       title={label}
       aria-label={label}
       className={[
-        "grid h-[34px] flex-1 place-items-center rounded-[var(--radius)] border bg-panel transition",
+        "grid place-items-center rounded-[var(--radius)] border bg-panel transition",
+        compact ? "h-[34px] w-[38px] shrink-0" : "h-[34px] flex-1",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
         active
           ? "border-border-strong text-primary"
@@ -410,6 +468,34 @@ function UtilityButton({
     >
       <LockedIcon name={icon} size={18} />
     </button>
+  );
+}
+
+function NotificationMenu({
+  className,
+  onClose,
+}: {
+  className: string;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Close notifications"
+        onClick={onClose}
+        className="fixed inset-0 z-40 cursor-default"
+      />
+      <div
+        role="status"
+        className={`glass-raised rounded-lg border border-border-strong p-3 shadow-[var(--shadow-lg)] ${className}`}
+      >
+        <p className="text-[12px] font-bold text-fg">No notifications</p>
+        <p className="mt-1 text-[11px] leading-relaxed text-fg-muted">
+          Alerts about your account and long-running preparation will appear here.
+        </p>
+      </div>
+    </>
   );
 }
 
@@ -481,8 +567,8 @@ function MenuRow({
       onClick={onClick}
       className="flex w-full items-center gap-2 rounded-[5px] px-1.5 py-1.5 text-left text-[11px] font-semibold text-fg-muted transition hover:bg-panel-raised/70 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
-      {icon}
-      {label}
+      <span className="shrink-0">{icon}</span>
+      <span className="min-w-0 flex-1 truncate whitespace-nowrap">{label}</span>
     </button>
   );
 }
