@@ -29,13 +29,68 @@ function renderSetup() {
 }
 
 describe("ContextSetup wizard", () => {
-  it("offers the four conversation types", async () => {
+  it("offers all five conversation types", async () => {
     renderSetup();
     // findBy flushes the mount effect (rag.list) so no act() warnings.
     expect(await screen.findByRole("button", { name: "Interview" })).toBeInTheDocument();
-    for (const type of ["Company meeting", "Sales call", "Other"]) {
+    for (const type of ["Company meeting", "Sales call", "Live stream", "Other"]) {
       expect(screen.getByRole("button", { name: type })).toBeInTheDocument();
     }
+  });
+
+  it("adapts participation lenses by Context and saves the approved claim policy", async () => {
+    const save = vi.fn().mockResolvedValue({ id: "s1" });
+    const prepare = vi.fn().mockResolvedValue({ id: "s1" });
+    const backend = {
+      rag: { list: vi.fn().mockResolvedValue([]) },
+      context: { save, prepare },
+      capabilities: vi.fn().mockResolvedValue(null),
+    } as unknown as ConvaBackend;
+
+    render(
+      <BackendProvider backend={backend}>
+        <ContextSetup onDone={() => undefined} onCancel={() => undefined} />
+      </BackendProvider>,
+    );
+
+    fireEvent.change(await screen.findByPlaceholderText(/Senior Accountant interview/i), {
+      target: { value: "Live verification" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Live stream" }));
+    const role = screen.getByRole("combobox", { name: /Your role in this conversation/i });
+    expect(role).toHaveValue("live_host");
+    fireEvent.change(role, { target: { value: "live_producer" } });
+    expect(screen.getByText(/Manage the verification queue/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(
+      screen.getByRole("checkbox", { name: /Automatically check valuable claims/i }),
+    ).toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: /General web discovery/i }),
+    ).toBeChecked();
+    expect(screen.getByText(/Web research sends only the normalized claim/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Producer / researcher")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0]![0]).toMatchObject({
+      category: "live_stream",
+      participation_lens: "live_producer",
+      source_policy: {
+        allowed_classes: [
+          "primary_official",
+          "recognized_reporting",
+          "specialist_reference",
+          "general_web_discovery",
+        ],
+        allow_open_web: true,
+        allow_automatic_checks: true,
+        freshness_window_hours: 24,
+      },
+    });
   });
 
   it("shows the job-description field only for Interview", async () => {

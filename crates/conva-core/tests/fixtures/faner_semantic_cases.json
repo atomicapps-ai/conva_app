@@ -163,6 +163,83 @@
         "references": [{ "surface_text": "It", "kind": "pronoun", "required_for_verification": true }]
       }]},
       "expected": { "kind": "prediction", "proposition": "it may be completed next week", "modality": "hedged", "negated": false, "sensitivity": "internal", "unresolved": ["It"] }
+    },
+    {
+      "name": "interview_observer_coach_scope_claim",
+      "category": "interview", "lens": "interview_observer_coach", "purpose": "Coach a fair interview",
+      "transcript": { "side": "inbound", "seq": 11, "text": "The candidate said she led a team of eight." },
+      "reply": { "frames": [{ "source_segment_ids": ["inbound:11"], "speaker_side": "inbound", "kind": "attributed_claim", "exact_quote": "The candidate said she led a team of eight.", "normalized_proposition": "the candidate led a team of eight", "predicate": "led", "attribution_chain": [{ "source_label": "the candidate", "reporting_verb": "said", "directness": "reported_by_speaker" }], "modality": "reported", "sensitivity": "private_personal" }] },
+      "expected": { "kind": "attributed_claim", "proposition": "the candidate led a team of eight", "attribution": "the candidate", "modality": "reported", "negated": false, "sensitivity": "private_personal" }
+    },
+    {
+      "name": "meeting_presenter_metric",
+      "category": "company_meeting", "lens": "meeting_presenter", "purpose": "Present the quarterly plan",
+      "transcript": { "side": "outbound", "seq": 12, "text": "Renewal revenue increased by 12 percent." },
+      "reply": { "frames": [{ "source_segment_ids": ["outbound:12"], "speaker_side": "outbound", "kind": "claim", "exact_quote": "Renewal revenue increased by 12 percent.", "normalized_proposition": "renewal revenue increased by 12 percent", "predicate": "increased", "modality": "asserted", "sensitivity": "internal", "qualifiers": [{ "kind": "quantity", "value": "12", "unit": "percent" }] }] },
+      "expected": { "kind": "claim", "proposition": "renewal revenue increased by 12 percent", "modality": "asserted", "negated": false, "sensitivity": "internal" }
+    },
+    {
+      "name": "meeting_decision_owner_dependency",
+      "category": "company_meeting", "lens": "meeting_decision_owner", "purpose": "Approve the launch plan",
+      "transcript": { "side": "inbound", "seq": 13, "text": "The launch depends on legal approval." },
+      "reply": { "frames": [{ "source_segment_ids": ["inbound:13"], "speaker_side": "inbound", "kind": "requirement", "exact_quote": "The launch depends on legal approval.", "normalized_proposition": "the launch depends on legal approval", "predicate": "depends", "modality": "asserted", "sensitivity": "internal" }] },
+      "expected": { "kind": "requirement", "proposition": "the launch depends on legal approval", "modality": "asserted", "negated": false, "sensitivity": "internal" }
+    },
+    {
+      "name": "meeting_observer_commitment",
+      "category": "company_meeting", "lens": "meeting_observer", "purpose": "Record owners and follow-ups",
+      "transcript": { "side": "inbound", "seq": 14, "text": "Maya will circulate the approved minutes tomorrow." },
+      "reply": { "frames": [{ "source_segment_ids": ["inbound:14"], "speaker_side": "inbound", "kind": "commitment", "exact_quote": "Maya will circulate the approved minutes tomorrow.", "normalized_proposition": "Maya will circulate the approved minutes tomorrow", "predicate": "circulate", "modality": "asserted", "sensitivity": "internal" }] },
+      "expected": { "kind": "commitment", "proposition": "maya will circulate the approved minutes tomorrow", "modality": "asserted", "negated": false, "sensitivity": "internal" }
+    },
+    {
+      "name": "sales_customer_success_constraint",
+      "category": "sales_call", "lens": "sales_customer_success", "purpose": "Confirm implementation readiness",
+      "transcript": { "side": "inbound", "seq": 15, "text": "Migration must finish before October." },
+      "reply": { "frames": [{ "source_segment_ids": ["inbound:15"], "speaker_side": "inbound", "kind": "requirement", "exact_quote": "Migration must finish before October.", "normalized_proposition": "migration must finish before October", "predicate": "finish", "modality": "asserted", "sensitivity": "internal" }] },
+      "expected": { "kind": "requirement", "proposition": "migration must finish before october", "modality": "asserted", "negated": false, "sensitivity": "internal" }
+    },
+    {
+      "name": "sales_coach_promise",
+      "category": "sales_call", "lens": "sales_coach", "purpose": "Coach an accurate sales call",
+      "transcript": { "side": "outbound", "seq": 16, "text": "We guarantee deployment in two weeks." },
+      "reply": { "frames": [{ "source_segment_ids": ["outbound:16"], "speaker_side": "outbound", "kind": "commitment", "exact_quote": "We guarantee deployment in two weeks.", "normalized_proposition": "we guarantee deployment in two weeks", "predicate": "guarantee", "modality": "asserted", "sensitivity": "public" }] },
+      "expected": { "kind": "commitment", "proposition": "we guarantee deployment in two weeks", "modality": "asserted", "negated": false, "sensitivity": "public" }
+    },
+    {
+      "name": "live_producer_attribution",
+      "category": "live_stream", "lens": "live_producer", "purpose": "Verify claims before they are repeated",
+      "transcript": { "side": "inbound", "seq": 17, "text": "The governor's office says the order starts Friday." },
+      "reply": { "frames": [{ "source_segment_ids": ["inbound:17"], "speaker_side": "inbound", "kind": "attributed_claim", "exact_quote": "The governor's office says the order starts Friday.", "normalized_proposition": "the order starts Friday", "predicate": "starts", "attribution_chain": [{ "source_label": "the governor's office", "reporting_verb": "says", "directness": "reported_by_speaker" }], "modality": "reported", "sensitivity": "public" }] },
+      "expected": { "kind": "attributed_claim", "proposition": "the order starts friday", "attribution": "the governor's office", "modality": "reported", "negated": false, "sensitivity": "public" }
+    },
+    {
+      "name": "live_moderator_disclosure",
+      "category": "live_stream", "lens": "live_moderator", "purpose": "Moderate a responsible broadcast",
+      "transcript": { "side": "outbound", "seq": 18, "text": "This segment is sponsored by Acme." },
+      "reply": { "frames": [{ "source_segment_ids": ["outbound:18"], "speaker_side": "outbound", "kind": "claim", "exact_quote": "This segment is sponsored by Acme.", "normalized_proposition": "this segment is sponsored by Acme", "predicate": "sponsored", "modality": "asserted", "sensitivity": "public" }] },
+      "expected": { "kind": "claim", "proposition": "this segment is sponsored by acme", "modality": "asserted", "negated": false, "sensitivity": "public" }
+    },
+    {
+      "name": "other_facilitator_decision",
+      "category": "other", "lens": "other_facilitator", "purpose": "Keep decisions explicit",
+      "transcript": { "side": "outbound", "seq": 19, "text": "We decided to request a second estimate." },
+      "reply": { "frames": [{ "source_segment_ids": ["outbound:19"], "speaker_side": "outbound", "kind": "decision", "exact_quote": "We decided to request a second estimate.", "normalized_proposition": "we decided to request a second estimate", "predicate": "decided", "modality": "asserted", "sensitivity": "internal" }] },
+      "expected": { "kind": "decision", "proposition": "we decided to request a second estimate", "modality": "asserted", "negated": false, "sensitivity": "internal" }
+    },
+    {
+      "name": "other_advisor_high_consequence_claim",
+      "category": "other", "lens": "other_advisor", "purpose": "Help a client evaluate financial guidance",
+      "transcript": { "side": "inbound", "seq": 20, "text": "The adviser said this investment cannot lose money." },
+      "reply": { "frames": [{ "source_segment_ids": ["inbound:20"], "speaker_side": "inbound", "kind": "attributed_claim", "exact_quote": "The adviser said this investment cannot lose money.", "normalized_proposition": "this investment cannot lose money", "predicate": "lose", "attribution_chain": [{ "source_label": "the adviser", "reporting_verb": "said", "directness": "reported_by_speaker" }], "modality": "reported", "negated": true, "sensitivity": "restricted" }] },
+      "expected": { "kind": "attributed_claim", "proposition": "this investment cannot lose money", "attribution": "the adviser", "modality": "reported", "negated": true, "sensitivity": "restricted" }
+    },
+    {
+      "name": "other_presenter_metric",
+      "category": "other", "lens": "other_presenter", "purpose": "Present a supported recommendation",
+      "transcript": { "side": "outbound", "seq": 21, "text": "The survey included 240 responses." },
+      "reply": { "frames": [{ "source_segment_ids": ["outbound:21"], "speaker_side": "outbound", "kind": "claim", "exact_quote": "The survey included 240 responses.", "normalized_proposition": "the survey included 240 responses", "predicate": "included", "modality": "asserted", "sensitivity": "public", "qualifiers": [{ "kind": "quantity", "value": "240", "unit": "responses" }] }] },
+      "expected": { "kind": "claim", "proposition": "the survey included 240 responses", "modality": "asserted", "negated": false, "sensitivity": "public" }
     }
   ]
 }

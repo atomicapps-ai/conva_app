@@ -19,8 +19,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::asr::TranscriptSegment;
 use crate::audio::StreamSide;
+use crate::context_snapshot::ParticipationLens;
 use crate::llm::LlmRequest;
 use crate::rag::{DocSource, RagDocument, ScoredChunk};
+use crate::source_policy::SourcePolicy;
 
 /// Reserved id of the always-present default context ("General conversation")
 /// — a baseline briefing Ally grounds in when nothing more specific has been
@@ -170,6 +172,15 @@ pub struct ConversationContext {
     #[serde(default)]
     pub job_description: Option<String>,
     pub category: ContextCategory,
+    /// What this user is doing in the conversation. Optional on disk so
+    /// Contexts saved before claim intelligence remain readable; consumers
+    /// use [`Self::effective_participation_lens`] to obtain a safe default.
+    #[serde(default)]
+    pub participation_lens: Option<ParticipationLens>,
+    /// The exact source-admission and processing policy for claim checks.
+    /// Optional only for backward compatibility with older Context records.
+    #[serde(default)]
+    pub source_policy: Option<SourcePolicy>,
     pub status: ContextStatus,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
@@ -260,6 +271,25 @@ pub struct ConversationContext {
     /// tooltip lie. `None` until the first regenerate.
     #[serde(default)]
     pub resources_generated_at_unix_ms: Option<u64>,
+}
+
+impl ConversationContext {
+    /// Return the stored lens when it belongs to this Context category,
+    /// otherwise fall back visibly and deterministically to the category
+    /// default. This also protects records edited by an older client.
+    pub fn effective_participation_lens(&self) -> ParticipationLens {
+        self.participation_lens
+            .filter(|lens| lens.is_compatible_with(self.category))
+            .unwrap_or_else(|| ParticipationLens::default_for(self.category))
+    }
+
+    /// Return the stored claim source policy, or the documented category
+    /// template for Contexts created before policy persistence existed.
+    pub fn effective_source_policy(&self) -> SourcePolicy {
+        self.source_policy
+            .clone()
+            .unwrap_or_else(|| SourcePolicy::for_context(self.category))
+    }
 }
 
 /// Catalog entry for the Context list view (cheap to list without loading the
@@ -1252,11 +1282,9 @@ mod tests {
     }
 
     #[test]
-    fn old_contexts_without_slot_doc_ids_deserialize_with_an_empty_map() {
-        // A context persisted before slot_doc_ids existed — must still load
-        // (serde default), reading every attached doc as unslotted (it falls
-        // into the UI's "Other documents" catch-all rather than losing data
-        // or failing to deserialize).
+    fn old_contexts_without_new_optional_fields_still_deserialize() {
+        // A context persisted before slot_doc_ids and claim policy existed
+        // must still load rather than requiring a migration.
         let old_json = r#"{
             "id": "s1",
             "title": "Senior Accountant Interview",
@@ -1285,6 +1313,26 @@ mod tests {
         }"#;
         let ctx: ConversationContext = serde_json::from_str(old_json).unwrap();
         assert!(ctx.slot_doc_ids.is_empty());
+        assert_eq!(ctx.participation_lens, None);
+        assert_eq!(ctx.source_policy, None);
+        assert_eq!(
+            ctx.effective_participation_lens(),
+            ParticipationLens::Interviewee
+        );
+        assert_eq!(
+            ctx.effective_source_policy(),
+            SourcePolicy::for_context(ContextCategory::Interview)
+        );
+    }
+
+    #[test]
+    fn incompatible_stored_lens_falls_back_to_the_category_default() {
+        let mut ctx = sample_context();
+        ctx.participation_lens = Some(ParticipationLens::LiveHost);
+        assert_eq!(
+            ctx.effective_participation_lens(),
+            ParticipationLens::Interviewee
+        );
     }
 
     fn sample_context() -> ConversationContext {
@@ -1294,6 +1342,8 @@ mod tests {
             purpose: "Prep for GAAP questions".into(),
             job_description: Some("Own the monthly close.".into()),
             category: ContextCategory::Interview,
+            participation_lens: None,
+            source_policy: None,
             status: ContextStatus::Ready,
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,
@@ -1489,6 +1539,8 @@ mod tests {
             purpose: "Prep".into(),
             job_description: Some("Build on AWS.".into()),
             category: ContextCategory::Interview,
+            participation_lens: None,
+            source_policy: None,
             status: ContextStatus::Ready,
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,

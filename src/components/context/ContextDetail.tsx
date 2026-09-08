@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { categoryTemplate } from "@/components/context/categoryTemplates";
+import {
+  SOURCE_CLASS_OPTIONS,
+  normalizeSourcePolicy,
+  participationLensLabel,
+  sourcePolicyDisclosure,
+} from "@/components/context/claimPolicy";
 import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
 import { groupBySlot } from "@/components/context/documentSplit";
 import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
@@ -228,6 +234,9 @@ export function ContextDetail({
   const personas = session?.personas ?? [];
   const chosen = session?.chosen_persona_id ?? null;
   const chosenPersona = personas.find((p) => p.id === chosen) ?? null;
+  const claimPolicy = session
+    ? normalizeSourcePolicy(session.category, session.source_policy)
+    : null;
 
   // Which card's bio/details show below the scroll row (owner, 2026-08-30:
   // "select a card and put the bio and details below") — distinct from
@@ -725,6 +734,74 @@ export function ContextDetail({
                 </ul>
               )}
             </div>
+          </div>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        id="claim_policy"
+        open={openSection === "claim_policy"}
+        onToggle={(id) => setOpenSection((cur) => toggleDetailSection(cur, id))}
+        title="Claim checks & source policy"
+        summary={
+          session && claimPolicy
+            ? `${participationLensLabel(session.category, session.participation_lens)} · ${claimPolicy.allow_automatic_checks ? "automatic" : "manual"} checks · ${claimPolicy.allowed_classes.length} source class${claimPolicy.allowed_classes.length === 1 ? "" : "es"}`
+            : "Loading…"
+        }
+      >
+        {session && claimPolicy && (
+          <div className="flex flex-col gap-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded border border-border p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-faint">
+                  Participation lens
+                </p>
+                <p className="mt-1 text-[12px] font-semibold text-fg">
+                  {participationLensLabel(session.category, session.participation_lens)}
+                </p>
+              </div>
+              <div className="rounded border border-border p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-faint">
+                  Automatic checks
+                </p>
+                <p className="mt-1 text-[12px] font-semibold text-fg">
+                  {claimPolicy.allow_automatic_checks ? "Valuable claims may be queued" : "Manual checks only"}
+                </p>
+              </div>
+            </div>
+            <div className="rounded border border-border px-3 py-2">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-fg-faint">
+                Allowed sources · ranked for this Context
+              </p>
+              <ol className="flex flex-col divide-y divide-border">
+                {claimPolicy.allowed_classes
+                  .filter((sourceClass) => sourceClass !== "model_knowledge")
+                  .map((sourceClass, index) => {
+                    const source = SOURCE_CLASS_OPTIONS.find((option) => option.value === sourceClass);
+                    if (!source) return null;
+                    return (
+                      <li key={sourceClass} className="flex items-center gap-2 py-1.5 text-[12px] text-fg">
+                        <span className="w-4 text-fg-faint">{index + 1}</span>
+                        <span className="min-w-0 flex-1">{source.label}</span>
+                        <span className="text-[10px] text-fg-faint">{source.note}</span>
+                      </li>
+                    );
+                  })}
+              </ol>
+            </div>
+            <div className="rounded border border-border p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-faint">
+                High-consequence rule
+              </p>
+              <p className="mt-1 text-[12px] font-semibold text-fg">
+                {claimPolicy.high_consequence_requirement === "primary_official_only"
+                  ? "Require a primary official source"
+                  : "Require an official source or two independent admitted reports"}
+              </p>
+            </div>
+            <p className="rounded border border-amber-500/30 bg-amber-500/[0.04] px-3 py-2 text-[11px] leading-relaxed text-fg-muted">
+              {sourcePolicyDisclosure(claimPolicy)}
+            </p>
           </div>
         )}
       </CollapsibleSection>

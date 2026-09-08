@@ -2,13 +2,31 @@ import { useEffect, useState } from "react";
 
 import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { CATEGORIES, categoryTemplate, researchDefault } from "@/components/context/categoryTemplates";
+import {
+  ClaimPolicyControls,
+  ParticipationLensControl,
+} from "@/components/context/ClaimPolicyControls";
+import {
+  createContextSourcePolicyId,
+  defaultParticipationLens,
+  defaultSourcePolicy,
+  effectiveParticipationLens,
+  normalizeSourcePolicy,
+  participationLensLabel,
+  sourcePolicyDisclosure,
+} from "@/components/context/claimPolicy";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
 import { groupBySlot, splitDocuments } from "@/components/context/documentSplit";
 import { buildQaMarkdown, parseQaImport } from "@/components/transcript/qaPairs";
-import type { RagDocument, ContextCategory, ConversationContext } from "@/lib/ipc";
+import type {
+  RagDocument,
+  ContextCategory,
+  ConversationContext,
+  SourcePolicy,
+} from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
 const DOC_EXTENSIONS = ["pdf", "docx", "md", "txt", "html"];
@@ -38,6 +56,19 @@ export function ContextSetup({
   const [purpose, setPurpose] = useState(initial?.purpose ?? "");
   const [category, setCategory] = useState<ContextCategory>(
     initial?.category ?? "interview",
+  );
+  const [participationLens, setParticipationLens] = useState(() =>
+    effectiveParticipationLens(
+      initial?.category ?? "interview",
+      initial?.participation_lens,
+    ),
+  );
+  const [sourcePolicy, setSourcePolicy] = useState(() =>
+    normalizeSourcePolicy(
+      initial?.category ?? "interview",
+      initial?.source_policy,
+      createContextSourcePolicyId(initial?.id),
+    ),
   );
   const [jobDescription, setJobDescription] = useState(
     initial?.job_description ?? "",
@@ -76,8 +107,21 @@ export function ContextSetup({
   // Picking a type resets research to that type's default (user-overridable).
   const pickCategory = (c: ContextCategory) => {
     setCategory(c);
+    setParticipationLens(defaultParticipationLens(c));
+    setSourcePolicy((current) => ({
+      ...defaultSourcePolicy(c, current.id),
+      version: current.version + 1,
+    }));
     setResearch(researchDefault(c));
     setDeepQa(false);
+  };
+
+  const changeSourcePolicy = (next: SourcePolicy) => {
+    setSourcePolicy((current) => ({
+      ...normalizeSourcePolicy(category, next, current.id),
+      id: current.id,
+      version: current.version + 1,
+    }));
   };
 
   // Deep Q&A depends on research being on — turning research off clears it.
@@ -236,7 +280,12 @@ export function ContextSetup({
     }
   };
 
-  const canNext = step === 1 ? title.trim().length > 0 : true;
+  const canNext =
+    step === 1
+      ? title.trim().length > 0
+      : step === 2
+        ? sourcePolicy.allowed_classes.length > 0
+        : true;
 
   // Shared by `finish` and `regenerate` — the latter needs this to persist
   // pending edits (e.g. the deep-QA checkbox) before the dossier pipeline
@@ -247,6 +296,8 @@ export function ContextSetup({
     purpose: purpose.trim(),
     job_description: jobDescription.trim() ? jobDescription.trim() : null,
     category,
+    participation_lens: participationLens,
+    source_policy: normalizeSourcePolicy(category, sourcePolicy, sourcePolicy.id),
     status: initial?.status ?? "draft",
     created_at_unix_ms: initial?.created_at_unix_ms ?? 0,
     updated_at_unix_ms: 0,
@@ -338,6 +389,11 @@ export function ContextSetup({
             <p className="text-[11px] text-fg-faint">
               Ally will generate: {categoryTemplate(category).digestSections.join(", ")}
             </p>
+            <ParticipationLensControl
+              category={category}
+              value={participationLens}
+              onChange={setParticipationLens}
+            />
             {category === "interview" && (
               <label className="field">
                 Job description
@@ -569,6 +625,12 @@ export function ContextSetup({
               )}
             </Section>
           )}
+          <Section
+            title="Claim checks & source policy"
+            description="Controls which live claims Conva may check, which evidence can count, and what may leave this device. This is separate from the preparation research above."
+          >
+            <ClaimPolicyControls policy={sourcePolicy} onChange={changeSourcePolicy} />
+          </Section>
         </>
       )}
 
@@ -583,6 +645,10 @@ export function ContextSetup({
             <dd className="text-fg">
               {CATEGORIES.find((c) => c.value === category)?.label}
             </dd>
+            <dt className="text-fg-faint">Your role</dt>
+            <dd className="text-fg">
+              {participationLensLabel(category, participationLens)}
+            </dd>
             {category === "interview" && (
               <>
                 <dt className="text-fg-faint">Job description</dt>
@@ -595,6 +661,17 @@ export function ContextSetup({
             <dd className="text-fg">{selected.length} attached</dd>
             <dt className="text-fg-faint">Web research</dt>
             <dd className="text-fg">{research ? "On" : "Off"}</dd>
+            <dt className="text-fg-faint">Claim checks</dt>
+            <dd className="text-fg">
+              {sourcePolicy.allow_automatic_checks ? "Automatic" : "Manual"}
+            </dd>
+            <dt className="text-fg-faint">Allowed evidence</dt>
+            <dd className="text-fg">
+              {sourcePolicy.allowed_classes.length} source class
+              {sourcePolicy.allowed_classes.length === 1 ? "" : "es"}
+            </dd>
+            <dt className="text-fg-faint">Claim web research</dt>
+            <dd className="text-fg">{sourcePolicy.allow_open_web ? "Allowed" : "Off"}</dd>
             {category === "interview" && (
               <>
                 <dt className="text-fg-faint">Deep Q&A</dt>
@@ -605,6 +682,9 @@ export function ContextSetup({
           <p className="mt-3 text-[12px] leading-relaxed text-fg-faint">
             Finishing saves this Context. Building the knowledge base, generating
             personas, and the live session come next.
+          </p>
+          <p className="mt-2 rounded border border-border px-3 py-2 text-[11px] leading-relaxed text-fg-muted">
+            {sourcePolicyDisclosure(sourcePolicy)}
           </p>
           {error && <p className="mt-2 text-sm text-rec">{error}</p>}
         </Section>

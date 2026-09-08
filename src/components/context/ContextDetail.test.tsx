@@ -53,7 +53,13 @@ function profile(overrides: Partial<KnowledgeProfile> = {}): KnowledgeProfile {
   };
 }
 
-function renderDetail(backend: Partial<ConvaBackend>) {
+function renderDetail(
+  backend: Partial<ConvaBackend> = {
+    context: { load: vi.fn().mockResolvedValue(session()), loadProfile: vi.fn().mockResolvedValue(profile()) },
+    rag: { list: vi.fn().mockResolvedValue([]) },
+    capabilities: vi.fn().mockResolvedValue(null),
+  } as Partial<ConvaBackend>,
+) {
   render(
     <BackendProvider backend={backend as ConvaBackend}>
       <ContextDetail id="s1" onEdit={() => undefined} onBack={() => undefined} />
@@ -62,7 +68,19 @@ function renderDetail(backend: Partial<ConvaBackend>) {
 }
 
 describe("ContextDetail", () => {
-  it("starts with all three sections collapsed to a one-line summary", async () => {
+  it("shows safe claim-policy defaults for a Context saved before policy persistence", async () => {
+    renderDetail();
+    const policy = await screen.findByRole("button", {
+      name: /Claim checks & source policy/i,
+    });
+    expect(policy).toHaveTextContent("Candidate · automatic checks · 5 source classes");
+    fireEvent.click(policy);
+    expect(screen.getByText("Candidate")).toBeInTheDocument();
+    expect(screen.getByText("Documents attached to this Context")).toBeInTheDocument();
+    expect(screen.getByText(/normalized claim and necessary event qualifiers/i)).toBeInTheDocument();
+  });
+
+  it("starts with all four sections collapsed to a one-line summary", async () => {
     renderDetail({
       context: { load: vi.fn().mockResolvedValue(session()), loadProfile: vi.fn().mockResolvedValue(profile()) },
       rag: { list: vi.fn().mockResolvedValue([]) },

@@ -93,6 +93,8 @@ specific is active."
                 .to_string(),
             job_description: None,
             category: ContextCategory::Other,
+            participation_lens: None,
+            source_policy: None,
             status: ContextStatus::Ready,
             created_at_unix_ms: now,
             updated_at_unix_ms: now,

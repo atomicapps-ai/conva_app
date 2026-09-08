@@ -501,6 +501,53 @@ export type ContextCategory =
   | "live_stream"
   | "other";
 
+/** The user's role in this Context. Mirrors
+ * conva_core::context_snapshot::ParticipationLens. */
+export type ParticipationLens =
+  | "interviewer"
+  | "interviewee"
+  | "interview_observer_coach"
+  | "meeting_lead"
+  | "meeting_participant"
+  | "meeting_presenter"
+  | "meeting_decision_owner"
+  | "meeting_observer"
+  | "buyer"
+  | "seller"
+  | "sales_customer_success"
+  | "sales_coach"
+  | "live_host"
+  | "live_guest"
+  | "live_producer"
+  | "live_moderator"
+  | "other_speaker"
+  | "other_listener"
+  | "other_facilitator"
+  | "other_advisor"
+  | "other_presenter";
+
+export type HighConsequenceRequirement =
+  | "primary_official_or_independent_reports"
+  | "primary_official_only";
+
+/** Exact source-admission and privacy policy used by claim checks. Mirrors
+ * conva_core::source_policy::SourcePolicy. */
+export interface SourcePolicy {
+  id: string;
+  version: number;
+  allowed_classes: SourceClass[];
+  allowed_domains: string[];
+  blocked_domains: string[];
+  allow_open_web: boolean;
+  allow_normalized_claim_egress: boolean;
+  allow_private_claim_egress: boolean;
+  allow_cached_evidence: boolean;
+  allow_automatic_checks: boolean;
+  freshness_window_hours: number | null;
+  minimum_independent_sources: number;
+  high_consequence_requirement: HighConsequenceRequirement;
+}
+
 /** Lifecycle of a Context, start to finish. */
 export type ContextStatus =
   | "draft"
@@ -553,6 +600,10 @@ export interface ConversationContext {
   /** For interviews: the target role's job description (Step 1). */
   job_description: string | null;
   category: ContextCategory;
+  /** Optional only because Contexts saved before claim intelligence omit it. */
+  participation_lens?: ParticipationLens | null;
+  /** Optional only because Contexts saved before claim intelligence omit it. */
+  source_policy?: SourcePolicy | null;
   status: ContextStatus;
   created_at_unix_ms: number;
   updated_at_unix_ms: number;

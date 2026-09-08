@@ -27,14 +27,25 @@ pub const MAX_RELATIONSHIPS_PER_ENTITY: usize = 16;
 pub enum ParticipationLens {
     Interviewer,
     Interviewee,
+    InterviewObserverCoach,
     MeetingLead,
     MeetingParticipant,
+    MeetingPresenter,
+    MeetingDecisionOwner,
+    MeetingObserver,
     Buyer,
     Seller,
+    SalesCustomerSuccess,
+    SalesCoach,
     LiveHost,
     LiveGuest,
+    LiveProducer,
+    LiveModerator,
     OtherSpeaker,
     OtherListener,
+    OtherFacilitator,
+    OtherAdvisor,
+    OtherPresenter,
 }
 
 impl ParticipationLens {
@@ -43,19 +54,28 @@ impl ParticipationLens {
             (category, self),
             (
                 ContextCategory::Interview,
-                Self::Interviewer | Self::Interviewee
+                Self::Interviewer | Self::Interviewee | Self::InterviewObserverCoach
             ) | (
                 ContextCategory::CompanyMeeting,
-                Self::MeetingLead | Self::MeetingParticipant
-            ) | (ContextCategory::SalesCall, Self::Buyer | Self::Seller)
-                | (
-                    ContextCategory::LiveStream,
-                    Self::LiveHost | Self::LiveGuest
-                )
-                | (
-                    ContextCategory::Other,
-                    Self::OtherSpeaker | Self::OtherListener
-                )
+                Self::MeetingLead
+                    | Self::MeetingParticipant
+                    | Self::MeetingPresenter
+                    | Self::MeetingDecisionOwner
+                    | Self::MeetingObserver
+            ) | (
+                ContextCategory::SalesCall,
+                Self::Buyer | Self::Seller | Self::SalesCustomerSuccess | Self::SalesCoach
+            ) | (
+                ContextCategory::LiveStream,
+                Self::LiveHost | Self::LiveGuest | Self::LiveProducer | Self::LiveModerator
+            ) | (
+                ContextCategory::Other,
+                Self::OtherSpeaker
+                    | Self::OtherListener
+                    | Self::OtherFacilitator
+                    | Self::OtherAdvisor
+                    | Self::OtherPresenter
+            )
         )
     }
 
@@ -430,10 +450,14 @@ mod tests {
     }
 
     #[test]
-    fn every_context_has_two_compatible_lenses() {
+    fn every_documented_lens_is_compatible_with_its_context() {
         let pairs = [
             (ContextCategory::Interview, ParticipationLens::Interviewer),
             (ContextCategory::Interview, ParticipationLens::Interviewee),
+            (
+                ContextCategory::Interview,
+                ParticipationLens::InterviewObserverCoach,
+            ),
             (
                 ContextCategory::CompanyMeeting,
                 ParticipationLens::MeetingLead,
@@ -442,12 +466,37 @@ mod tests {
                 ContextCategory::CompanyMeeting,
                 ParticipationLens::MeetingParticipant,
             ),
+            (
+                ContextCategory::CompanyMeeting,
+                ParticipationLens::MeetingPresenter,
+            ),
+            (
+                ContextCategory::CompanyMeeting,
+                ParticipationLens::MeetingDecisionOwner,
+            ),
+            (
+                ContextCategory::CompanyMeeting,
+                ParticipationLens::MeetingObserver,
+            ),
             (ContextCategory::SalesCall, ParticipationLens::Buyer),
             (ContextCategory::SalesCall, ParticipationLens::Seller),
+            (
+                ContextCategory::SalesCall,
+                ParticipationLens::SalesCustomerSuccess,
+            ),
+            (ContextCategory::SalesCall, ParticipationLens::SalesCoach),
             (ContextCategory::LiveStream, ParticipationLens::LiveHost),
             (ContextCategory::LiveStream, ParticipationLens::LiveGuest),
+            (ContextCategory::LiveStream, ParticipationLens::LiveProducer),
+            (
+                ContextCategory::LiveStream,
+                ParticipationLens::LiveModerator,
+            ),
             (ContextCategory::Other, ParticipationLens::OtherSpeaker),
             (ContextCategory::Other, ParticipationLens::OtherListener),
+            (ContextCategory::Other, ParticipationLens::OtherFacilitator),
+            (ContextCategory::Other, ParticipationLens::OtherAdvisor),
+            (ContextCategory::Other, ParticipationLens::OtherPresenter),
         ];
         for (category, lens) in pairs {
             assert!(lens.is_compatible_with(category));

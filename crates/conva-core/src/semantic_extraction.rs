@@ -688,6 +688,6 @@ mod tests {
         }
 
         assert_eq!(categories.len(), 5);
-        assert_eq!(lenses.len(), 10);
+        assert_eq!(lenses.len(), 21);
     }
 }
