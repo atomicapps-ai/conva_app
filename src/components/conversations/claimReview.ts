@@ -2,7 +2,12 @@ import {
   evidenceAuditGroups,
   humanizeClaimValue,
 } from "@/components/partner/claimEvidence";
-import type { ClaimEvidenceRecord, ClaimRecord } from "@/lib/ipc";
+import type {
+  ClaimEvidenceRecord,
+  ClaimRecord,
+  ClaimSnapshotEvent,
+  Conversation,
+} from "@/lib/ipc";
 
 export interface ClaimDependency {
   id: string;
@@ -119,4 +124,28 @@ export function buildClaimReview(
     ),
     feedback: data.feedback ?? [],
   };
+}
+
+/** Build a review only from snapshots explicitly linked to this saved
+ * conversation, selecting the newest cumulative event for each session. */
+export function claimReviewFromConversation(
+  conversation: Conversation,
+): ConversationClaimReviewData {
+  const linked = new Set(conversation.source_session_ids ?? []);
+  const latest = new Map<string, ClaimSnapshotEvent>();
+  for (const snapshot of conversation.claim_snapshots ?? []) {
+    if (!linked.has(snapshot.session_id)) continue;
+    const current = latest.get(snapshot.session_id);
+    if (
+      !current ||
+      snapshot.epoch > current.epoch ||
+      (snapshot.epoch === current.epoch && snapshot.revision > current.revision)
+    ) {
+      latest.set(snapshot.session_id, snapshot);
+    }
+  }
+  const claims = (conversation.source_session_ids ?? []).flatMap(
+    (sessionId) => latest.get(sessionId)?.claims ?? [],
+  );
+  return { conversation_id: conversation.id, claims };
 }

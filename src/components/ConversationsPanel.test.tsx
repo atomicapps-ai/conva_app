@@ -296,6 +296,30 @@ describe("ConversationsPanel", () => {
     expect(screen.getByText("Nolan Wells coverage")).toBeInTheDocument();
   });
 
+  it("loads a persisted claim review only for a summary that advertises one", async () => {
+    useNavStore.setState({ view: "conversations" });
+    const backend = fakeBackend(
+      [],
+      [conversationRow({ title: "Persisted review", has_claim_review: true })],
+    );
+    render(
+      <BackendProvider backend={backend}>
+        <ConversationsPanel onClose={vi.fn()} />
+      </BackendProvider>,
+    );
+    await screen.findByText("Persisted review");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review claims from Persisted review" }),
+    );
+
+    await waitFor(() => expect(backend.conversations.load).toHaveBeenCalledWith("conv-1"));
+    expect(
+      screen.getByRole("region", { name: "Claim review for Persisted review" }),
+    ).toBeInTheDocument();
+    expect(useNavStore.getState().view).toBe("conversations");
+  });
+
   it("a session row's transcript-viewer icon opens the partner window with its formatted transcript", async () => {
     useNavStore.setState({ view: "conversations" });
     const segments: TranscriptSegment[] = [

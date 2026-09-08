@@ -42,7 +42,12 @@ import {
   type CaptureSourceCapability,
   type TranscriptEvent,
 } from "@/lib/capture/contract";
-import type { Conversation, ConversationSummary, TranscriptSegment } from "@/lib/ipc";
+import type {
+  ClaimSnapshotEvent,
+  Conversation,
+  ConversationSummary,
+  TranscriptSegment,
+} from "@/lib/ipc";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { CaptureSourceKind } from "@/lib/capture/contract";
 
@@ -290,6 +295,8 @@ export class FakeBackend implements ConvaBackend {
       segments: TranscriptSegment[],
       linkedDocs: string[],
       contextId?: string | null,
+      sourceSessionIds: string[] = [],
+      claimSnapshots: ClaimSnapshotEvent[] = [],
     ): Promise<Conversation> => {
       const existing = id ? this.records.get(id) : undefined;
       const now = this.now();
@@ -301,6 +308,14 @@ export class FakeBackend implements ConvaBackend {
         segments: [...segments],
         linked_docs: [...linkedDocs],
         linked_context_id: contextId ?? existing?.linked_context_id ?? null,
+        source_session_ids:
+          sourceSessionIds.length > 0
+            ? [...sourceSessionIds]
+            : [...(existing?.source_session_ids ?? [])],
+        claim_snapshots:
+          claimSnapshots.length > 0
+            ? [...claimSnapshots]
+            : [...(existing?.claim_snapshots ?? [])],
       };
       this.records.set(record.id, record);
       return record;
@@ -316,6 +331,9 @@ export class FakeBackend implements ConvaBackend {
           segment_count: c.segments.length,
           linked_docs: c.linked_docs,
           linked_context_id: c.linked_context_id ?? null,
+          source_session_count: c.source_session_ids?.length ?? 0,
+          has_claim_review:
+            c.claim_snapshots?.some((snapshot) => snapshot.claims.length > 0) ?? false,
           preview: c.segments[0]?.text ?? "",
         })),
     load: async (id: string): Promise<Conversation> => {

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConversationClaimReview } from "@/components/conversations/ConversationClaimReview";
 import {
   buildClaimReview,
+  claimReviewFromConversation,
   type ConversationClaimReviewData,
 } from "@/components/conversations/claimReview";
 import type { ClaimEvidenceRecord, ClaimRecord } from "@/lib/ipc";
@@ -174,6 +175,45 @@ describe("buildClaimReview", () => {
       buildClaimReview({ ...review([claim()]), dependencies: [dependency] })
         .dependencies,
     ).toEqual([]);
+  });
+});
+
+describe("claimReviewFromConversation", () => {
+  it("uses only linked sessions and the newest cumulative snapshot per session", () => {
+    const result = claimReviewFromConversation({
+      id: "conversation-1",
+      title: "Saved",
+      created_at_unix_ms: 1,
+      updated_at_unix_ms: 2,
+      segments: [],
+      linked_docs: [],
+      source_session_ids: ["session-1"],
+      claim_snapshots: [
+        {
+          contract_version: 2,
+          session_id: "session-1",
+          epoch: 0,
+          revision: 1,
+          claims: [claim({ id: "old" })],
+        },
+        {
+          contract_version: 2,
+          session_id: "session-1",
+          epoch: 0,
+          revision: 2,
+          claims: [claim({ id: "new" })],
+        },
+        {
+          contract_version: 2,
+          session_id: "another-session",
+          epoch: 0,
+          revision: 3,
+          claims: [claim({ id: "wrong-conversation" })],
+        },
+      ],
+    });
+
+    expect(result.claims.map((record) => record.id)).toEqual(["new"]);
   });
 });
 

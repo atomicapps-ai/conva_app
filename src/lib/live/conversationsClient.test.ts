@@ -30,11 +30,13 @@ describe("conversationsClient — /api/live/conversations (M2 cp8)", () => {
     expect(await loadConversation({ fetch: f }, "conv-1")).toEqual(CONV);
     expect(await saveConversation({ fetch: f }, { id: null, title: null, segments: CONV.segments, linked_docs: ["d1"], context_id: null })).toEqual(CONV);
     expect(await saveConversation({ fetch: f }, { id: "conv-1", title: "Renamed", segments: CONV.segments, linked_docs: [], context_id: "ctx-1" })).toEqual(CONV);
+    expect(await saveConversation({ fetch: f }, { id: "conv-1", title: "Linked", segments: CONV.segments, linked_docs: [], source_session_ids: ["session-1"], claim_snapshots: [{ contract_version: 2, session_id: "session-1", epoch: 0, revision: 1, claims: [] }] })).toEqual(CONV);
     await expect(deleteConversation({ fetch: f }, "conv-1")).resolves.toBeUndefined();
 
     expect(calls.map((c) => `${c.init.method} ${c.url}`)).toEqual([
       "GET /api/live/conversations",
       "GET /api/live/conversations/conv-1",
+      "POST /api/live/conversations",
       "POST /api/live/conversations",
       "POST /api/live/conversations",
       "DELETE /api/live/conversations/conv-1",
@@ -45,6 +47,7 @@ describe("conversationsClient — /api/live/conversations (M2 cp8)", () => {
     }
     expect(JSON.parse(calls[2].init.body as string)).toEqual({ id: null, title: null, segments: CONV.segments, linked_docs: ["d1"] });
     expect(JSON.parse(calls[3].init.body as string)).toEqual({ id: "conv-1", title: "Renamed", segments: CONV.segments, linked_docs: [], context_id: "ctx-1" });
+    expect(JSON.parse(calls[4].init.body as string)).toEqual({ id: "conv-1", title: "Linked", segments: CONV.segments, linked_docs: [], source_session_ids: ["session-1"], claim_snapshots: [{ contract_version: 2, session_id: "session-1", epoch: 0, revision: 1, claims: [] }] });
   });
 
   it("refusals become coded LiveSessionErrors with Conversation wording; bad bodies and network failures are coded too", async () => {

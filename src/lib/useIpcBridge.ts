@@ -5,6 +5,7 @@ import { shouldAutoRefineRadar } from "@/lib/faner";
 import { useAppStore } from "@/state/app";
 import { useAllyStore } from "@/state/ally";
 import { useRehearsalStore } from "@/state/rehearsal";
+import { useConversationStore } from "@/state/conversation";
 import { useTranscriptStore } from "@/state/transcript";
 
 /**
@@ -26,6 +27,8 @@ export function useIpcBridge(): void {
   const applyCapture = useAllyStore((s) => s.applyCapture);
   const applyClaimSnapshot = useAllyStore((s) => s.applyClaimSnapshot);
   const applyRehearsalPhase = useRehearsalStore((s) => s.applyPhase);
+  const recordSession = useConversationStore((s) => s.recordSession);
+  const recordClaimSnapshot = useConversationStore((s) => s.recordClaimSnapshot);
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
@@ -54,7 +57,10 @@ export function useIpcBridge(): void {
       };
       const subs = await Promise.all([
         backend.subscribe("transcriptSegment", applySegment),
-        backend.subscribe("sessionState", setSession),
+        backend.subscribe("sessionState", (event) => {
+          setSession(event);
+          recordSession(event);
+        }),
         backend.subscribe("audioLevel", setLevel),
         backend.subscribe("modelStatus", setModelStatus),
         backend.subscribe("allyChunk", applyAllyChunk),
@@ -62,7 +68,17 @@ export function useIpcBridge(): void {
         backend.subscribe("radar", applyRadarAndRefine),
         backend.subscribe("tracker", applyTracker),
         backend.subscribe("capture", applyCapture),
-        backend.subscribe("claimSnapshot", applyClaimSnapshot),
+        backend.subscribe("claimSnapshot", (event) => {
+          applyClaimSnapshot(event);
+          const accepted = useAllyStore.getState().claimSnapshot;
+          if (
+            accepted?.session_id === event.session_id &&
+            accepted.epoch === event.epoch &&
+            accepted.revision === event.revision
+          ) {
+            recordClaimSnapshot(event);
+          }
+        }),
         backend.subscribe("rehearsalState", applyRehearsalPhase),
       ]);
       if (cancelled) {
@@ -89,5 +105,7 @@ export function useIpcBridge(): void {
     applyCapture,
     applyClaimSnapshot,
     applyRehearsalPhase,
+    recordSession,
+    recordClaimSnapshot,
   ]);
 }

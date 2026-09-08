@@ -12,6 +12,7 @@ import type {
   AuthStatus,
   Capture,
   ClaimRecord,
+  ClaimSnapshotEvent,
   Conversation,
   ConversationSummary,
   ContextSummary,
@@ -317,6 +318,8 @@ export function conversationSave(
   segments: TranscriptSegment[],
   linkedDocs: string[],
   contextId?: string | null,
+  sourceSessionIds: string[] = [],
+  claimSnapshots: ClaimSnapshotEvent[] = [],
 ): Promise<Conversation> {
   return invoke<Conversation>("conversation_save", {
     id,
@@ -324,6 +327,8 @@ export function conversationSave(
     segments,
     linkedDocs,
     contextId: contextId ?? null,
+    sourceSessionIds,
+    claimSnapshots,
   });
 }
 

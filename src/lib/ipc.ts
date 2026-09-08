@@ -490,6 +490,10 @@ export interface Conversation {
   segments: TranscriptSegment[];
   linked_docs: string[];
   linked_context_id?: string | null;
+  /** Exact live-session ids whose finalized transcript was saved here. */
+  source_session_ids?: string[];
+  /** Latest accepted cumulative claim snapshot for each linked session. */
+  claim_snapshots?: ClaimSnapshotEvent[];
 }
 
 /** Mirror of the shell's conversations::ConversationSummary. */
@@ -501,6 +505,8 @@ export interface ConversationSummary {
   segment_count: number;
   linked_docs: string[];
   linked_context_id?: string | null;
+  source_session_count?: number;
+  has_claim_review?: boolean;
   preview: string;
 }
 

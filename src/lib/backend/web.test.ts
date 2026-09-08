@@ -372,9 +372,16 @@ describe("WebBackend — cloud Conversations (M2 cp8)", () => {
     });
     const b = new WebBackend(chromeWindows);
     await tick();
-    const saved = await b.conversations.save(null, null, [SEG, { ...SEG, seq: 2, text: "partial", is_final: false }], ["d1"], "ctx-1");
+    const snapshot = {
+      contract_version: 2 as const,
+      session_id: "session-1",
+      epoch: 0,
+      revision: 1,
+      claims: [],
+    };
+    const saved = await b.conversations.save(null, null, [SEG, { ...SEG, seq: 2, text: "partial", is_final: false }], ["d1"], "ctx-1", ["session-1"], [snapshot]);
     expect(saved).toEqual(CONV);
-    expect(posted[0]).toEqual({ id: null, title: null, segments: [SEG, { ...SEG, seq: 2, text: "partial", is_final: false }], linked_docs: ["d1"], context_id: "ctx-1" });
+    expect(posted[0]).toEqual({ id: null, title: null, segments: [SEG, { ...SEG, seq: 2, text: "partial", is_final: false }], linked_docs: ["d1"], context_id: "ctx-1", source_session_ids: ["session-1"], claim_snapshots: [snapshot] });
     await b.conversations.save("conv-1", "Renamed", [SEG], [], null);
     expect(posted[1]).toEqual({ id: "conv-1", title: "Renamed", segments: [SEG], linked_docs: [] });
     expect(await b.conversations.list()).toEqual([{ id: "conv-1", title: CONV.title, segment_count: 1, preview: SEG.text }]);

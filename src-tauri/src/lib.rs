@@ -990,6 +990,7 @@ fn reveal_in_file_manager(path: &str) -> Result<(), String> {
 /// With an existing `id` the record is replaced by the fuller transcript the
 /// UI accumulated — that's how saving again appends.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Flat names are the stable Tauri invoke contract.
 fn conversation_save(
     app: AppHandle,
     id: Option<String>,
@@ -997,9 +998,22 @@ fn conversation_save(
     segments: Vec<TranscriptSegment>,
     linked_docs: Vec<String>,
     context_id: Option<String>,
+    source_session_ids: Vec<String>,
+    claim_snapshots: Vec<conva_core::ipc::ClaimSnapshotEvent>,
 ) -> Result<conversations::Conversation, String> {
-    conversations::save(&app, id, title, segments, linked_docs, context_id)
-        .map_err(|e| e.to_string())
+    conversations::save(
+        &app,
+        conversations::SaveConversation {
+            id,
+            title,
+            segments,
+            linked_docs,
+            context_id,
+            source_session_ids,
+            claim_snapshots,
+        },
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

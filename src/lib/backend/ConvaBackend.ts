@@ -27,6 +27,7 @@ import type {
   Conversation,
   ConversationSummary,
   ClaimRecord,
+  ClaimSnapshotEvent,
   ContextSummary,
   ConversationContext,
   KnowledgeProfile,
@@ -240,6 +241,8 @@ export interface ConvaBackend {
       segments: TranscriptSegment[],
       linkedDocs: string[],
       contextId?: string | null,
+      sourceSessionIds?: string[],
+      claimSnapshots?: ClaimSnapshotEvent[],
     ): Promise<Conversation>;
     list(): Promise<ConversationSummary[]>;
     load(id: string): Promise<Conversation>;

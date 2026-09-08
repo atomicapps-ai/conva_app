@@ -4,7 +4,10 @@ import { useBackend } from "@/lib/backend";
 import { useCapabilities, useCapabilitySnapshot } from "@/lib/backend/context";
 import { isUsable } from "@/lib/capture/contract";
 import { ConversationClaimReview } from "@/components/conversations/ConversationClaimReview";
-import type { ConversationClaimReviewData } from "@/components/conversations/claimReview";
+import {
+  claimReviewFromConversation,
+  type ConversationClaimReviewData,
+} from "@/components/conversations/claimReview";
 import { ClaimEvidenceView } from "@/components/partner/ClaimEvidenceView";
 import { Notice, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
@@ -188,9 +191,7 @@ export function ConversationsPanel({
   claimReviews = [],
 }: {
   onClose: () => void;
-  /** Explicit checkpoint-3.6c input. The saved Conversation schema does not
-   *  persist claims yet, so production callers omit this until that contract
-   *  lands instead of showing live-session claims against the wrong record. */
+  /** Optional test/story override; production loads the saved typed snapshots. */
   claimReviews?: readonly ConversationClaimReviewData[];
 }) {
   const backend = useBackend();
@@ -202,7 +203,10 @@ export function ConversationsPanel({
   const [filter, setFilter] = useState<Filter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [analyzing, setAnalyzing] = useState(false);
-  const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
+  const [activeReview, setActiveReview] = useState<{
+    title: string;
+    data: ConversationClaimReviewData;
+  } | null>(null);
   const [reviewViewerClaim, setReviewViewerClaim] = useState<ClaimRecord | null>(null);
   const openId = useConversationStore((s) => s.openId);
   const title = useConversationStore((s) => s.title);
@@ -221,12 +225,6 @@ export function ConversationsPanel({
     () => new Map(claimReviews.map((review) => [review.conversation_id, review])),
     [claimReviews],
   );
-  const activeReview = activeReviewId
-    ? reviewByConversationId.get(activeReviewId) ?? null
-    : null;
-  const activeReviewTitle =
-    conversations.find((conversation) => conversation.id === activeReviewId)?.title ??
-    "Conversation";
 
   // Search (owner request, 2026-08-17). Query text + optional file/context
   // scope; results are computed by the debounced effect below. Full
@@ -456,6 +454,16 @@ export function ConversationsPanel({
     }
   };
 
+  const openClaimReview = async (id: string, title: string) => {
+    try {
+      const injected = reviewByConversationId.get(id);
+      const data = injected ?? claimReviewFromConversation(await backend.conversations.load(id));
+      setActiveReview({ title, data });
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
+
   const rehearse = (id: string) => {
     useContextsQuickOpen.getState().request(id);
     setView("context");
@@ -623,9 +631,9 @@ export function ConversationsPanel({
 
       {activeReview ? (
         <ConversationClaimReview
-          title={activeReviewTitle}
-          data={activeReview}
-          onClose={() => setActiveReviewId(null)}
+          title={activeReview.title}
+          data={activeReview.data}
+          onClose={() => setActiveReview(null)}
           onInspectEvidence={(claim) => void inspectClaimEvidence(claim)}
         />
       ) : (
@@ -834,8 +842,8 @@ export function ConversationsPanel({
                       onSelectChange={toggle}
                       onOpenViewer={() => void openViewer(row.id, row.data.title)}
                       onOpenClaimReview={
-                        reviewByConversationId.has(row.id)
-                          ? () => setActiveReviewId(row.id)
+                        reviewByConversationId.has(row.id) || row.data.has_claim_review
+                          ? () => void openClaimReview(row.id, row.data.title)
                           : undefined
                       }
                       onOpenLive={() => void open(row.id)}
