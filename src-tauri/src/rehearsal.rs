@@ -263,6 +263,9 @@ fn respond(
     app.state::<crate::AppState>()
         .session
         .forward_to_capture(&final_seg);
+    app.state::<crate::AppState>()
+        .session
+        .forward_to_semantic(&final_seg);
     transcript.push(final_seg);
 
     // Speak it (best-effort; text still shows if TTS is unavailable).

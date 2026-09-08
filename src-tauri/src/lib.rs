@@ -23,6 +23,7 @@ mod rag;
 mod recorder;
 mod rehearsal;
 mod secrets;
+mod semantic;
 mod session;
 mod splash;
 mod trace;
@@ -43,6 +44,7 @@ use conva_core::asr::TranscriptSegment;
 use conva_core::audio::AudioDevice;
 use conva_core::config::AppConfig;
 use conva_core::context::{ContextSummary, ConversationContext, KnowledgeProfile};
+use conva_core::context_snapshot::ContextSnapshot;
 use conva_core::ipc::{
     events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent, SplashProgressEvent,
 };
@@ -71,6 +73,10 @@ struct AppState {
     /// unscoped). Set by context activation (session-grounding picker),
     /// cleared on stop.
     active_context_doc_ids: Mutex<Vec<String>>,
+    /// Bounded semantic Context Snapshot copied into a session-local FANER
+    /// worker at Start. `None` means the worker uses an honest General
+    /// conversation fallback rather than inventing Context knowledge.
+    active_context_snapshot: Mutex<Option<ContextSnapshot>>,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -1069,6 +1075,67 @@ fn clear_active_context(state: &AppState) {
         .lock()
         .expect("ctx lock")
         .clear();
+    *state.active_context_snapshot.lock().expect("ctx lock") = None;
+}
+
+/// Assemble the bounded, versioned semantic context that FANER may send to
+/// the configured fast-slot model. The durable Context remains the source of
+/// truth; this is only a session-local interpretive snapshot.
+fn semantic_snapshot_for_context(session: &ConversationContext, rag: &RagStore) -> ContextSnapshot {
+    let purpose = if session.purpose.trim().is_empty() {
+        session.title.clone()
+    } else {
+        format!("{} — {}", session.title, session.purpose)
+    };
+    let mut snapshot = ContextSnapshot::new(
+        session.category,
+        session.effective_participation_lens(),
+        purpose,
+    )
+    .unwrap_or_else(|_| semantic::default_context_snapshot());
+    snapshot.source_policy = session.effective_source_policy();
+
+    let mut summary = Vec::new();
+    if let Some(dossier) = session
+        .dossier_doc_id
+        .as_deref()
+        .and_then(|doc_id| rag.document_text(doc_id))
+    {
+        summary.push(format!(
+            "Prepared Context excerpt: {}",
+            dossier.chars().take(900).collect::<String>()
+        ));
+    }
+    if let Some(job_description) = session.job_description.as_deref() {
+        summary.push(format!(
+            "Role or agenda excerpt: {}",
+            job_description.chars().take(700).collect::<String>()
+        ));
+    }
+    if !session.glossary_definitions.is_empty() {
+        let definitions = session
+            .glossary_definitions
+            .iter()
+            .take(12)
+            .map(|(term, definition)| format!("{term}: {definition}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        summary.push(format!("Known terms: {definitions}"));
+    }
+    let terms = session
+        .key_terms
+        .iter()
+        .chain(session.glossary.iter())
+        .take(32)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !terms.is_empty() {
+        summary.push(format!("Context vocabulary: {}", terms.join(", ")));
+    }
+    summary.push(format!("Context: {}", session.title));
+    summary.push(format!("Purpose: {}", session.purpose));
+    snapshot.rolling_summary = summary.join("\n");
+    snapshot.bounded()
 }
 
 /// Activate a conversation context for the **next** live session (session
@@ -1191,6 +1258,8 @@ fn activate_context(
         }
     }
     *state.active_context_doc_ids.lock().expect("ctx lock") = profile_doc_ids;
+    *state.active_context_snapshot.lock().expect("ctx lock") =
+        Some(semantic_snapshot_for_context(&session, &state.rag));
 
     Ok(session)
 }
@@ -1528,6 +1597,8 @@ async fn context_start_rehearsal(
         active.extend(session.key_terms.iter().cloned());
         active.extend(session.glossary.iter().cloned());
     }
+    *state.active_context_snapshot.lock().expect("ctx lock") =
+        Some(semantic_snapshot_for_context(&session, &state.rag));
 
     let rag = state.rag.clone();
     let rehearsal_title = session.title.clone();
@@ -1588,6 +1659,7 @@ fn context_rehearsal_say(
     let _ = app.emit(events::TRANSCRIPT_SEGMENT, segment.clone());
     state.session.log_segment(&segment);
     state.session.forward_to_capture(&segment);
+    state.session.forward_to_semantic(&segment);
     if state.session.rehearsal_inject_turn(segment) {
         Ok(())
     } else {
@@ -2177,6 +2249,7 @@ pub fn run() {
                                     usage: Mutex::new(usage),
                                     active_context_terms: Mutex::new(Vec::new()),
                                     active_context_doc_ids: Mutex::new(Vec::new()),
+                                    active_context_snapshot: Mutex::new(None),
                                 }) {
                                     return Err("application state was already managed".into());
                                 }

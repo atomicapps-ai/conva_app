@@ -84,6 +84,9 @@ pub struct SessionManager {
     /// above closes for the transcript file. `None` when capture routing is
     /// disabled/unavailable for the current session (mirrors `_capture_tx`).
     capture_forward: Mutex<Option<Sender<TranscriptSegment>>>,
+    /// Rehearsal turns bypass the ASR sink, so keep a session-scoped route to
+    /// the semantic claim worker for persona and injected turns too.
+    semantic_forward: Mutex<Option<Sender<TranscriptSegment>>>,
 }
 
 /// Which capture topology a session runs.
@@ -111,6 +114,9 @@ struct ActiveSession {
     /// Held so the FANER capture worker lives with the session; same drop
     /// semantics as the tracker (final pass + shutdown on stop).
     _capture_tx: Option<Sender<TranscriptSegment>>,
+    /// Held for the same lifetime as the session. Its final drop gives the
+    /// semantic worker one last chance to process settled speech.
+    _semantic_tx: Option<Sender<TranscriptSegment>>,
     /// Held so the per-session Question Radar worker shuts down only after
     /// all transcript sinks have released their senders.
     _radar_tx: Sender<TranscriptSegment>,
@@ -127,6 +133,7 @@ impl SessionManager {
             session_started_ms: AtomicU64::new(0),
             session_log: Mutex::new(None),
             capture_forward: Mutex::new(None),
+            semantic_forward: Mutex::new(None),
         }
     }
 
@@ -229,6 +236,22 @@ impl SessionManager {
             return;
         }
         if let Some(tx) = self.capture_forward.lock().expect("capture lock").as_ref() {
+            let _ = tx.send(segment.clone());
+        }
+    }
+
+    /// Forward a rehearsal segment that bypassed the normal ASR sink to the
+    /// local-first FANER semantic worker.
+    pub fn forward_to_semantic(&self, segment: &TranscriptSegment) {
+        if !segment.is_final || segment.text.trim().is_empty() {
+            return;
+        }
+        if let Some(tx) = self
+            .semantic_forward
+            .lock()
+            .expect("semantic lock")
+            .as_ref()
+        {
             let _ = tx.send(segment.clone());
         }
     }
@@ -346,6 +369,39 @@ impl SessionManager {
             None
         };
 
+        // Structured semantic claim extraction uses the same explicit
+        // periodic-intelligence preference as the tracker. It runs locally in
+        // the Tauri shell (the selected model provider may still be remote),
+        // emits detected state only, and performs no research or verification.
+        let semantic_tx = if config.tracker_enabled {
+            let selection = config.fast_selection().clone();
+            let snapshot = app
+                .state::<crate::AppState>()
+                .active_context_snapshot
+                .lock()
+                .expect("ctx lock")
+                .clone()
+                .unwrap_or_else(crate::semantic::default_context_snapshot);
+            match crate::llm::resolve_key(selection.provider) {
+                Ok(key) => match crate::semantic::spawn_semantic(
+                    app.clone(),
+                    selection,
+                    key,
+                    session_id.clone(),
+                    snapshot,
+                ) {
+                    Ok(tx) => Some(tx),
+                    Err(error) => {
+                        eprintln!("[conva] FANER semantic worker unavailable: {error}");
+                        None
+                    }
+                },
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+
         // FANER capture routing (F11) is independent of the Tracker setting:
         // disabling entity/commitment tracking must not also disable live
         // explain/recall/assist suggestions. Both still use the fast slot.
@@ -415,6 +471,7 @@ impl SessionManager {
                     radar_tx.clone(),
                     tracker_tx.clone(),
                     capture_tx.clone(),
+                    semantic_tx.clone(),
                     if side == StreamSide::Outbound {
                         reh_tx.clone()
                     } else {
@@ -520,6 +577,7 @@ impl SessionManager {
         // Clone before the move below — `rehearsal.rs`/`context_rehearsal_say`
         // use this to forward bypass segments (see `forward_to_capture`).
         *self.capture_forward.lock().expect("capture lock") = capture_tx.clone();
+        *self.semantic_forward.lock().expect("semantic lock") = semantic_tx.clone();
 
         let stop_ret = stop_flag.clone();
         let mut active = self.active.lock().expect("session lock");
@@ -530,6 +588,7 @@ impl SessionManager {
             stop_flag,
             _tracker_tx: tracker_tx,
             _capture_tx: capture_tx,
+            _semantic_tx: semantic_tx,
             _radar_tx: radar_tx,
         });
         Ok((session_id, stop_ret))
@@ -542,6 +601,7 @@ impl SessionManager {
         *self.rehearsal_inject.lock().expect("rehearsal lock") = None;
         *self.session_log.lock().expect("log lock") = None;
         *self.capture_forward.lock().expect("capture lock") = None;
+        *self.semantic_forward.lock().expect("semantic lock") = None;
         let session = self.active.lock().expect("session lock").take();
         if let Some(mut session) = session {
             // Signal first so the ASR workers skip their final decode.
@@ -648,6 +708,7 @@ fn make_transcript_sink(
     radar_tx: Sender<TranscriptSegment>,
     tracker_tx: Option<Sender<TranscriptSegment>>,
     capture_tx: Option<Sender<TranscriptSegment>>,
+    semantic_tx: Option<Sender<TranscriptSegment>>,
     rehearsal_tx: Option<Sender<TranscriptSegment>>,
 ) -> Box<dyn FnMut(TranscriptSegment) + Send> {
     Box::new(move |segment| {
@@ -662,6 +723,9 @@ fn make_transcript_sink(
             }
             if let Some(capture) = &capture_tx {
                 let _ = capture.send(segment.clone());
+            }
+            if let Some(semantic) = &semantic_tx {
+                let _ = semantic.send(segment.clone());
             }
             let _ = radar_tx.send(segment.clone());
             // Rehearsal: hand finalized user (outbound) turns to the worker.

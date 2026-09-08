@@ -10,7 +10,11 @@ use thiserror::Error;
 
 use crate::asr::TranscriptSegment;
 use crate::audio::StreamSide;
-use crate::claim::{normalize_proposition, ClaimKey};
+use crate::claim::{
+    default_consequence, normalize_proposition, rank_importance, ClaimKey, ClaimRecord, ClaimState,
+    ClaimTopic, ImportanceSignals,
+};
+use crate::context::ContextCategory;
 use crate::context_snapshot::{ContextSnapshot, SnapshotError};
 use crate::llm::LlmRequest;
 use crate::meaning_frame::{
@@ -212,6 +216,246 @@ pub fn parse_semantic_extraction_reply(
     Some(SemanticExtraction { frames })
 }
 
+/// Convert a model's validated semantic frames into conservative durable
+/// claims. This is intentionally deterministic: the model proposes structure,
+/// while core owns identity, consequence, lifecycle, and the fact that no
+/// evidence has been admitted yet.
+pub fn claim_records_from_extraction(
+    session_id: &str,
+    extraction: SemanticExtraction,
+    snapshot: &ContextSnapshot,
+    now_unix_ms: u64,
+) -> Vec<ClaimRecord> {
+    extraction
+        .frames
+        .into_iter()
+        .filter(|frame| matches!(frame.kind, FrameKind::Claim | FrameKind::AttributedClaim))
+        .map(|frame| claim_record_from_frame(session_id, frame, snapshot, now_unix_ms))
+        .collect()
+}
+
+fn claim_record_from_frame(
+    session_id: &str,
+    frame: MeaningFrame,
+    snapshot: &ContextSnapshot,
+    now_unix_ms: u64,
+) -> ClaimRecord {
+    let attributed_source = frame
+        .attribution_chain
+        .first()
+        .map(|attribution| attribution.source_label.as_str());
+    let key = ClaimKey::new(&frame.normalized_proposition, attributed_source);
+    let has_unresolved_reference = frame.has_unresolved_required_reference();
+    let state = if has_unresolved_reference {
+        ClaimState::NeedsClarification
+    } else if frame.is_attributed() {
+        ClaimState::Attributed
+    } else {
+        ClaimState::Detected
+    };
+    let topic = classify_claim_topic(&frame);
+    let consequence = default_consequence(topic);
+    let importance = rank_importance(
+        consequence,
+        ImportanceSignals {
+            purpose_relevant: shares_meaningful_word(
+                &frame.normalized_proposition,
+                &snapshot.purpose,
+            ),
+            novel: true,
+            specific_and_checkable: frame.suggested_actions.contains(&SuggestedAction::Verify)
+                || !frame.qualifiers.is_empty()
+                || (frame.subject.is_some() && !frame.predicate.trim().is_empty()),
+            has_named_detail: !frame.attribution_chain.is_empty()
+                || frame.qualifiers.iter().any(|qualifier| {
+                    matches!(
+                        qualifier.kind,
+                        crate::meaning_frame::QualifierKind::Quantity
+                            | crate::meaning_frame::QualifierKind::Date
+                            | crate::meaning_frame::QualifierKind::Location
+                    )
+                }),
+            has_unresolved_reference,
+            time_sensitive: snapshot.category == ContextCategory::LiveStream
+                || frame.qualifiers.iter().any(|qualifier| {
+                    matches!(
+                        qualifier.kind,
+                        crate::meaning_frame::QualifierKind::Date
+                            | crate::meaning_frame::QualifierKind::Time
+                    )
+                }),
+            private_personal_assertion: frame.sensitivity == Sensitivity::PrivatePersonal,
+            ..ImportanceSignals::default()
+        },
+    );
+    let resolution_confidence = if frame.references.is_empty() {
+        Confidence::Unknown
+    } else if has_unresolved_reference {
+        Confidence::Low
+    } else {
+        Confidence::High
+    };
+    let recommended_action = if has_unresolved_reference {
+        Some(SuggestedAction::Resolve)
+    } else if frame.suggested_actions.contains(&SuggestedAction::Verify) {
+        Some(SuggestedAction::Verify)
+    } else if frame
+        .suggested_actions
+        .contains(&SuggestedAction::TrackClaim)
+    {
+        Some(SuggestedAction::TrackClaim)
+    } else {
+        None
+    };
+
+    ClaimRecord {
+        id: stable_claim_id(session_id, &key),
+        source_segment_ids: frame
+            .source_spans
+            .iter()
+            .map(|span| span.segment_id.clone())
+            .collect(),
+        speaker_side: frame.speaker_side,
+        speaker_label: frame.speaker_label,
+        exact_quote: frame.exact_quote,
+        normalized_proposition: frame.normalized_proposition,
+        predicate: frame.predicate,
+        subject: frame.subject,
+        object: frame.object,
+        frame_kind: frame.kind,
+        attribution_chain: frame.attribution_chain,
+        qualifiers: frame.qualifiers,
+        references: frame.references,
+        modality: frame.modality,
+        negated: frame.negated,
+        sensitivity: frame.sensitivity,
+        consequence,
+        importance_reasons: importance.reasons,
+        state,
+        recommended_action,
+        policy_id: snapshot.source_policy.id.clone(),
+        policy_version: snapshot.source_policy.version,
+        extraction_confidence: frame.extraction_confidence,
+        resolution_confidence,
+        claim_confidence: None,
+        evidence: Vec::new(),
+        corrections: Vec::new(),
+        created_at_unix_ms: now_unix_ms,
+        updated_at_unix_ms: now_unix_ms,
+    }
+}
+
+fn classify_claim_topic(frame: &MeaningFrame) -> ClaimTopic {
+    let words: BTreeSet<_> = format!(
+        "{} {} {}",
+        frame.normalized_proposition,
+        frame.predicate,
+        frame.subject.as_deref().unwrap_or_default()
+    )
+    .split(|character: char| !character.is_alphanumeric())
+    .filter(|word| !word.is_empty())
+    .map(str::to_lowercase)
+    .collect();
+    let has = |needles: &[&str]| needles.iter().any(|word| words.contains(*word));
+
+    if has(&[
+        "dead", "death", "died", "dies", "fatal", "fatality", "injured", "injury", "killed",
+    ]) {
+        ClaimTopic::DeathOrInjury
+    } else if has(&[
+        "accused",
+        "alleged",
+        "allegation",
+        "arrested",
+        "crime",
+        "criminal",
+        "fraud",
+        "murder",
+    ]) {
+        ClaimTopic::CrimeOrAllegation
+    } else if has(&[
+        "diagnosis",
+        "disease",
+        "health",
+        "medical",
+        "medicine",
+        "symptom",
+        "treatment",
+    ]) {
+        ClaimTopic::Health
+    } else if has(&[
+        "danger", "hazard", "recall", "safe", "safety", "toxic", "unsafe",
+    ]) {
+        ClaimTopic::Safety
+    } else if has(&[
+        "court",
+        "illegal",
+        "law",
+        "lawsuit",
+        "legal",
+        "liable",
+        "license",
+        "regulation",
+    ]) {
+        ClaimTopic::LegalStatus
+    } else if has(&[
+        "earnings",
+        "profit",
+        "revenue",
+        "valuation",
+        "loss",
+        "losses",
+        "margin",
+    ]) {
+        ClaimTopic::FinancialPerformance
+    } else if has(&["identity", "identified", "name", "named", "person"]) {
+        ClaimTopic::Identity
+    } else if has(&[
+        "contract",
+        "discount",
+        "fee",
+        "price",
+        "pricing",
+        "renewal",
+        "subscription",
+        "warranty",
+    ]) {
+        ClaimTopic::CommercialTerm
+    } else {
+        ClaimTopic::General
+    }
+}
+
+fn shares_meaningful_word(left: &str, right: &str) -> bool {
+    let words: BTreeSet<_> = left
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|word| word.len() >= 4)
+        .map(str::to_lowercase)
+        .collect();
+    right
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|word| word.len() >= 4)
+        .map(str::to_lowercase)
+        .any(|word| words.contains(&word))
+}
+
+fn stable_claim_id(session_id: &str, key: &ClaimKey) -> String {
+    // FNV-1a is tiny, deterministic across processes/platforms, and sufficient
+    // for a session-scoped UI identity (not a security boundary).
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in session_id
+        .bytes()
+        .chain([0])
+        .chain(key.normalized_proposition.bytes())
+        .chain([0])
+        .chain(key.attributed_source.as_deref().unwrap_or_default().bytes())
+    {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("claim-{hash:016x}")
+}
+
 fn validate_frame(
     raw: RawFrame,
     index: usize,
@@ -350,7 +594,7 @@ fn resolve_references(frame: &mut MeaningFrame, snapshot: &ContextSnapshot) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claim::ClaimState;
+    use crate::claim::{ClaimState, Consequence, ImportanceReason};
     use crate::context::ContextCategory;
     use crate::context_snapshot::{
         EntityKind, KnownEntity, KnownEvent, ParticipationLens, RecentClaim,
@@ -565,6 +809,55 @@ mod tests {
                 .frames
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn validated_attributed_death_claim_becomes_conservative_durable_state() {
+        let text = "ABC News is reporting that both people died in that car crash in Arizona";
+        let segments = [segment(StreamSide::Inbound, 2, text, true)];
+        let reply = r#"{"frames":[{"source_segment_ids":["inbound:2"],"speaker_side":"inbound","kind":"claim","exact_quote":"ABC News is reporting that both people died in that car crash in Arizona","normalized_proposition":"both people died in that car crash in Arizona","predicate":"died","subject":"both people","attribution_chain":[{"source_label":"ABC News","reporting_verb":"is reporting","directness":"reported_by_speaker"}],"qualifiers":[{"kind":"location","value":"Arizona","unit":null}],"references":[{"surface_text":"that car crash","kind":"event","required_for_verification":true,"resolved_target_id":null,"candidates":[]}],"suggested_actions":["verify"]}]}"#;
+        let extraction = parse_semantic_extraction_reply(reply, &snapshot(), &segments).unwrap();
+        let claims = claim_records_from_extraction("session-one", extraction, &snapshot(), 123);
+
+        assert_eq!(claims.len(), 1);
+        let claim = &claims[0];
+        assert_eq!(claim.state, ClaimState::Attributed);
+        assert_eq!(claim.consequence, Consequence::High);
+        assert_eq!(claim.attribution_chain[0].source_label, "ABC News");
+        assert_eq!(
+            claim.references[0].resolved_target_id.as_deref(),
+            Some("arizona-crash")
+        );
+        assert_eq!(claim.policy_id, snapshot().source_policy.id);
+        assert_eq!(claim.recommended_action, Some(SuggestedAction::Verify));
+        assert!(claim
+            .importance_reasons
+            .contains(&ImportanceReason::ConsequenceIfWrong));
+        assert!(!claim
+            .importance_reasons
+            .contains(&ImportanceReason::UnresolvedReference));
+        assert!(claim.evidence.is_empty());
+        assert_eq!(claim.claim_confidence, None);
+    }
+
+    #[test]
+    fn claim_ids_are_stable_within_a_session_and_namespaced_between_sessions() {
+        let text = "The boat had 7 people in it";
+        let segments = [segment(StreamSide::Inbound, 4, text, true)];
+        let reply = r#"{"frames":[{"source_segment_ids":["inbound:4"],"speaker_side":"inbound","kind":"claim","exact_quote":"The boat had 7 people in it","normalized_proposition":"the boat had 7 people in it","predicate":"had","subject":"the boat","qualifiers":[{"kind":"quantity","value":"7","unit":"people"}],"suggested_actions":["verify"]}]}"#;
+        let extraction = parse_semantic_extraction_reply(reply, &snapshot(), &segments).unwrap();
+
+        let first =
+            claim_records_from_extraction("session-one", extraction.clone(), &snapshot(), 100);
+        let repeated =
+            claim_records_from_extraction("session-one", extraction.clone(), &snapshot(), 200);
+        let other_session =
+            claim_records_from_extraction("session-two", extraction, &snapshot(), 100);
+
+        assert_eq!(first[0].id, repeated[0].id);
+        assert_ne!(first[0].id, other_session[0].id);
+        assert_eq!(first[0].state, ClaimState::Detected);
+        assert_eq!(first[0].recommended_action, Some(SuggestedAction::Verify));
     }
 
     #[test]
