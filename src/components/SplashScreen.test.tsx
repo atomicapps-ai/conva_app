@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   SPLASH_FILL_TRANSITION_MS,
+  SPLASH_PROGRESS_POLL_MS,
   SPLASH_READY_HOLD_MS,
   SPLASH_STEP_MS,
   SplashScreen,
@@ -125,6 +126,56 @@ describe("SplashScreen", () => {
     act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
     expect(screen.getByText("Workspace loaded")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+  });
+
+  it("polls the durable snapshot so a missed Ready event still reaches 100%", async () => {
+    enableTauriRuntime();
+    const { backend } = fakeBackend();
+    let durable: SplashProgressEvent = { stage: "almost_ready", percent: 85 };
+    const getProgress = vi.fn(async () => durable);
+    const acknowledgeReady = vi.fn(async () => {});
+    const { container } = render(
+      <BackendProvider backend={backend}>
+        <SplashScreen
+          getProgress={getProgress}
+          show={async () => {}}
+          acknowledgeReady={acknowledgeReady}
+        />
+      </BackendProvider>,
+    );
+
+    await act(() => Promise.resolve());
+    await act(async () => {
+      fireEvent.load(container.querySelector("img")!);
+      await Promise.resolve();
+    });
+    durable = { stage: "ready", percent: 100 };
+    await act(async () => {
+      vi.advanceTimersByTime(SPLASH_PROGRESS_POLL_MS);
+      await Promise.resolve();
+    });
+    for (const percent of [35, 60, 85, 100]) {
+      act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
+      expect(screen.getByRole("progressbar")).toHaveAttribute(
+        "aria-valuenow",
+        String(percent),
+      );
+    }
+
+    expect(screen.getByRole("status")).toHaveTextContent(/Ready\s*100%/);
+    expect(acknowledgeReady).not.toHaveBeenCalled();
+    act(() =>
+      vi.advanceTimersByTime(
+        SPLASH_FILL_TRANSITION_MS + SPLASH_READY_HOLD_MS - 1,
+      ),
+    );
+    expect(acknowledgeReady).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+    });
+    expect(acknowledgeReady).toHaveBeenCalledOnce();
+    expect(container.firstElementChild).toHaveClass("opacity-0");
   });
 
   it("reveals the native window only after the artwork loads", async () => {

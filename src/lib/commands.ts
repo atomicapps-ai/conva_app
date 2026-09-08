@@ -552,6 +552,12 @@ export function showSplash(): Promise<void> {
   return invoke("show_splash");
 }
 
+/** Confirm that the splash has visibly rendered and held its 100% Ready
+ * state. The native shell will not reveal/close the splash before this ack. */
+export function acknowledgeSplashReady(): Promise<void> {
+  return invoke("acknowledge_splash_ready");
+}
+
 // --- Partner window (src-tauri/src/partner.rs) -------------------------------
 
 /** Open (or re-target) the partner window on a term, a typed claim, or, with

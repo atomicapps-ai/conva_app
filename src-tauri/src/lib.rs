@@ -1824,6 +1824,13 @@ fn show_splash(app: AppHandle) -> Result<(), String> {
     splash::show(&app)
 }
 
+/// Acknowledge that the splash webview has visibly completed its 100% Ready
+/// presentation. `finish_splash` waits for this before revealing the app.
+#[tauri::command]
+fn acknowledge_splash_ready(app: AppHandle) {
+    splash::acknowledge_ready(&app);
+}
+
 /// Signal real readiness, reveal the initialized main window, and complete the
 /// splash crossfade without blocking the command/UI thread.
 #[tauri::command]
@@ -2398,6 +2405,7 @@ pub fn run() {
             wait_for_startup,
             get_splash_progress,
             show_splash,
+            acknowledge_splash_ready,
             finish_splash,
             set_partner_locked,
             get_partner_locked,

@@ -23,6 +23,7 @@ struct StartupSnapshot {
     progress: SplashProgressEvent,
     state: InitState,
     not_before: Instant,
+    ready_presented: bool,
 }
 
 /// Small, `Send + Sync` state available before `AppState` exists. It retains
@@ -45,6 +46,7 @@ impl StartupState {
                     progress: SplashProgressEvent::Started { percent: 0 },
                     state: InitState::Initializing,
                     not_before: Instant::now() + minimum_duration,
+                    ready_presented: false,
                 }),
                 Condvar::new(),
             )),
@@ -77,6 +79,28 @@ impl StartupState {
     pub fn mark_visible(&self) {
         let mut snapshot = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
         snapshot.not_before = Instant::now() + Duration::from_millis(2250);
+        snapshot.ready_presented = false;
+    }
+
+    pub fn acknowledge_ready_presented(&self) {
+        let mut snapshot = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot.ready_presented = true;
+        self.inner.1.notify_all();
+    }
+
+    pub fn wait_for_ready_presentation(&self) -> Result<(), String> {
+        let mut snapshot = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
+        while !snapshot.ready_presented {
+            if let InitState::Failed(error) = &snapshot.state {
+                return Err(error.clone());
+            }
+            snapshot = self
+                .inner
+                .1
+                .wait(snapshot)
+                .unwrap_or_else(|e| e.into_inner());
+        }
+        Ok(())
     }
 
     pub fn fail(&self, error: String) -> SplashProgressEvent {
@@ -120,11 +144,6 @@ impl StartupState {
 pub const SPLASH_LABEL: &str = "splash";
 const SPLASH_WIDTH: f64 = 640.0;
 const SPLASH_HEIGHT: f64 = 396.0;
-/// Give the splash time to present Ready (220 ms), visibly fill to 100%
-/// (200 ms), and hold the completed state long enough to be read (500 ms).
-/// The main window is revealed just before the splash begins fading so it is
-/// already painted underneath the transparent native surface.
-const READY_BEFORE_REVEAL: Duration = Duration::from_millis(900);
 /// Keep the always-on-top splash alive through its 200 ms opacity transition,
 /// which reveals the already-rendered main window underneath it.
 const CROSSFADE_DURATION: Duration = Duration::from_millis(300);
@@ -167,6 +186,12 @@ pub fn show(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Called by the splash webview only after its 100% fill transition and Ready
+/// hold complete. Idempotent so React development remounts remain harmless.
+pub fn acknowledge_ready(app: &AppHandle) {
+    app.state::<StartupState>().acknowledge_ready_presented();
+}
+
 /// Update the durable snapshot before emitting the non-durable event.
 pub fn progress(app: &AppHandle, progress: SplashProgressEvent) {
     if let Some(startup) = app.try_state::<StartupState>() {
@@ -187,7 +212,10 @@ pub async fn finish(app: &AppHandle) -> Result<(), String> {
     // `finish` is invoked only after the main window's init round-trip. This
     // is the real 100% milestone, not a timer-driven estimate.
     progress(app, SplashProgressEvent::Ready { percent: 100 });
-    wait_without_blocking(READY_BEFORE_REVEAL).await?;
+    let startup = app.state::<StartupState>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || startup.wait_for_ready_presentation())
+        .await
+        .map_err(|error| format!("splash presentation waiter failed: {error}"))??;
     let Some(main) = app.get_webview_window("main") else {
         let message = "The main window was not created".to_owned();
         fail(app, message.clone());
@@ -235,5 +263,22 @@ mod tests {
         let startup = StartupState::with_minimum_duration(Duration::ZERO);
         startup.ready();
         assert_eq!(startup.wait(), Ok(()));
+    }
+
+    #[test]
+    fn presentation_wait_releases_only_after_the_splash_acknowledges_ready() {
+        use std::sync::mpsc;
+
+        let startup = StartupState::with_minimum_duration(Duration::ZERO);
+        startup.ready();
+        let waiter = startup.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            tx.send(waiter.wait_for_ready_presentation()).unwrap();
+        });
+
+        assert!(rx.recv_timeout(Duration::from_millis(20)).is_err());
+        startup.acknowledge_ready_presented();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), Ok(()));
     }
 }

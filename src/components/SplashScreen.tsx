@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 
 import splashArt from "@/assets/brand/splash-screen.webp";
 import { useBackend } from "@/lib/backend";
-import { getSplashProgress, showSplash } from "@/lib/commands";
+import {
+  acknowledgeSplashReady,
+  getSplashProgress,
+  showSplash,
+} from "@/lib/commands";
 import { isTauri, type SplashProgressEvent } from "@/lib/ipc";
 
 const STAGE_LABEL: Record<SplashProgressEvent["stage"], string> = {
@@ -14,9 +18,10 @@ const STAGE_LABEL: Record<SplashProgressEvent["stage"], string> = {
   failed: "Startup failed",
 };
 
-export const SPLASH_STEP_MS = 220;
+export const SPLASH_STEP_MS = 450;
 export const SPLASH_FILL_TRANSITION_MS = 200;
-export const SPLASH_READY_HOLD_MS = 500;
+export const SPLASH_READY_HOLD_MS = 650;
+export const SPLASH_PROGRESS_POLL_MS = 100;
 
 const PRESENTATION_STAGES: SplashProgressEvent[] = [
   { stage: "started", percent: 0 },
@@ -50,14 +55,18 @@ export function nextPresentedSplashStage(
  * `startup` thread's stages) emitted over `conva://splash-progress`, not a
  * simulated fill. When a fast boot completes milestones before the artwork is
  * visible, those already-completed milestones are presented in order. The
- * explicit 100% state arrives only after the main window has initialized.
+ * explicit 100% state arrives only after the main window has initialized;
+ * native dismissal remains blocked until this view acknowledges that its
+ * completed animation and readable Ready hold have both finished.
  */
 export function SplashScreen({
   getProgress = getSplashProgress,
   show = showSplash,
+  acknowledgeReady = acknowledgeSplashReady,
 }: {
   getProgress?: () => Promise<SplashProgressEvent>;
   show?: () => Promise<void>;
+  acknowledgeReady?: () => Promise<void>;
 }) {
   const backend = useBackend();
   const [progress, setProgress] = useState<SplashProgressEvent>({
@@ -74,6 +83,7 @@ export function SplashScreen({
   useEffect(() => {
     let alive = true;
     let unsub: (() => void) | undefined;
+    let pollTimer: number | undefined;
     // Monotonic: the startup thread races this window's own startup, so a
     // stage can arrive out of order (the snapshot below resolving after a
     // newer live event) — never move the bar backwards.
@@ -88,12 +98,33 @@ export function SplashScreen({
       if (alive) unsub = un;
       else un();
     });
-    // Seed from the backend's latest stage: anything emitted before the
-    // subscription above registered would otherwise be lost, leaving the
-    // bar stuck at 0% on a fast boot.
-    if (isTauri()) void getProgress().then(apply).catch(() => {});
+    // Seed and then poll the backend's durable snapshot. Events make normal
+    // updates immediate; polling closes the small registration/routing race
+    // where a terminal Ready event could be missed by this secondary window.
+    // Without this fallback the native timeout could close a splash still
+    // presenting AlmostReady (85%).
+    if (isTauri()) {
+      const refresh = () => {
+        void getProgress()
+          .then((latest) => {
+            apply(latest);
+            if (
+              alive &&
+              (latest.stage === "ready" || latest.stage === "failed") &&
+              pollTimer !== undefined
+            ) {
+              window.clearInterval(pollTimer);
+              pollTimer = undefined;
+            }
+          })
+          .catch(() => {});
+      };
+      refresh();
+      pollTimer = window.setInterval(refresh, SPLASH_PROGRESS_POLL_MS);
+    }
     return () => {
       alive = false;
+      if (pollTimer !== undefined) window.clearInterval(pollTimer);
       unsub?.();
     };
   }, [backend, getProgress]);
@@ -119,12 +150,23 @@ export function SplashScreen({
       return;
     }
     if (progress.stage !== "ready") return;
-    const timer = window.setTimeout(
-      () => setLeaving(true),
-      SPLASH_FILL_TRANSITION_MS + SPLASH_READY_HOLD_MS,
-    );
+    // The native `finish_splash` command is waiting for this acknowledgement.
+    // Send it only after the 85→100 CSS fill has completed and Ready has had a
+    // readable hold. That handshake—not a native timeout—authorizes closing.
+    const timer = window.setTimeout(() => {
+      if (!isTauri()) {
+        setLeaving(true);
+        return;
+      }
+      void acknowledgeReady()
+        .then(() => setLeaving(true))
+        .catch(() => {
+          // Stay visibly Ready if the acknowledgement fails. Closing without
+          // it would recreate the premature-dismissal bug.
+        });
+    }, SPLASH_FILL_TRANSITION_MS + SPLASH_READY_HOLD_MS);
     return () => window.clearTimeout(timer);
-  }, [progress.stage]);
+  }, [acknowledgeReady, progress.stage]);
 
   return (
     <div
