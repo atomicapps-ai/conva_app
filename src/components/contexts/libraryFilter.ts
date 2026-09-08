@@ -1,4 +1,5 @@
 import type { RagDocument } from "@/lib/ipc";
+import { documentExtension, isImageDocument } from "@/components/contexts/documentVisual";
 
 /**
  * Library filtering — pure, so the chip set and the search behaviour can be
@@ -62,9 +63,9 @@ export function filterDocuments(
 export function documentTypeLabel(doc: RagDocument): string {
   if (doc.source === "pasted") return "Pasted";
   if (doc.source === "generated") return "Generated";
-  const dot = doc.file_name.lastIndexOf(".");
+  if (isImageDocument(doc)) return "Image";
   // No extension at all → "File", not the whole name shouted back.
-  const ext = dot > 0 ? doc.file_name.slice(dot + 1).toLowerCase() : "";
+  const ext = documentExtension(doc.file_name);
   const map: Record<string, string> = {
     pdf: "PDF",
     docx: "Word",

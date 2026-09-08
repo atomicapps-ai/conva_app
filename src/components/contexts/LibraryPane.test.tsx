@@ -59,6 +59,14 @@ function renderPane(
 }
 
 describe("LibraryPane row", () => {
+  it("labels an image as a visual asset and disables the misleading retrieval toggle", async () => {
+    renderPane([doc({ file_name: "scene.png", enabled: false, chunk_count: 0 })]);
+    await screen.findByText("scene.png");
+    expect(
+      screen.getByRole("checkbox", { name: /scene\.png is a visual asset and is not text-searchable/i }),
+    ).toBeDisabled();
+  });
+
   it("shows checkbox, source icon, and name — no drag-handle icon or generated-by badge", async () => {
     renderPane([doc({ source: "generated" })]);
     await screen.findByText("resume.pdf");

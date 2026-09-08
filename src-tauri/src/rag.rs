@@ -68,7 +68,24 @@ enum Original<'a> {
 
 /// File extensions the ingestion pipeline understands (mirrors the UI's
 /// SUPPORTED list in RagPanel.tsx).
-const SUPPORTED_EXTS: [&str; 7] = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
+const TEXT_EXTS: [&str; 7] = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
+const IMAGE_EXTS: [&str; 10] = [
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tif", "tiff", "heic",
+];
+
+fn supported_extension(ext: &str) -> bool {
+    TEXT_EXTS.contains(&ext) || IMAGE_EXTS.contains(&ext)
+}
+
+static DOC_SEQ: AtomicU64 = AtomicU64::new(0);
+
+fn next_document_id() -> String {
+    format!(
+        "doc-{}-{}",
+        crate::session::now_unix_ms(),
+        DOC_SEQ.fetch_add(1, Ordering::Relaxed)
+    )
+}
 
 /// Candidate locations of the repo-committed `library/` folder (git-synced
 /// library, owner request: add a document once and it travels to other
@@ -238,7 +255,7 @@ impl RagStore {
             let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
                 continue;
             };
-            if !SUPPORTED_EXTS.contains(&ext.to_ascii_lowercase().as_str()) {
+            if !supported_extension(ext.to_ascii_lowercase().as_str()) {
                 continue;
             }
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -344,6 +361,16 @@ impl RagStore {
             .and_then(|n| n.to_str())
             .unwrap_or("document")
             .to_string();
+
+        let extension = source
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .unwrap_or_default();
+        if IMAGE_EXTS.contains(&extension.as_str()) {
+            let size_bytes = fs::metadata(source).map(|meta| meta.len()).unwrap_or(0);
+            return self.store_visual_asset(file_name, source, size_bytes);
+        }
 
         let (text, warnings) = extract_text(source)?;
         // The real on-disk file size, not the extracted text's byte length
@@ -451,12 +478,7 @@ impl RagStore {
         // documents are ingested within the same millisecond (e.g. dropping
         // many files at once) — a bare timestamp id collides and one
         // document would silently overwrite another.
-        static SEQ: AtomicU64 = AtomicU64::new(0);
-        let id = format!(
-            "doc-{}-{}",
-            crate::session::now_unix_ms(),
-            SEQ.fetch_add(1, Ordering::Relaxed)
-        );
+        let id = next_document_id();
         let stored = StoredDocument {
             document: RagDocument {
                 id: id.clone(),
@@ -491,6 +513,48 @@ impl RagStore {
         fs::write(self.doc_path(&id), json).map_err(|e| CoreError::Rag(e.to_string()))?;
         self.reload()?;
 
+        Ok(IngestReport {
+            document: stored.document,
+            warnings,
+        })
+    }
+
+    /// Register and retain a visual asset without pretending that it has searchable text.
+    /// OCR/vision indexing can later replace the empty chunk list without changing the
+    /// Library or Context attachment model.
+    fn store_visual_asset(
+        &self,
+        file_name: String,
+        source: &Path,
+        size_bytes: u64,
+    ) -> Result<IngestReport, CoreError> {
+        let id = next_document_id();
+        let mut warnings = vec![
+            "visual asset stored — text retrieval is unavailable until OCR/vision indexing is configured"
+                .into(),
+        ];
+        let stored = StoredDocument {
+            document: RagDocument {
+                id: id.clone(),
+                file_name,
+                enabled: false,
+                chunk_count: 0,
+                ingested_at_unix_ms: crate::session::now_unix_ms(),
+                source: DocSource::File,
+                context_ids: Vec::new(),
+                size_bytes,
+            },
+            chunks: Vec::new(),
+        };
+        if let Err(error) =
+            self.save_original(&id, &stored.document.file_name, &Original::File(source), "")
+        {
+            warnings.push(format!("original not retained for download: {error}"));
+        }
+        let json =
+            serde_json::to_string(&stored).map_err(|error| CoreError::Rag(error.to_string()))?;
+        fs::write(self.doc_path(&id), json).map_err(|error| CoreError::Rag(error.to_string()))?;
+        self.reload()?;
         Ok(IngestReport {
             document: stored.document,
             warnings,
@@ -1088,6 +1152,33 @@ mod tests {
         store.delete(&docs[0].id).unwrap();
         assert!(store.list().is_empty());
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn visual_assets_are_retained_but_never_fake_searchable_text() {
+        let dir = std::env::temp_dir().join(format!("conva-rag-image-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let image_path = dir.join("evidence.png");
+        fs::write(&image_path, b"not-decoded-here").unwrap();
+
+        let store = RagStore::open(&dir).unwrap();
+        let report = store.ingest(image_path.to_str().unwrap()).unwrap();
+        assert_eq!(report.document.file_name, "evidence.png");
+        assert_eq!(report.document.chunk_count, 0);
+        assert!(!report.document.enabled);
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("visual asset")));
+        assert!(store.retrieve("evidence", 3).is_empty());
+
+        let exported = dir.join("exported.png");
+        store
+            .export_original(&report.document.id, exported.to_str().unwrap())
+            .unwrap();
+        assert_eq!(fs::read(exported).unwrap(), b"not-decoded-here");
         let _ = fs::remove_dir_all(&dir);
     }
 

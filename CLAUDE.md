@@ -85,8 +85,10 @@ swap a layer without asking the owner.**
    startup missing keys are seeded from that file. See `src-tauri/src/secrets.rs`.
 7. **RAG is best-effort hybrid.** Retrieval fuses BM25 + cosine (RRF) and
    **degrades to BM25-only** when the embedder isn't ready — hybrid is an
-   upgrade, never a hard dependency. Ingestion supports pdf/docx/md/txt/html
-   plus pasted text (stored as `.txt`).
+   upgrade, never a hard dependency. Text ingestion supports pdf/docx/md/txt/html
+   plus pasted text (stored as `.txt`). Common image formats are retained as
+   visual Library assets with explicit non-searchable status until OCR/vision
+   indexing is configured — never fake an image into text retrieval.
 8. **In-app HTML5 drag-and-drop (Library row → Contexts row) needs
    `dragDropEnabled: false`, and that has a real, known cost.** Tauri's
    window-level native drag-drop (on by default) intercepts drag events at

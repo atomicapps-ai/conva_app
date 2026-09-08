@@ -9,6 +9,8 @@ import {
 } from "@/components/context/claimPolicy";
 import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
 import { groupBySlot } from "@/components/context/documentSplit";
+import { GenerationStatus } from "@/components/context/ResourceGenerationStatus";
+import { generationStages, type GenerationStage } from "@/components/context/generationStatus";
 import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
@@ -134,13 +136,19 @@ export function ContextDetail({
   const qaDocId = session?.qa_doc_id ?? null;
   const [qaText, setQaText] = useState<string | null>(null);
   const [showQa, setShowQa] = useState(false);
+  const [generationReport, setGenerationReport] = useState<GenerationStage[]>([]);
 
   const generateDossier = async () => {
     setDossierBusy(true);
     setError(null);
+    setGenerationReport([]);
     try {
+      const hasResearchKey = backend.context.researchKeyStatus
+        ? await backend.context.researchKeyStatus().catch(() => false)
+        : false;
       const updated = await backend.context.generateDossier(id);
       setSession(updated);
+      setGenerationReport(generationStages(updated, hasResearchKey));
       setShowDossier(true);
       // Load the freshly written document so it shows inline right away.
       if (updated.dossier_doc_id) {
@@ -490,10 +498,13 @@ export function ContextDetail({
                   type="button"
                   disabled={dossierBusy}
                   onClick={() => void generateDossier()}
-                  className="rounded-sm border border-ai/40 px-2 py-0.5 text-[11px] font-semibold text-ai hover:bg-ai/10 disabled:opacity-40"
+                  className="btn btn-accent min-w-28 justify-center px-3 py-1.5 text-[11px] shadow-sm disabled:opacity-70"
                 >
+                  {dossierBusy && (
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary-ink/30 border-t-primary-ink" />
+                  )}
                   {dossierBusy
-                    ? "Writing…"
+                    ? "Generating…"
                     : dossierId
                       ? "Regenerate"
                       : "Generate"}
@@ -514,6 +525,8 @@ export function ContextDetail({
                       : dossierText}
                 </pre>
               )}
+
+              {generationReport.length > 0 && <GenerationStatus stages={generationReport} />}
 
               {/* Row 2 — Research findings (Stage 2) */}
               <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
@@ -553,8 +566,8 @@ export function ContextDetail({
                 </pre>
               )}
 
-              {/* Row 3 — Interview Q&A (Stage 3, interview category only) */}
-              {session?.category === "interview" && (
+              {/* Row 3 — a separate file for Interview; embedded in Context Knowledge otherwise. */}
+              {session?.category === "interview" ? (
                 <>
                   <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
                     <span
@@ -593,6 +606,14 @@ export function ContextDetail({
                     </pre>
                   )}
                 </>
+              ) : (
+                <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
+                  <Icon name="question" size={15} className="shrink-0 text-ai" />
+                  <span className="text-[12px] font-semibold text-fg">Likely questions & answers</span>
+                  <span className="ml-auto rounded-full bg-ai/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-ai">
+                    In Context Knowledge
+                  </span>
+                </div>
               )}
             </div>
 

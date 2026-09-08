@@ -47,6 +47,13 @@ export type IconName =
   | "trash"
   | "sparkle"
   | "file"
+  | "filePdf"
+  | "fileWord"
+  | "fileText"
+  | "fileHtml"
+  | "fileImage"
+  | "fileSheet"
+  | "folder"
   | "clipboard"
   | "upload"
   | "download"
@@ -400,6 +407,49 @@ const PATHS: Record<IconName, ReactNode> = {
     <>
       <path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" />
       <path d="M13.5 3.5v4h4" />
+    </>
+  ),
+  filePdf: (
+    <>
+      <path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" />
+      <path d="M13.5 3.5v4h4M8 13h8M8 16h5" />
+    </>
+  ),
+  fileWord: (
+    <>
+      <path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" />
+      <path d="M13.5 3.5v4h4M8 12l1.4 5 2.6-4 2.6 4L16 12" />
+    </>
+  ),
+  fileText: (
+    <>
+      <path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" />
+      <path d="M13.5 3.5v4h4M8 12h8M8 15h8M8 18h5" />
+    </>
+  ),
+  fileHtml: (
+    <>
+      <path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" />
+      <path d="M13.5 3.5v4h4M10 12l-2 2 2 2M14 12l2 2-2 2" />
+    </>
+  ),
+  fileImage: (
+    <>
+      <path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" />
+      <path d="M13.5 3.5v4h4M8 18l2.8-3 2 2 1.5-1.6L16 18" />
+      <circle cx="10" cy="11.5" r="1" />
+    </>
+  ),
+  fileSheet: (
+    <>
+      <path d="M6.5 3.5h7l4 4v13a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1v-16a1 1 0 0 1 1-1z" />
+      <path d="M13.5 3.5v4h4M8 12h8M8 15h8M11 10v8" />
+    </>
+  ),
+  folder: (
+    <>
+      <path d="M3.5 7.5h6l2-2h3l2 2h4v11a1.5 1.5 0 0 1-1.5 1.5h-14A1.5 1.5 0 0 1 3.5 18.5z" />
+      <path d="M3.5 9h17" />
     </>
   ),
   // Clipboard — pasted-note provenance + the paste-from-clipboard action.

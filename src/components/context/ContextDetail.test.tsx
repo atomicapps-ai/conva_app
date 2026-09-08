@@ -68,6 +68,38 @@ function renderDetail(
 }
 
 describe("ContextDetail", () => {
+  it("reports generated, blocked, and embedded stages after Live Stream generation", async () => {
+    const live = session({
+      category: "live_stream",
+      title: "Nolan Wells Case",
+      research_enabled: true,
+      dossier_doc_id: null,
+    });
+    const generated = { ...live, dossier_doc_id: "knowledge-1" };
+    renderDetail({
+      context: {
+        load: vi.fn().mockResolvedValue(live),
+        loadProfile: vi.fn().mockResolvedValue(profile()),
+        researchKeyStatus: vi.fn().mockResolvedValue(false),
+        generateDossier: vi.fn().mockResolvedValue(generated),
+      },
+      rag: {
+        list: vi.fn().mockResolvedValue([]),
+        documentText: vi.fn().mockResolvedValue("# Context Knowledge"),
+      },
+      capabilities: vi.fn().mockResolvedValue(null),
+    } as Partial<ConvaBackend>);
+
+    await screen.findByText("Counterparty");
+    fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
+    await screen.findByText("Context knowledge");
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    expect(await screen.findByText("Add a Tavily key in Settings → Ally → Web research, then regenerate.")).toBeInTheDocument();
+    expect(screen.getByText("Included inside Context Knowledge for this conversation type.")).toBeInTheDocument();
+    expect(screen.getByText("Generated and indexed for this Context.")).toBeInTheDocument();
+  });
+
   it("shows safe claim-policy defaults for a Context saved before policy persistence", async () => {
     renderDetail();
     const policy = await screen.findByRole("button", {

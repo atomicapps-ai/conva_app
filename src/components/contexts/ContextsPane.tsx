@@ -467,7 +467,11 @@ export function ContextsPane({
                         ? regenerateTooltip(s)
                         : "Add a document, key terms, or enable research first"
                     }
-                    className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
+                    className={`shrink-0 rounded-md border px-1.5 py-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                      isGenerating
+                        ? "border-ai/40 bg-ai/10 text-ai shadow-sm"
+                        : "border-transparent text-fg-faint hover:border-ai/30 hover:bg-ai/10 hover:text-ai"
+                    }`}
                   >
                     <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
                       <Icon name="sparkle" size={13} />
