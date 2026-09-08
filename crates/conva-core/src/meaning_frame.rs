@@ -71,6 +71,22 @@ pub enum Sensitivity {
     Restricted,
 }
 
+/// An extractor may suggest these actions, but downstream deterministic
+/// policy remains authoritative about whether and how they can run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestedAction {
+    Explain,
+    Recall,
+    Assist,
+    Synthesize,
+    Verify,
+    Resolve,
+    Link,
+    TrackClaim,
+    FlagConflict,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttributionDirectness {
@@ -171,6 +187,8 @@ pub struct MeaningFrame {
     pub negated: bool,
     pub sensitivity: Sensitivity,
     pub extraction_confidence: Confidence,
+    #[serde(default)]
+    pub suggested_actions: Vec<SuggestedAction>,
 }
 
 impl MeaningFrame {
@@ -227,6 +245,7 @@ mod tests {
             negated: false,
             sensitivity: Sensitivity::Public,
             extraction_confidence: Confidence::High,
+            suggested_actions: vec![SuggestedAction::Resolve, SuggestedAction::Verify],
         }
     }
 

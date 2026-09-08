@@ -1,0 +1,168 @@
+{
+  "cases": [
+    {
+      "name": "interviewee_private_metric",
+      "category": "interview",
+      "lens": "interviewee",
+      "purpose": "Demonstrate relevant experience",
+      "transcript": { "side": "outbound", "seq": 1, "text": "At my last job, I reduced close time by 30 percent." },
+      "reply": { "frames": [{
+        "source_segment_ids": ["outbound:1"], "speaker_side": "outbound", "kind": "claim",
+        "exact_quote": "At my last job, I reduced close time by 30 percent.",
+        "normalized_proposition": "I reduced close time by 30 percent at my last job",
+        "predicate": "reduced", "modality": "asserted", "sensitivity": "private_personal",
+        "qualifiers": [{ "kind": "quantity", "value": "30", "unit": "percent" }],
+        "suggested_actions": ["recall", "track_claim"]
+      }]},
+      "expected": { "kind": "claim", "proposition": "i reduced close time by 30 percent at my last job", "modality": "asserted", "negated": false, "sensitivity": "private_personal" }
+    },
+    {
+      "name": "interviewer_requirement",
+      "category": "interview",
+      "lens": "interviewer",
+      "purpose": "Assess role fit",
+      "transcript": { "side": "outbound", "seq": 2, "text": "The role requires three years of audit experience." },
+      "reply": { "frames": [{
+        "source_segment_ids": ["outbound:2"], "speaker_side": "outbound", "kind": "requirement",
+        "exact_quote": "The role requires three years of audit experience.",
+        "normalized_proposition": "the role requires three years of audit experience",
+        "predicate": "requires", "modality": "asserted", "sensitivity": "internal"
+      }]},
+      "expected": { "kind": "requirement", "proposition": "the role requires three years of audit experience", "modality": "asserted", "negated": false, "sensitivity": "internal" }
+    },
+    {
+      "name": "meeting_lead_decision",
+      "category": "company_meeting",
+      "lens": "meeting_lead",
+      "purpose": "Coordinate the launch",
+      "transcript": { "side": "outbound", "seq": 3, "text": "We decided to move the launch to Friday." },
+      "reply": { "frames": [{
+        "source_segment_ids": ["outbound:3"], "speaker_side": "outbound", "kind": "decision",
+        "exact_quote": "We decided to move the launch to Friday.",
+        "normalized_proposition": "the launch moves to Friday", "predicate": "decided",
+        "modality": "asserted", "sensitivity": "internal", "suggested_actions": ["track_claim"]
+      }]},
+      "expected": { "kind": "decision", "proposition": "the launch moves to friday", "modality": "asserted", "negated": false, "sensitivity": "internal" }
+    },
+    {
+      "name": "meeting_participant_commitment",
+      "category": "company_meeting",
+      "lens": "meeting_participant",
+      "purpose": "Finalize the forecast",
+      "transcript": { "side": "outbound", "seq": 4, "text": "I will send the revised forecast tomorrow." },
+      "reply": { "frames": [{
+        "source_segment_ids": ["outbound:4"], "speaker_side": "outbound", "kind": "commitment",
+        "exact_quote": "I will send the revised forecast tomorrow.",
+        "normalized_proposition": "I will send the revised forecast tomorrow", "predicate": "send",
+        "modality": "asserted", "sensitivity": "internal"
+      }]},
+      "expected": { "kind": "commitment", "proposition": "i will send the revised forecast tomorrow", "modality": "asserted", "negated": false, "sensitivity": "internal" }
+    },
+    {
+      "name": "sales_seller_performance_claim",
+      "category": "sales_call",
+      "lens": "seller",
+      "purpose": "Explain product value",
+      "transcript": { "side": "outbound", "seq": 5, "text": "Our platform cuts processing time by 40 percent." },
+      "reply": { "frames": [{
+        "source_segment_ids": ["outbound:5"], "speaker_side": "outbound", "kind": "claim",
+        "exact_quote": "Our platform cuts processing time by 40 percent.",
+        "normalized_proposition": "our platform cuts processing time by 40 percent", "predicate": "cuts",
+        "modality": "asserted", "sensitivity": "public", "suggested_actions": ["verify"]
+      }]},
+      "expected": { "kind": "claim", "proposition": "our platform cuts processing time by 40 percent", "modality": "asserted", "negated": false, "sensitivity": "public" }
+    },
+    {
+      "name": "sales_buyer_objection",
+      "category": "sales_call",
+      "lens": "buyer",
+      "purpose": "Evaluate competing offers",
+      "transcript": { "side": "outbound", "seq": 6, "text": "Your competitor includes that feature at no extra cost." },
+      "reply": { "frames": [{
+        "source_segment_ids": ["outbound:6"], "speaker_side": "outbound", "kind": "objection",
+        "exact_quote": "Your competitor includes that feature at no extra cost.",
+        "normalized_proposition": "the competitor includes the referenced feature at no extra cost", "predicate": "includes",
+        "modality": "asserted", "sensitivity": "public",
+        "references": [{ "surface_text": "that feature", "kind": "demonstrative", "required_for_verification": true }],
+        "suggested_actions": ["resolve", "verify"]
+      }]},
+      "expected": { "kind": "objection", "proposition": "the competitor includes the referenced feature at no extra cost", "modality": "asserted", "negated": false, "sensitivity": "public", "unresolved": ["that feature"] }
+    },
+    {
+      "name": "live_host_example_b",
+      "category": "live_stream",
+      "lens": "live_host",
+      "purpose": "Cover the Nolan Wells case accurately",
+      "events": [{ "id": "arizona-crash", "label": "Arizona car crash", "aliases": ["that car crash"], "summary": "Crash under discussion" }],
+      "transcript": { "side": "inbound", "seq": 7, "text": "ABC news is reporting that both people died in that car crash in Arizona" },
+      "reply": { "frames": [{
+        "source_segment_ids": ["inbound:7"], "speaker_side": "inbound", "kind": "attributed_claim",
+        "exact_quote": "ABC news is reporting that both people died in that car crash in Arizona",
+        "normalized_proposition": "both people died in the referenced car crash in Arizona", "predicate": "died",
+        "attribution_chain": [{ "source_label": "ABC News", "reporting_verb": "is reporting", "directness": "reported_by_speaker" }],
+        "modality": "reported", "sensitivity": "public",
+        "references": [
+          { "surface_text": "both people", "kind": "pronoun", "required_for_verification": true },
+          { "surface_text": "that car crash", "kind": "event", "required_for_verification": true }
+        ],
+        "suggested_actions": ["resolve", "verify"]
+      }]},
+      "expected": { "kind": "attributed_claim", "proposition": "both people died in the referenced car crash in arizona", "attribution": "ABC News", "modality": "reported", "negated": false, "sensitivity": "public", "unresolved": ["both people"], "resolved": { "that car crash": "arizona-crash" } }
+    },
+    {
+      "name": "live_guest_example_a",
+      "category": "live_stream",
+      "lens": "live_guest",
+      "purpose": "Discuss the Nolan Wells case",
+      "entities": [
+        { "id": "nolan", "canonical_name": "Nolan Wells", "kind": "person", "aliases": ["Nolan"] },
+        { "id": "matt", "canonical_name": "Matthew Reed", "kind": "person", "aliases": ["Matt"] },
+        { "id": "case-boat", "canonical_name": "Boat in the Nolan Wells case", "kind": "artifact", "aliases": ["the boat"] }
+      ],
+      "transcript": { "side": "inbound", "seq": 8, "text": "I can see in the video by his friend Matt, that the boat had 7 people in it" },
+      "reply": { "frames": [{
+        "source_segment_ids": ["inbound:8"], "speaker_side": "inbound", "kind": "claim",
+        "exact_quote": "I can see in the video by his friend Matt, that the boat had 7 people in it",
+        "normalized_proposition": "the boat had 7 people in it", "predicate": "had",
+        "attribution_chain": [{ "source_label": "video by Matt", "reporting_verb": "can see", "directness": "reported_by_speaker" }],
+        "modality": "reported", "sensitivity": "public",
+        "references": [
+          { "surface_text": "his", "kind": "pronoun", "required_for_verification": true, "candidates": [{ "target_id": "nolan", "label": "Nolan", "confidence": "medium" }] },
+          { "surface_text": "Matt", "kind": "person_alias", "required_for_verification": true },
+          { "surface_text": "the boat", "kind": "artifact", "required_for_verification": true }
+        ],
+        "suggested_actions": ["resolve", "verify"]
+      }]},
+      "expected": { "kind": "attributed_claim", "proposition": "the boat had 7 people in it", "attribution": "video by Matt", "modality": "reported", "negated": false, "sensitivity": "public", "unresolved": ["his"], "resolved": { "Matt": "matt", "the boat": "case-boat" } }
+    },
+    {
+      "name": "other_speaker_negation",
+      "category": "other",
+      "lens": "other_speaker",
+      "purpose": "Clarify approval authority",
+      "transcript": { "side": "outbound", "seq": 9, "text": "I am not authorized to approve this transfer." },
+      "reply": { "frames": [{
+        "source_segment_ids": ["outbound:9"], "speaker_side": "outbound", "kind": "claim",
+        "exact_quote": "I am not authorized to approve this transfer.",
+        "normalized_proposition": "I am not authorized to approve the transfer", "predicate": "authorized",
+        "modality": "asserted", "negated": true, "sensitivity": "restricted"
+      }]},
+      "expected": { "kind": "claim", "proposition": "i am not authorized to approve the transfer", "modality": "asserted", "negated": true, "sensitivity": "restricted" }
+    },
+    {
+      "name": "other_listener_hedged_prediction",
+      "category": "other",
+      "lens": "other_listener",
+      "purpose": "Assess a tentative timeline",
+      "transcript": { "side": "outbound", "seq": 10, "text": "It might be completed next week." },
+      "reply": { "frames": [{
+        "source_segment_ids": ["outbound:10"], "speaker_side": "outbound", "kind": "prediction",
+        "exact_quote": "It might be completed next week.",
+        "normalized_proposition": "it may be completed next week", "predicate": "completed",
+        "modality": "hedged", "negated": false, "sensitivity": "internal",
+        "references": [{ "surface_text": "It", "kind": "pronoun", "required_for_verification": true }]
+      }]},
+      "expected": { "kind": "prediction", "proposition": "it may be completed next week", "modality": "hedged", "negated": false, "sensitivity": "internal", "unresolved": ["It"] }
+    }
+  ]
+}
