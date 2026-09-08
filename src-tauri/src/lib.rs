@@ -1824,10 +1824,11 @@ fn show_splash(app: AppHandle) -> Result<(), String> {
     splash::show(&app)
 }
 
-/// Show the initialized main window and close the splash.
+/// Signal real readiness, reveal the initialized main window, and complete the
+/// splash crossfade without blocking the command/UI thread.
 #[tauri::command]
-fn finish_splash(app: AppHandle) -> Result<(), String> {
-    splash::finish(&app)
+async fn finish_splash(app: AppHandle) -> Result<(), String> {
+    splash::finish(&app).await
 }
 
 /// The payload the partner view should render (read on partner-window boot).

@@ -813,10 +813,25 @@ body {
   .animate-spin,
   .animate-ping,
   .animate-bounce,
-  .pill-rec .d {
+  .pill-rec .d,
+  .splash-root,
+  .splash-progress-fill {
     transition: none;
     animation: none;
   }
+}
+
+/* The splash's native window is transparent solely so its final root-opacity
+   transition reveals the initialized main window underneath. The SplashScreen
+   itself paints an opaque branded surface during every earlier stage. */
+html[data-window="splash"],
+html[data-window="splash"] body,
+html[data-window="splash"] #root {
+  background: transparent;
+  overflow: hidden;
+}
+html[data-window="splash"] #root::before {
+  content: none;
 }
 
 /* ------------------------------------------------------------- floating HUD */

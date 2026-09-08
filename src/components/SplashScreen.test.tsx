@@ -1,8 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { act } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SplashScreen } from "@/components/SplashScreen";
+import {
+  SPLASH_READY_HOLD_MS,
+  SPLASH_STEP_MS,
+  SplashScreen,
+} from "@/components/SplashScreen";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 import { BackendProvider } from "@/lib/backend/context";
 import type { SplashProgressEvent } from "@/lib/ipc";
@@ -30,6 +34,13 @@ function fakeBackend() {
 }
 
 describe("SplashScreen", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown })
+      .__TAURI_INTERNALS__;
+  });
+
   function enableTauriRuntime() {
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
@@ -57,10 +68,14 @@ describe("SplashScreen", () => {
     );
 
     emit({ stage: "library_loaded", percent: 35 });
+    act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
     expect(screen.getByText("Loading your library…")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "35");
 
     emit({ stage: "almost_ready", percent: 85 });
+    act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
+    expect(screen.getByText("Preparing your workspace…")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
     expect(screen.getByText("Almost ready…")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "85");
   });
@@ -74,31 +89,43 @@ describe("SplashScreen", () => {
     );
 
     emit({ stage: "workspace_ready", percent: 60 });
+    act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
+    act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
     // A stale earlier stage (e.g. the get_splash_progress snapshot resolving
     // after a newer live event) must not regress the bar.
     emit({ stage: "library_loaded", percent: 35 });
     expect(screen.getByText("Preparing your workspace…")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
+
+    emit({ stage: "failed", percent: 35, message: "Late failure snapshot" });
+    expect(screen.getByRole("alert")).toHaveTextContent("Late failure snapshot");
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
   });
 
   it("recovers progress emitted before its listener registered", async () => {
     enableTauriRuntime();
     const { backend } = fakeBackend();
-    render(
+    const { container } = render(
       <BackendProvider backend={backend}>
         <SplashScreen getProgress={async () => ({
           stage: "workspace_ready",
           percent: 60,
-        })} />
+        })} show={async () => {}} />
       </BackendProvider>,
     );
 
-    expect(await screen.findByText("Preparing your workspace…")).toBeInTheDocument();
+    await act(() => Promise.resolve());
+    await act(async () => {
+      fireEvent.load(container.querySelector("img")!);
+      await Promise.resolve();
+    });
+    act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
+    act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
+    expect(screen.getByText("Preparing your workspace…")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
-    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
-  it("reveals the native window only after the artwork loads", () => {
+  it("reveals the native window only after the artwork loads", async () => {
     enableTauriRuntime();
     const { backend } = fakeBackend();
     const show = vi.fn(async () => {});
@@ -109,28 +136,66 @@ describe("SplashScreen", () => {
     );
 
     expect(show).not.toHaveBeenCalled();
-    fireEvent.load(container.querySelector("img")!);
+    await act(async () => {
+      fireEvent.load(container.querySelector("img")!);
+      await Promise.resolve();
+    });
     expect(show).toHaveBeenCalledOnce();
-    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
   it("shows a retained startup failure instead of hanging silently", async () => {
     enableTauriRuntime();
     const { backend } = fakeBackend();
-    render(
+    const { container } = render(
       <BackendProvider backend={backend}>
         <SplashScreen getProgress={async () => ({
           stage: "failed",
           percent: 35,
           message: "Could not open the local library",
-        })} />
+        })} show={async () => {}} />
       </BackendProvider>,
     );
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    await act(() => Promise.resolve());
+    await act(async () => {
+      fireEvent.load(container.querySelector("img")!);
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(
       "Could not open the local library",
     );
-    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  });
+
+  it("replays a fast completed boot through Ready before fading", () => {
+    const { backend, emit } = fakeBackend();
+    const { container } = render(
+      <BackendProvider backend={backend}>
+        <SplashScreen />
+      </BackendProvider>,
+    );
+
+    emit({ stage: "ready", percent: 100 });
+    for (const percent of [35, 60, 85, 100]) {
+      act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
+      expect(screen.getByRole("progressbar")).toHaveAttribute(
+        "aria-valuenow",
+        String(percent),
+      );
+    }
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(container.firstElementChild).toHaveClass("opacity-100");
+    act(() => vi.advanceTimersByTime(SPLASH_READY_HOLD_MS));
+    expect(container.firstElementChild).toHaveClass("opacity-0");
+
+    emit({
+      stage: "failed",
+      percent: 100,
+      message: "Could not reveal the main window",
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not reveal the main window",
+    );
+    expect(container.firstElementChild).toHaveClass("opacity-100");
   });
 
   it("unsubscribes on unmount", async () => {

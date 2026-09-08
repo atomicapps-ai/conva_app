@@ -10,8 +10,35 @@ const STAGE_LABEL: Record<SplashProgressEvent["stage"], string> = {
   library_loaded: "Loading your library…",
   workspace_ready: "Preparing your workspace…",
   almost_ready: "Almost ready…",
+  ready: "Ready",
   failed: "Startup failed",
 };
+
+export const SPLASH_STEP_MS = 220;
+export const SPLASH_READY_HOLD_MS = 300;
+
+const PRESENTATION_STAGES: SplashProgressEvent[] = [
+  { stage: "started", percent: 0 },
+  { stage: "library_loaded", percent: 35 },
+  { stage: "workspace_ready", percent: 60 },
+  { stage: "almost_ready", percent: 85 },
+  { stage: "ready", percent: 100 },
+];
+
+/** Replay only milestones the backend has already completed, one visible step
+ * at a time. A fast boot can therefore remain truthful without first painting
+ * at 85% and appearing frozen. */
+export function nextPresentedSplashStage(
+  presentedPercent: number,
+  completedPercent: number,
+): SplashProgressEvent | null {
+  return (
+    PRESENTATION_STAGES.find(
+      (stage) =>
+        stage.percent > presentedPercent && stage.percent <= completedPercent,
+    ) ?? null
+  );
+}
 
 /**
  * The `splash` window's whole view (`?splash=1` — see `src/main.tsx` and
@@ -20,8 +47,9 @@ const STAGE_LABEL: Record<SplashProgressEvent["stage"], string> = {
  * `finish_splash` once its own `init()` settles — see `App.tsx`) rather than
  * timing out on its own. The bar reflects real boot milestones (the backend
  * `startup` thread's stages) emitted over `conva://splash-progress`, not a
- * simulated fill — it holds at the last real stage (85%) until the app is
- * actually ready, rather than animating to a false 100% and stalling there.
+ * simulated fill. When a fast boot completes milestones before the artwork is
+ * visible, those already-completed milestones are presented in order. The
+ * explicit 100% state arrives only after the main window has initialized.
  */
 export function SplashScreen({
   getProgress = getSplashProgress,
@@ -35,6 +63,12 @@ export function SplashScreen({
     stage: "started",
     percent: 0,
   });
+  const [completed, setCompleted] = useState<SplashProgressEvent>({
+    stage: "started",
+    percent: 0,
+  });
+  const [visible, setVisible] = useState(!isTauri());
+  const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -43,7 +77,11 @@ export function SplashScreen({
     // stage can arrive out of order (the snapshot below resolving after a
     // newer live event) — never move the bar backwards.
     const apply = (e: SplashProgressEvent) => {
-      if (alive) setProgress((prev) => (e.percent >= prev.percent ? e : prev));
+      if (alive) {
+        setCompleted((prev) =>
+          e.stage === "failed" || e.percent >= prev.percent ? e : prev,
+        );
+      }
     };
     void backend.subscribe("splashProgress", apply).then((un) => {
       if (alive) unsub = un;
@@ -59,14 +97,50 @@ export function SplashScreen({
     };
   }, [backend, getProgress]);
 
+  useEffect(() => {
+    if (!visible) return;
+    if (completed.stage === "failed") {
+      setProgress((previous) => ({
+        ...completed,
+        percent: Math.max(previous.percent, completed.percent),
+      }));
+      return;
+    }
+    const next = nextPresentedSplashStage(progress.percent, completed.percent);
+    if (!next) return;
+    const timer = window.setTimeout(() => setProgress(next), SPLASH_STEP_MS);
+    return () => window.clearTimeout(timer);
+  }, [completed, progress.percent, visible]);
+
+  useEffect(() => {
+    if (progress.stage === "failed") {
+      setLeaving(false);
+      return;
+    }
+    if (progress.stage !== "ready") return;
+    const timer = window.setTimeout(
+      () => setLeaving(true),
+      SPLASH_READY_HOLD_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [progress.stage]);
+
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-bg">
+    <div
+      className={`splash-root relative h-screen w-screen overflow-hidden bg-bg transition-opacity duration-200 ease-out ${leaving ? "opacity-0" : "opacity-100"}`}
+    >
       <img
         src={splashArt}
         alt=""
         aria-hidden
         onLoad={() => {
-          if (isTauri()) void show().catch(() => {});
+          if (isTauri()) {
+            void show()
+              .then(() => setVisible(true))
+              .catch(() => {});
+          } else {
+            setVisible(true);
+          }
         }}
         className="absolute inset-0 h-full w-full object-cover"
       />
@@ -87,7 +161,7 @@ export function SplashScreen({
           className="h-2.5 w-full max-w-[440px] overflow-hidden rounded-full bg-white/15"
         >
           <div
-            className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
+            className="splash-progress-fill h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
             style={{ width: `${progress.percent}%` }}
           />
         </div>

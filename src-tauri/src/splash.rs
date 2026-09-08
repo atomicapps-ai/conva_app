@@ -120,6 +120,11 @@ impl StartupState {
 pub const SPLASH_LABEL: &str = "splash";
 const SPLASH_WIDTH: f64 = 640.0;
 const SPLASH_HEIGHT: f64 = 396.0;
+/// Matches the UI's one-step advance plus Ready hold (220 + 300 ms).
+const READY_BEFORE_REVEAL: Duration = Duration::from_millis(520);
+/// Keep the always-on-top splash alive while its 200 ms opacity transition
+/// reveals the already-rendered main window underneath it.
+const CROSSFADE_DURATION: Duration = Duration::from_millis(240);
 
 pub fn open(app: &AppHandle) -> Result<(), String> {
     WebviewWindowBuilder::new(
@@ -131,6 +136,11 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     .inner_size(SPLASH_WIDTH, SPLASH_HEIGHT)
     .resizable(false)
     .decorations(false)
+    // The rendered splash remains opaque until its final CSS fade. A
+    // transparent native surface lets that fade reveal the initialized main
+    // window underneath instead of fading only to the webview's dark body.
+    .transparent(true)
+    .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
     // WebView2 creates the native window before its document can paint. Keep
@@ -170,15 +180,33 @@ pub fn fail(app: &AppHandle, error: String) {
     }
 }
 
-pub fn finish(app: &AppHandle) -> Result<(), String> {
-    if let Some(main) = app.get_webview_window("main") {
-        main.show().map_err(|e| e.to_string())?;
-        let _ = main.set_focus();
+pub async fn finish(app: &AppHandle) -> Result<(), String> {
+    // `finish` is invoked only after the main window's init round-trip. This
+    // is the real 100% milestone, not a timer-driven estimate.
+    progress(app, SplashProgressEvent::Ready { percent: 100 });
+    wait_without_blocking(READY_BEFORE_REVEAL).await?;
+    let Some(main) = app.get_webview_window("main") else {
+        let message = "The main window was not created".to_owned();
+        fail(app, message.clone());
+        return Err(message);
+    };
+    if let Err(error) = main.show() {
+        let message = format!("Could not reveal the main window: {error}");
+        fail(app, message.clone());
+        return Err(message);
     }
+    let _ = main.set_focus();
+    wait_without_blocking(CROSSFADE_DURATION).await?;
     if let Some(splash) = app.get_webview_window(SPLASH_LABEL) {
         splash.close().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+async fn wait_without_blocking(duration: Duration) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || std::thread::sleep(duration))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

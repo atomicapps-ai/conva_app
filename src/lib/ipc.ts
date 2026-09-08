@@ -701,14 +701,14 @@ export type ModelStatusEvent =
   | { state: "error"; model: string; message: string };
 
 /** Startup progress for the splash window — each stage is a real,
- *  completed background-initialization milestone. `percent`
- *  strictly increases across the sequence; there is no "100" stage —
- *  the splash closes once the main window's own `init()` resolves. */
+ *  completed initialization milestone. Ready is emitted only after the main
+ *  window's own `init()` resolves, before the visible completion crossfade. */
 export type SplashProgressEvent =
   | { stage: "started"; percent: number }
   | { stage: "library_loaded"; percent: number }
   | { stage: "workspace_ready"; percent: number }
   | { stage: "almost_ready"; percent: number }
+  | { stage: "ready"; percent: number }
   | { stage: "failed"; percent: number; message: string };
 
 /** Mirror of conva-core llm::ProviderId (snake_case serde). */

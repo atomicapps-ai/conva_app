@@ -526,8 +526,9 @@ export function hudIsOpen(): Promise<boolean> {
 
 // --- Splash window (src-tauri/src/splash.rs) ---------------------------------
 
-/** Show the main window and close the splash. Call only after
- *  `waitForStartup()` and the app's first `init()` round-trip complete. */
+/** Signal real 100% readiness, reveal the main window under the splash, and
+ *  complete the crossfade. Call only after `waitForStartup()` and the app's
+ *  first `init()` round-trip complete. */
 export function finishSplash(): Promise<void> {
   return invoke("finish_splash");
 }

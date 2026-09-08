@@ -223,9 +223,9 @@ pub enum ModelStatusEvent {
 /// Each variant is a real, discrete milestone the boot sequence has actually
 /// finished — not a timed/simulated fill. `percent` is monotonically
 /// increasing across the sequence: Started(0) → LibraryLoaded(35) →
-/// WorkspaceReady(60) → AlmostReady(85) → done (the splash closes once the
-/// main window's own `init()` resolves; there is no explicit 100 variant —
-/// closing *is* the 100% signal).
+/// WorkspaceReady(60) → AlmostReady(85) → Ready(100). Ready is emitted only
+/// after the main window's own `init()` resolves, giving the splash a visible
+/// completion beat before it crossfades away.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "stage")]
 pub enum SplashProgressEvent {
@@ -233,6 +233,7 @@ pub enum SplashProgressEvent {
     LibraryLoaded { percent: u8 },
     WorkspaceReady { percent: u8 },
     AlmostReady { percent: u8 },
+    Ready { percent: u8 },
     Failed { percent: u8, message: String },
 }
 
@@ -243,6 +244,7 @@ impl SplashProgressEvent {
             | Self::LibraryLoaded { percent }
             | Self::WorkspaceReady { percent }
             | Self::AlmostReady { percent }
+            | Self::Ready { percent }
             | Self::Failed { percent, .. } => *percent,
         }
     }
@@ -352,6 +354,7 @@ mod tests {
             SplashProgressEvent::LibraryLoaded { percent: 35 },
             SplashProgressEvent::WorkspaceReady { percent: 60 },
             SplashProgressEvent::AlmostReady { percent: 85 },
+            SplashProgressEvent::Ready { percent: 100 },
         ];
         let mut last = -1i16;
         for stage in stages {
