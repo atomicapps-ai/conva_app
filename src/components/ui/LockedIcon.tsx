@@ -45,8 +45,11 @@ type Locked = { viewBox: string; body: ReactNode };
 // The mark's `d` data, verbatim — same coordinate string as {@link LockedMark}
 // below. Declared here (rather than only near `LockedMark`) so `LOCKED`'s
 // `nav-live-session` entry can reuse it without a forward reference.
+// Updated 2026-09-08 (owner-supplied re-export, absolute coordinates derived
+// from it) — same silhouette + "C" counter, matches src/assets/brand/
+// conva-mark-cutout-white.svg.
 const MARK_D =
-  "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91ZM402.78 307.14 337.17 388.44 234.64 408.55 143.18 358.06 105.57 260.58 139.42 161.74 228.88 107.78 332.1 123.95 400.78 202.68 354.84 222.55 309.68 168.7 240.48 156.47 241.61 204.11 179.6 191.59 155.54 257.62 179.55 323.67 240.4 358.83 309.62 346.65 354.81 292.83 402.78 307.14Z";
+  "M500.89 337.75L496.91 163.92L383.51 33.85L211.51 6.52L62.42 96.16L5.82 260.73L68.41 423.61L220.93 507.25L390.13 474.28L493.3 482.81L454.39 400.54L500.89 337.75ZM344.86 397.61L235.75 418.91L137.17 364.83L96.01 260.58L132.39 154.71L228.65 95.93L340.24 114.2L413.39 197.96L364.99 219.84L362.35 219.08L315.38 162.84L242.22 149.93L242.25 199.94L176.11 187.94L151.29 255.5L176.86 327.52L239.63 363.19L315.38 351.02L363.26 294.16L415.32 308.78L344.86 397.61Z";
 
 const LOCKED: Record<LockedIconName, Locked> = {
   // nav-home.svg
@@ -340,7 +343,7 @@ export function LockedMark({
  *  string, used as its own closed region for {@link LockedMarkBadge}'s
  *  backing fill + outline below. */
 const MARK_SILHOUETTE_D =
-  "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91Z";
+  "M500.89 337.75L496.91 163.92L383.51 33.85L211.51 6.52L62.42 96.16L5.82 260.73L68.41 423.61L220.93 507.25L390.13 474.28L493.3 482.81L454.39 400.54L500.89 337.75Z";
 
 /**
  * The mark as a blue-rimmed, glowing badge — a bright "C" cut out of a dark
