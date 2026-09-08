@@ -404,7 +404,12 @@ export function ContextSetup({
               />
             </label>
             <div className="field">
-              Type
+              {initial ? "Type" : "Start with a template"}
+              {!initial && (
+                <span className="text-[11px] font-normal normal-case tracking-normal text-fg-faint">
+                  Choose the conversation pattern Ally should prepare for. You can refine it below.
+                </span>
+              )}
               <div className="flex flex-wrap gap-2">
                 {CATEGORIES.map((c) => (
                   <button

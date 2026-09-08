@@ -33,6 +33,8 @@ describe("ContextSetup wizard", () => {
     renderSetup();
     // findBy flushes the mount effect (rag.list) so no act() warnings.
     expect(await screen.findByRole("button", { name: "Interview" })).toBeInTheDocument();
+    expect(screen.getByText("Start with a template")).toBeInTheDocument();
+    expect(screen.getByText(/Choose the conversation pattern Ally should prepare for/i)).toBeInTheDocument();
     for (const type of ["Company meeting", "Sales call", "Live stream", "Other"]) {
       expect(screen.getByRole("button", { name: type })).toBeInTheDocument();
     }
