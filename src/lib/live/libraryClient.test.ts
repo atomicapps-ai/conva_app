@@ -110,15 +110,15 @@ describe("libraryClient — file originals (M2 cp10)", () => {
 
   it("downloadOriginal returns the blob and the server's file name; refusals are coded", async () => {
     const bytes = new Uint8Array([1, 2, 3]);
-    const f = (async () => new Response(bytes, { status: 200, headers: { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="Q3 _Plan_.docx"; filename*=UTF-8''${encodeURIComponent("Q3 Plän.docx")}` } })) as typeof fetch;
+    const expectedBlob = new Blob([bytes], { type: "application/octet-stream" });
+    const f = (async () => ({
+      ok: true,
+      headers: new Headers({ "Content-Disposition": `attachment; filename="Q3 _Plan_.docx"; filename*=UTF-8''${encodeURIComponent("Q3 Plän.docx")}` }),
+      blob: async () => expectedBlob,
+    }) as Response) as typeof fetch;
     const { blob, fileName } = await downloadOriginal({ fetch: f }, "doc_1");
-    const downloaded = await new Promise<ArrayBuffer>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as ArrayBuffer);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsArrayBuffer(blob);
-    });
-    expect(new Uint8Array(downloaded)).toEqual(bytes);
+    expect(blob).toBe(expectedBlob);
+    expect(blob.size).toBe(bytes.byteLength);
     expect(fileName).toBe("Q3 Plän.docx");
     expect(fileNameFromDisposition('attachment; filename="plain.txt"')).toBe("plain.txt");
     expect(fileNameFromDisposition("attachment; filename=bare.md")).toBe("bare.md");
