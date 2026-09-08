@@ -20,6 +20,7 @@ const PANEL_WIDTH_KEY = "conva.panel.widthPx";
 const ANSWERS_PINNED_KEY = "conva.panel.answersPinned";
 const PANEL_OPEN_SECTION_KEY = "conva.panel.openSection";
 const QUESTIONS_MODE_KEY = "conva.panel.questionsMode";
+const AUTO_INSTALL_UPDATES_KEY = "conva.updates.autoInstall";
 const PANEL_WIDTH_MIN = 280;
 const PANEL_WIDTH_MAX = 560;
 const PANEL_WIDTH_DEFAULT = 340;
@@ -56,6 +57,10 @@ function loadFont(key: string, fallback: number): number {
 }
 
 interface UiPrefs {
+  /** Install and relaunch automatically once an update is downloaded. A live
+   *  listening session always postpones the restart until the session ends. */
+  autoInstallUpdates: boolean;
+  setAutoInstallUpdates: (enabled: boolean) => void;
   /** Ally research text size, in px. */
   allyFontPx: number;
   /** Transcript (conversation bubble) text size, in px. */
@@ -101,6 +106,7 @@ interface UiPrefs {
 }
 
 export const useUiPrefs = create<UiPrefs>((set) => ({
+  autoInstallUpdates: localStorage.getItem(AUTO_INSTALL_UPDATES_KEY) === "1",
   allyFontPx: loadFont(FONT_KEY, FONT_DEFAULT),
   transcriptFontPx: loadFont(TRANSCRIPT_FONT_KEY, TRANSCRIPT_FONT_DEFAULT),
   reasoningDefaultOpen: localStorage.getItem(REASONING_KEY) === "1",
@@ -140,6 +146,11 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
     return pinned && v === "answers" ? "terms" : v;
   })(),
   questionsMode: localStorage.getItem(QUESTIONS_MODE_KEY) === "prep" ? "prep" : "live",
+
+  setAutoInstallUpdates: (enabled) => {
+    localStorage.setItem(AUTO_INSTALL_UPDATES_KEY, enabled ? "1" : "0");
+    set({ autoInstallUpdates: enabled });
+  },
 
   setPanelSplitRatio: (r) => {
     const clamped = Math.max(0.25, Math.min(0.75, r));
