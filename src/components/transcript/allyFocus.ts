@@ -1,5 +1,5 @@
 import type { ViewEntry } from "@/components/transcript/viewEntries";
-import type { AllyCard } from "@/state/ally";
+import { uniqueSourceFiles, type AllyCard } from "@/state/ally";
 
 export const TERM_DEFINITION_REQUEST_PREFIX = "term-definition:";
 
@@ -10,6 +10,8 @@ export interface AllyFocusItem {
   question: string;
   answer: string;
   sourceLabel: string;
+  /** Human-readable grounding files kept beside the focused answer. */
+  sourceFiles?: string[];
   status: AllyFocusStatus;
   cardId?: string;
   entryKey?: string;
@@ -48,6 +50,7 @@ function itemFromCard(card: AllyCard): AllyFocusItem {
     question,
     answer: card.error ?? card.text,
     sourceLabel: `A${card.seq}`,
+    sourceFiles: uniqueSourceFiles(card.sources),
     status: card.error ? "error" : card.done ? "ready" : "streaming",
     cardId: card.id,
   };
@@ -63,6 +66,8 @@ function itemFromEntry(entry: ViewEntry): AllyFocusItem | null {
         entry.item.prep.source === "ally"
           ? "Prepared by Ally"
           : entry.item.prep.source,
+      sourceFiles:
+        entry.item.prep.source === "ally" ? [] : [entry.item.prep.source],
       status: "instant",
       entryKey: entry.key,
     };
@@ -74,6 +79,9 @@ function itemFromEntry(entry: ViewEntry): AllyFocusItem | null {
       answer: entry.item.radar.bridge.text,
       sourceLabel:
         entry.item.radar.outcome === "miss" ? "Question Radar · refining" : "Question Radar",
+      sourceFiles: [
+        ...new Set(entry.item.radar.sources.map((source) => source.file_name)),
+      ],
       status: "instant",
       entryKey: entry.key,
     };

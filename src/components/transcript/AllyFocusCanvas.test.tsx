@@ -12,6 +12,7 @@ const items: AllyFocusItem[] = [
     question: "Has the crash been confirmed?",
     answer: "The report is attributed but not independently confirmed.",
     sourceLabel: "A1",
+    sourceFiles: ["vendor-brief.md"],
     status: "ready",
     cardId: "a1",
   },
@@ -43,6 +44,7 @@ describe("AllyFocusCanvas", () => {
       screen.getByText("The report is attributed but not independently confirmed."),
     ).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Ready");
+    expect(screen.getByText("Grounded in vendor-brief.md")).toBeInTheDocument();
   });
 
   it("switches threads and exposes pin, refresh, and expand actions", () => {

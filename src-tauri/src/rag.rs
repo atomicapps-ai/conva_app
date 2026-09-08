@@ -66,6 +66,19 @@ enum Original<'a> {
     PastedText,
 }
 
+/// Inputs shared by every text-document ingestion path. Keeping these as one
+/// value makes the searchable/review-only distinction explicit without an
+/// error-prone positional argument list.
+struct TextDocumentInput<'a> {
+    file_name: String,
+    text: String,
+    original: Original<'a>,
+    source: DocSource,
+    size_bytes: u64,
+    warnings: Vec<String>,
+    indexable: bool,
+}
+
 /// File extensions the ingestion pipeline understands (mirrors the UI's
 /// SUPPORTED list in RagPanel.tsx).
 const TEXT_EXTS: [&str; 7] = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
@@ -380,15 +393,15 @@ impl RagStore {
         let size_bytes = fs::metadata(source)
             .map(|m| m.len())
             .unwrap_or(text.len() as u64);
-        self.store_text_document(
+        self.store_text_document(TextDocumentInput {
             file_name,
             text,
-            Original::File(source),
-            DocSource::File,
+            original: Original::File(source),
+            source: DocSource::File,
             size_bytes,
             warnings,
-            true,
-        )
+            indexable: true,
+        })
     }
 
     /// Ingest raw text (e.g. pasted from the clipboard) as a `.txt`
@@ -401,15 +414,15 @@ impl RagStore {
         // No original file for pasted text — the text itself IS the content,
         // so its byte length is the real size.
         let size_bytes = text.len() as u64;
-        self.store_text_document(
-            normalize_txt_name(name),
-            text.to_string(),
-            Original::PastedText,
-            DocSource::Pasted,
+        self.store_text_document(TextDocumentInput {
+            file_name: normalize_txt_name(name),
+            text: text.to_string(),
+            original: Original::PastedText,
+            source: DocSource::Pasted,
             size_bytes,
-            Vec::new(),
-            true,
-        )
+            warnings: Vec::new(),
+            indexable: true,
+        })
     }
 
     /// Ingest AI-generated content (e.g. a Context Digest) as a `.txt`
@@ -428,15 +441,15 @@ impl RagStore {
         // Same reasoning as ingest_text — generated content has no
         // separate "original file", the text is the content.
         let size_bytes = text.len() as u64;
-        let mut report = self.store_text_document(
-            normalize_txt_name(name),
-            text.to_string(),
-            Original::PastedText,
-            DocSource::Generated,
+        let mut report = self.store_text_document(TextDocumentInput {
+            file_name: normalize_txt_name(name),
+            text: text.to_string(),
+            original: Original::PastedText,
+            source: DocSource::Generated,
             size_bytes,
-            Vec::new(),
-            true,
-        )?;
+            warnings: Vec::new(),
+            indexable: true,
+        })?;
         self.attach_context(&report.document.id, context_id)?;
         report.document.context_ids = vec![context_id.to_string()];
         Ok(report)
@@ -455,15 +468,15 @@ impl RagStore {
         if text.trim().is_empty() {
             return Err(CoreError::Rag("no text to add".into()));
         }
-        let mut report = self.store_text_document(
-            normalize_txt_name(name),
-            text.to_string(),
-            Original::PastedText,
-            DocSource::Generated,
-            text.len() as u64,
-            Vec::new(),
-            false,
-        )?;
+        let mut report = self.store_text_document(TextDocumentInput {
+            file_name: normalize_txt_name(name),
+            text: text.to_string(),
+            original: Original::PastedText,
+            source: DocSource::Generated,
+            size_bytes: text.len() as u64,
+            warnings: Vec::new(),
+            indexable: false,
+        })?;
         self.attach_context(&report.document.id, context_id)?;
         report.document.context_ids = vec![context_id.to_string()];
         Ok(report)
@@ -475,16 +488,16 @@ impl RagStore {
     /// file's real on-disk size differs from its extracted text length
     /// (PDF/DOCX strip formatting/images), so this shared tail can't derive
     /// it uniformly from `text` alone.
-    fn store_text_document(
-        &self,
-        file_name: String,
-        text: String,
-        original: Original,
-        source: DocSource,
-        size_bytes: u64,
-        mut warnings: Vec<String>,
-        indexable: bool,
-    ) -> Result<IngestReport, CoreError> {
+    fn store_text_document(&self, input: TextDocumentInput<'_>) -> Result<IngestReport, CoreError> {
+        let TextDocumentInput {
+            file_name,
+            text,
+            original,
+            source,
+            size_bytes,
+            mut warnings,
+            indexable,
+        } = input;
         let chunks = chunk_text(&text);
         if chunks.is_empty() {
             return Err(CoreError::Rag(format!(

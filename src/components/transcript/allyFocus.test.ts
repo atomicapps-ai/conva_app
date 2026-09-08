@@ -29,9 +29,29 @@ function card(overrides: Partial<AllyCard> = {}): AllyCard {
 describe("Ally focus items", () => {
   it("keeps normal answers and excludes term-definition requests", () => {
     const definition = card({ id: "term-definition:10:1:conversion" });
-    const items = buildAllyFocusItems([definition, card()], []);
+    const items = buildAllyFocusItems(
+      [
+        definition,
+        card({
+          sources: [
+            {
+              document_id: "doc-1",
+              file_name: "vendor-brief.md",
+              location: "Delivery",
+              text: "Six weeks.",
+              score: 1,
+            },
+          ],
+        }),
+      ],
+      [],
+    );
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ id: "card:a-1", status: "ready" });
+    expect(items[0]).toMatchObject({
+      id: "card:a-1",
+      status: "ready",
+      sourceFiles: ["vendor-brief.md"],
+    });
     expect(isTermDefinitionCard(definition)).toBe(true);
   });
 

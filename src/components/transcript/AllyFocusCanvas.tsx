@@ -138,6 +138,14 @@ export function AllyFocusCanvas({
                 )
               : "Ally is preparing the response…"}
           </div>
+          {active.sourceFiles && active.sourceFiles.length > 0 && (
+            <p className="mt-2 flex items-center gap-1.5 font-mono text-[10px] text-fg-faint">
+              <Icon name="file" size={12} className="shrink-0 text-ai" />
+              <span className="min-w-0 truncate">
+                Grounded in {active.sourceFiles.join(" · ")}
+              </span>
+            </p>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-border/70 px-2.5 py-2">
