@@ -26,6 +26,8 @@ import type {
   AuthStatus,
   Conversation,
   ConversationSummary,
+  ClaimRecord,
+  ClaimSnapshotEvent,
   ContextSummary,
   ConversationContext,
   KnowledgeProfile,
@@ -46,7 +48,10 @@ import type { Capabilities } from "@/lib/backend/capabilities";
 import type { CapabilitySnapshot } from "@/lib/backend/capabilitySnapshot";
 import type { EventMap, Unsubscribe } from "@/lib/backend/events";
 import type { CapabilityReader } from "@/lib/capture/capabilityStore";
-import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
+import type {
+  CaptureSourceCapability,
+  CaptureSourceKind,
+} from "@/lib/capture/contract";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { TranscriptEvent } from "@/lib/capture/contract";
 
@@ -79,7 +84,9 @@ export interface ConvaBackend {
    * adapter rejects with `UnimplementedOnWebError` until a browser capture
    * pipeline exists — never a silent no-op.
    */
-  subscribeEnvelopes(handler: (event: TranscriptEvent) => void): Promise<Unsubscribe>;
+  subscribeEnvelopes(
+    handler: (event: TranscriptEvent) => void,
+  ): Promise<Unsubscribe>;
 
   /** Portable settings (`conva.config.json`). Layer 1 (synced) + local cache. */
   config: {
@@ -154,7 +161,9 @@ export interface ConvaBackend {
     /** Every source's phase in the current session. */
     status(): Promise<CaptureStatus[]>;
     /** Live status changes. */
-    subscribe(handler: (statuses: CaptureStatus[]) => void): Promise<Unsubscribe>;
+    subscribe(
+      handler: (statuses: CaptureStatus[]) => void,
+    ): Promise<Unsubscribe>;
   };
 
   /** Stereo call recording (you = left, them = right). Desktop-only (Layer 4). */
@@ -232,6 +241,8 @@ export interface ConvaBackend {
       segments: TranscriptSegment[],
       linkedDocs: string[],
       contextId?: string | null,
+      sourceSessionIds?: string[],
+      claimSnapshots?: ClaimSnapshotEvent[],
     ): Promise<Conversation>;
     list(): Promise<ConversationSummary[]>;
     load(id: string): Promise<Conversation>;
@@ -291,7 +302,10 @@ export interface ConvaBackend {
     load(id: string): Promise<TranscriptSegment[]>;
     delete(id: string): Promise<void>;
     /** Desktop-only: write Markdown to a path. Web → browser download. */
-    exportTranscript(path: string, segments: TranscriptSegment[]): Promise<void>;
+    exportTranscript(
+      path: string,
+      segments: TranscriptSegment[],
+    ): Promise<void>;
     /** Analyze a saved conversation's performance (category-aware, grounded
      *  in its linked context's job description/vocabulary when one exists) —
      *  returns the report Markdown for the caller to save. Desktop-only for
@@ -340,8 +354,8 @@ export interface ConvaBackend {
    *  for one term/answer, docked to the app's right edge by default.
    *  Desktop-only (Layer 4); gate on `capabilities().system.partnerWindow`. */
   partner: {
-    /** `docId` set = open a library document directly (its full text is
-     *  fetched by the window itself); omitted = a term/answer open. */
+    /** `docId` set = open a library document directly; `claim` set = present
+     *  an already-supplied typed claim; otherwise this is a term/answer open. */
     open(
       term: string,
       kind: string | null,
@@ -349,6 +363,7 @@ export interface ConvaBackend {
       answer?: string | null,
       sourceLines?: string[],
       docId?: string | null,
+      claim?: ClaimRecord | null,
     ): Promise<void>;
     close(): Promise<void>;
     redock(): Promise<void>;

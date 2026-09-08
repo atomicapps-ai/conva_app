@@ -17,6 +17,7 @@ import {
 } from "@/components/studio/PageView";
 import { parseQaPairs, type PrepQaPair } from "@/components/transcript/qaPairs";
 import { Icon } from "@/components/ui/Icon";
+import { MarkdownDocument } from "@/components/ui/MarkdownDocument";
 import { useBackend } from "@/lib/backend";
 import type { ContextSummary, ConversationContext } from "@/lib/ipc";
 import { formatRelativeTime } from "@/lib/relativeTime";
@@ -513,9 +514,5 @@ function DocumentTab({
       />
     );
   }
-  return (
-    <article className="max-w-[80ch] whitespace-pre-wrap break-words text-[13px] leading-relaxed text-fg-muted">
-      {text}
-    </article>
-  );
+  return <MarkdownDocument text={text} />;
 }

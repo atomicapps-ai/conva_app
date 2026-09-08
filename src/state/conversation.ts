@@ -1,7 +1,12 @@
 import { create } from "zustand";
 
 import { getBackend } from "@/lib/backend";
-import type { Conversation } from "@/lib/ipc";
+import {
+  CLAIM_SNAPSHOT_CONTRACT_VERSION,
+  type ClaimSnapshotEvent,
+  type Conversation,
+  type SessionStateEvent,
+} from "@/lib/ipc";
 import { useAllyStore } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
 import { useLiveTermsStore } from "@/state/liveTerms";
@@ -18,6 +23,8 @@ interface ConversationState {
   openId: string | null;
   title: string | null;
   linkedDocs: string[];
+  sourceSessionIds: string[];
+  claimSnapshots: ClaimSnapshotEvent[];
   /** Stop offers to save; this drives the modal. */
   savePromptOpen: boolean;
   /** The save modal was opened by "+ New" — after Save (or Discard) the live
@@ -42,6 +49,10 @@ interface ConversationState {
   setNotice: (notice: string | null) => void;
   /** Pre-fill the save-dialog title (e.g. mark a rehearsal as a Context). */
   setTitle: (title: string | null) => void;
+  /** Retain exact run identity after Stop changes the public session state to idle. */
+  recordSession: (session: SessionStateEvent) => void;
+  /** Keep only the latest accepted cumulative snapshot for each source run. */
+  recordClaimSnapshot: (snapshot: ClaimSnapshotEvent) => void;
   /** Show a loaded conversation and make it the open one. */
   openConversation: (conversation: Conversation) => void;
   /** Close the current conversation and clear the screen. */
@@ -58,6 +69,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   openId: null,
   title: null,
   linkedDocs: [],
+  sourceSessionIds: [],
+  claimSnapshots: [],
   savePromptOpen: false,
   pendingNew: false,
   notice: null,
@@ -84,6 +97,45 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   },
   setNotice: (notice) => set({ notice }),
   setTitle: (title) => set({ title }),
+  recordSession: (session) => {
+    if (session.state !== "listening" && session.state !== "paused") return;
+    set((state) =>
+      state.sourceSessionIds.includes(session.session_id)
+        ? {}
+        : { sourceSessionIds: [...state.sourceSessionIds, session.session_id] },
+    );
+  },
+  recordClaimSnapshot: (snapshot) => {
+    if (
+      snapshot.contract_version !== CLAIM_SNAPSHOT_CONTRACT_VERSION ||
+      !snapshot.session_id
+    ) {
+      return;
+    }
+    set((state) => {
+      const current = state.claimSnapshots.find(
+        (candidate) => candidate.session_id === snapshot.session_id,
+      );
+      if (
+        current &&
+        (snapshot.epoch < current.epoch ||
+          (snapshot.epoch === current.epoch && snapshot.revision <= current.revision))
+      ) {
+        return {};
+      }
+      return {
+        sourceSessionIds: state.sourceSessionIds.includes(snapshot.session_id)
+          ? state.sourceSessionIds
+          : [...state.sourceSessionIds, snapshot.session_id],
+        claimSnapshots: [
+          ...state.claimSnapshots.filter(
+            (candidate) => candidate.session_id !== snapshot.session_id,
+          ),
+          snapshot,
+        ],
+      };
+    });
+  },
 
   openConversation: (conversation) => {
     const transcript = useTranscriptStore.getState();
@@ -93,6 +145,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
       openId: conversation.id,
       title: conversation.title,
       linkedDocs: conversation.linked_docs,
+      sourceSessionIds: conversation.source_session_ids ?? [],
+      claimSnapshots: conversation.claim_snapshots ?? [],
       notice: null,
     });
   },
@@ -102,7 +156,14 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     transcript.clear();
     transcript.setRetainHistory(false);
     useLiveTermsStore.getState().clear();
-    set({ openId: null, title: null, linkedDocs: [], notice: null });
+    set({
+      openId: null,
+      title: null,
+      linkedDocs: [],
+      sourceSessionIds: [],
+      claimSnapshots: [],
+      notice: null,
+    });
   },
 
   toggleLinkedDoc: async (docId) => {
@@ -124,12 +185,29 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   save: async (title) => {
     const transcript = useTranscriptStore.getState();
     const segments = withLiveArchived(transcript.archived, transcript.segments);
+    const activeSessionId =
+      transcript.session.state === "listening" || transcript.session.state === "paused"
+        ? transcript.session.session_id
+        : null;
+    const sourceSessionIds = Array.from(
+      new Set([
+        ...get().sourceSessionIds,
+        ...(transcript.viewingPastSessionId ? [transcript.viewingPastSessionId] : []),
+        ...(activeSessionId ? [activeSessionId] : []),
+      ]),
+    );
+    const linkedSessions = new Set(sourceSessionIds);
+    const claimSnapshots = get().claimSnapshots.filter((snapshot) =>
+      linkedSessions.has(snapshot.session_id),
+    );
     const saved = await getBackend().conversations.save(
       get().openId,
       title?.trim() || get().title,
       segments,
       get().linkedDocs,
       useGroundingStore.getState().activeId,
+      sourceSessionIds,
+      claimSnapshots,
     );
     if (get().pendingNew) {
       // "+ New" flow: the save was a farewell — reset for a fresh start.
@@ -141,6 +219,8 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     set({
       openId: saved.id,
       title: saved.title,
+      sourceSessionIds: saved.source_session_ids ?? sourceSessionIds,
+      claimSnapshots: saved.claim_snapshots ?? claimSnapshots,
       notice: `Saved "${saved.title}".`,
     });
   },

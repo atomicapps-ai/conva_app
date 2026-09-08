@@ -30,6 +30,8 @@ pub mod events {
     pub const TRACKER: &str = "conva://tracker";
     /// Payload: [`super::CaptureEvent`]
     pub const CAPTURE: &str = "conva://capture";
+    /// Payload: [`super::ClaimSnapshotEvent`]
+    pub const CLAIM_SNAPSHOT: &str = "conva://claim-snapshot";
     /// Payload: [`super::RehearsalStateEvent`]
     pub const REHEARSAL_STATE: &str = "conva://rehearsal-state";
     /// Payload: `AuthChangedEvent` — defined shell-side in
@@ -140,6 +142,20 @@ pub struct CaptureEvent {
     pub captures: Vec<crate::capture::Capture>,
 }
 
+pub const CLAIM_SNAPSHOT_CONTRACT_VERSION: u32 = 2;
+
+/// Cumulative claim state for one live-session epoch. Consumers accept only a
+/// greater revision in the same epoch, or the first revision of a newer epoch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClaimSnapshotEvent {
+    pub contract_version: u32,
+    pub session_id: String,
+    pub epoch: u64,
+    pub revision: u64,
+    #[serde(default)]
+    pub claims: Vec<crate::claim::ClaimRecord>,
+}
+
 /// What the partner window shows (owner mockup, 2026-08-21): the term it was
 /// opened for, plus the FANER classification + preview when it came from a
 /// capture. Delivered via the `get_partner_payload` command on window boot and
@@ -165,6 +181,11 @@ pub struct PartnerPayload {
     /// fetches its full text itself via `documentText`, same as clicking a
     /// "FROM YOUR DOCUMENTS" citation line. `None` for every other open.
     pub doc_id: Option<String>,
+    /// Complete typed claim state when the viewer was opened from Tracking.
+    /// Kept optional so older stored/event payloads and non-claim viewer opens
+    /// remain valid. The viewer presents this record without starting research.
+    #[serde(default)]
+    pub claim: Option<crate::claim::ClaimRecord>,
 }
 
 /// Payload of [`events::PARTNER_LOCK`] — whether the partner window is
@@ -202,9 +223,9 @@ pub enum ModelStatusEvent {
 /// Each variant is a real, discrete milestone the boot sequence has actually
 /// finished — not a timed/simulated fill. `percent` is monotonically
 /// increasing across the sequence: Started(0) → LibraryLoaded(35) →
-/// WorkspaceReady(60) → AlmostReady(85) → done (the splash closes once the
-/// main window's own `init()` resolves; there is no explicit 100 variant —
-/// closing *is* the 100% signal).
+/// WorkspaceReady(60) → AlmostReady(85) → Ready(100). Ready is emitted only
+/// after the main window's own `init()` resolves, giving the splash a visible
+/// completion beat before it crossfades away.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "stage")]
 pub enum SplashProgressEvent {
@@ -212,6 +233,7 @@ pub enum SplashProgressEvent {
     LibraryLoaded { percent: u8 },
     WorkspaceReady { percent: u8 },
     AlmostReady { percent: u8 },
+    Ready { percent: u8 },
     Failed { percent: u8, message: String },
 }
 
@@ -222,6 +244,7 @@ impl SplashProgressEvent {
             | Self::LibraryLoaded { percent }
             | Self::WorkspaceReady { percent }
             | Self::AlmostReady { percent }
+            | Self::Ready { percent }
             | Self::Failed { percent, .. } => *percent,
         }
     }
@@ -261,11 +284,46 @@ mod tests {
             events::SESSION_STATE,
             events::ALLY_CHUNK,
             events::RADAR,
+            events::CLAIM_SNAPSHOT,
             events::AUTH_CHANGED,
             events::SPLASH_PROGRESS,
         ] {
             assert!(name.starts_with("conva://"), "{name}");
         }
+    }
+
+    #[test]
+    fn claim_snapshot_serializes_the_versioned_cumulative_contract() {
+        let event = ClaimSnapshotEvent {
+            contract_version: CLAIM_SNAPSHOT_CONTRACT_VERSION,
+            session_id: "session-1".into(),
+            epoch: 2,
+            revision: 7,
+            claims: Vec::new(),
+        };
+
+        let json = serde_json::to_value(event).unwrap();
+        assert_eq!(events::CLAIM_SNAPSHOT, "conva://claim-snapshot");
+        assert_eq!(json["contract_version"], 2);
+        assert_eq!(json["session_id"], "session-1");
+        assert_eq!(json["epoch"], 2);
+        assert_eq!(json["revision"], 7);
+        assert_eq!(json["claims"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn older_partner_payloads_default_to_no_claim() {
+        let payload: PartnerPayload = serde_json::from_value(serde_json::json!({
+            "term": "API Gateway",
+            "kind": "concept",
+            "preview": null,
+            "answer": null,
+            "source_lines": [],
+            "doc_id": null
+        }))
+        .unwrap();
+
+        assert!(payload.claim.is_none());
     }
 
     #[test]
@@ -296,6 +354,7 @@ mod tests {
             SplashProgressEvent::LibraryLoaded { percent: 35 },
             SplashProgressEvent::WorkspaceReady { percent: 60 },
             SplashProgressEvent::AlmostReady { percent: 85 },
+            SplashProgressEvent::Ready { percent: 100 },
         ];
         let mut last = -1i16;
         for stage in stages {

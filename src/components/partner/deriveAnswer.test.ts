@@ -4,7 +4,10 @@ import { derivePartnerAnswer } from "@/components/partner/deriveAnswer";
 import type { PartnerPayload } from "@/lib/ipc";
 import type { AllyCard } from "@/state/ally";
 
-function payload(answer: string | null, sourceLines: string[] = []): PartnerPayload {
+function payload(
+  answer: string | null,
+  sourceLines: string[] = [],
+): PartnerPayload {
   return {
     term: "schema migration",
     kind: "concept",
@@ -12,6 +15,7 @@ function payload(answer: string | null, sourceLines: string[] = []): PartnerPayl
     answer,
     source_lines: sourceLines,
     doc_id: null,
+    claim: null,
   };
 }
 
@@ -27,7 +31,10 @@ function card(over: Partial<AllyCard> = {}): AllyCard {
 
 describe("derivePartnerAnswer (owner, 2026-08-22 — viewer IS the partner window)", () => {
   it("shows the already-answered payload content when no follow-up was asked", () => {
-    const r = derivePartnerAnswer(payload("the original answer", ["resume.docx — ¶1"]), null);
+    const r = derivePartnerAnswer(
+      payload("the original answer", ["resume.docx — ¶1"]),
+      null,
+    );
     expect(r).toEqual({
       heading: "ANSWER",
       text: "the original answer",
@@ -56,7 +63,10 @@ describe("derivePartnerAnswer (owner, 2026-08-22 — viewer IS the partner windo
   });
 
   it("a live card's error surfaces instead of its (empty) text", () => {
-    const r = derivePartnerAnswer(payload("original"), card({ text: "", error: "provider down" }));
+    const r = derivePartnerAnswer(
+      payload("original"),
+      card({ text: "", error: "provider down" }),
+    );
     expect(r.error).toBe("provider down");
     expect(r.text).toBeNull();
   });

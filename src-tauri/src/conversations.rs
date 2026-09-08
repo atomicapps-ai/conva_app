@@ -11,6 +11,7 @@
 //! Storage: one pretty-printed JSON file per conversation under
 //! `<app-data>/conversations/`.
 
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
@@ -18,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use conva_core::asr::TranscriptSegment;
+use conva_core::ipc::{ClaimSnapshotEvent, CLAIM_SNAPSHOT_CONTRACT_VERSION};
 use conva_core::CoreError;
 
 use crate::session::now_unix_ms;
@@ -37,6 +39,13 @@ pub struct Conversation {
     /// part B). Never backfilled for older conversations.
     #[serde(default)]
     pub linked_context_id: Option<String>,
+    /// Exact live-session ids whose finalized transcript contributes to this
+    /// saved conversation. A conversation can span multiple Start/Stop runs.
+    #[serde(default)]
+    pub source_session_ids: Vec<String>,
+    /// Latest accepted cumulative claim snapshot for each source session.
+    #[serde(default)]
+    pub claim_snapshots: Vec<ClaimSnapshotEvent>,
 }
 
 /// Catalog entry for the open/save menu.
@@ -50,8 +59,13 @@ pub struct ConversationSummary {
     pub linked_docs: Vec<String>,
     #[serde(default)]
     pub linked_context_id: Option<String>,
+    pub source_session_count: u32,
+    pub has_claim_review: bool,
     pub preview: String,
 }
+
+const MAX_SOURCE_SESSIONS: usize = 128;
+const MAX_CLAIMS_PER_SESSION: usize = 512;
 
 fn conversations_dir(app: &AppHandle) -> Result<PathBuf, CoreError> {
     let dir = app
@@ -69,6 +83,66 @@ fn validate_id(id: &str) -> Result<(), CoreError> {
         return Err(CoreError::Audio("invalid conversation id".into()));
     }
     Ok(())
+}
+
+fn valid_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+}
+
+/// Validate exact conversation↔session linkage and keep only the newest
+/// cumulative snapshot per session. Never persist a snapshot whose session is
+/// absent from the conversation's source-session list.
+fn normalize_claim_linkage(
+    source_session_ids: Vec<String>,
+    claim_snapshots: Vec<ClaimSnapshotEvent>,
+) -> Result<(Vec<String>, Vec<ClaimSnapshotEvent>), CoreError> {
+    let mut seen = HashSet::new();
+    let mut session_ids = Vec::new();
+    for id in source_session_ids {
+        if !valid_session_id(&id) {
+            return Err(CoreError::Audio("invalid source session id".into()));
+        }
+        if seen.insert(id.clone()) {
+            session_ids.push(id);
+        }
+    }
+    if session_ids.len() > MAX_SOURCE_SESSIONS {
+        return Err(CoreError::Audio(format!(
+            "conversation exceeds {MAX_SOURCE_SESSIONS} source sessions"
+        )));
+    }
+
+    let mut latest: HashMap<String, ClaimSnapshotEvent> = HashMap::new();
+    for snapshot in claim_snapshots {
+        if snapshot.contract_version != CLAIM_SNAPSHOT_CONTRACT_VERSION
+            || !seen.contains(&snapshot.session_id)
+        {
+            return Err(CoreError::Audio(
+                "claim snapshot is not linked to a valid source session".into(),
+            ));
+        }
+        if snapshot.claims.len() > MAX_CLAIMS_PER_SESSION {
+            return Err(CoreError::Audio(format!(
+                "claim snapshot exceeds {MAX_CLAIMS_PER_SESSION} claims"
+            )));
+        }
+        let replace = latest.get(&snapshot.session_id).is_none_or(|current| {
+            snapshot.epoch > current.epoch
+                || (snapshot.epoch == current.epoch && snapshot.revision > current.revision)
+        });
+        if replace {
+            latest.insert(snapshot.session_id.clone(), snapshot);
+        }
+    }
+    let snapshots = session_ids
+        .iter()
+        .filter_map(|id| latest.remove(id))
+        .collect();
+    Ok((session_ids, snapshots))
 }
 
 /// Title fallback when the user leaves it blank: the first words spoken,
@@ -93,14 +167,26 @@ pub fn derive_title(segments: &[TranscriptSegment]) -> String {
 /// keeps its identity/created-at and takes the passed transcript + links
 /// wholesale — the UI accumulates segments while a conversation stays open,
 /// so re-saving is how "append" happens.
-pub fn save(
-    app: &AppHandle,
-    id: Option<String>,
-    title: Option<String>,
-    segments: Vec<TranscriptSegment>,
-    linked_docs: Vec<String>,
-    context_id: Option<String>,
-) -> Result<Conversation, CoreError> {
+pub struct SaveConversation {
+    pub id: Option<String>,
+    pub title: Option<String>,
+    pub segments: Vec<TranscriptSegment>,
+    pub linked_docs: Vec<String>,
+    pub context_id: Option<String>,
+    pub source_session_ids: Vec<String>,
+    pub claim_snapshots: Vec<ClaimSnapshotEvent>,
+}
+
+pub fn save(app: &AppHandle, input: SaveConversation) -> Result<Conversation, CoreError> {
+    let SaveConversation {
+        id,
+        title,
+        segments,
+        linked_docs,
+        context_id,
+        source_session_ids,
+        claim_snapshots,
+    } = input;
     let now = now_unix_ms();
     let finals: Vec<TranscriptSegment> = segments.into_iter().filter(|s| s.is_final).collect();
     let requested_title = title
@@ -111,6 +197,26 @@ pub fn save(
         Some(id) => {
             validate_id(&id)?;
             let existing = load(app, &id).ok();
+            let prior_session_ids = existing
+                .as_ref()
+                .map(|conversation| conversation.source_session_ids.clone())
+                .unwrap_or_default();
+            let prior_snapshots = existing
+                .as_ref()
+                .map(|conversation| conversation.claim_snapshots.clone())
+                .unwrap_or_default();
+            let (source_session_ids, claim_snapshots) = normalize_claim_linkage(
+                if source_session_ids.is_empty() {
+                    prior_session_ids
+                } else {
+                    source_session_ids
+                },
+                if claim_snapshots.is_empty() {
+                    prior_snapshots
+                } else {
+                    claim_snapshots
+                },
+            )?;
             Conversation {
                 title: requested_title
                     .or_else(|| existing.as_ref().map(|c| c.title.clone()))
@@ -124,18 +230,26 @@ pub fn save(
                 linked_docs,
                 linked_context_id: context_id
                     .or_else(|| existing.as_ref().and_then(|c| c.linked_context_id.clone())),
+                source_session_ids,
+                claim_snapshots,
                 id,
             }
         }
-        None => Conversation {
-            id: format!("conv-{now}"),
-            title: requested_title.unwrap_or_else(|| derive_title(&finals)),
-            created_at_unix_ms: now,
-            updated_at_unix_ms: now,
-            segments: finals,
-            linked_docs,
-            linked_context_id: context_id,
-        },
+        None => {
+            let (source_session_ids, claim_snapshots) =
+                normalize_claim_linkage(source_session_ids, claim_snapshots)?;
+            Conversation {
+                id: format!("conv-{now}"),
+                title: requested_title.unwrap_or_else(|| derive_title(&finals)),
+                created_at_unix_ms: now,
+                updated_at_unix_ms: now,
+                segments: finals,
+                linked_docs,
+                linked_context_id: context_id,
+                source_session_ids,
+                claim_snapshots,
+            }
+        }
     };
 
     let path = conversations_dir(app)?.join(format!("{}.json", conversation.id));
@@ -188,6 +302,11 @@ pub fn list(app: &AppHandle) -> Result<Vec<ConversationSummary>, CoreError> {
             segment_count: conv.segments.len() as u32,
             linked_docs: conv.linked_docs,
             linked_context_id: conv.linked_context_id,
+            source_session_count: conv.source_session_ids.len() as u32,
+            has_claim_review: conv
+                .claim_snapshots
+                .iter()
+                .any(|snapshot| !snapshot.claims.is_empty()),
             preview,
         });
     }
@@ -199,6 +318,16 @@ pub fn list(app: &AppHandle) -> Result<Vec<ConversationSummary>, CoreError> {
 mod tests {
     use super::*;
     use conva_core::audio::StreamSide;
+
+    fn snapshot(session_id: &str, epoch: u64, revision: u64) -> ClaimSnapshotEvent {
+        ClaimSnapshotEvent {
+            contract_version: CLAIM_SNAPSHOT_CONTRACT_VERSION,
+            session_id: session_id.into(),
+            epoch,
+            revision,
+            claims: Vec::new(),
+        }
+    }
 
     fn seg(text: &str, is_final: bool) -> TranscriptSegment {
         TranscriptSegment {
@@ -234,5 +363,53 @@ mod tests {
     #[test]
     fn title_falls_back_when_empty() {
         assert_eq!(derive_title(&[]), "Untitled conversation");
+    }
+
+    #[test]
+    fn claim_linkage_dedupes_sessions_and_keeps_latest_snapshot() {
+        let (sessions, snapshots) = normalize_claim_linkage(
+            vec!["session-1".into(), "session-1".into(), "session-2".into()],
+            vec![
+                snapshot("session-1", 0, 1),
+                snapshot("session-1", 0, 3),
+                snapshot("session-1", 0, 2),
+                snapshot("session-2", 1, 1),
+            ],
+        )
+        .expect("valid linkage");
+
+        assert_eq!(sessions, vec!["session-1", "session-2"]);
+        assert_eq!(snapshots.len(), 2);
+        assert_eq!(snapshots[0].revision, 3);
+        assert_eq!(snapshots[1].epoch, 1);
+    }
+
+    #[test]
+    fn claim_linkage_rejects_unlinked_or_wrong_version_snapshots() {
+        assert!(normalize_claim_linkage(
+            vec!["session-1".into()],
+            vec![snapshot("session-2", 0, 1)],
+        )
+        .is_err());
+
+        let mut wrong_version = snapshot("session-1", 0, 1);
+        wrong_version.contract_version += 1;
+        assert!(normalize_claim_linkage(vec!["session-1".into()], vec![wrong_version]).is_err());
+    }
+
+    #[test]
+    fn older_conversations_default_to_no_session_or_claim_linkage() {
+        let json = serde_json::json!({
+            "id": "conv-old",
+            "title": "Old record",
+            "created_at_unix_ms": 1,
+            "updated_at_unix_ms": 2,
+            "segments": [],
+            "linked_docs": []
+        });
+        let conversation: Conversation =
+            serde_json::from_value(json).expect("old conversation should remain readable");
+        assert!(conversation.source_session_ids.is_empty());
+        assert!(conversation.claim_snapshots.is_empty());
     }
 }

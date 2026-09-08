@@ -170,6 +170,172 @@ function ContextInfoPopover({
   );
 }
 
+/** Secondary row actions. At narrow pane widths this is the only action control,
+ * preserving the title; at wider widths it keeps destructive Delete out of the
+ * exposed icon strip. Confirmation happens inside the same anchored surface. */
+function ContextRowMenu({
+  s,
+  isDefault,
+  status,
+  compact,
+  canGenerate,
+  isGenerating,
+  onSelect,
+  onEdit,
+  onGenerate,
+  onDelete,
+}: {
+  s: ContextSummary;
+  isDefault: boolean;
+  status: RowStatus;
+  compact: boolean;
+  canGenerate: boolean;
+  isGenerating: boolean;
+  onSelect: () => void;
+  onEdit: () => void;
+  onGenerate: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => {
+      setOpen(null);
+      setConfirmingDelete(false);
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [open]);
+
+  return (
+    <span className="relative shrink-0">
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          const width = 236;
+          const x = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+          setOpen((current) => (current ? null : { x, y: rect.bottom + 4 }));
+          setConfirmingDelete(false);
+        }}
+        aria-label={`More actions for ${s.title}`}
+        aria-haspopup="menu"
+        aria-expanded={open !== null}
+        className="rounded-sm p-1 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+      >
+        <Icon name="more" size={14} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label={`Actions for ${s.title}`}
+          onClick={(event) => event.stopPropagation()}
+          style={{ position: "fixed", left: open.x, top: open.y, zIndex: 70 }}
+          className="glass-raised w-[236px] rounded-lg border border-border p-1.5 shadow-[var(--shadow-lg)]"
+        >
+          {confirmingDelete ? (
+            <div className="p-2">
+              <p className="text-[11px] font-bold text-fg">Delete “{s.title}”?</p>
+              <p className="mt-1 text-[10px] leading-relaxed text-fg-muted">
+                This removes the Context. Library resources remain available.
+              </p>
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  className="btn px-2 py-1 text-[10px]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDelete();
+                    setOpen(null);
+                  }}
+                  className="rounded-md border border-rec/40 bg-rec/10 px-2 py-1 text-[10px] font-bold text-rec hover:bg-rec/20"
+                >
+                  Delete Context
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {compact && (
+                <>
+                  <div className="mb-1 border-b border-border px-2 py-1.5 text-[10px] text-fg-muted">
+                    <span className="font-bold text-fg">{CATEGORY_LABEL[s.category]}</span>
+                    <span className="mx-1.5 text-fg-faint">·</span>
+                    {status.label}
+                    <span className="mx-1.5 text-fg-faint">·</span>
+                    {formatRelativeTime(s.updated_at_unix_ms)}
+                  </div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onSelect();
+                      setOpen(null);
+                    }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-fg-muted hover:bg-panel-raised hover:text-fg"
+                  >
+                    <Icon name="file" size={13} /> Show resources in Library
+                  </button>
+                  {!isDefault && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        onEdit();
+                        setOpen(null);
+                      }}
+                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-fg-muted hover:bg-panel-raised hover:text-fg"
+                    >
+                      <Icon name="edit" size={13} /> Edit setup
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={!canGenerate || isGenerating}
+                    onClick={() => {
+                      onGenerate();
+                      setOpen(null);
+                    }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-fg-muted hover:bg-panel-raised hover:text-fg disabled:opacity-40"
+                  >
+                    <Icon name="sparkle" size={13} />
+                    {isGenerating ? "Generating resources…" : "Generate resources"}
+                  </button>
+                </>
+              )}
+              {!isDefault && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => setConfirmingDelete(true)}
+                  className={`${compact ? "mt-1 border-t border-border" : ""} flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-rec hover:bg-rec/10`}
+                >
+                  <Icon name="trash" size={13} /> Delete…
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </span>
+  );
+}
+
 // A failing advisory check reads as a hint, not an error — matches the
 // (now-retired) ChecklistLine's own ok/advisory/blocking icon choice.
 function advisoryOrClose(advisory: boolean | undefined): "lightbulb" | "close" {
@@ -232,6 +398,7 @@ export function ContextsPane({
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<"all" | ContextCategory>("all");
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const refreshDocs = useCallback(() => {
     backend.rag.list().then(setDocs).catch(() => {});
@@ -242,6 +409,7 @@ export function ContextsPane({
   }, [refreshDocs, refreshToken]);
 
   const visibleItems = items.filter((s) => {
+    if (!showTemplates && s.id === DEFAULT_CONTEXT_ID) return false;
     const q = search.trim().toLowerCase();
     if (q && !s.title.toLowerCase().includes(q)) return false;
     if (categoryFilter !== "all" && s.category !== categoryFilter) return false;
@@ -319,9 +487,19 @@ export function ContextsPane({
         />
       </div>
 
+      <button
+        type="button"
+        aria-pressed={showTemplates}
+        onClick={() => setShowTemplates((visible) => !visible)}
+        className="mb-2 flex items-center gap-1.5 self-start rounded-full border border-border px-2 py-1 text-[10px] font-semibold text-fg-muted transition hover:border-primary/40 hover:text-fg"
+      >
+        <Icon name="simicon" size={11} />
+        {showTemplates ? "Hide templates" : "Show templates"}
+      </button>
+
       {visibleItems.length === 0 ? (
         <p className="px-1 py-6 text-center text-[11px] leading-relaxed text-fg-faint">
-          {items.length === 0
+          {items.filter((item) => item.id !== DEFAULT_CONTEXT_ID).length === 0
             ? "Create a context to prep Ally for an interview, meeting, or call — ground it in your library, then generate its own briefing."
             : "No contexts match."}
         </p>
@@ -334,6 +512,7 @@ export function ContextsPane({
             // The always-present default: not editable or deletable —
             // system-managed until the community/LLM evolution owns it.
             const isDefault = s.id === DEFAULT_CONTEXT_ID;
+            const compactActions = widthPx < 250;
             const dragOver = dragOverId === s.id;
             // Every document tagged to this context — attached AND
             // anything Ally generated for it (both already carry this
@@ -363,126 +542,109 @@ export function ContextsPane({
                   if (docId) onAttach(s.id, docId);
                 }}
                 className={[
-                  "mb-1 rounded-md border px-2 py-1 transition last:mb-0",
+                  "mb-1 rounded-md border border-border px-1.5 py-1 transition last:mb-0",
                   dragOver
                     ? "border-ai/60 bg-ai/[0.06]"
-                    : // The Default context is a template, not a context the
-                      // owner made — a distinct border says so at a glance
-                      // (owner, 2026-08-29), without claiming the
-                      // "dragging onto" (ai) color above. The row body
-                      // itself has no click handler, so — unlike this and
-                      // the drag state — "focused in Library" (below) is
-                      // never expressed as a whole-row highlight (owner,
-                      // 2026-08-29: "there should only be a click affect on
-                      // the title and icons not the general body of the
-                      // card that has no event tied to it").
-                      isDefault
-                      ? "border-notice/40"
-                      : "border-border",
+                    : "hover:border-border-strong hover:bg-panel-raised/35",
                 ].join(" ")}
               >
-                <div className="flex items-center gap-1.5">
-                  {/* Type-specific pictogram (spec §7 Pane A: "each row shows
-                      a type-specific pictogram"), colorized per category. */}
-                  <span
-                    className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-md"
-                    style={{
-                      color: CATEGORY_ICON[s.category].color,
-                      background: `color-mix(in srgb, ${CATEGORY_ICON[s.category].color} 16%, transparent)`,
-                    }}
-                    title={CATEGORY_LABEL[s.category]}
-                    aria-hidden
-                  >
-                    <Icon name={CATEGORY_ICON[s.category].icon} size={11} />
-                  </span>
-                  <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dotClass}`}
-                    title={
-                      isGenerating
-                        ? "Generating…"
-                        : status.label === "Stale"
-                          ? "Stale — inputs changed since resources were generated"
-                          : status.label
-                    }
-                    aria-hidden
-                  />
-                  {/* Title opens the context directly (owner, 2026-08-29 —
-                      "the user should be able to click the title to open it
-                      naturally"), replacing the old separate chevron button.
-                      The doc-count control took over what the title used to
-                      do (focus this context in Library). */}
+                <div className="flex min-w-0 items-center gap-1">
                   <button
                     type="button"
                     onClick={() => onOpen(s.id)}
                     aria-label={`Open ${s.title}`}
                     title={titleTooltip(s, totalBytes)}
-                    className="min-w-0 flex-1 text-left"
+                    className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-0.5 py-0.5 text-left focus-visible:outline-2 focus-visible:outline-primary"
                   >
-                    <p className="truncate text-[13px] font-semibold text-fg">{s.title}</p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSelect(s.id)}
-                    aria-label={`Show documents for ${s.title} in Library`}
-                    aria-pressed={selectedId === s.id}
-                    title="Show this context's documents in Library"
-                    className={[
-                      "flex shrink-0 items-center gap-0.5 rounded-sm p-0.5 text-[11px] transition hover:bg-panel-raised/60",
-                      // The click effect lives on this icon, not the row
-                      // (see the row's className comment above) — a light
-                      // fill/tint says "Library is filtered to this one".
-                      selectedId === s.id
-                        ? "bg-primary/10 text-primary hover:text-primary"
-                        : "text-fg-faint hover:text-fg",
-                    ].join(" ")}
-                  >
-                    <Icon name="file" size={11} />
-                    {s.source_doc_count}
-                  </button>
-                  <ContextInfoPopover s={s} isDefault={isDefault} status={status} />
-                  {!isDefault && (
-                    <button
-                      type="button"
-                      onClick={() => onEdit(s.id)}
-                      aria-label={`Edit setup for ${s.title}`}
-                      title="Edit setup"
-                      className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                    <span
+                      className="grid h-[20px] w-[20px] shrink-0 place-items-center rounded-md"
+                      style={{
+                        color: CATEGORY_ICON[s.category].color,
+                        background: `color-mix(in srgb, ${CATEGORY_ICON[s.category].color} 16%, transparent)`,
+                      }}
+                      title={CATEGORY_LABEL[s.category]}
+                      aria-hidden
                     >
-                      <Icon name="edit" size={13} />
-                    </button>
-                  )}
-                  {/* Unlike Edit/Delete, Regenerate applies to the Default
-                      context too — it still generates/refreshes resources
-                      just like any other context (owner, 2026-08-28: it's
-                      the one context most people actually have at first,
-                      so hiding Regenerate here read as "the icons are
-                      missing" rather than "not applicable"). */}
-                  <button
-                    type="button"
-                    disabled={!readiness.canGenerate || isGenerating}
-                    onClick={() => onGenerate(s.id)}
-                    aria-label={`Generate resources for ${s.title}`}
-                    title={
-                      readiness.canGenerate
-                        ? regenerateTooltip(s)
-                        : "Add a document, key terms, or enable research first"
-                    }
-                    className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-ai disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-faint"
-                  >
-                    <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
-                      <Icon name="sparkle" size={13} />
+                      <Icon name={CATEGORY_ICON[s.category].icon} size={12} />
                     </span>
+                    <span
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dotClass}`}
+                      title={
+                        isGenerating
+                          ? "Generating…"
+                          : status.label === "Stale"
+                            ? "Stale — inputs changed since resources were generated"
+                            : status.label
+                      }
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-fg">
+                      {s.title}
+                    </span>
+                    {isDefault && (
+                      <span className="shrink-0 rounded-full bg-panel-raised px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider text-fg-faint">
+                        Template
+                      </span>
+                    )}
                   </button>
-                  {!isDefault && (
-                    <button
-                      type="button"
-                      onClick={() => onDelete(s.id)}
-                      aria-label={`Delete ${s.title}`}
-                      title="Delete"
-                      className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-rec/10 hover:text-rec"
-                    >
-                      <Icon name="trash" size={13} />
-                    </button>
+                  {!compactActions && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onSelect(s.id)}
+                        aria-label={`Show documents for ${s.title} in Library`}
+                        aria-pressed={selectedId === s.id}
+                        title="Show this context's documents in Library"
+                        className={`flex shrink-0 items-center gap-0.5 rounded-sm p-0.5 text-[10px] transition hover:bg-panel-raised/60 ${
+                          selectedId === s.id ? "bg-primary/10 text-primary" : "text-fg-faint hover:text-fg"
+                        }`}
+                      >
+                        <Icon name="file" size={11} />
+                        {s.source_doc_count}
+                      </button>
+                      <ContextInfoPopover s={s} isDefault={isDefault} status={status} />
+                      {!isDefault && (
+                        <button
+                          type="button"
+                          onClick={() => onEdit(s.id)}
+                          aria-label={`Edit setup for ${s.title}`}
+                          title="Edit setup"
+                          className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+                        >
+                          <Icon name="edit" size={13} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={!readiness.canGenerate || isGenerating}
+                        onClick={() => onGenerate(s.id)}
+                        aria-label={`Generate resources for ${s.title}`}
+                        title={readiness.canGenerate ? regenerateTooltip(s) : "Add a document, key terms, or enable research first"}
+                        className={`shrink-0 rounded-md border px-1.5 py-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                          isGenerating
+                            ? "border-ai/40 bg-ai/10 text-ai shadow-sm"
+                            : "border-transparent text-fg-faint hover:border-ai/30 hover:bg-ai/10 hover:text-ai"
+                        }`}
+                      >
+                        <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
+                          <Icon name="sparkle" size={13} />
+                        </span>
+                      </button>
+                    </>
+                  )}
+                  {(compactActions || !isDefault) && (
+                    <ContextRowMenu
+                      s={s}
+                      isDefault={isDefault}
+                      status={status}
+                      compact={compactActions}
+                      canGenerate={readiness.canGenerate}
+                      isGenerating={isGenerating}
+                      onSelect={() => onSelect(s.id)}
+                      onEdit={() => onEdit(s.id)}
+                      onGenerate={() => onGenerate(s.id)}
+                      onDelete={() => onDelete(s.id)}
+                    />
                   )}
                 </div>
 

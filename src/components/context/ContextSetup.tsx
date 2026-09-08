@@ -2,16 +2,45 @@ import { useEffect, useState } from "react";
 
 import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { CATEGORIES, categoryTemplate, researchDefault } from "@/components/context/categoryTemplates";
+import {
+  ClaimPolicyControls,
+  ParticipationLensControl,
+} from "@/components/context/ClaimPolicyControls";
+import {
+  createContextSourcePolicyId,
+  defaultParticipationLens,
+  defaultSourcePolicy,
+  effectiveParticipationLens,
+  normalizeSourcePolicy,
+  participationLensLabel,
+  sourcePolicyDisclosure,
+} from "@/components/context/claimPolicy";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
+import {
+  ContextResourceLibrary,
+  OTHER_RESOURCE_TARGET,
+} from "@/components/context/ContextResourceLibrary";
+import { GenerationStatus } from "@/components/context/ResourceGenerationStatus";
+import { generationStages, type GenerationStage } from "@/components/context/generationStatus";
+import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
+import { documentIcon } from "@/components/contexts/documentVisual";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
 import { groupBySlot, splitDocuments } from "@/components/context/documentSplit";
 import { buildQaMarkdown, parseQaImport } from "@/components/transcript/qaPairs";
-import type { RagDocument, ContextCategory, ConversationContext } from "@/lib/ipc";
+import type {
+  RagDocument,
+  ContextCategory,
+  ConversationContext,
+  SourcePolicy,
+} from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 
-const DOC_EXTENSIONS = ["pdf", "docx", "md", "txt", "html"];
+const DOC_EXTENSIONS = [
+  "pdf", "docx", "md", "txt", "html",
+  "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tif", "tiff", "heic",
+];
 const STEP_LABEL = ["the basics", "context & documents", "review"];
 
 /**
@@ -33,11 +62,26 @@ export function ContextSetup({
   const backend = useBackend();
   const caps = useCapabilities();
   const [regenerating, setRegenerating] = useState(false);
+  const [generationReport, setGenerationReport] = useState<GenerationStage[]>([]);
+  const [libraryDrawerOpen, setLibraryDrawerOpen] = useState(false);
   const [step, setStep] = useState(1);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [purpose, setPurpose] = useState(initial?.purpose ?? "");
   const [category, setCategory] = useState<ContextCategory>(
     initial?.category ?? "interview",
+  );
+  const [participationLens, setParticipationLens] = useState(() =>
+    effectiveParticipationLens(
+      initial?.category ?? "interview",
+      initial?.participation_lens,
+    ),
+  );
+  const [sourcePolicy, setSourcePolicy] = useState(() =>
+    normalizeSourcePolicy(
+      initial?.category ?? "interview",
+      initial?.source_policy,
+      createContextSourcePolicyId(initial?.id),
+    ),
   );
   const [jobDescription, setJobDescription] = useState(
     initial?.job_description ?? "",
@@ -49,6 +93,9 @@ export function ContextSetup({
   );
   const [slotDocIds, setSlotDocIds] = useState<Record<string, string[]>>(
     initial?.slot_doc_ids ?? {},
+  );
+  const [libraryTarget, setLibraryTarget] = useState(
+    categoryTemplate(initial?.category ?? "interview").fileSlots[0]?.key ?? OTHER_RESOURCE_TARGET,
   );
   const [research, setResearch] = useState(
     initial?.research_enabled ??
@@ -76,8 +123,22 @@ export function ContextSetup({
   // Picking a type resets research to that type's default (user-overridable).
   const pickCategory = (c: ContextCategory) => {
     setCategory(c);
+    setParticipationLens(defaultParticipationLens(c));
+    setSourcePolicy((current) => ({
+      ...defaultSourcePolicy(c, current.id),
+      version: current.version + 1,
+    }));
     setResearch(researchDefault(c));
     setDeepQa(false);
+    setLibraryTarget(categoryTemplate(c).fileSlots[0]?.key ?? OTHER_RESOURCE_TARGET);
+  };
+
+  const changeSourcePolicy = (next: SourcePolicy) => {
+    setSourcePolicy((current) => ({
+      ...normalizeSourcePolicy(category, next, current.id),
+      id: current.id,
+      version: current.version + 1,
+    }));
   };
 
   // Deep Q&A depends on research being on — turning research off clears it.
@@ -139,28 +200,30 @@ export function ContextSetup({
       .catch(() => setDocs([]));
   }, [backend]);
 
-  const toggleDoc = (id: string) =>
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const assignDocument = (target: string, docId: string) => {
+    setSelected((current) => (current.includes(docId) ? current : [...current, docId]));
+    setSlotDocIds((current) => {
+      const withoutDoc = Object.fromEntries(
+        Object.entries(current).map(([key, ids]) => [key, ids.filter((id) => id !== docId)]),
+      );
+      if (target === OTHER_RESOURCE_TARGET) return withoutDoc;
+      return { ...withoutDoc, [target]: [...(withoutDoc[target] ?? []), docId] };
+    });
+  };
 
-  // Checking a slot's checkbox files the doc under that slot AND keeps it
-  // in `selected` (the flat source_doc_ids grounding list, unchanged).
-  // Unchecking removes it from that slot only — it stays in `selected` if
-  // another slot (or "Other documents") still claims it, and only leaves
-  // `selected` once nothing does. A doc can be checked under more than one
-  // slot at once (see groupBySlot's doc comment) — allowed, not prevented.
-  const toggleSlotDoc = (slotKey: string, docId: string) => {
-    setSlotDocIds((prev) => {
-      const current = prev[slotKey] ?? [];
-      const checked = current.includes(docId);
+  const removeDocument = (target: string, docId: string) => {
+    if (target === OTHER_RESOURCE_TARGET) {
+      setSelected((current) => current.filter((id) => id !== docId));
+      return;
+    }
+    setSlotDocIds((current) => {
       const next = {
-        ...prev,
-        [slotKey]: checked ? current.filter((id) => id !== docId) : [...current, docId],
+        ...current,
+        [target]: (current[target] ?? []).filter((id) => id !== docId),
       };
-      if (checked) {
-        const stillClaimed = Object.values(next).some((ids) => ids.includes(docId));
-        if (!stillClaimed) setSelected((s) => s.filter((id) => id !== docId));
-      } else {
-        setSelected((s) => (s.includes(docId) ? s : [...s, docId]));
+      const stillAssigned = Object.values(next).some((ids) => ids.includes(docId));
+      if (!stillAssigned) {
+        setSelected((selectedIds) => selectedIds.filter((id) => id !== docId));
       }
       return next;
     });
@@ -172,11 +235,13 @@ export function ContextSetup({
     categoryTemplate(category).fileSlots,
     slotDocIds,
   );
+  const assignedOtherDocs = otherDocs.filter((doc) => selected.includes(doc.id));
 
   const regenerate = async () => {
     if (!initial) return;
     setRegenerating(true);
     setError(null);
+    setGenerationReport([]);
     try {
       // Persist pending wizard edits first (e.g. a just-checked deep-QA
       // box) — generateDossier reads the SAVED session from disk, so
@@ -185,6 +250,9 @@ export function ContextSetup({
       // questions" bug: the checkbox never made it to disk before the
       // dossier pipeline read `deep_qa_enabled` back off it).
       await backend.context.save(buildSavePayload());
+      const hasResearchKey = backend.context.researchKeyStatus
+        ? await backend.context.researchKeyStatus().catch(() => false)
+        : false;
       const updated = await backend.context.generateDossier(initial.id);
       setGeneratedFields({
         dossier_doc_id: updated.dossier_doc_id,
@@ -194,6 +262,7 @@ export function ContextSetup({
         glossary_definitions: updated.glossary_definitions ?? {},
         resources_stale: updated.resources_stale ?? false,
       });
+      setGenerationReport(generationStages(updated, hasResearchKey));
       setDocs(await backend.rag.list());
     } catch {
       setError("Couldn't regenerate.");
@@ -207,14 +276,14 @@ export function ContextSetup({
   // `slotKey` files the newly-added doc(s) under that slot too (when added
   // from a slot's own "Add documents…" button); omitted (the "Other
   // documents" section's button) leaves them unslotted.
-  const addDocuments = async (slotKey?: string) => {
+  const addDocuments = async (target: string) => {
     setAdding(true);
     setError(null);
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const picked = await open({
         multiple: true,
-        filters: [{ name: "Documents", extensions: DOC_EXTENSIONS }],
+        filters: [{ name: "Documents and images", extensions: DOC_EXTENSIONS }],
       });
       const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
       if (paths.length === 0) return;
@@ -223,12 +292,7 @@ export function ContextSetup({
       const newIds = reports.map((r) => r.document.id);
       setDocs(await backend.rag.list());
       setSelected((s) => Array.from(new Set([...s, ...newIds])));
-      if (slotKey) {
-        setSlotDocIds((prev) => ({
-          ...prev,
-          [slotKey]: Array.from(new Set([...(prev[slotKey] ?? []), ...newIds])),
-        }));
-      }
+      newIds.forEach((id) => assignDocument(target, id));
     } catch {
       setError("Couldn't add documents.");
     } finally {
@@ -236,7 +300,24 @@ export function ContextSetup({
     }
   };
 
-  const canNext = step === 1 ? title.trim().length > 0 : true;
+  const pasteResource = async (name: string, text: string, target: string) => {
+    setError(null);
+    try {
+      const report = await backend.rag.ingestText(name, text);
+      setDocs(await backend.rag.list());
+      assignDocument(target, report.document.id);
+    } catch {
+      setError("Couldn't add pasted text.");
+      throw new Error("Couldn't add pasted text.");
+    }
+  };
+
+  const canNext =
+    step === 1
+      ? title.trim().length > 0
+      : step === 2
+        ? sourcePolicy.allowed_classes.length > 0
+        : true;
 
   // Shared by `finish` and `regenerate` — the latter needs this to persist
   // pending edits (e.g. the deep-QA checkbox) before the dossier pipeline
@@ -247,6 +328,8 @@ export function ContextSetup({
     purpose: purpose.trim(),
     job_description: jobDescription.trim() ? jobDescription.trim() : null,
     category,
+    participation_lens: participationLens,
+    source_policy: normalizeSourcePolicy(category, sourcePolicy, sourcePolicy.id),
     status: initial?.status ?? "draft",
     created_at_unix_ms: initial?.created_at_unix_ms ?? 0,
     updated_at_unix_ms: 0,
@@ -296,6 +379,7 @@ export function ContextSetup({
       title={initial ? "Edit Context" : "New Context"}
       subtitle={`Step ${step} of 3 — ${STEP_LABEL[step - 1]}`}
       onBack={onCancel}
+      wide={step === 2}
     >
       {step === 1 && (
         <Section title="What are you rehearsing?">
@@ -320,7 +404,12 @@ export function ContextSetup({
               />
             </label>
             <div className="field">
-              Type
+              {initial ? "Type" : "Start with a template"}
+              {!initial && (
+                <span className="text-[11px] font-normal normal-case tracking-normal text-fg-faint">
+                  Choose the conversation pattern Ally should prepare for. You can refine it below.
+                </span>
+              )}
               <div className="flex flex-wrap gap-2">
                 {CATEGORIES.map((c) => (
                   <button
@@ -338,6 +427,11 @@ export function ContextSetup({
             <p className="text-[11px] text-fg-faint">
               Ally will generate: {categoryTemplate(category).digestSections.join(", ")}
             </p>
+            <ParticipationLensControl
+              category={category}
+              value={participationLens}
+              onChange={setParticipationLens}
+            />
             {category === "interview" && (
               <label className="field">
                 Job description
@@ -355,133 +449,120 @@ export function ContextSetup({
       )}
 
       {step === 2 && (
-        <>
-          {slotGroups.map(({ slot }) => (
-            <Section
+        <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="flex min-w-0 flex-col gap-4">
+          <button
+            type="button"
+            onClick={() => setLibraryDrawerOpen(true)}
+            className="btn btn-primary self-start xl:hidden"
+          >
+            <Icon name="library" size={14} /> Open Library
+            <span className="rounded-full bg-primary-ink/15 px-1.5 text-[10px]">{selected.length}</span>
+          </button>
+          {slotGroups.map(({ slot, docs: assignedDocs }) => (
+            <div
               key={slot.key}
-              title={slot.label + (slot.multiple ? " (multiple)" : "")}
-              description="conva grounds the counterparty and its questions in these. Add files directly (they're kept in a folder named after this Context) or pick from your library."
+              onClick={() => setLibraryTarget(slot.key)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                const docId = event.dataTransfer.getData(DOC_DRAG_MIME);
+                if (docId) assignDocument(slot.key, docId);
+              }}
+              className={libraryTarget === slot.key ? "rounded-xl ring-1 ring-primary/50" : ""}
             >
-              {isDesktop && (
-                <div className="mb-3">
-                  <button
-                    type="button"
-                    className="btn"
-                    disabled={adding}
-                    onClick={() => void addDocuments(slot.key)}
-                  >
-                    {adding ? "Adding…" : "Add documents…"}
-                  </button>
-                </div>
-              )}
-              {attachable.length === 0 ? (
-                <p className="text-sm text-fg-muted">
-                  No documents yet — add some above, or let Ally research context
-                  below.
+              <Section
+                title={slot.label + (slot.multiple ? " (multiple)" : "")}
+                description="Select this section, then add from the Library column or drag a resource here."
+              >
+                {assignedDocs.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] text-fg-faint">
+                    Drop resources here · selected Library destination
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-border">
+                    {assignedDocs.map((doc) => (
+                      <li key={doc.id} className="flex items-center gap-2 py-2">
+                        <Icon name={documentIcon(doc)} size={15} className="shrink-0 text-fg-faint" />
+                        <span className="min-w-0 flex-1 truncate text-sm text-fg">{doc.file_name}</span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            removeDocument(slot.key, doc.id);
+                          }}
+                          aria-label={`Remove ${doc.file_name} from ${slot.label}`}
+                          className="rounded-sm p-1 text-fg-faint hover:bg-rec/10 hover:text-rec"
+                        >
+                          <Icon name="close" size={12} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Section>
+            </div>
+          ))}
+          <div
+            onClick={() => setLibraryTarget(OTHER_RESOURCE_TARGET)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const docId = event.dataTransfer.getData(DOC_DRAG_MIME);
+              if (docId) assignDocument(OTHER_RESOURCE_TARGET, docId);
+            }}
+            className={libraryTarget === OTHER_RESOURCE_TARGET ? "rounded-xl ring-1 ring-primary/50" : ""}
+          >
+            <Section
+              title="Other documents"
+              description="Anything that does not fit a section above still grounds this Context."
+            >
+              {assignedOtherDocs.length === 0 ? (
+                <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] text-fg-faint">
+                  Drop other supporting resources here
                 </p>
               ) : (
-                <ul className="flex flex-col divide-y divide-border">
-                  {attachable.map((d) => (
-                    <li key={d.id} className="flex items-center gap-3 py-2">
-                      <input
-                        type="checkbox"
-                        checked={(slotDocIds[slot.key] ?? []).includes(d.id)}
-                        onChange={() => toggleSlotDoc(slot.key, d.id)}
-                        aria-label={`Attach ${d.file_name} to ${slot.label}`}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm text-fg">
-                        {d.file_name}
-                      </span>
+                <ul className="divide-y divide-border">
+                  {assignedOtherDocs.map((doc) => (
+                    <li key={doc.id} className="flex items-center gap-2 py-2">
+                      <Icon name={documentIcon(doc)} size={15} className="shrink-0 text-fg-faint" />
+                      <span className="min-w-0 flex-1 truncate text-sm text-fg">{doc.file_name}</span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          removeDocument(OTHER_RESOURCE_TARGET, doc.id);
+                        }}
+                        aria-label={`Remove ${doc.file_name} from Other documents`}
+                        className="rounded-sm p-1 text-fg-faint hover:bg-rec/10 hover:text-rec"
+                      >
+                        <Icon name="close" size={12} />
+                      </button>
                     </li>
                   ))}
                 </ul>
               )}
             </Section>
-          ))}
-          <Section
-            title="Other documents"
-            description="Anything that doesn't fit a slot above — still grounds the counterparty and its questions."
-          >
-            {isDesktop && (
-              <div className="mb-3">
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={adding}
-                  onClick={() => void addDocuments()}
-                >
-                  {adding ? "Adding…" : "Add documents…"}
-                </button>
-              </div>
-            )}
-            {otherDocs.length === 0 ? (
-              <p className="text-sm text-fg-muted">
-                No other documents — everything attached is filed under a slot
-                above.
-              </p>
-            ) : (
-              <ul className="flex flex-col divide-y divide-border">
-                {otherDocs.map((d) => (
-                  <li key={d.id} className="flex items-center gap-3 py-2">
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(d.id)}
-                      onChange={() => toggleDoc(d.id)}
-                      aria-label={`Attach ${d.file_name}`}
-                    />
-                    <span className="min-w-0 flex-1 truncate text-sm text-fg">
-                      {d.file_name}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Section>
+          </div>
           {initial && (
             <Section
-              title="Generated by Ally"
-              description="Auto-included in this context's grounding — not something you attach or detach by hand. Regenerate any time to refresh from your current documents and settings."
+              title="Generate Context resources"
+              description="Creates Context Knowledge, then runs optional web research and Interview Q&A when configured. Every stage reports its result."
             >
               <div className="mb-3">
                 <button
                   type="button"
-                  className="btn"
+                  className="btn btn-accent min-w-48 justify-center shadow-sm disabled:opacity-70"
                   disabled={regenerating}
                   onClick={() => void regenerate()}
                 >
-                  {regenerating ? "Regenerating…" : "Regenerate resources"}
+                  {regenerating && (
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary-ink/30 border-t-primary-ink" />
+                  )}
+                  {regenerating ? "Generating resources…" : "Regenerate resources"}
                 </button>
               </div>
-              {generated.length === 0 ? (
-                <p className="text-sm text-fg-muted">Nothing generated yet.</p>
-              ) : (
-                <ul className="flex flex-col divide-y divide-border">
-                  {generated.map((d) => (
-                    <li key={d.id} className="flex items-center gap-2 py-2">
-                      <Icon name="sparkle" size={13} className="shrink-0 text-ai" />
-                      <span className="min-w-0 flex-1 truncate text-sm text-fg">
-                        {d.file_name}
-                      </span>
-                      <span className="shrink-0 rounded-full bg-ai/10 px-1.5 py-0.5 text-[9px] font-semibold text-ai">
-                        conva
-                      </span>
-                      {caps?.system.partnerWindow && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void backend.partner.open(d.file_name, null, null, null, [], d.id)
-                          }
-                          title="View"
-                          aria-label={`View ${d.file_name}`}
-                          className="shrink-0 rounded-sm px-2 py-0.5 text-[11px] font-semibold text-ai hover:bg-ai/10"
-                        >
-                          View
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {generationReport.length > 0 && <GenerationStatus stages={generationReport} />}
             </Section>
           )}
           <Section
@@ -569,7 +650,74 @@ export function ContextSetup({
               )}
             </Section>
           )}
-        </>
+          <Section
+            title="Claim checks & source policy"
+            description="Controls which live claims Conva may check, which evidence can count, and what may leave this device. This is separate from the preparation research above."
+          >
+            <ClaimPolicyControls policy={sourcePolicy} onChange={changeSourcePolicy} />
+          </Section>
+          </div>
+
+          <div className="hidden min-h-[36rem] xl:block">
+            <div className="sticky top-2 h-[calc(100vh-10rem)]">
+              <ContextResourceLibrary
+                attachable={attachable}
+                generated={generated}
+                selectedIds={selected}
+                slots={categoryTemplate(category).fileSlots}
+                target={libraryTarget}
+                adding={adding}
+                canAddFiles={isDesktop}
+                onTargetChange={setLibraryTarget}
+                onAssign={assignDocument}
+                onAddFiles={(target) => void addDocuments(target)}
+                onPaste={pasteResource}
+                canViewGenerated={Boolean(caps?.system.partnerWindow)}
+                onViewGenerated={(doc) => void backend.partner.open(doc.file_name, null, null, null, [], doc.id)}
+              />
+            </div>
+          </div>
+
+          {libraryDrawerOpen && (
+            <div className="fixed inset-0 z-50 xl:hidden">
+              <button
+                type="button"
+                aria-label="Close Library"
+                onClick={() => setLibraryDrawerOpen(false)}
+                className="absolute inset-0 bg-black/55"
+              />
+              <div className="absolute inset-y-0 right-0 w-[min(88vw,340px)] border-l border-border bg-bg p-3 shadow-2xl">
+                <div className="mb-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setLibraryDrawerOpen(false)}
+                    className="rounded-sm p-1 text-fg-muted hover:bg-panel-raised"
+                    aria-label="Close Context Library"
+                  >
+                    <Icon name="close" size={16} />
+                  </button>
+                </div>
+                <div className="h-[calc(100%-2rem)]">
+                  <ContextResourceLibrary
+                    attachable={attachable}
+                    generated={generated}
+                    selectedIds={selected}
+                    slots={categoryTemplate(category).fileSlots}
+                    target={libraryTarget}
+                    adding={adding}
+                    canAddFiles={isDesktop}
+                    onTargetChange={setLibraryTarget}
+                    onAssign={assignDocument}
+                    onAddFiles={(target) => void addDocuments(target)}
+                    onPaste={pasteResource}
+                    canViewGenerated={Boolean(caps?.system.partnerWindow)}
+                    onViewGenerated={(doc) => void backend.partner.open(doc.file_name, null, null, null, [], doc.id)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {step === 3 && (
@@ -583,6 +731,10 @@ export function ContextSetup({
             <dd className="text-fg">
               {CATEGORIES.find((c) => c.value === category)?.label}
             </dd>
+            <dt className="text-fg-faint">Your role</dt>
+            <dd className="text-fg">
+              {participationLensLabel(category, participationLens)}
+            </dd>
             {category === "interview" && (
               <>
                 <dt className="text-fg-faint">Job description</dt>
@@ -595,6 +747,17 @@ export function ContextSetup({
             <dd className="text-fg">{selected.length} attached</dd>
             <dt className="text-fg-faint">Web research</dt>
             <dd className="text-fg">{research ? "On" : "Off"}</dd>
+            <dt className="text-fg-faint">Claim checks</dt>
+            <dd className="text-fg">
+              {sourcePolicy.allow_automatic_checks ? "Automatic" : "Manual"}
+            </dd>
+            <dt className="text-fg-faint">Allowed evidence</dt>
+            <dd className="text-fg">
+              {sourcePolicy.allowed_classes.length} source class
+              {sourcePolicy.allowed_classes.length === 1 ? "" : "es"}
+            </dd>
+            <dt className="text-fg-faint">Claim web research</dt>
+            <dd className="text-fg">{sourcePolicy.allow_open_web ? "Allowed" : "Off"}</dd>
             {category === "interview" && (
               <>
                 <dt className="text-fg-faint">Deep Q&A</dt>
@@ -605,6 +768,9 @@ export function ContextSetup({
           <p className="mt-3 text-[12px] leading-relaxed text-fg-faint">
             Finishing saves this Context. Building the knowledge base, generating
             personas, and the live session come next.
+          </p>
+          <p className="mt-2 rounded border border-border px-3 py-2 text-[11px] leading-relaxed text-fg-muted">
+            {sourcePolicyDisclosure(sourcePolicy)}
           </p>
           {error && <p className="mt-2 text-sm text-rec">{error}</p>}
         </Section>

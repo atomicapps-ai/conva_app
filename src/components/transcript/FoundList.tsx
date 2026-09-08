@@ -2,16 +2,21 @@ import type {
   FoundGroups,
   FoundItem,
 } from "@/components/transcript/foundGroups";
+import { ClaimRow } from "@/components/transcript/ClaimRow";
+import type {
+  ClaimDisplayItem,
+  ClaimRowAction,
+} from "@/components/transcript/claims";
 
 /** Per-section empty-state copy for single-group (`only`) mode. */
 const ONLY_EMPTY: Record<"questions" | "tracking" | "terms", string> = {
   questions: "Nothing yet — questions from the other side land here.",
-  tracking: "Commitments and mentions appear as the call goes.",
+  tracking: "Claims, commitments, and mentions appear as the call goes.",
   terms: "Terms appear as they're detected — and from your grounded documents.",
 };
 
 const PREP_EMPTY =
-  "No prepared Q&A yet — turn on \"Deep interview Q&A research\" in the " +
+  'No prepared Q&A yet — turn on "Deep interview Q&A research" in the ' +
   "context's setup, import Q&A there, or attach a document with Q:/A: lines.";
 
 /**
@@ -31,6 +36,9 @@ export function FoundList({
   onSelect,
   only,
   questionsMode = "live",
+  canOpenClaimEvidence = false,
+  onClaimAction,
+  enabledClaimActions,
 }: {
   groups: FoundGroups;
   onSelect: (item: FoundItem) => void;
@@ -39,9 +47,13 @@ export function FoundList({
    *  renders the prepared Q&A bank (groups.prepQa, themed) instead of the
    *  live radar feed. Only meaningful with `only="questions"`. */
   questionsMode?: "live" | "prep";
+  canOpenClaimEvidence?: boolean;
+  onClaimAction?: (claim: ClaimDisplayItem, action: ClaimRowAction) => void;
+  enabledClaimActions?: readonly ClaimRowAction[];
 }) {
   const empty =
     groups.questions.length === 0 &&
+    groups.claims.length === 0 &&
     groups.commitments.length === 0 &&
     groups.terms.length === 0 &&
     groups.mentions.length === 0;
@@ -103,13 +115,17 @@ export function FoundList({
 
   if (only) {
     const emptyLine = (
-      <p className="px-1 py-3 text-[0.86em] text-fg-faint">{ONLY_EMPTY[only]}</p>
+      <p className="px-1 py-3 text-[0.86em] text-fg-faint">
+        {ONLY_EMPTY[only]}
+      </p>
     );
     if (only === "questions") {
       if (questionsMode === "prep") {
         if (groups.prepQa.length === 0) {
           return (
-            <p className="px-1 py-3 text-[0.86em] text-fg-faint">{PREP_EMPTY}</p>
+            <p className="px-1 py-3 text-[0.86em] text-fg-faint">
+              {PREP_EMPTY}
+            </p>
           );
         }
         // Themed groups in document order; a null theme falls under
@@ -141,7 +157,9 @@ export function FoundList({
                       {item.label}
                     </span>
                     <span className="shrink-0 font-mono text-[8.5px] uppercase tracking-[0.08em] text-ai">
-                      {item.prep?.source === "ally" ? "ally" : item.prep?.source}
+                      {item.prep?.source === "ally"
+                        ? "ally"
+                        : item.prep?.source}
                     </span>
                   </button>
                 ))}
@@ -156,10 +174,32 @@ export function FoundList({
       );
     }
     if (only === "tracking") {
-      if (groups.commitments.length === 0 && groups.mentions.length === 0)
+      if (
+        groups.claims.length === 0 &&
+        groups.commitments.length === 0 &&
+        groups.mentions.length === 0
+      )
         return emptyLine;
       return (
         <div className="flex flex-col gap-3">
+          {groups.claims.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <h4 className="font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-fg-faint">
+                Claims · highest consequence first
+              </h4>
+              {groups.claims.map((claim) => (
+                <ClaimRow
+                  key={claim.id}
+                  claim={claim}
+                  canOpenEvidence={
+                    canOpenClaimEvidence || Boolean(claim.record)
+                  }
+                  onAction={onClaimAction}
+                  enabledActions={enabledClaimActions}
+                />
+              ))}
+            </div>
+          )}
           {groups.commitments.length > 0 && (
             <div className="flex flex-col gap-1">
               {groups.commitments.map(row)}
@@ -182,8 +222,8 @@ export function FoundList({
   if (empty) {
     return (
       <p className="px-1 py-3 text-[0.86em] text-fg-faint">
-        Questions, commitments, terms, and mentions Ally catches appear here
-        as the conversation runs.
+        Questions, commitments, terms, and mentions Ally catches appear here as
+        the conversation runs.
       </p>
     );
   }
@@ -194,6 +234,20 @@ export function FoundList({
         <div className="flex flex-col gap-1">
           {header("They asked")}
           {groups.questions.map(row)}
+        </div>
+      )}
+      {groups.claims.length > 0 && (
+        <div className="flex flex-col gap-1">
+          {header("Claims")}
+          {groups.claims.map((claim) => (
+            <ClaimRow
+              key={claim.id}
+              claim={claim}
+              canOpenEvidence={canOpenClaimEvidence || Boolean(claim.record)}
+              onAction={onClaimAction}
+              enabledActions={enabledClaimActions}
+            />
+          ))}
         </div>
       )}
       {groups.commitments.length > 0 && (

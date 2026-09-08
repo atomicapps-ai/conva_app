@@ -19,8 +19,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::asr::TranscriptSegment;
 use crate::audio::StreamSide;
+use crate::context_snapshot::ParticipationLens;
 use crate::llm::LlmRequest;
 use crate::rag::{DocSource, RagDocument, ScoredChunk};
+use crate::source_policy::SourcePolicy;
 
 /// Reserved id of the always-present default context ("General conversation")
 /// — a baseline briefing Ally grounds in when nothing more specific has been
@@ -145,8 +147,9 @@ pub struct KnowledgeProfile {
     pub title: String,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
-    /// `RagDocument` ids from the shared library this profile indexes (both
-    /// user-attached files and Ally-generated context land in the library).
+    /// Runtime retrieval scope. After resources are generated this contains
+    /// exactly the compiled Context Intelligence Pack; source and review
+    /// artifacts remain linked on [`ConversationContext`] for provenance.
     #[serde(default)]
     pub doc_ids: Vec<String>,
     /// Bounded web-research results (Step 2).
@@ -170,6 +173,15 @@ pub struct ConversationContext {
     #[serde(default)]
     pub job_description: Option<String>,
     pub category: ContextCategory,
+    /// What this user is doing in the conversation. Optional on disk so
+    /// Contexts saved before claim intelligence remain readable; consumers
+    /// use [`Self::effective_participation_lens`] to obtain a safe default.
+    #[serde(default)]
+    pub participation_lens: Option<ParticipationLens>,
+    /// The exact source-admission and processing policy for claim checks.
+    /// Optional only for backward compatibility with older Context records.
+    #[serde(default)]
+    pub source_policy: Option<SourcePolicy>,
     pub status: ContextStatus,
     pub created_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
@@ -227,13 +239,13 @@ pub struct ConversationContext {
     /// Once run, the resulting transcript is saved as a `Conversation` (by id).
     #[serde(default)]
     pub conversation_id: Option<String>,
-    /// The `RagDocument` id of the Ally-generated prep briefing, if one has been
-    /// generated (also included in the profile's `doc_ids` so it grounds too).
+    /// The `RagDocument` id of the compiled Context Intelligence Pack, if one
+    /// has been generated. This is the profile's single live retrieval source.
     #[serde(default)]
     pub dossier_doc_id: Option<String>,
-    /// The `RagDocument` id of the Stage-2 **Research findings** document,
-    /// if one has been generated (also in the profile's `doc_ids`).
-    /// Replaced on regeneration, like the knowledge document.
+    /// The `RagDocument` id of the human-review **Research findings** artifact,
+    /// if generated. It is viewable but not independently indexed; supported
+    /// findings are compiled into the Context Intelligence Pack.
     #[serde(default)]
     pub research_doc_id: Option<String>,
     /// Opt-in: research the web broadly for common interview questions +
@@ -243,8 +255,9 @@ pub struct ConversationContext {
     /// category only.
     #[serde(default)]
     pub deep_qa_enabled: bool,
-    /// The `RagDocument` id of the generated Interview Q&A document, once
-    /// generated (replaced on regeneration, like the other two).
+    /// The `RagDocument` id of the generated, category-aware Q&A review
+    /// artifact (Interview, Sales, Meeting, Live Stream, or Other). Exact pairs
+    /// are also compiled into the Context Intelligence Pack for fast matching.
     #[serde(default)]
     pub qa_doc_id: Option<String>,
     /// True when a grounding input (documents, job description, key terms,
@@ -260,6 +273,25 @@ pub struct ConversationContext {
     /// tooltip lie. `None` until the first regenerate.
     #[serde(default)]
     pub resources_generated_at_unix_ms: Option<u64>,
+}
+
+impl ConversationContext {
+    /// Return the stored lens when it belongs to this Context category,
+    /// otherwise fall back visibly and deterministically to the category
+    /// default. This also protects records edited by an older client.
+    pub fn effective_participation_lens(&self) -> ParticipationLens {
+        self.participation_lens
+            .filter(|lens| lens.is_compatible_with(self.category))
+            .unwrap_or_else(|| ParticipationLens::default_for(self.category))
+    }
+
+    /// Return the stored claim source policy, or the documented category
+    /// template for Contexts created before policy persistence existed.
+    pub fn effective_source_policy(&self) -> SourcePolicy {
+        self.source_policy
+            .clone()
+            .unwrap_or_else(|| SourcePolicy::for_context(self.category))
+    }
 }
 
 /// Catalog entry for the Context list view (cheap to list without loading the
@@ -815,13 +847,10 @@ preamble.",
     }
 }
 
-/// Broader query set for the deep interview Q&A pass (spec 2026-08-26,
-/// part A) — many more queries than [`research_queries`], deliberately
-/// aimed at question BANKS rather than general background. No fixed
-/// per-role count is baked in here; breadth comes from more queries and a
-/// bigger source budget (the shell's `QA_MAX_QUERIES`/`QA_MAX_SOURCES`),
-/// and the synthesis prompt decides how many distinct pairs the material
-/// actually supports.
+/// Category-aware query set for a prepared Q&A pass. Interview contexts can
+/// use a larger cap for their opt-in deep pass; every other supported Context
+/// gets questions shaped around its actual interaction instead of inheriting
+/// interview language.
 pub fn qa_research_queries(
     context: &ConversationContext,
     vocabulary: &[String],
@@ -832,23 +861,50 @@ pub fn qa_research_queries(
     } else {
         context.title.trim().to_string()
     };
-    let role = context
-        .job_description
-        .as_deref()
-        .map(|jd| jd.trim())
-        .filter(|jd| !jd.is_empty())
-        .map(|jd| jd.chars().take(80).collect::<String>())
-        .unwrap_or_else(|| topic.clone());
-
-    let mut q = vec![
-        format!("{topic} most common interview questions"),
-        format!("top interview questions for {role}"),
-        format!("{role} technical interview questions"),
-        format!("{role} behavioral interview questions"),
-        format!("{topic} interview questions and answers"),
-    ];
+    let mut q = match context.category {
+        ContextCategory::Interview => {
+            let role = context
+                .job_description
+                .as_deref()
+                .map(str::trim)
+                .filter(|jd| !jd.is_empty())
+                .map(|jd| jd.chars().take(80).collect::<String>())
+                .unwrap_or_else(|| topic.clone());
+            vec![
+                format!("{topic} most common interview questions"),
+                format!("top interview questions for {role}"),
+                format!("{role} technical interview questions"),
+                format!("{role} behavioral interview questions"),
+                format!("{topic} interview questions and answers"),
+            ]
+        }
+        ContextCategory::SalesCall => vec![
+            format!("{topic} buyer discovery questions"),
+            format!("{topic} common buyer objections and responses"),
+            format!("{topic} procurement security pricing questions"),
+        ],
+        ContextCategory::CompanyMeeting => vec![
+            format!("{topic} stakeholder decision questions"),
+            format!("{topic} risks metrics follow-up questions"),
+            format!("{topic} executive meeting challenges"),
+        ],
+        ContextCategory::LiveStream => vec![
+            format!("{topic} audience questions fact check"),
+            format!("{topic} frequently asked questions"),
+            format!("{topic} primary sources timeline"),
+        ],
+        ContextCategory::Other => vec![
+            format!("{topic} frequently asked questions"),
+            format!("{topic} important questions and supported answers"),
+        ],
+    };
     for chunk in vocabulary.chunks(3).take(3) {
-        q.push(format!("{} interview questions {}", chunk.join(" "), topic));
+        q.push(format!(
+            "{} questions {} {}",
+            chunk.join(" "),
+            topic,
+            context.category.label()
+        ));
     }
     q.truncate(cap);
     q
@@ -859,41 +915,49 @@ pub fn qa_research_queries(
 /// web-sources block already carries the bulk of the reference material.
 const QA_PERSONAL_CHAR_BUDGET: usize = 6_000;
 
-/// Prompt for the deep interview Q&A pass's document: synthesize the
-/// gathered sources into a standalone bank of real, distinct question +
-/// strong-answer pairs — spec 2026-08-26 part A. Themed `##` sections
-/// (the model chooses themes that fit what the sources support); each
-/// entry `**Q: ...** A: ...` so it reads well AND is harvestable by
-/// `extract_glossary_entries` incidentally. At least 20 pairs, up to 100
-/// — driven by how much the material supports, not a fixed target.
-/// `chunks` — the candidate's own document material (résumé, etc.), the
-/// same retrieval [`knowledge_prompt`] already receives — lets each
-/// answer draw on the candidate's real experience where it applies
-/// (spec 2026-08-26, interview Q&A personalization); the background
-/// block is omitted entirely when `chunks` is empty.
-pub fn interview_qa_prompt(
+/// Build the standalone, category-aware prepared Q&A resource. `deep` raises
+/// the breadth target for an opted-in interview but never controls whether a
+/// Context gets Q&A at all. The canonical `**Q:** A:` shape is intentionally
+/// shared by the UI parser and the no-LLM fast-answer path.
+pub fn context_qa_prompt(
     context: &ConversationContext,
     sources: &[ResearchSource],
     chunks: &[ScoredChunk],
+    deep: bool,
 ) -> LlmRequest {
-    let template = context.category.template();
+    let (focus, count) = match context.category {
+        ContextCategory::Interview => (
+            "questions the interviewer is likely to ask and strong answers the candidate can honestly give",
+            if deep { "at least 20 and up to 100" } else { "8–20" },
+        ),
+        ContextCategory::SalesCall => (
+            "buyer discovery questions, objections, and concise evidence-based seller responses",
+            "8–20",
+        ),
+        ContextCategory::CompanyMeeting => (
+            "stakeholder challenges, decision questions, risks, metrics, and defensible responses",
+            "8–20",
+        ),
+        ContextCategory::LiveStream => (
+            "likely audience questions, fact-check answers, and safe concise on-air wording",
+            "8–20",
+        ),
+        ContextCategory::Other => (
+            "likely participant questions and useful, supported response guidance",
+            "8–20",
+        ),
+    };
     let system = format!(
-        "You are Ally, building an Interview Q&A bank from web sources \
-gathered for a {label}. Organize into themed `##` sections (e.g. \
-Behavioral, Technical, Company & role-specific — choose themes that fit \
-what the sources actually support). Each entry: a bullet in the form \
-`**Q: <question>** A: <strong, specific answer>`, grounded strictly in \
-the sources — never invent a question or fact the sources don't support. \
-Produce as many DISTINCT, well-supported pairs as the material justifies \
-— at least 20, up to 100; do not pad with near-duplicates to hit a \
-number, and do not stop early if the sources clearly support more. When \
-the candidate's own background below supports a strong, specific answer \
-to a question — their real projects, technologies, outcomes — write that \
-answer from their own experience, concretely; when their background \
-doesn't cover a question, give a strong, correct, role-appropriate \
-answer instead. Never claim something the candidate's background doesn't \
-support as their own. Output only the Markdown document — no preamble.",
-        label = template.label,
+        "You are Ally, building a prepared Q&A resource for a {label}. Focus on \
+{focus}. Organize it into useful themed `##` sections. Every entry MUST be a \
+bullet in the exact form `- **Q: <question>** A: <answer>` so Conva can use it \
+for instant matching during the conversation. Produce {count} DISTINCT pairs \
+when the supplied material supports them; never pad with near-duplicates. \
+Separate supported facts from suggested wording. When an answer relies on a \
+web source, cite it inline as `[source title](url)`. When the available material \
+does not establish an answer, say what remains unverified instead of inventing \
+it. Output only Markdown — no preamble.",
+        label = context.category.label(),
     );
 
     let mut user = format!("Context: {}\nGoal: {}\n\n", context.title, context.purpose);
@@ -907,11 +971,11 @@ support as their own. Output only the Markdown document — no preamble.",
             background.push_str(&block);
         }
         if !background.is_empty() {
-            user.push_str("Candidate's own background:\n\n");
+            user.push_str("User-provided Context material:\n\n");
             user.push_str(&background);
         }
     }
-    user.push_str("Sources:\n\n");
+    user.push_str("Ally web-research sources:\n\n");
     for src in sources {
         user.push_str(&format!(
             "[{}]({})\n{}\n\n",
@@ -922,8 +986,63 @@ support as their own. Output only the Markdown document — no preamble.",
     LlmRequest {
         system,
         user,
-        max_tokens: 6000,
+        max_tokens: if deep { 6000 } else { 3000 },
     }
+}
+
+/// Compatibility wrapper retained for older shell call sites and tests.
+pub fn interview_qa_prompt(
+    context: &ConversationContext,
+    sources: &[ResearchSource],
+    chunks: &[ScoredChunk],
+) -> LlmRequest {
+    context_qa_prompt(context, sources, chunks, true)
+}
+
+/// Deterministically compile the human-readable briefing and prepared Q&A
+/// into the single generated document used by live RAG. Review artifacts stay
+/// separate; their full prose is not duplicated into the hot retrieval scope.
+pub fn compile_intelligence_pack(
+    context: &ConversationContext,
+    knowledge: &str,
+    qa: &str,
+    chunks: &[ScoredChunk],
+    sources: &[ResearchSource],
+) -> String {
+    let mut out = format!(
+        "# {} — Context Intelligence Pack\n\n> Compiled by Ally for fast, context-scoped retrieval. User material and web research remain distinguishable in the provenance section.\n\n{}",
+        context.title.trim(),
+        knowledge.trim()
+    );
+    if !qa.trim().is_empty() {
+        out.push_str("\n\n## Prepared questions & answers\n\n");
+        out.push_str(qa.trim());
+    }
+
+    out.push_str("\n\n## Source provenance\n");
+    let mut user_files = std::collections::BTreeSet::new();
+    for chunk in chunks {
+        user_files.insert(chunk.file_name.trim());
+    }
+    if user_files.is_empty() {
+        out.push_str("- **User-provided material:** none attached\n");
+    } else {
+        for name in user_files {
+            out.push_str(&format!("- **User-provided:** {name}\n"));
+        }
+    }
+    if sources.is_empty() {
+        out.push_str("- **Ally web research:** none used\n");
+    } else {
+        for source in sources {
+            out.push_str(&format!(
+                "- **Ally web research:** [{}]({})\n",
+                source.title.trim(),
+                source.url.trim()
+            ));
+        }
+    }
+    out
 }
 
 /// Category-aware analytical performance report prompt (spec 2026-08-26,
@@ -1252,11 +1371,9 @@ mod tests {
     }
 
     #[test]
-    fn old_contexts_without_slot_doc_ids_deserialize_with_an_empty_map() {
-        // A context persisted before slot_doc_ids existed — must still load
-        // (serde default), reading every attached doc as unslotted (it falls
-        // into the UI's "Other documents" catch-all rather than losing data
-        // or failing to deserialize).
+    fn old_contexts_without_new_optional_fields_still_deserialize() {
+        // A context persisted before slot_doc_ids and claim policy existed
+        // must still load rather than requiring a migration.
         let old_json = r#"{
             "id": "s1",
             "title": "Senior Accountant Interview",
@@ -1285,6 +1402,26 @@ mod tests {
         }"#;
         let ctx: ConversationContext = serde_json::from_str(old_json).unwrap();
         assert!(ctx.slot_doc_ids.is_empty());
+        assert_eq!(ctx.participation_lens, None);
+        assert_eq!(ctx.source_policy, None);
+        assert_eq!(
+            ctx.effective_participation_lens(),
+            ParticipationLens::Interviewee
+        );
+        assert_eq!(
+            ctx.effective_source_policy(),
+            SourcePolicy::for_context(ContextCategory::Interview)
+        );
+    }
+
+    #[test]
+    fn incompatible_stored_lens_falls_back_to_the_category_default() {
+        let mut ctx = sample_context();
+        ctx.participation_lens = Some(ParticipationLens::LiveHost);
+        assert_eq!(
+            ctx.effective_participation_lens(),
+            ParticipationLens::Interviewee
+        );
     }
 
     fn sample_context() -> ConversationContext {
@@ -1294,6 +1431,8 @@ mod tests {
             purpose: "Prep for GAAP questions".into(),
             job_description: Some("Own the monthly close.".into()),
             category: ContextCategory::Interview,
+            participation_lens: None,
+            source_policy: None,
             status: ContextStatus::Ready,
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,
@@ -1489,6 +1628,8 @@ mod tests {
             purpose: "Prep".into(),
             job_description: Some("Build on AWS.".into()),
             category: ContextCategory::Interview,
+            participation_lens: None,
+            source_policy: None,
             status: ContextStatus::Ready,
             created_at_unix_ms: 0,
             updated_at_unix_ms: 0,
@@ -1559,6 +1700,7 @@ mod tests {
             id: id.into(),
             file_name: format!("{id}.md"),
             enabled: true,
+            searchable: true,
             chunk_count: 3,
             ingested_at_unix_ms: 0,
             source: DocSource::Generated,
@@ -1588,6 +1730,7 @@ mod tests {
                 id: "doc-user-file".into(),
                 file_name: "resume.pdf".into(),
                 enabled: true,
+                searchable: true,
                 chunk_count: 5,
                 ingested_at_unix_ms: 0,
                 source: DocSource::File,
@@ -1770,12 +1913,12 @@ mod tests {
         assert!(req
             .user
             .contains("Led the monthly close for 3 years at Acme Corp."));
-        assert!(req.user.contains("Candidate's own background"));
+        assert!(req.user.contains("User-provided Context material"));
         // Sources still present alongside the new background block.
         assert!(req.user.contains("Top 50 accounting interview questions"));
         let sys = req.system.to_lowercase();
         assert!(
-            sys.contains("own experience") || sys.contains("own background"),
+            sys.contains("supplied material") || sys.contains("supported facts"),
             "{}",
             req.system
         );
@@ -1791,7 +1934,7 @@ mod tests {
             fetched_at_unix_ms: 0,
         }];
         let req = interview_qa_prompt(&s, &sources, &[]);
-        assert!(!req.user.contains("Candidate's own background"));
+        assert!(!req.user.contains("User-provided Context material"));
         assert!(req.user.contains("Top 50 accounting interview questions"));
     }
 
@@ -1815,17 +1958,66 @@ mod tests {
         let req = interview_qa_prompt(&s, &[], &chunks);
         let background_start = req
             .user
-            .find("Candidate's own background")
+            .find("User-provided Context material")
             .expect("background section missing");
         let sources_start = req
             .user
-            .find("Sources:\n\n")
+            .find("Ally web-research sources:\n\n")
             .expect("sources section missing");
         let background_len = sources_start - background_start;
         assert!(
             background_len <= QA_PERSONAL_CHAR_BUDGET + 200,
             "background section grew unbounded: {background_len} chars"
         );
+    }
+
+    #[test]
+    fn prepared_qa_is_category_aware_for_every_supported_context() {
+        let expectations = [
+            (ContextCategory::Interview, "interviewer"),
+            (ContextCategory::SalesCall, "buyer"),
+            (ContextCategory::CompanyMeeting, "stakeholder"),
+            (ContextCategory::LiveStream, "audience"),
+            (ContextCategory::Other, "participant"),
+        ];
+        for (category, expected) in expectations {
+            let mut context = sample_context();
+            context.category = category;
+            let req = context_qa_prompt(&context, &[], &[], false);
+            assert!(req.system.contains(expected), "{}", req.system);
+            assert!(req.system.contains("**Q: <question>** A: <answer>"));
+            assert_eq!(req.max_tokens, 3000);
+        }
+    }
+
+    #[test]
+    fn intelligence_pack_keeps_qa_and_provenance_in_one_runtime_document() {
+        let context = sample_context();
+        let chunks = vec![ScoredChunk {
+            document_id: "d1".into(),
+            file_name: "witness-notes.pdf".into(),
+            location: "p1".into(),
+            text: "Matt recorded the boat.".into(),
+            score: 1.0,
+        }];
+        let sources = vec![ResearchSource {
+            title: "ABC report".into(),
+            url: "https://example.com/abc".into(),
+            snippet: "A report.".into(),
+            fetched_at_unix_ms: 0,
+        }];
+        let qa = "## Verification\n- **Q: Who reported it?** A: ABC reported it.";
+        let pack = compile_intelligence_pack(
+            &context,
+            "## Overview\nCase briefing.",
+            qa,
+            &chunks,
+            &sources,
+        );
+        assert!(pack.contains("Context Intelligence Pack"));
+        assert!(pack.contains("**Q: Who reported it?** A: ABC reported it."));
+        assert!(pack.contains("**User-provided:** witness-notes.pdf"));
+        assert!(pack.contains("[ABC report](https://example.com/abc)"));
     }
 
     #[test]

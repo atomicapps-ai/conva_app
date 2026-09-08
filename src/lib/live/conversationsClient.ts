@@ -10,7 +10,7 @@
  * Refusals become coded {@link LiveSessionError}s (`unprovisioned` until
  * migration 0006 is applied, `signed_out`, `not_found`, `too_large`…).
  */
-import type { Conversation, ConversationSummary, TranscriptSegment } from "@/lib/ipc";
+import type { ClaimSnapshotEvent, Conversation, ConversationSummary, TranscriptSegment } from "@/lib/ipc";
 import { badResponse, callStore, type StoreClientDeps } from "./storeClient";
 
 export type ConversationsClientDeps = StoreClientDeps;
@@ -23,6 +23,8 @@ export interface SaveConversationInput {
   segments: readonly TranscriptSegment[];
   linked_docs: readonly string[];
   context_id?: string | null;
+  source_session_ids?: readonly string[];
+  claim_snapshots?: readonly ClaimSnapshotEvent[];
 }
 
 export function listConversations(deps: ConversationsClientDeps): Promise<ConversationSummary[]> {
@@ -39,6 +41,8 @@ export function loadConversation(deps: ConversationsClientDeps, id: string): Pro
 export function saveConversation(deps: ConversationsClientDeps, input: SaveConversationInput): Promise<Conversation> {
   const body: Record<string, unknown> = { id: input.id, title: input.title, segments: input.segments, linked_docs: input.linked_docs };
   if (input.context_id) body.context_id = input.context_id;
+  if (input.source_session_ids) body.source_session_ids = input.source_session_ids;
+  if (input.claim_snapshots) body.claim_snapshots = input.claim_snapshots;
   return callStore(deps, NOUN, "/conversations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, (b) => {
     if (!b.conversation || typeof b.conversation !== "object") throw badResponse(NOUN);
     return b.conversation as Conversation;

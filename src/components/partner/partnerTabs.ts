@@ -16,6 +16,7 @@ export type PartnerTab =
  *  genuinely different item. (The old `openedFor` redelivery guard,
  *  generalized.) */
 export function tabKey(p: PartnerPayload): string {
+  if (p.claim) return `claim::${p.claim.id}`;
   return `item::${p.term}::${p.answer ?? ""}`;
 }
 
@@ -48,8 +49,11 @@ export function addOrFocus(
   tabs: PartnerTab[],
   tab: PartnerTab,
 ): { tabs: PartnerTab[]; activeKey: string } {
-  if (tabs.some((t) => t.key === tab.key)) {
-    return { tabs, activeKey: tab.key };
+  const existing = tabs.findIndex((candidate) => candidate.key === tab.key);
+  if (existing !== -1) {
+    const next = [...tabs];
+    next[existing] = tab;
+    return { tabs: next, activeKey: tab.key };
   }
   return { tabs: [...tabs, tab], activeKey: tab.key };
 }

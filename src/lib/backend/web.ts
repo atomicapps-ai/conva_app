@@ -51,6 +51,7 @@ import type {
   AppConfig,
   AudioDevice,
   AuthStatus,
+  ClaimSnapshotEvent,
   Conversation,
   ConversationSummary,
   KnowledgeProfile,
@@ -540,8 +541,8 @@ export class WebBackend implements ConvaBackend {
   // Worker keeps finals, derives the title, and replaces the transcript on a
   // re-save (append semantics); delete purges. `unprovisioned` until 0006.
   conversations = {
-    save: (id: string | null, title: string | null, segments: TranscriptSegment[], linkedDocs: string[], contextId?: string | null): Promise<Conversation> =>
-      saveConversation({ fetch: (i, o) => fetch(i, o) }, { id, title, segments, linked_docs: linkedDocs, context_id: contextId ?? null }),
+    save: (id: string | null, title: string | null, segments: TranscriptSegment[], linkedDocs: string[], contextId?: string | null, sourceSessionIds?: string[], claimSnapshots?: ClaimSnapshotEvent[]): Promise<Conversation> =>
+      saveConversation({ fetch: (i, o) => fetch(i, o) }, { id, title, segments, linked_docs: linkedDocs, context_id: contextId ?? null, source_session_ids: sourceSessionIds, claim_snapshots: claimSnapshots }),
     list: (): Promise<ConversationSummary[]> => listConversations({ fetch: (i, o) => fetch(i, o) }),
     load: (id: string): Promise<Conversation> => loadConversation({ fetch: (i, o) => fetch(i, o) }, id),
     delete: (id: string): Promise<void> => deleteConversation({ fetch: (i, o) => fetch(i, o) }, id),

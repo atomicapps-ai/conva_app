@@ -15,9 +15,8 @@ import { Icon } from "@/components/ui/Icon";
  * spine icon chip absolutely positioned ON the panel's left border
  * (`left-0 -translate-x-1/2`) at the section's top edge — icons slide with
  * their sections while the stacking order stays fixed. Exactly one content
- * section is expanded; Answers can be pinned as a bottom dock whose height
- * is the (1 − splitRatio) share, resized by the divider above it (the
- * pref is shared with the retired split view — same key, same clamps).
+ * section is expanded. The legacy Answers dock remains behind an explicit
+ * compatibility flag; the live cockpit disables it in favor of Focus.
  */
 export function AllyAccordion({
   state,
@@ -30,6 +29,7 @@ export function AllyAccordion({
   onQuestionsMode = () => {},
   prepCount = 0,
   liveUnseen = false,
+  answersDockEnabled = true,
 }: {
   state: PanelState;
   onState: (next: PanelState) => void;
@@ -39,29 +39,38 @@ export function AllyAccordion({
   renderSection: (id: PanelSectionId) => ReactNode;
   /** Questions sub-mode (split-source spec 2026-08-27): "live" = the radar
    *  feed (counts.questions), "prep" = the prepared Q&A bank (prepCount).
-   *  The two chips live in the Questions header — the same in-header
-   *  control slot Answers' pin uses; sections still switch ONLY via the
-   *  spine icons. */
+   *  The two chips live in the Questions header; sections still switch only
+   *  via the spine icons. */
   questionsMode?: "live" | "prep";
   onQuestionsMode?: (m: "live" | "prep") => void;
   prepCount?: number;
   /** Live questions arrived while in prep mode — a dot on the ◉ chip;
    *  never auto-switches. */
   liveUnseen?: boolean;
+  /** Legacy bottom Answers dock. The Focus canvas disables it so Answers
+   *  becomes the fourth archive section instead of competing for height. */
+  answersDockEnabled?: boolean;
 }) {
+  const effectiveState = answersDockEnabled
+    ? state
+    : { ...state, answersPinned: false };
   const select = (id: PanelSectionId) => {
-    const next = selectSection(state, id);
-    if (next !== state) onState(next);
+    const next = selectSection(effectiveState, id);
+    if (
+      next.open !== state.open ||
+      next.answersPinned !== state.answersPinned
+    )
+      onState(next);
   };
 
   const contentIds = SECTION_ORDER.filter(
-    (id) => id !== "answers" || !state.answersPinned,
+    (id) => id !== "answers" || !effectiveState.answersPinned,
   );
 
   const sectionShell = (id: PanelSectionId) => {
     const meta = SECTION_META[id];
     const open = state.open === id;
-    const lit = open || (id === "answers" && state.answersPinned);
+    const lit = open || (id === "answers" && effectiveState.answersPinned);
     const count = counts[id];
     return (
       <div
@@ -165,25 +174,27 @@ export function AllyAccordion({
               })}
             </span>
           )}
-          {id === "answers" && (
+          {id === "answers" && answersDockEnabled && (
             <span
               role="button"
               tabIndex={0}
-              aria-pressed={state.answersPinned}
+              aria-pressed={effectiveState.answersPinned}
               aria-label="Pin Answers"
-              title={state.answersPinned ? "Unpin Answers" : "Pin Answers"}
+              title={effectiveState.answersPinned ? "Unpin Answers" : "Pin Answers"}
               onClick={(e) => {
                 e.stopPropagation();
-                onState(togglePin(state));
+                onState(togglePin(effectiveState));
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.stopPropagation();
-                  onState(togglePin(state));
+                  onState(togglePin(effectiveState));
                 }
               }}
               className={`ml-auto grid h-6 w-6 place-items-center rounded ${
-                state.answersPinned ? "text-ai" : "text-fg-faint hover:text-fg"
+                effectiveState.answersPinned
+                  ? "text-ai"
+                  : "text-fg-faint hover:text-fg"
               }`}
             >
               <Icon name="pin" size={13} />
@@ -203,17 +214,19 @@ export function AllyAccordion({
     <div className="flex min-h-0 flex-1 flex-col">
       <div
         style={
-          state.answersPinned ? { flexBasis: `${splitRatio * 100}%` } : undefined
+          effectiveState.answersPinned
+            ? { flexBasis: `${splitRatio * 100}%` }
+            : undefined
         }
         className={[
           "flex min-h-0 flex-col",
-          state.answersPinned ? "shrink-0 grow-0" : "min-h-0 flex-1",
+          effectiveState.answersPinned ? "shrink-0 grow-0" : "min-h-0 flex-1",
         ].join(" ")}
       >
         {contentIds.map(sectionShell)}
       </div>
 
-      {state.answersPinned && (
+      {effectiveState.answersPinned && (
         <>
           <div
             role="separator"
@@ -259,7 +272,7 @@ export function AllyAccordion({
                       aria-pressed
                       aria-label="Pin Answers"
                       title="Unpin Answers"
-                      onClick={() => onState(togglePin(state))}
+                      onClick={() => onState(togglePin(effectiveState))}
                       className="ml-auto grid h-6 w-6 place-items-center rounded text-ai"
                     >
                       <Icon name="pin" size={13} />

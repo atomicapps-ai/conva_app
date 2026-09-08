@@ -1,7 +1,13 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PartnerPayload } from "@/lib/ipc";
+import type { ClaimRecord, PartnerPayload } from "@/lib/ipc";
 import { useAllyStore } from "@/state/ally";
 import { useUiPrefs } from "@/state/uiPrefs";
 
@@ -40,6 +46,7 @@ function payload(overrides: Partial<PartnerPayload> = {}): PartnerPayload {
     answer: "It fronts your APIs.",
     source_lines: [],
     doc_id: null,
+    claim: null,
     ...overrides,
   };
 }
@@ -48,6 +55,47 @@ async function deliver(p: PartnerPayload) {
   await act(async () => {
     subscribers["partnerTerm"]?.(p);
   });
+}
+
+function typedClaim(overrides: Partial<ClaimRecord> = {}): ClaimRecord {
+  return {
+    id: "claim-1",
+    source_segment_ids: ["segment-1"],
+    speaker_side: "inbound",
+    speaker_label: "Guest",
+    exact_quote: "ABC News is reporting that both people died.",
+    normalized_proposition: "Both people died.",
+    predicate: "died",
+    subject: "both people",
+    object: null,
+    frame_kind: "attributed_claim",
+    attribution_chain: [
+      {
+        source_label: "ABC News",
+        reporting_verb: "is reporting",
+        directness: "reported_by_speaker",
+      },
+    ],
+    qualifiers: [],
+    references: [],
+    modality: "reported",
+    negated: false,
+    sensitivity: "public",
+    consequence: "high",
+    importance_reasons: ["consequence_if_wrong"],
+    state: "attributed",
+    recommended_action: "verify",
+    policy_id: "live-stream-claims",
+    policy_version: 2,
+    extraction_confidence: "high",
+    resolution_confidence: "medium",
+    claim_confidence: "none",
+    evidence: [],
+    corrections: [],
+    created_at_unix_ms: 1,
+    updated_at_unix_ms: 1,
+    ...overrides,
+  };
 }
 
 afterEach(cleanup);
@@ -68,7 +116,9 @@ describe("PartnerWindow tabs", () => {
     });
     await deliver(payload({ term: "API Gateway" }));
     await deliver(payload({ term: "Lambda" }));
-    expect(screen.getByRole("tab", { name: /API Gateway/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: /API Gateway/ }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /Lambda/ })).toBeInTheDocument();
     // Newest delivery is the active tab.
     expect(screen.getByRole("tab", { name: /Lambda/ })).toHaveAttribute(
@@ -115,8 +165,12 @@ describe("PartnerWindow tabs", () => {
       "aria-selected",
       "true",
     );
-    fireEvent.click(screen.getByRole("button", { name: 'Close "API Gateway"' }));
-    expect(screen.getByText(/Open a term from the Terms tab/)).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: 'Close "API Gateway"' }),
+    );
+    expect(
+      screen.getByText(/Open a term from the Terms tab/),
+    ).toBeInTheDocument();
   });
 
   it("researches a fresh term tagged to its tab, so another tab's answer never bleeds in", async () => {
@@ -142,6 +196,61 @@ describe("PartnerWindow tabs", () => {
     expect(screen.queryByText("Streamed answer.")).toBeNull();
     fireEvent.click(screen.getByRole("tab", { name: /Fresh term/ }));
     expect(screen.getByText("Streamed answer.")).toBeInTheDocument();
+  });
+
+  it("renders a typed claim without starting term research", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    await deliver(
+      payload({
+        term: "Both people died.",
+        kind: "claim",
+        answer: null,
+        claim: typedClaim(),
+      }),
+    );
+
+    expect(screen.getByTestId("claim-evidence-view")).toBeInTheDocument();
+    expect(
+      screen.getByText("Four separate confidence axes"),
+    ).toBeInTheDocument();
+    expect(useAllyStore.getState().cards).toHaveLength(0);
+  });
+
+  it("refreshes an open claim tab from a newer cumulative snapshot", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    await deliver(
+      payload({
+        term: "Both people died.",
+        kind: "claim",
+        answer: null,
+        claim: typedClaim(),
+      }),
+    );
+
+    act(() => {
+      useAllyStore.setState({
+        claimSnapshot: {
+          contract_version: 2,
+          session_id: "session-1",
+          epoch: 1,
+          revision: 2,
+          claims: [
+            typedClaim({
+              normalized_proposition: "One person died.",
+              claim_confidence: "limited",
+              updated_at_unix_ms: 2,
+            }),
+          ],
+        },
+      });
+    });
+
+    expect(screen.getAllByText("One person died.")).toHaveLength(2);
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
   });
 });
 
@@ -187,9 +296,7 @@ describe("PartnerWindow document tabs", () => {
     vi.clearAllMocks();
     backend.partner.payload.mockResolvedValue(null);
     backend.partner.locked.mockResolvedValue(true);
-    backend.rag.list.mockResolvedValue([
-      { id: "doc-1", file_name: "aws.pdf" },
-    ]);
+    backend.rag.list.mockResolvedValue([{ id: "doc-1", file_name: "aws.pdf" }]);
     backend.rag.documentText.mockResolvedValue("full document body");
   });
 
@@ -208,11 +315,14 @@ describe("PartnerWindow document tabs", () => {
     const openDoc = await screen.findByRole("button", {
       name: 'Open "aws.pdf"',
     });
-    expect(screen.queryByRole("button", { name: 'Open "missing.txt"' })).toBeNull();
-    fireEvent.click(openDoc);
     expect(
-      screen.getByRole("tab", { name: /aws\.pdf/ }),
-    ).toHaveAttribute("aria-selected", "true");
+      screen.queryByRole("button", { name: 'Open "missing.txt"' }),
+    ).toBeNull();
+    fireEvent.click(openDoc);
+    expect(screen.getByRole("tab", { name: /aws\.pdf/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     expect(await screen.findByText("full document body")).toBeInTheDocument();
     expect(backend.rag.documentText).toHaveBeenCalledWith("doc-1");
   });
@@ -222,10 +332,10 @@ describe("PartnerWindow document tabs", () => {
     await act(async () => {
       render(<PartnerWindow />);
     });
-    await deliver(
-      payload({ answer: "x", source_lines: ["aws.pdf — ¶1"] }),
+    await deliver(payload({ answer: "x", source_lines: ["aws.pdf — ¶1"] }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: 'Open "aws.pdf"' }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: 'Open "aws.pdf"' }));
     expect(
       await screen.findByText("This document's text isn't available."),
     ).toBeInTheDocument();
@@ -236,13 +346,37 @@ describe("PartnerWindow document tabs", () => {
       render(<PartnerWindow />);
     });
     await deliver(payload({ term: "aws.pdf", doc_id: "doc-1", answer: null }));
-    expect(
-      screen.getByRole("tab", { name: /aws\.pdf/ }),
-    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /aws\.pdf/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     expect(await screen.findByText("full document body")).toBeInTheDocument();
     expect(backend.rag.documentText).toHaveBeenCalledWith("doc-1");
     // Not researched as a term — it's a document, no "ANSWER" heading path.
     expect(useAllyStore.getState().cards).toHaveLength(0);
+  });
+
+  it("renders generated document Markdown in formatted mode by default", async () => {
+    backend.rag.documentText.mockResolvedValue(
+      "# Context Intelligence\n\nThe boat had **seven people** aboard.",
+    );
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    await deliver(
+      payload({
+        term: "Nolan Wells — Context Intelligence Pack.txt",
+        doc_id: "doc-1",
+        answer: null,
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Context Intelligence" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("seven people").tagName).toBe("STRONG");
+    expect(screen.queryByText(/\*\*seven people\*\*/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Raw" })).toBeInTheDocument();
   });
 
   it("the same doc_id delivered twice focuses the one tab instead of duplicating", async () => {
@@ -253,9 +387,10 @@ describe("PartnerWindow document tabs", () => {
     await deliver(payload({ term: "Lambda" }));
     await deliver(payload({ term: "aws.pdf", doc_id: "doc-1" }));
     expect(screen.getAllByRole("tab", { name: /aws\.pdf/ })).toHaveLength(1);
-    expect(
-      screen.getByRole("tab", { name: /aws\.pdf/ }),
-    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /aws\.pdf/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 });
 

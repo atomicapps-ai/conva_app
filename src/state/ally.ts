@@ -7,9 +7,11 @@ import type {
   AllySource,
   AllySourcesEvent,
   CaptureEvent,
+  ClaimSnapshotEvent,
   RadarEvent,
   TrackerEvent,
 } from "@/lib/ipc";
+import { CLAIM_SNAPSHOT_CONTRACT_VERSION } from "@/lib/ipc";
 import { useTranscriptStore } from "@/state/transcript";
 
 export interface AllyCard {
@@ -32,6 +34,10 @@ export interface AllyCard {
   /** Plain-English summary of the answer (the card's collapsible "Summary"
    *  section, owner 2026-08-22). `null` = never requested; `""` = streaming. */
   summary: string | null;
+  /** UI destination for this streamed response. Omitted on older fixtures and
+   *  treated as a normal answer. Term definitions use their own peek and must
+   *  not consume the answer archive's retention budget. */
+  presentation?: "answer" | "term";
 }
 
 export type AllyRequestResult = "busy" | "duplicate" | "completed";
@@ -73,6 +79,26 @@ export function groupSourcesByFile(
  *  answer text (the Summarize action). */
 const SUMMARY_PREFIX = "sum:";
 
+/** Keep independent UI retention budgets so lightweight term peeks cannot
+ * evict question/answer history. Order remains newest-first. */
+export function retainPresentationCards(cards: readonly AllyCard[]): AllyCard[] {
+  const keepAnswers = new Set(
+    cards
+      .filter((card) => card.presentation !== "term")
+      .slice(0, 12)
+      .map((card) => card.id),
+  );
+  const keepTerms = new Set(
+    cards
+      .filter((card) => card.presentation === "term")
+      .slice(0, 4)
+      .map((card) => card.id),
+  );
+  return cards.filter(
+    (card) => keepAnswers.has(card.id) || keepTerms.has(card.id),
+  );
+}
+
 interface AllyState {
   cards: AllyCard[];
   busy: boolean;
@@ -84,12 +110,15 @@ interface AllyState {
   tracker: TrackerEvent | null;
   /** Cumulative FANER routed captures for the session (F11). */
   capture: CaptureEvent | null;
+  /** Latest accepted cumulative claim snapshot for the active live session. */
+  claimSnapshot: ClaimSnapshotEvent | null;
 
   request: (
     kind: AllyKind,
     question?: string,
     source?: { key: string; quote: string },
     requestId?: string,
+    presentation?: "answer" | "term",
   ) => Promise<AllyRequestResult>;
   /** Summarize an existing card's answer into its collapsible Summary
    *  section (a second LLM pass streamed via a `sum:`-prefixed request). */
@@ -99,6 +128,7 @@ interface AllyState {
   applyRadar: (event: RadarEvent) => void;
   applyTracker: (event: TrackerEvent) => void;
   applyCapture: (event: CaptureEvent) => void;
+  applyClaimSnapshot: (event: ClaimSnapshotEvent) => void;
   clear: () => void;
 }
 
@@ -110,37 +140,37 @@ export const useAllyStore = create<AllyState>((set, get) => ({
   radarHistory: [],
   tracker: null,
   capture: null,
+  claimSnapshot: null,
 
-  request: async (kind, question, source, requestId) => {
+  request: async (kind, question, source, requestId, presentation = "answer") => {
     if (get().busy) return "busy";
     if (requestId && get().cards.some((card) => card.id === requestId)) {
       return "duplicate";
     }
     counter += 1;
     const id = requestId ?? `ally-${Date.now()}-${counter}`;
-    set((s) => ({
-      busy: true,
-      // Keep the last few cards; newest first.
-      cards: [
-        {
-          id,
-          seq: counter,
-          kind,
-          question: question ?? null,
-          text: "",
-          done: false,
-          error: null,
-          sources: [],
-          startedAtMs: Date.now(),
-          sourceKey: source?.key ?? null,
-          sourceQuote: source?.quote ?? null,
-          summary: null,
-        },
-        // Keep enough history for several partner-window tabs' answers to
-        // coexist (spec §4.1) — the newest 12, not 6.
-        ...s.cards.slice(0, 11),
-      ],
-    }));
+    set((s) => {
+      const newest: AllyCard = {
+        id,
+        seq: counter,
+        kind,
+        question: question ?? null,
+        text: "",
+        done: false,
+        error: null,
+        sources: [],
+        startedAtMs: Date.now(),
+        sourceKey: source?.key ?? null,
+        sourceQuote: source?.quote ?? null,
+        summary: null,
+        presentation,
+      };
+      const next = [newest, ...s.cards];
+      return {
+        busy: true,
+        cards: retainPresentationCards(next),
+      };
+    });
     try {
       // Ground Ally in the whole open conversation (earlier runs
       // included), not just the live run.
@@ -236,10 +266,50 @@ export const useAllyStore = create<AllyState>((set, get) => ({
 
   applyTracker: (event) => set({ tracker: event }),
   applyCapture: (event) => set({ capture: event }),
+  applyClaimSnapshot: (event) =>
+    set((state) => {
+      const session = useTranscriptStore.getState().session;
+      const activeSessionId =
+        session.state === "listening" || session.state === "paused"
+          ? session.session_id
+          : null;
+      if (
+        !shouldAcceptClaimSnapshot(state.claimSnapshot, event, activeSessionId)
+      ) {
+        return {};
+      }
+      return { claimSnapshot: event };
+    }),
 
   clear: () => {
     // Reset the A# counter so each conversation numbers from A1.
     counter = 0;
-    set({ cards: [], radarHistory: [], tracker: null, capture: null });
+    set({
+      cards: [],
+      radarHistory: [],
+      tracker: null,
+      capture: null,
+      claimSnapshot: null,
+    });
   },
 }));
+
+/** Fail closed on wrong-session, duplicate, reordered, or stale snapshots. */
+export function shouldAcceptClaimSnapshot(
+  current: ClaimSnapshotEvent | null,
+  incoming: ClaimSnapshotEvent,
+  activeSessionId: string | null,
+): boolean {
+  if (
+    incoming.contract_version !== CLAIM_SNAPSHOT_CONTRACT_VERSION ||
+    incoming.session_id.length === 0 ||
+    activeSessionId !== incoming.session_id
+  ) {
+    return false;
+  }
+  if (current == null || current.session_id !== incoming.session_id) return true;
+  return (
+    incoming.epoch > current.epoch ||
+    (incoming.epoch === current.epoch && incoming.revision > current.revision)
+  );
+}
