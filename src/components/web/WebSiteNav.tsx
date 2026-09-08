@@ -1,5 +1,8 @@
+import { useState } from "react";
+
 import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import * as webAuth from "@/lib/backend/webAuth";
+import { useNavStore } from "@/state/nav";
 
 /*
  * The TOP band of the web experience: the core WEBSITE navigation, rendered by
@@ -22,6 +25,8 @@ const LINKS = [
 export function WebSiteNav() {
   const email = webAuth.status().email;
   const initial = (email?.trim()?.[0] ?? "?").toUpperCase();
+  const setView = useNavStore((s) => s.setView);
+  const [avatarBroken, setAvatarBroken] = useState(false);
 
   return (
     <header className="flex h-[52px] shrink-0 items-center gap-5 border-b border-border bg-panel-raised px-4">
@@ -50,17 +55,28 @@ export function WebSiteNav() {
 
       <span className="ml-auto" />
 
-      {/* Account access — a LINK to the website account page (login/profile live
-          there, not in the app). */}
-      <a
-        href={site("/account.html")}
-        target="_top"
+      {/* Account access — opens the app's own Profile view (ProfileView.tsx),
+          not the retired marketing-site account.html (that page runs a
+          separate, disconnected auth flow — see conva_web's account.html /
+          scripts/auth.js — and doesn't reflect this session at all). */}
+      <button
+        type="button"
+        onClick={() => setView("profile")}
         title={email ?? "Your account"}
         aria-label="Your account"
-        className="brand-gradient grid h-8 w-8 place-items-center rounded-full text-sm font-extrabold text-bg no-underline transition hover:brightness-110"
+        className="grid h-8 w-8 place-items-center rounded-full text-sm font-extrabold text-bg transition hover:brightness-110"
       >
-        {initial}
-      </a>
+        {avatarBroken ? (
+          <span className="brand-gradient grid h-8 w-8 place-items-center rounded-full">{initial}</span>
+        ) : (
+          <img
+            src={webAuth.avatarUrl()}
+            onError={() => setAvatarBroken(true)}
+            alt=""
+            className="h-8 w-8 rounded-full object-cover"
+          />
+        )}
+      </button>
     </header>
   );
 }

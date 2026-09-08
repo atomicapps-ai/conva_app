@@ -148,4 +148,74 @@ describe("webAuth — BFF session client", () => {
     expect(localStorage.getItem("conva.session")).toBeNull();
     expect(localStorage.length).toBe(0);
   });
+
+  describe("profile + avatar (roadmap 1.2)", () => {
+    it("getProfile reads display_name from the BFF; a non-200 (e.g. signed out) reads back null rather than throwing", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ display_name: "Julius Kelly" }));
+      expect(await webAuth.getProfile()).toEqual({ display_name: "Julius Kelly" });
+      expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/app/profile");
+
+      fetchMock.mockResolvedValueOnce(jsonResponse({ error: "signed_out" }, 401));
+      expect(await webAuth.getProfile()).toEqual({ display_name: null });
+    });
+
+    it("updateDisplayName PATCHes JSON to the BFF and returns its answer verbatim", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true, display_name: "New Name" }));
+      const res = await webAuth.updateDisplayName("New Name");
+      expect(res).toEqual({ ok: true, display_name: "New Name" });
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("/api/app/profile");
+      expect(init.method).toBe("PATCH");
+      expect(JSON.parse(String(init.body))).toEqual({ display_name: "New Name" });
+    });
+
+    it("avatarUrl points at the same-origin BFF proxy, never a Supabase/Google URL", () => {
+      expect(webAuth.avatarUrl()).toBe("/api/app/profile/avatar");
+    });
+
+    it("uploadAvatar rejects an unsupported type, an empty file, and an oversized file WITHOUT a network call", async () => {
+      const bad = new File(["x"], "a.pdf", { type: "application/pdf" });
+      expect(await webAuth.uploadAvatar(bad)).toEqual({ ok: false, error: "unsupported_type" });
+
+      const empty = new File([], "a.png", { type: "image/png" });
+      expect(await webAuth.uploadAvatar(empty)).toEqual({ ok: false, error: "empty_file" });
+
+      const big = new File([new Uint8Array(5 * 1024 * 1024 + 1)], "a.png", { type: "image/png" });
+      expect(await webAuth.uploadAvatar(big)).toEqual({ ok: false, error: "too_large" });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("uploadAvatar POSTs a valid image with its real Content-Type", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 200 }));
+      const file = new File([new Uint8Array([1, 2, 3])], "a.png", { type: "image/png" });
+      expect(await webAuth.uploadAvatar(file)).toEqual({ ok: true });
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("/api/app/profile/avatar");
+      expect(init.method).toBe("POST");
+      expect((init.headers as Record<string, string>)["Content-Type"]).toBe("image/png");
+      expect(init.body).toBe(file);
+    });
+
+    it("uploadAvatar surfaces the server's coded rejection and a network failure alike", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ ok: false, error: "too_large" }, 413));
+      const file = new File([new Uint8Array([1])], "a.png", { type: "image/png" });
+      expect(await webAuth.uploadAvatar(file)).toEqual({ ok: false, error: "too_large" });
+
+      fetchMock.mockRejectedValueOnce(new TypeError("offline"));
+      expect(await webAuth.uploadAvatar(file)).toEqual({ ok: false, error: "network" });
+    });
+
+    it("deleteAvatar DELETEs the BFF route and reports success/failure by status", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+      expect(await webAuth.deleteAvatar()).toBe(true);
+      expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "DELETE" });
+
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+      expect(await webAuth.deleteAvatar()).toBe(false);
+
+      fetchMock.mockRejectedValueOnce(new TypeError("offline"));
+      expect(await webAuth.deleteAvatar()).toBe(false);
+    });
+  });
 });

@@ -78,6 +78,82 @@ export function ProfileView() {
   const provider = web ? webAuth.provider() : null;
   const beta = web ? webAuth.betaAccess() : null;
 
+  // Display name + avatar (web only — conva_core migration 0001/0010; there's
+  // no local desktop store for these yet, so desktop keeps showing "—" like
+  // the other web-only rows above until the PAL exposes it there too).
+  const [nameInput, setNameInput] = useState("");
+  const [savedName, setSavedName] = useState<string | null>(null);
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [avatarBroken, setAvatarBroken] = useState(true);
+  const [avatarNonce, setAvatarNonce] = useState(0);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!web || !status?.signed_in) return;
+    setAvatarBroken(false); // let the <img> try; onError flips it back
+    void webAuth.getProfile().then(({ display_name }) => {
+      setSavedName(display_name);
+      setNameInput(display_name ?? "");
+    });
+  }, [web, status?.signed_in]);
+
+  const saveName = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed || trimmed === savedName) return;
+    setSavingName(true);
+    setNameError(null);
+    try {
+      const res = await webAuth.updateDisplayName(trimmed);
+      if (res.ok && res.display_name) {
+        setSavedName(res.display_name);
+        setNameInput(res.display_name);
+      } else {
+        setNameError("Couldn't save that name — try again.");
+      }
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const AVATAR_ERROR_COPY: Record<string, string> = {
+    unsupported_type: "PNG, JPEG, WebP or GIF only.",
+    too_large: "That image is over the 5 MB limit.",
+    empty_file: "That file looks empty.",
+    network: "Couldn't reach the server — try again.",
+    unknown: "Couldn't upload that image — try again.",
+  };
+
+  const pickAvatar = async (file: File | undefined) => {
+    if (!file) return;
+    setUploadingAvatar(true);
+    setAvatarError(null);
+    try {
+      const res = await webAuth.uploadAvatar(file);
+      if (res.ok) {
+        setAvatarBroken(false);
+        setAvatarNonce((n) => n + 1);
+      } else {
+        setAvatarError(AVATAR_ERROR_COPY[res.error ?? "unknown"] ?? "Couldn't upload that image — try again.");
+      }
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    setUploadingAvatar(true);
+    setAvatarError(null);
+    try {
+      await webAuth.deleteAvatar();
+      setAvatarBroken(true);
+      setAvatarNonce((n) => n + 1);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const signOut = async () => {
     setBusy(true);
     try {
@@ -93,6 +169,7 @@ export function ProfileView() {
       <ViewShell
         icon="account"
         breadcrumb="Account"
+        onBack={() => setView("dashboard")}
         title="Profile"
         subtitle="Your conva identity — one account for desktop and web."
       >
@@ -118,6 +195,7 @@ export function ProfileView() {
     <ViewShell
       icon="account"
       breadcrumb="Account"
+      onBack={() => setView("dashboard")}
       title="Profile"
       subtitle="Your conva identity — one account for desktop and web."
       actions={
@@ -133,20 +211,83 @@ export function ProfileView() {
     >
       <Section title="Account">
         <div className="glass mb-3 flex items-center gap-4 rounded p-4">
-          <span className="brand-gradient flex h-12 w-12 items-center justify-center rounded-full text-lg font-extrabold text-bg">
-            {initial(status.email)}
-          </span>
-          <div className="min-w-0">
+          <div className="relative shrink-0">
+            {web && !avatarBroken ? (
+              <img
+                key={avatarNonce}
+                src={`${webAuth.avatarUrl()}?v=${avatarNonce}`}
+                onError={() => setAvatarBroken(true)}
+                alt=""
+                className="h-12 w-12 rounded-full object-cover"
+              />
+            ) : (
+              <span className="brand-gradient flex h-12 w-12 items-center justify-center rounded-full text-lg font-extrabold text-bg">
+                {initial(status.email)}
+              </span>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
             <p className="truncate text-base font-bold tracking-tight text-fg">
-              {status.email}
+              {savedName || status.email}
             </p>
             <p className="font-mono text-[11px] text-fg-muted">
               synced across desktop &amp; web
             </p>
           </div>
+          {web && (
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <div className="flex items-center gap-2">
+                <label className="btn cursor-pointer text-xs">
+                  {uploadingAvatar ? "Uploading…" : "Change photo"}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    className="hidden"
+                    disabled={uploadingAvatar}
+                    onChange={(e) => {
+                      void pickAvatar(e.target.files?.[0]);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {!avatarBroken && (
+                  <button
+                    type="button"
+                    onClick={() => void removeAvatar()}
+                    disabled={uploadingAvatar}
+                    className="btn text-xs"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              {avatarError && <p className="text-xs text-rec">{avatarError}</p>}
+            </div>
+          )}
         </div>
         <div className="flex flex-col gap-2.5">
           <Row label="Email">{status.email ?? "—"}</Row>
+          {web && (
+            <Row label="Display name">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  onBlur={() => void saveName()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                  disabled={savingName}
+                  maxLength={80}
+                  placeholder="Add a name"
+                  className="min-w-0 flex-1 rounded border border-border bg-panel-raised/60 px-2.5 py-1.5 text-sm text-fg outline-none focus:border-primary"
+                />
+                {savingName && <span className="text-xs text-fg-faint">Saving…</span>}
+              </div>
+              {nameError && <p className="mt-1 text-xs text-rec">{nameError}</p>}
+            </Row>
+          )}
           <Row label="Sign-in method">
             {provider ? provider[0]?.toUpperCase() + provider.slice(1) : "—"}
           </Row>
