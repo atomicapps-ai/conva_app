@@ -68,14 +68,14 @@ function renderDetail(
 }
 
 describe("ContextDetail", () => {
-  it("reports generated, blocked, and embedded stages after Live Stream generation", async () => {
+  it("reports the pack, blocked research, and separate Q&A after Live Stream generation", async () => {
     const live = session({
       category: "live_stream",
       title: "Nolan Wells Case",
       research_enabled: true,
       dossier_doc_id: null,
     });
-    const generated = { ...live, dossier_doc_id: "knowledge-1" };
+    const generated = { ...live, dossier_doc_id: "knowledge-1", qa_doc_id: "qa-1" };
     renderDetail({
       context: {
         load: vi.fn().mockResolvedValue(live),
@@ -92,12 +92,12 @@ describe("ContextDetail", () => {
 
     await screen.findByText("Counterparty");
     fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
-    await screen.findByText("Context knowledge");
+    await screen.findByText("Context Intelligence Pack");
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
 
     expect(await screen.findByText("Add a Tavily key in Settings → Ally → Web research, then regenerate.")).toBeInTheDocument();
-    expect(screen.getByText("Included inside Context Knowledge for this conversation type.")).toBeInTheDocument();
-    expect(screen.getByText("Generated and indexed for this Context.")).toBeInTheDocument();
+    expect(screen.getByText(/Generated as a separate review resource, then compiled/i)).toBeInTheDocument();
+    expect(screen.getByText("Compiled and indexed as this Context's single live retrieval source.")).toBeInTheDocument();
   });
 
   it("shows safe claim-policy defaults for a Context saved before policy persistence", async () => {
@@ -262,7 +262,10 @@ describe("ContextDetail", () => {
     };
     renderDetail({
       context: {
-        load: vi.fn().mockResolvedValue(session({ slot_doc_ids: { resume: ["d1"] } })),
+        load: vi.fn().mockResolvedValue(session({
+          source_doc_ids: ["d1", "d2"],
+          slot_doc_ids: { resume: ["d1"] },
+        })),
         loadProfile: vi.fn().mockResolvedValue(profile({ doc_ids: ["d1", "d2"] })),
       },
       rag: { list: vi.fn().mockResolvedValue([resumeDoc, otherDoc]) },
@@ -294,7 +297,7 @@ describe("ContextDetail", () => {
     };
     renderDetail({
       context: {
-        load: vi.fn().mockResolvedValue(session()), // slot_doc_ids omitted entirely
+        load: vi.fn().mockResolvedValue(session({ source_doc_ids: ["d1"] })), // slot_doc_ids omitted entirely
         loadProfile: vi.fn().mockResolvedValue(profile({ doc_ids: ["d1"] })),
       },
       rag: { list: vi.fn().mockResolvedValue([resumeDoc]) },

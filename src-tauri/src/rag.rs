@@ -332,7 +332,7 @@ impl RagStore {
         let mut corpus_entries = Vec::new();
         let mut texts: Vec<&str> = Vec::new();
         for (document_index, doc) in documents.iter().enumerate() {
-            if !doc.document.enabled {
+            if !doc.document.enabled || !doc.document.searchable {
                 continue;
             }
             for (chunk_index, chunk) in doc.chunks.iter().enumerate() {
@@ -387,6 +387,7 @@ impl RagStore {
             DocSource::File,
             size_bytes,
             warnings,
+            true,
         )
     }
 
@@ -407,6 +408,7 @@ impl RagStore {
             DocSource::Pasted,
             size_bytes,
             Vec::new(),
+            true,
         )
     }
 
@@ -433,6 +435,34 @@ impl RagStore {
             DocSource::Generated,
             size_bytes,
             Vec::new(),
+            true,
+        )?;
+        self.attach_context(&report.document.id, context_id)?;
+        report.document.context_ids = vec![context_id.to_string()];
+        Ok(report)
+    }
+
+    /// Store an AI-authored artifact for human review without embedding or
+    /// indexing it. Context Research and Q&A remain independently inspectable,
+    /// while the compiled intelligence pack is the only generated runtime
+    /// retrieval source.
+    pub fn ingest_generated_artifact(
+        &self,
+        name: &str,
+        text: &str,
+        context_id: &str,
+    ) -> Result<IngestReport, CoreError> {
+        if text.trim().is_empty() {
+            return Err(CoreError::Rag("no text to add".into()));
+        }
+        let mut report = self.store_text_document(
+            normalize_txt_name(name),
+            text.to_string(),
+            Original::PastedText,
+            DocSource::Generated,
+            text.len() as u64,
+            Vec::new(),
+            false,
         )?;
         self.attach_context(&report.document.id, context_id)?;
         report.document.context_ids = vec![context_id.to_string()];
@@ -453,6 +483,7 @@ impl RagStore {
         source: DocSource,
         size_bytes: u64,
         mut warnings: Vec<String>,
+        indexable: bool,
     ) -> Result<IngestReport, CoreError> {
         let chunks = chunk_text(&text);
         if chunks.is_empty() {
@@ -467,8 +498,10 @@ impl RagStore {
         // Vector half of hybrid retrieval (R2) — best-effort: without the
         // embedder the chunks still serve BM25, and the startup backfill
         // embeds them later.
-        let embeddings = crate::embed::embed(chunks.iter().map(|c| c.text.clone()).collect());
-        if embeddings.is_none() {
+        let embeddings = indexable
+            .then(|| crate::embed::embed(chunks.iter().map(|c| c.text.clone()).collect()))
+            .flatten();
+        if indexable && embeddings.is_none() {
             warnings
                 .push("embeddings pending (model not ready) — keyword search only for now".into());
         }
@@ -489,6 +522,7 @@ impl RagStore {
                 // retrieval explicitly, rather than every add silently
                 // widening what grounds every conversation.
                 enabled: false,
+                searchable: indexable,
                 chunk_count: chunks.len() as u32,
                 ingested_at_unix_ms: crate::session::now_unix_ms(),
                 source,
@@ -538,6 +572,7 @@ impl RagStore {
                 id: id.clone(),
                 file_name,
                 enabled: false,
+                searchable: false,
                 chunk_count: 0,
                 ingested_at_unix_ms: crate::session::now_unix_ms(),
                 source: DocSource::File,
@@ -754,6 +789,29 @@ impl RagStore {
         )
     }
 
+    /// Read all chunks belonging to explicit documents, regardless of the
+    /// Library's global enabled checkbox. Context attachment is an explicit
+    /// instruction to use those documents while compiling that Context; it
+    /// must not depend on whether the same document is globally searchable.
+    pub fn chunks_for_documents(&self, doc_ids: &[String]) -> Vec<ScoredChunk> {
+        let inner = self.inner.read().expect("rag lock");
+        let wanted: std::collections::HashSet<&str> = doc_ids.iter().map(String::as_str).collect();
+        inner
+            .documents
+            .iter()
+            .filter(|doc| wanted.contains(doc.document.id.as_str()))
+            .flat_map(|doc| {
+                doc.chunks.iter().map(|chunk| ScoredChunk {
+                    document_id: doc.document.id.clone(),
+                    file_name: doc.document.file_name.clone(),
+                    location: chunk.location.clone(),
+                    text: chunk.text.clone(),
+                    score: 1.0,
+                })
+            })
+            .collect()
+    }
+
     /// Parse prepared Q&A from the active Context's immutable document scope.
     /// Called by the Radar worker at session start, never by the transcript
     /// sink, so even large prep documents cannot delay ASR delivery.
@@ -791,7 +849,9 @@ impl RagStore {
             inner
                 .documents
                 .iter()
-                .filter(|d| d.chunks.iter().any(|c| c.embedding.is_empty()))
+                .filter(|d| {
+                    d.document.searchable && d.chunks.iter().any(|c| c.embedding.is_empty())
+                })
                 .map(|d| d.document.id.clone())
                 .collect()
         };
@@ -1204,6 +1264,7 @@ mod tests {
                 id: id.to_string(),
                 file_name: "legacy.txt".into(),
                 enabled: true,
+                searchable: true,
                 chunk_count: 0,
                 ingested_at_unix_ms: 0,
                 source: DocSource::File,
@@ -1308,6 +1369,56 @@ mod tests {
             .find(|d| d.id == pasted.document.id)
             .unwrap();
         assert_eq!(after_detach.context_ids, vec!["ctx-2"]);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn generated_artifacts_are_viewable_but_never_retrievable() {
+        let dir = std::env::temp_dir().join(format!("conva-rag-artifact-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let store = RagStore::open(&dir).unwrap();
+        let report = store
+            .ingest_generated_artifact(
+                "Nolan Wells — Research findings",
+                "## Finding\nThe uncommon marker is zephyrquartz.",
+                "ctx-nolan",
+            )
+            .unwrap();
+
+        assert_eq!(
+            store.document_text(&report.document.id).as_deref(),
+            Some("## Finding\nThe uncommon marker is zephyrquartz.")
+        );
+        store.set_enabled(&report.document.id, true).unwrap();
+        assert!(store.retrieve("zephyrquartz", 3).is_empty());
+        assert!(store
+            .retrieve_scoped("zephyrquartz", 3, &[report.document.id])
+            .is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn context_compilation_reads_attached_documents_even_when_unchecked() {
+        let dir = std::env::temp_dir().join(format!("conva-rag-context-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let store = RagStore::open(&dir).unwrap();
+        let report = store
+            .ingest_text(
+                "Witness note",
+                "Matt's video shows seven people in the boat.",
+            )
+            .unwrap();
+        assert!(!report.document.enabled);
+
+        let chunks = store.chunks_for_documents(&[report.document.id]);
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].text.contains("seven people"));
 
         let _ = fs::remove_dir_all(&dir);
     }

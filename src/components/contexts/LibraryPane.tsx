@@ -744,13 +744,15 @@ export function LibraryPane({
                 <input
                   type="checkbox"
                   checked={doc.enabled}
-                  disabled={isImageDocument(doc)}
+                  disabled={isImageDocument(doc) || doc.searchable === false}
                   onChange={(e) =>
                     void backend.rag.setEnabled(doc.id, e.target.checked).then(refresh)
                   }
                   aria-label={
                     isImageDocument(doc)
                       ? `${doc.file_name} is a visual asset and is not text-searchable`
+                      : doc.searchable === false
+                        ? `${doc.file_name} is a review-only resource and is not independently searchable`
                       : `Include ${doc.file_name} in retrieval`
                   }
                 />
@@ -767,7 +769,9 @@ export function LibraryPane({
                     doc.enabled ? "text-fg" : "text-fg-faint",
                   ].join(" ")}
                   title={
-                    doc.enabled
+                    doc.searchable === false
+                      ? `${doc.file_name} — review-only; its supported content is compiled into Context Intelligence`
+                      : doc.enabled
                       ? doc.file_name
                       : `${doc.file_name} — not included in retrieval`
                   }

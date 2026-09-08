@@ -1296,15 +1296,11 @@ fn context_load_profile(app: AppHandle, profile_id: String) -> Result<KnowledgeP
     context::load_profile(&app, &profile_id).map_err(|e| e.to_string())
 }
 
-/// Generate Ally's grounding documents — the staged pipeline (spec
-/// 2026-08-26). Stage 1 synthesizes the Context's documents + role/JD into a
-/// **Context knowledge** briefing; Stage 2 (when research is enabled) runs
-/// vocabulary-seeded web research and writes a cited **Research findings**
-/// document; Stage 3 (opt-in, Interview only) runs a much broader research
-/// pass and writes an **Interview Q&A** bank (spec 2026-08-26, part A). All
-/// land in the library (viewable + reusable + grounding future answers) and
-/// attach to the knowledge profile. Regenerating replaces the previous
-/// documents. Returns the updated session.
+/// Generate the Context's review artifacts and one live retrieval pack.
+/// Research and Q&A remain separately viewable but are deliberately not
+/// indexed. Their high-signal content is compiled into Context Intelligence,
+/// the profile's only generated runtime source. Q&A is produced for every
+/// Context category; Interview's deep toggle expands its research breadth.
 #[tauri::command]
 fn context_generate_dossier(
     app: AppHandle,
@@ -1317,20 +1313,12 @@ fn context_generate_dossier(
         .clone()
         .ok_or_else(|| "Prepare this Context before generating a prep document.".to_string())?;
     let mut profile = context::load_profile(&app, &profile_id).map_err(|e| e.to_string())?;
+    let previous_profile_doc_ids = profile.doc_ids.clone();
 
-    // Broad grounding across this Context's own knowledge base.
-    let mut query = format!("{} {}", session.title, session.purpose);
-    if let Some(jd) = &session.job_description {
-        query.push(' ');
-        query.push_str(jd);
-    }
-    let chunks = if query.trim().is_empty() {
-        Vec::new()
-    } else {
-        state
-            .rag
-            .retrieve_scoped(query.trim(), 24, &profile.doc_ids)
-    };
+    // Compilation reads exactly the attached Context documents, independent
+    // of their global Library checkbox. Generated documents from an earlier
+    // run never feed back into the next run.
+    let chunks = state.rag.chunks_for_documents(&session.source_doc_ids);
 
     let selection = state
         .config
@@ -1339,155 +1327,179 @@ fn context_generate_dossier(
         .llm_quality
         .clone();
     let key = resolve_key(selection.provider)?;
-    let request = conva_core::context::knowledge_prompt(&session, &profile.research, &chunks, 3000);
-    let mut buf = String::new();
+    let old_dossier_id = session.dossier_doc_id.clone();
+    let old_research_id = session.research_doc_id.clone();
+    let old_qa_id = session.qa_doc_id.clone();
+
+    // Stage 1 — gather web sources once. Prepare no longer performs this
+    // network pass, avoiding duplicate searches in the normal setup flow.
+    let mut research_sources = Vec::new();
+    let mut research_text: Option<String> = None;
+    let vocabulary: Vec<String> = session
+        .key_terms
+        .iter()
+        .chain(session.glossary.iter())
+        .take(8)
+        .cloned()
+        .collect();
+    if session.research_enabled {
+        let queries = conva_core::context::research_queries(
+            &session,
+            &vocabulary,
+            context::RESEARCH_MAX_QUERIES,
+        );
+        let (sources, searches) =
+            context::research(queries, context::RESEARCH_MAX_SOURCES).map_err(|e| e.to_string())?;
+        metering::record_tavily_search(&app, searches);
+        research_sources = sources;
+        if !research_sources.is_empty() {
+            let request =
+                conva_core::context::research_findings_prompt(&session, &research_sources);
+            let mut buffer = String::new();
+            metering::metered_stream(
+                &app,
+                "context_research_findings",
+                &selection,
+                &key,
+                &request,
+                &mut |text| buffer.push_str(text),
+            )
+            .map_err(|e| format!("Research was found, but Ally could not summarize it: {e}"))?;
+            let text = buffer.trim().to_string();
+            if text.is_empty() {
+                return Err(
+                    "Research was found, but Ally returned an empty research brief.".into(),
+                );
+            }
+            research_text = Some(text);
+        }
+    }
+    // Stage 2 — category-aware prepared Q&A. Every Context receives this.
+    // Deep Interview mode adds a broader question-bank search to the sources
+    // already gathered above; other categories use the standard source set.
+    let mut qa_sources = research_sources.clone();
+    if session.deep_qa_enabled
+        && session.research_enabled
+        && session.category == conva_core::context::ContextCategory::Interview
+    {
+        let qa_queries = conva_core::context::qa_research_queries(
+            &session,
+            &vocabulary,
+            context::QA_MAX_QUERIES,
+        );
+        let (additional, searches) =
+            context::research(qa_queries, context::QA_MAX_SOURCES).map_err(|e| e.to_string())?;
+        metering::record_tavily_search(&app, searches);
+        let mut seen: std::collections::HashSet<String> =
+            qa_sources.iter().map(|source| source.url.clone()).collect();
+        for source in additional {
+            if seen.insert(source.url.clone()) {
+                qa_sources.push(source);
+            }
+        }
+    }
+    profile.research = qa_sources.clone();
+    let qa_request = conva_core::context::context_qa_prompt(
+        &session,
+        &qa_sources,
+        &chunks,
+        session.deep_qa_enabled
+            && session.category == conva_core::context::ContextCategory::Interview,
+    );
+    let mut qa_buffer = String::new();
+    metering::metered_stream(
+        &app,
+        "context_qa",
+        &selection,
+        &key,
+        &qa_request,
+        &mut |text| qa_buffer.push_str(text),
+    )
+    .map_err(|e| format!("Ally could not generate prepared Q&A: {e}"))?;
+    let qa_text = qa_buffer.trim().to_string();
+    if qa_text.is_empty() {
+        return Err("Ally returned an empty prepared Q&A resource.".into());
+    }
+
+    // Stage 3 — synthesize the briefing, then compile it with the exact Q&A
+    // and provenance into one indexed Context Intelligence Pack.
+    let knowledge_request =
+        conva_core::context::knowledge_prompt(&session, &qa_sources, &chunks, 3000);
+    let mut knowledge_buffer = String::new();
     metering::metered_stream(
         &app,
         "context_knowledge",
         &selection,
         &key,
-        &request,
-        &mut |t| buf.push_str(t),
+        &knowledge_request,
+        &mut |text| knowledge_buffer.push_str(text),
     )
-    .map_err(|e| e.to_string())?;
-    let text = buf.trim().to_string();
-    if text.is_empty() {
-        return Err("Ally returned an empty briefing.".into());
+    .map_err(|e| format!("Ally could not generate Context Intelligence: {e}"))?;
+    let knowledge_text = knowledge_buffer.trim().to_string();
+    if knowledge_text.is_empty() {
+        return Err("Ally returned an empty Context Intelligence briefing.".into());
     }
+    let pack_text = conva_core::context::compile_intelligence_pack(
+        &session,
+        &knowledge_text,
+        &qa_text,
+        &chunks,
+        &qa_sources,
+    );
 
-    // Replace any previous dossier so regenerating doesn't pile up copies.
-    if let Some(old) = session.dossier_doc_id.take() {
-        let _ = state.rag.delete(&old);
-        profile.doc_ids.retain(|d| d != &old);
-    }
-
-    // Generated (not pasted) content, tagged to this context — the library's
-    // "By conva" badge/filter (Conversation Context UI, organized library).
-    let name = format!("{} — Context knowledge", session.title.trim());
-    let report = state
+    // Review artifacts are stored without embeddings/index entries.
+    let new_research_id = if let Some(text) = &research_text {
+        let name = format!("{} — Research findings", session.title.trim());
+        Some(
+            state
+                .rag
+                .ingest_generated_artifact(&name, text, &session.id)
+                .map_err(|e| e.to_string())?
+                .document
+                .id,
+        )
+    } else {
+        None
+    };
+    let qa_name = format!("{} — Prepared Q&A", session.title.trim());
+    let new_qa_id = state
         .rag
-        .ingest_generated(&name, &text, &session.id)
+        .ingest_generated_artifact(&qa_name, &qa_text, &session.id)
+        .map_err(|e| e.to_string())?
+        .document
+        .id;
+    let pack_name = format!("{} — Context Intelligence Pack", session.title.trim());
+    let new_dossier_id = state
+        .rag
+        .ingest_generated(&pack_name, &pack_text, &session.id)
+        .map_err(|e| e.to_string())?
+        .document
+        .id;
+    state
+        .rag
+        .set_enabled(&new_dossier_id, true)
         .map_err(|e| e.to_string())?;
-    let doc_id = report.document.id.clone();
 
-    if !profile.doc_ids.contains(&doc_id) {
-        profile.doc_ids.push(doc_id.clone());
-    }
+    // Publish the new set only after all required generation and storage has
+    // succeeded. The live retrieval scope is exactly one document.
+    profile.doc_ids = vec![new_dossier_id.clone()];
+    session.dossier_doc_id = Some(new_dossier_id);
+    session.research_doc_id = new_research_id;
+    session.qa_doc_id = Some(new_qa_id);
 
-    session.dossier_doc_id = Some(doc_id);
-    // Harvest the digest's glossary into structured context terms (Phase 3c) so
-    // the highlighter can surface them during the conversation.
-    // Harvested terms pass the mined-term hygiene gate (spec B.2/B.3):
-    // bolding is already an LLM-curated signal, so the occurrence floor is
-    // 1, but the word-cap and stopword rules still apply, and JD presence
-    // still counts in the term's favor.
     let glossary_entries = conva_core::highlight::sanitize_glossary_entries(
-        conva_core::context::extract_glossary_entries(&text),
-        &text,
+        conva_core::context::extract_glossary_entries(&knowledge_text),
+        &knowledge_text,
         session.job_description.as_deref(),
         1,
     );
-    session.glossary = glossary_entries.iter().map(|(t, _)| t.clone()).collect();
+    session.glossary = glossary_entries
+        .iter()
+        .map(|(term, _)| term.clone())
+        .collect();
     session.glossary_definitions = glossary_entries.into_iter().collect();
-    // A fresh digest by definition reflects the current inputs.
     session.resources_stale = false;
 
-    // ── Stage 2: web research → Research findings document (spec
-    // 2026-08-26). Queries are seeded by Stage 1's vocabulary; failures or
-    // missing key skip the stage cleanly (Stage 1's document stands).
-    if session.research_enabled {
-        let vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
-        let queries =
-            conva_core::context::research_queries(&session, &vocab, context::RESEARCH_MAX_QUERIES);
-        if let Ok((sources, searches)) = context::research(queries, context::RESEARCH_MAX_SOURCES) {
-            metering::record_tavily_search(&app, searches);
-            if !sources.is_empty() {
-                profile.research = sources.clone();
-                let request = conva_core::context::research_findings_prompt(&session, &sources);
-                let mut fbuf = String::new();
-                let fresult = metering::metered_stream(
-                    &app,
-                    "context_research_findings",
-                    &selection,
-                    &key,
-                    &request,
-                    &mut |t| fbuf.push_str(t),
-                );
-                if fresult.is_ok() {
-                    let ftext = fbuf.trim().to_string();
-                    if !ftext.is_empty() {
-                        // Replace any previous findings doc — no pile-up.
-                        if let Some(old) = session.research_doc_id.take() {
-                            let _ = state.rag.delete(&old);
-                            profile.doc_ids.retain(|d| d != &old);
-                        }
-                        let fname = format!("{} — Research findings", session.title.trim());
-                        if let Ok(freport) = state.rag.ingest_generated(&fname, &ftext, &session.id)
-                        {
-                            let fdoc_id = freport.document.id.clone();
-                            if !profile.doc_ids.contains(&fdoc_id) {
-                                profile.doc_ids.push(fdoc_id.clone());
-                            }
-                            session.research_doc_id = Some(fdoc_id);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ── Stage 3: deep interview Q&A research (spec 2026-08-26, part A) —
-    // opt-in, Interview only, much broader than Stage 2. Failures/no key
-    // skip cleanly; Stage 1/2's documents stand regardless.
-    if session.deep_qa_enabled
-        && session.research_enabled
-        && session.category == conva_core::context::ContextCategory::Interview
-    {
-        let qa_vocab: Vec<String> = session.glossary.iter().take(6).cloned().collect();
-        let qa_queries =
-            conva_core::context::qa_research_queries(&session, &qa_vocab, context::QA_MAX_QUERIES);
-        if let Ok((qa_sources, qa_searches)) =
-            context::research(qa_queries, context::QA_MAX_SOURCES)
-        {
-            metering::record_tavily_search(&app, qa_searches);
-            if !qa_sources.is_empty() {
-                let qa_request =
-                    conva_core::context::interview_qa_prompt(&session, &qa_sources, &chunks);
-                let mut qa_buf = String::new();
-                let qa_result = metering::metered_stream(
-                    &app,
-                    "context_qa",
-                    &selection,
-                    &key,
-                    &qa_request,
-                    &mut |t| qa_buf.push_str(t),
-                );
-                if qa_result.is_ok() {
-                    let qa_text = qa_buf.trim().to_string();
-                    if !qa_text.is_empty() {
-                        // Replace any previous Q&A doc — no pile-up.
-                        if let Some(old) = session.qa_doc_id.take() {
-                            let _ = state.rag.delete(&old);
-                            profile.doc_ids.retain(|d| d != &old);
-                        }
-                        let qa_name = format!("{} — Interview Q&A", session.title.trim());
-                        if let Ok(qa_report) =
-                            state.rag.ingest_generated(&qa_name, &qa_text, &session.id)
-                        {
-                            let qa_doc_id = qa_report.document.id.clone();
-                            if !profile.doc_ids.contains(&qa_doc_id) {
-                                profile.doc_ids.push(qa_doc_id.clone());
-                            }
-                            session.qa_doc_id = Some(qa_doc_id);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // One profile save covers all three stages (Stage 1's document + Stage
-    // 2's research/findings doc + Stage 3's Q&A doc, whichever ran).
     profile.updated_at_unix_ms = session::now_unix_ms();
     context::save_profile(&app, &profile).map_err(|e| e.to_string())?;
 
@@ -1495,7 +1507,37 @@ fn context_generate_dossier(
     // dossier pipeline actually ran, distinct from `updated_at_unix_ms`
     // (which also bumps on a plain title/purpose edit).
     session.resources_generated_at_unix_ms = Some(session::now_unix_ms());
-    context::save(&app, session).map_err(|e| e.to_string())
+    let saved = context::save(&app, session).map_err(|e| e.to_string())?;
+
+    // If this Context is already active, switch its live scope atomically to
+    // the new pack instead of leaving the session pointed at the deleted one.
+    let active_was_this_context = {
+        let mut active = state.active_context_doc_ids.lock().expect("ctx lock");
+        if !active.is_empty() && *active == previous_profile_doc_ids {
+            *active = profile.doc_ids.clone();
+            true
+        } else {
+            false
+        }
+    };
+    if active_was_this_context {
+        let mut terms = state.active_context_terms.lock().expect("ctx lock");
+        terms.clear();
+        terms.extend(saved.key_terms.iter().cloned());
+        terms.extend(saved.glossary.iter().cloned());
+        *state.active_context_snapshot.lock().expect("ctx lock") =
+            Some(semantic_snapshot_for_context(&saved, &state.rag));
+    }
+
+    // Old generated files are now unreachable from both the Context and its
+    // profile, so cleanup cannot interrupt a usable generation transaction.
+    for old in [old_dossier_id, old_research_id, old_qa_id]
+        .into_iter()
+        .flatten()
+    {
+        let _ = state.rag.delete(&old);
+    }
+    Ok(saved)
 }
 
 /// Reconstruct a library document's text (for showing the Ally prep dossier

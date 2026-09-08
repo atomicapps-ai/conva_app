@@ -39,6 +39,11 @@ pub struct RagDocument {
     pub file_name: String,
     /// Whether this document participates in retrieval (per-doc toggle, U5).
     pub enabled: bool,
+    /// Whether retrieval is a capability of this document. Review-only
+    /// generated artifacts and visual assets are false even if an older UI
+    /// attempts to toggle `enabled`. Defaults true for persisted legacy docs.
+    #[serde(default = "default_searchable")]
+    pub searchable: bool,
     pub chunk_count: u32,
     pub ingested_at_unix_ms: u64,
     /// Provenance — see [`DocSource`].
@@ -59,6 +64,10 @@ pub struct RagDocument {
     /// (`src/lib/formatBytes.ts`), never displays the raw number.
     #[serde(default)]
     pub size_bytes: u64,
+}
+
+fn default_searchable() -> bool {
+    true
 }
 
 /// Ingestion outcome reported to the UI (R1/R2).
@@ -146,6 +155,7 @@ mod tests {
         }"#;
         let doc: RagDocument = serde_json::from_str(old_json).unwrap();
         assert_eq!(doc.source, DocSource::File);
+        assert!(doc.searchable);
         assert!(doc.context_ids.is_empty());
     }
 

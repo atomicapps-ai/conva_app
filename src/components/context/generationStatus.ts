@@ -22,11 +22,11 @@ export function generationStages(
   const stages: GenerationStage[] = [
     {
       key: "knowledge",
-      label: "Context Knowledge",
+      label: "Context Intelligence Pack",
       state: knowledgeReady ? "ready" : "failed",
       detail: knowledgeReady
-        ? "Generated and indexed for this Context."
-        : "No Context Knowledge document was returned.",
+        ? "Compiled and indexed as this Context's single live retrieval source."
+        : "No Context Intelligence Pack was returned.",
     },
   ];
 
@@ -50,51 +50,22 @@ export function generationStages(
       label: "Web research",
       state: context.research_doc_id ? "ready" : "failed",
       detail: context.research_doc_id
-        ? "Generated with cited sources and indexed."
+        ? "Generated with cited sources for review; its supported findings are compiled into Context Intelligence."
         : "Enabled, but no research document was returned. Try again or review the search key.",
     });
   }
 
-  if (context.category !== "interview") {
-    stages.push({
-      key: "qa",
-      label: "Likely questions & answers",
-      state: knowledgeReady ? "included" : "failed",
-      detail: knowledgeReady
-        ? "Included inside Context Knowledge for this conversation type."
-        : "Could not be included because Context Knowledge was not generated.",
-    });
-  } else if (!context.deep_qa_enabled) {
-    stages.push({
-      key: "qa",
-      label: "Interview Q&A",
-      state: "skipped",
-      detail: "Deep interview Q&A is turned off in Context setup.",
-    });
-  } else if (!context.research_enabled) {
-    stages.push({
-      key: "qa",
-      label: "Interview Q&A",
-      state: "blocked",
-      detail: "Deep Q&A needs web research enabled.",
-    });
-  } else if (!hasResearchKey) {
-    stages.push({
-      key: "qa",
-      label: "Interview Q&A",
-      state: "blocked",
-      detail: "Add a Tavily key in Settings → Ally → Web research, then regenerate.",
-    });
-  } else {
-    stages.push({
-      key: "qa",
-      label: "Interview Q&A",
-      state: context.qa_doc_id ? "ready" : "failed",
-      detail: context.qa_doc_id
-        ? "Generated as a separate prepared Q&A resource."
-        : "Enabled, but no Q&A document was returned. Try again or review the search key.",
-    });
-  }
+  const qaLabel = context.category === "interview" ? "Interview Q&A" : "Prepared Q&A";
+  stages.push({
+    key: "qa",
+    label: qaLabel,
+    state: context.qa_doc_id ? "ready" : "failed",
+    detail: context.qa_doc_id
+      ? context.category === "interview" && context.deep_qa_enabled
+        ? "Generated as a separate review resource using the expanded interview research pass, then compiled into Context Intelligence."
+        : "Generated as a separate review resource, then compiled into Context Intelligence for fast matching."
+      : "No prepared Q&A resource was returned.",
+  });
 
   return stages;
 }

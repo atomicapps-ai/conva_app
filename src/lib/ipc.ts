@@ -109,6 +109,8 @@ export interface RagDocument {
   id: string;
   file_name: string;
   enabled: boolean;
+  /** False for view-only artifacts that must never enter retrieval. */
+  searchable?: boolean;
   chunk_count: number;
   ingested_at_unix_ms: number;
   source: DocSource;

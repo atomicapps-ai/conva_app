@@ -57,7 +57,13 @@ fn validate_id(id: &str) -> Result<(), CoreError> {
 /// every startup and never overwrites a later smart-evolution update. Purely
 /// local (no network) — safe to run synchronously during app setup.
 pub fn ensure_default_context(app: &AppHandle, rag: &RagStore) -> Result<(), CoreError> {
-    if load(app, DEFAULT_CONTEXT_ID).is_ok() {
+    if let Ok(existing) = load(app, DEFAULT_CONTEXT_ID) {
+        if let Some(doc_id) = existing.dossier_doc_id {
+            // The baseline briefing is the default Context's runtime pack and
+            // must participate in retrieval even if an older migration or
+            // Library checkbox left it disabled.
+            let _ = rag.set_enabled(&doc_id, true);
+        }
         return Ok(()); // already seeded (or since updated by a future version)
     }
 
@@ -67,6 +73,7 @@ pub fn ensure_default_context(app: &AppHandle, rag: &RagStore) -> Result<(), Cor
         DEFAULT_CONTEXT_ID,
     )?;
     let doc_id = report.document.id.clone();
+    rag.set_enabled(&doc_id, true)?;
     let now = now_unix_ms();
 
     let profile_id = format!("kp-{DEFAULT_CONTEXT_ID}");
@@ -334,14 +341,10 @@ pub fn load_profile(app: &AppHandle, id: &str) -> Result<KnowledgeProfile, CoreE
     serde_json::from_str(&content).map_err(|e| CoreError::Audio(e.to_string()))
 }
 
-/// Build (or rebuild) the reusable `KnowledgeProfile` for a Context from its
-/// attached documents (already ingested in the RAG library) plus web research,
-/// then mark the session ready. Reuses the session's existing profile id if it
-/// has one, so re-preparing after an edit updates in place.
-///
-/// The attached-doc side works today; the web-research list is filled by
-/// [`research`] only when a search API key is configured (Phase C.2) — otherwise
-/// it stays empty and the profile is docs-only.
+/// Prepare the reusable `KnowledgeProfile` shell from the Context's attached
+/// documents, then mark the session ready. Network research belongs to the
+/// explicit Generate resources action so preparing and immediately generating
+/// never bills/runs the same search twice.
 pub fn prepare(app: &AppHandle, id: &str) -> Result<ConversationContext, CoreError> {
     let mut session = load(app, id)?;
     let now = now_unix_ms();
@@ -353,31 +356,13 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<ConversationContext, CoreErr
         .map(|p| p.created_at_unix_ms)
         .unwrap_or(now);
 
-    // Web research runs when enabled for this context (defaults from the type
-    // template — decision 2). The legacy auto-generate flag still opts in.
-    let research = if session.research_enabled || session.auto_generate_context {
-        match research(
-            conva_core::context::research_queries(&session, &[], RESEARCH_MAX_QUERIES),
-            RESEARCH_MAX_SOURCES,
-        ) {
-            Ok((sources, searches)) => {
-                // Tavily bills per search — record what we actually issued.
-                crate::metering::record_tavily_search(app, searches);
-                sources
-            }
-            Err(_) => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-
     let profile = KnowledgeProfile {
         id: profile_id.clone(),
         title: session.title.clone(),
         created_at_unix_ms: created,
         updated_at_unix_ms: now,
         doc_ids: session.source_doc_ids.clone(),
-        research,
+        research: Vec::new(),
         ready: true,
     };
     save_profile(app, &profile)?;

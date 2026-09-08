@@ -67,6 +67,21 @@ describe("LibraryPane row", () => {
     ).toBeDisabled();
   });
 
+  it("disables retrieval for a generated review-only resource", async () => {
+    renderPane([
+      doc({
+        file_name: "Nolan Wells — Research findings.txt",
+        source: "generated",
+        enabled: false,
+        searchable: false,
+      }),
+    ]);
+    await screen.findByText("Nolan Wells — Research findings.txt");
+    expect(
+      screen.getByRole("checkbox", { name: /review-only resource/i }),
+    ).toBeDisabled();
+  });
+
   it("shows checkbox, source icon, and name — no drag-handle icon or generated-by badge", async () => {
     renderPane([doc({ source: "generated" })]);
     await screen.findByText("resume.pdf");

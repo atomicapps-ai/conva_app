@@ -15,11 +15,11 @@ const context = (overrides: Partial<ConversationContext> = {}) =>
 
 describe("generationStages", () => {
   it("explains partial Live Stream output when research has no key", () => {
-    const stages = generationStages(context(), false);
+    const stages = generationStages(context({ qa_doc_id: "qa-1" }), false);
     expect(stages.map((stage) => [stage.key, stage.state])).toEqual([
       ["knowledge", "ready"],
       ["research", "blocked"],
-      ["qa", "included"],
+      ["qa", "ready"],
     ]);
   });
 

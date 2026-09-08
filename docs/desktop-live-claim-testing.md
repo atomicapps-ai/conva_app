@@ -9,9 +9,18 @@ does not require automatic web verification.
 Open PowerShell and run:
 
 ```powershell
-Set-Location C:\Projects\atomicapps\conva\conva_app
-git switch codex/faner-claim-intelligence-ui
-git pull
+$expectedBranch = "codex/faner-claim-intelligence-ui"
+Set-Location "C:\Projects\atomicapps\conva\conva_app"
+$currentBranch = git branch --show-current
+if ($currentBranch -ne $expectedBranch -and (git status --porcelain)) {
+    throw "Uncommitted work exists on $currentBranch. Stop and review it before switching branches."
+}
+git fetch origin
+git switch $expectedBranch
+if ((git branch --show-current) -ne $expectedBranch) {
+    throw "The required branch is not active."
+}
+git pull --ff-only origin $expectedBranch
 npm install
 ```
 
@@ -82,7 +91,30 @@ From Live:
 The producer also works with General conversation, but references are more
 likely to remain unresolved without an active Context.
 
-## 6. Test attributed claim B
+## 6. Generate and inspect Context resources
+
+Before the live claim test, open the Nolan Wells Context and select **Generate
+resources**. Confirm:
+
+1. The button changes to a busy state while work is running.
+2. **Context Intelligence Pack** finishes Ready.
+3. **Prepared Q&A** finishes Ready even when web research is switched off or
+   no Tavily key is configured.
+4. With research enabled and a working Tavily key, **Research findings** is a
+   separate cited resource. Without a key, the status clearly says Blocked.
+5. The Q&A tab contains question-and-answer pairs appropriate for a Live Stream,
+   not interview questions.
+6. Briefing and Research open as formatted documents: headings, lists, bold
+   terms, and links are visually styled. Select **Raw** and confirm the exact
+   Markdown remains available, then switch back to **Formatted**.
+7. The Context's attached source files still appear in its Knowledge base and
+   Context resources folder after generation.
+
+The separate Research and Q&A resources are for review. Context Intelligence is
+the one generated document in the live retrieval scope, and its provenance
+section must distinguish user-provided files from Ally web research.
+
+## 7. Test attributed claim B
 
 1. Select **Start listening**.
 2. Speak clearly:
@@ -104,7 +136,7 @@ Expected result:
 - the expanded row says **No admitted evidence yet**;
 - no web search or automatic verification starts.
 
-## 7. Test compound statement A
+## 8. Test compound statement A
 
 While the same session is active, speak:
 
@@ -119,7 +151,7 @@ Expected result:
   than being silently bound to invented identities;
 - repeated processing does not add duplicate copies of the same claim.
 
-## 8. Test another supported Context
+## 9. Test another supported Context
 
 Repeat with one existing Interview, Company Meeting, Sales Call, or Other
 Context. Suggested statements:
@@ -132,7 +164,7 @@ Context. Suggested statements:
 Confirm the same Tracking UI is used and that the Context role/policy changes
 interpretation without creating a separate product mode.
 
-## 9. Test persistence and Claim Review
+## 10. Test persistence and Claim Review
 
 1. Select **End**.
 2. Save the conversation in the offered save dialog.
@@ -148,14 +180,14 @@ Expected result:
 - superseded claims are preserved for audit but omitted from active Tracking;
 - reopening the app and Conversation does not lose the review.
 
-## 10. What is intentionally unavailable
+## 11. What is intentionally unavailable
 
 - **Check claim** does not yet execute a verification provider.
 - No automatic web research is enabled by claim detection.
 - No claim-confidence conclusion is created without admitted evidence.
 - Browser-hosted sessions do not yet produce semantic claim snapshots.
 
-## 11. If no claim appears
+## 12. If no claim appears
 
 Check, in order:
 
@@ -170,7 +202,7 @@ Check, in order:
 End the session, correct the setting/provider, and start a fresh session before
 retrying.
 
-## 12. Issue report template
+## 13. Issue report template
 
 For each problem, record:
 
