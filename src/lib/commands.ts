@@ -11,6 +11,7 @@ import type {
   AudioDevice,
   AuthStatus,
   Capture,
+  ClaimRecord,
   Conversation,
   ConversationSummary,
   ContextSummary,
@@ -108,9 +109,7 @@ export function testProvider(
   return invoke<number>("test_provider", { provider, model });
 }
 
-export function listProviderModels(
-  provider: ProviderId,
-): Promise<ModelInfo[]> {
+export function listProviderModels(provider: ProviderId): Promise<ModelInfo[]> {
   return invoke<ModelInfo[]>("list_provider_models", { provider });
 }
 
@@ -343,7 +342,9 @@ export function conversationDelete(id: string): Promise<void> {
 /* ── Context (Conversation Context) ── */
 
 /** Create or update a Context. An empty `id` mints a new record. */
-export function contextSave(context: ConversationContext): Promise<ConversationContext> {
+export function contextSave(
+  context: ConversationContext,
+): Promise<ConversationContext> {
   return invoke<ConversationContext>("context_save", { session: context });
 }
 
@@ -387,12 +388,16 @@ export function contextPrepare(id: string): Promise<ConversationContext> {
 }
 
 /** Load a Context's knowledge base (attached docs + researched sources). */
-export function contextLoadProfile(profileId: string): Promise<KnowledgeProfile> {
+export function contextLoadProfile(
+  profileId: string,
+): Promise<KnowledgeProfile> {
   return invoke<KnowledgeProfile>("context_load_profile", { profileId });
 }
 
 /** Generate the Ally prep dossier (saved to the library); returns the record. */
-export function contextGenerateDossier(id: string): Promise<ConversationContext> {
+export function contextGenerateDossier(
+  id: string,
+): Promise<ConversationContext> {
   return invoke<ConversationContext>("context_generate_dossier", { id });
 }
 
@@ -402,7 +407,9 @@ export function ragDocumentText(id: string): Promise<string | null> {
 }
 
 /** Generate 3 counterparty personas with the configured LLM. */
-export function contextGeneratePersonas(id: string): Promise<ConversationContext> {
+export function contextGeneratePersonas(
+  id: string,
+): Promise<ConversationContext> {
   return invoke<ConversationContext>("context_generate_personas", { id });
 }
 
@@ -411,7 +418,10 @@ export function contextChoosePersona(
   id: string,
   personaId: string,
 ): Promise<ConversationContext> {
-  return invoke<ConversationContext>("context_choose_persona", { id, personaId });
+  return invoke<ConversationContext>("context_choose_persona", {
+    id,
+    personaId,
+  });
 }
 
 /** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
@@ -538,8 +548,8 @@ export function showSplash(): Promise<void> {
 
 // --- Partner window (src-tauri/src/partner.rs) -------------------------------
 
-/** Open (or re-target) the partner window on a term — or, with `docId` set,
- *  a library document directly (e.g. "view" on a Library/Context row). */
+/** Open (or re-target) the partner window on a term, a typed claim, or, with
+ *  `docId` set, a library document directly. */
 export function openPartner(
   term: string,
   kind: string | null,
@@ -547,6 +557,7 @@ export function openPartner(
   answer: string | null = null,
   sourceLines: string[] = [],
   docId: string | null = null,
+  claim: ClaimRecord | null = null,
 ): Promise<void> {
   return invoke("open_partner", {
     term,
@@ -555,6 +566,7 @@ export function openPartner(
     answer,
     sourceLines,
     docId,
+    claim,
   });
 }
 

@@ -6,11 +6,7 @@ import type { ClaimRecord } from "@/lib/ipc";
  * the Tracking row needs to render and disclose.
  */
 export type ClaimDisplayState =
-  | "attributed"
-  | "checking"
-  | "supported"
-  | "conflict"
-  | "needs_context";
+  "attributed" | "checking" | "supported" | "conflict" | "needs_context";
 
 export type ClaimConsequence = "high" | "medium" | "low";
 
@@ -21,10 +17,7 @@ export type ClaimPrimaryAction =
   | "correct_links"
   | "request_evidence";
 
-export type ClaimRowAction =
-  | ClaimPrimaryAction
-  | "open_evidence"
-  | "dismiss";
+export type ClaimRowAction = ClaimPrimaryAction | "open_evidence" | "dismiss";
 
 export interface ClaimEvidenceSummary {
   label: string;
@@ -49,11 +42,17 @@ export interface ClaimDisplayItem {
   evidence: ClaimEvidenceSummary[];
   primaryAction: ClaimPrimaryAction;
   primaryActionLabel: string;
+  /** Complete typed record for the evidence viewer. Tracking renders only the
+   *  compact fields above; this is carried through without flattening. */
+  record?: ClaimRecord;
 }
 
 export const CLAIM_STATE_META: Record<
   ClaimDisplayState,
-  { label: string; tone: "neutral" | "checking" | "supported" | "conflict" | "context" }
+  {
+    label: string;
+    tone: "neutral" | "checking" | "supported" | "conflict" | "context";
+  }
 > = {
   attributed: { label: "Attributed", tone: "neutral" },
   checking: { label: "Checking", tone: "checking" },
@@ -86,7 +85,8 @@ export function sortClaimsForTracking(
       (a, b) =>
         CONSEQUENCE_ORDER[a.claim.consequence] -
           CONSEQUENCE_ORDER[b.claim.consequence] ||
-        ACTIONABILITY_ORDER[a.claim.state] - ACTIONABILITY_ORDER[b.claim.state] ||
+        ACTIONABILITY_ORDER[a.claim.state] -
+          ACTIONABILITY_ORDER[b.claim.state] ||
         a.index - b.index,
     )
     .map(({ claim }) => claim);
@@ -97,20 +97,26 @@ export function projectClaimRecords(
   records: readonly ClaimRecord[],
 ): ClaimDisplayItem[] {
   return records
-    .filter((record) => record.state !== "superseded" && record.state !== "dismissed")
+    .filter(
+      (record) => record.state !== "superseded" && record.state !== "dismissed",
+    )
     .map(projectClaimRecord);
 }
 
 function projectClaimRecord(record: ClaimRecord): ClaimDisplayItem {
   const unresolved = record.references.filter(
-    (reference) => reference.required_for_verification && !reference.resolved_target_id,
+    (reference) =>
+      reference.required_for_verification && !reference.resolved_target_id,
   );
   const admitted = record.evidence.filter(
     (evidence) => evidence.admission.decision === "admitted",
   );
   const attribution = record.attribution_chain[0]?.source_label ?? null;
   const { state, label } = compactState(record.state);
-  const { action, actionLabel } = primaryAction(record.state, unresolved.length > 0);
+  const { action, actionLabel } = primaryAction(
+    record.state,
+    unresolved.length > 0,
+  );
   return {
     id: record.id,
     proposition: record.normalized_proposition,
@@ -122,7 +128,10 @@ function projectClaimRecord(record: ClaimRecord): ClaimDisplayItem {
     attributionDetail:
       record.attribution_chain.length > 0
         ? record.attribution_chain
-            .map((item) => `${item.source_label} — ${item.reporting_verb || "attributed"}`)
+            .map(
+              (item) =>
+                `${item.source_label} — ${item.reporting_verb || "attributed"}`,
+            )
             .join("; ")
         : null,
     referenceDetail:
@@ -150,6 +159,7 @@ function projectClaimRecord(record: ClaimRecord): ClaimDisplayItem {
     })),
     primaryAction: action,
     primaryActionLabel: actionLabel,
+    record,
   };
 }
 
@@ -187,7 +197,8 @@ function primaryAction(
   state: ClaimRecord["state"],
   unresolved: boolean,
 ): { action: ClaimPrimaryAction; actionLabel: string } {
-  if (unresolved) return { action: "correct_links", actionLabel: "Resolve references" };
+  if (unresolved)
+    return { action: "correct_links", actionLabel: "Resolve references" };
   if (state === "conflicting_evidence") {
     return { action: "review_conflict", actionLabel: "Review conflict" };
   }
@@ -201,10 +212,15 @@ function primaryAction(
 }
 
 function nextAction(state: ClaimRecord["state"], unresolved: boolean): string {
-  if (unresolved) return "Resolve the required references before checking this claim.";
-  if (state === "checking" || state === "queued") return "Wait for the admitted evidence check.";
-  if (state === "conflicting_evidence") return "Compare the conflicting evidence and limitations.";
-  if (state === "supported" || state === "partly_supported") return "Review the supporting evidence before relying on it.";
-  if (state === "not_externally_verifiable") return "Ask for inspectable evidence or keep this as a conversational assertion.";
+  if (unresolved)
+    return "Resolve the required references before checking this claim.";
+  if (state === "checking" || state === "queued")
+    return "Wait for the admitted evidence check.";
+  if (state === "conflicting_evidence")
+    return "Compare the conflicting evidence and limitations.";
+  if (state === "supported" || state === "partly_supported")
+    return "Review the supporting evidence before relying on it.";
+  if (state === "not_externally_verifiable")
+    return "Ask for inspectable evidence or keep this as a conversational assertion.";
   return "Check this claim using the active Context source policy.";
 }

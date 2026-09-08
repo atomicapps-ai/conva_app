@@ -206,7 +206,8 @@ export interface TrackerEvent {
 }
 
 // ── FANER capture routing (F11) — mirrors `conva-core/src/capture.rs` ─────────
-export type CaptureTrigger = "question" | "task_frame" | "prep_reference" | "gap";
+export type CaptureTrigger =
+  "question" | "task_frame" | "prep_reference" | "gap";
 export type CaptureAction = "EXPLAIN" | "RECALL" | "ASSIST" | "SYNTHESIZE";
 /** How likely a term is to be unknown — only set on EXPLAIN captures. */
 export type CaptureTier = "field" | "specialized";
@@ -258,7 +259,8 @@ export type Modality =
   | "possible"
   | "hypothetical"
   | "questioned";
-export type Sensitivity = "public" | "internal" | "private_personal" | "restricted";
+export type Sensitivity =
+  "public" | "internal" | "private_personal" | "restricted";
 export type ClaimConsequence = "low" | "medium" | "high";
 export type ClaimState =
   | "detected"
@@ -286,10 +288,19 @@ export type SuggestedAction =
 export interface ClaimAttribution {
   source_label: string;
   reporting_verb: string;
-  directness: "direct_statement" | "reported_by_speaker" | "hearsay" | "unknown";
+  directness:
+    "direct_statement" | "reported_by_speaker" | "hearsay" | "unknown";
 }
 export interface ClaimQualifier {
-  kind: "quantity" | "date" | "time" | "location" | "condition" | "scope" | "cause" | "other";
+  kind:
+    | "quantity"
+    | "date"
+    | "time"
+    | "location"
+    | "condition"
+    | "scope"
+    | "cause"
+    | "other";
   value: string;
   unit: string | null;
 }
@@ -300,7 +311,13 @@ export interface ClaimReferenceCandidate {
 }
 export interface ClaimReferenceEdge {
   surface_text: string;
-  kind: "pronoun" | "demonstrative" | "person_alias" | "artifact" | "event" | "place";
+  kind:
+    | "pronoun"
+    | "demonstrative"
+    | "person_alias"
+    | "artifact"
+    | "event"
+    | "place";
   required_for_verification: boolean;
   resolved_target_id: string | null;
   candidates: ClaimReferenceCandidate[];
@@ -340,7 +357,8 @@ export type AdmissionDecision =
   | { decision: "admitted" }
   | { decision: "rejected"; reason: AdmissionRejection };
 export type EvidenceScope = "attribution" | "underlying_proposition";
-export type EvidenceStance = "supports" | "partly_supports" | "contradicts" | "inconclusive";
+export type EvidenceStance =
+  "supports" | "partly_supports" | "contradicts" | "inconclusive";
 export type QualityAssessment = "unknown" | "weak" | "adequate" | "strong";
 export interface EvidenceQuality {
   authority: QualityAssessment;
@@ -370,9 +388,11 @@ export interface ClaimEvidenceRecord {
   published_at_unix_ms: number | null;
   retrieved_at_unix_ms: number;
 }
-export type ClaimConfidence = "none" | "limited" | "moderate" | "strong" | "conflicted";
+export type ClaimConfidence =
+  "none" | "limited" | "moderate" | "strong" | "conflicted";
 export interface ClaimCorrection {
-  kind: "transcript" | "attribution" | "reference" | "proposition" | "consequence";
+  kind:
+    "transcript" | "attribution" | "reference" | "proposition" | "consequence";
   previous_value: string;
   corrected_value: string;
   corrected_by: string;
@@ -439,6 +459,9 @@ export interface PartnerPayload {
    *  `documentText`, same as clicking a "FROM YOUR DOCUMENTS" citation
    *  line. `null` for every other open. */
   doc_id: string | null;
+  /** Complete typed claim state for a Tracking evidence view. `null` for
+   *  terms, answers, and documents. Mirrors the Rust optional field. */
+  claim: ClaimRecord | null;
 }
 
 /** Mirror of `ipc.rs::PartnerLockEvent` — sent when the shell changes the
@@ -495,11 +518,7 @@ export const DEFAULT_CONTEXT_ID = "default";
 /** The kind of conversation this context is for. Launch set (fixed but
  * extensible later); drives the setup template + web-research default. */
 export type ContextCategory =
-  | "interview"
-  | "company_meeting"
-  | "sales_call"
-  | "live_stream"
-  | "other";
+  "interview" | "company_meeting" | "sales_call" | "live_stream" | "other";
 
 /** The user's role in this Context. Mirrors
  * conva_core::context_snapshot::ParticipationLens. */
@@ -527,8 +546,7 @@ export type ParticipationLens =
   | "other_presenter";
 
 export type HighConsequenceRequirement =
-  | "primary_official_or_independent_reports"
-  | "primary_official_only";
+  "primary_official_or_independent_reports" | "primary_official_only";
 
 /** Exact source-admission and privacy policy used by claim checks. Mirrors
  * conva_core::source_policy::SourcePolicy. */
@@ -550,11 +568,7 @@ export interface SourcePolicy {
 
 /** Lifecycle of a Context, start to finish. */
 export type ContextStatus =
-  | "draft"
-  | "ingesting"
-  | "ready"
-  | "running"
-  | "ended";
+  "draft" | "ingesting" | "ready" | "running" | "ended";
 
 /** The avatar gender presentation a generated persona was assigned — Ally's
  *  choice, cosmetic only (drives which silhouette icon the counterparty
@@ -693,12 +707,7 @@ export type SplashProgressEvent =
 
 /** Mirror of conva-core llm::ProviderId (snake_case serde). */
 export type ProviderId =
-  | "anthropic"
-  | "openai"
-  | "google"
-  | "xai"
-  | "deepseek"
-  | "ollama_local";
+  "anthropic" | "openai" | "google" | "xai" | "deepseek" | "ollama_local";
 
 export interface ProviderInfo {
   id: ProviderId;

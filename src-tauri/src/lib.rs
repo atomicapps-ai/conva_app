@@ -1671,8 +1671,11 @@ fn hud_is_open(app: AppHandle) -> bool {
 /// from the Terms tab, which the window researches itself. `doc_id` set =
 /// a library document opened directly (e.g. "view" on a Library/Context
 /// row) — the window opens it as a document tab instead, ignoring
-/// `kind`/`preview`/`answer`/`source_lines`.
+/// `kind`/`preview`/`answer`/`source_lines`. `claim` carries the complete
+/// already-supplied claim record for evidence presentation and never starts a
+/// verification request by itself.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri requires one named parameter per IPC field.
 async fn open_partner(
     app: AppHandle,
     term: String,
@@ -1681,6 +1684,7 @@ async fn open_partner(
     answer: Option<String>,
     source_lines: Vec<String>,
     doc_id: Option<String>,
+    claim: Option<conva_core::claim::ClaimRecord>,
 ) -> Result<(), String> {
     partner::open(
         &app,
@@ -1691,6 +1695,7 @@ async fn open_partner(
             answer,
             source_lines,
             doc_id,
+            claim,
         },
     )
 }

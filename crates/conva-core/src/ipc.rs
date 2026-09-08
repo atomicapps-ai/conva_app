@@ -181,6 +181,11 @@ pub struct PartnerPayload {
     /// fetches its full text itself via `documentText`, same as clicking a
     /// "FROM YOUR DOCUMENTS" citation line. `None` for every other open.
     pub doc_id: Option<String>,
+    /// Complete typed claim state when the viewer was opened from Tracking.
+    /// Kept optional so older stored/event payloads and non-claim viewer opens
+    /// remain valid. The viewer presents this record without starting research.
+    #[serde(default)]
+    pub claim: Option<crate::claim::ClaimRecord>,
 }
 
 /// Payload of [`events::PARTNER_LOCK`] — whether the partner window is
@@ -302,6 +307,21 @@ mod tests {
         assert_eq!(json["epoch"], 2);
         assert_eq!(json["revision"], 7);
         assert_eq!(json["claims"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn older_partner_payloads_default_to_no_claim() {
+        let payload: PartnerPayload = serde_json::from_value(serde_json::json!({
+            "term": "API Gateway",
+            "kind": "concept",
+            "preview": null,
+            "answer": null,
+            "source_lines": [],
+            "doc_id": null
+        }))
+        .unwrap();
+
+        assert!(payload.claim.is_none());
     }
 
     #[test]

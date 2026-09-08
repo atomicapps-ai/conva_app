@@ -16,7 +16,7 @@ const ONLY_EMPTY: Record<"questions" | "tracking" | "terms", string> = {
 };
 
 const PREP_EMPTY =
-  "No prepared Q&A yet — turn on \"Deep interview Q&A research\" in the " +
+  'No prepared Q&A yet — turn on "Deep interview Q&A research" in the ' +
   "context's setup, import Q&A there, or attach a document with Q:/A: lines.";
 
 /**
@@ -115,13 +115,17 @@ export function FoundList({
 
   if (only) {
     const emptyLine = (
-      <p className="px-1 py-3 text-[0.86em] text-fg-faint">{ONLY_EMPTY[only]}</p>
+      <p className="px-1 py-3 text-[0.86em] text-fg-faint">
+        {ONLY_EMPTY[only]}
+      </p>
     );
     if (only === "questions") {
       if (questionsMode === "prep") {
         if (groups.prepQa.length === 0) {
           return (
-            <p className="px-1 py-3 text-[0.86em] text-fg-faint">{PREP_EMPTY}</p>
+            <p className="px-1 py-3 text-[0.86em] text-fg-faint">
+              {PREP_EMPTY}
+            </p>
           );
         }
         // Themed groups in document order; a null theme falls under
@@ -153,7 +157,9 @@ export function FoundList({
                       {item.label}
                     </span>
                     <span className="shrink-0 font-mono text-[8.5px] uppercase tracking-[0.08em] text-ai">
-                      {item.prep?.source === "ally" ? "ally" : item.prep?.source}
+                      {item.prep?.source === "ally"
+                        ? "ally"
+                        : item.prep?.source}
                     </span>
                   </button>
                 ))}
@@ -185,7 +191,9 @@ export function FoundList({
                 <ClaimRow
                   key={claim.id}
                   claim={claim}
-                  canOpenEvidence={canOpenClaimEvidence}
+                  canOpenEvidence={
+                    canOpenClaimEvidence || Boolean(claim.record)
+                  }
                   onAction={onClaimAction}
                   enabledActions={enabledClaimActions}
                 />
@@ -214,8 +222,8 @@ export function FoundList({
   if (empty) {
     return (
       <p className="px-1 py-3 text-[0.86em] text-fg-faint">
-        Questions, commitments, terms, and mentions Ally catches appear here
-        as the conversation runs.
+        Questions, commitments, terms, and mentions Ally catches appear here as
+        the conversation runs.
       </p>
     );
   }
@@ -235,7 +243,7 @@ export function FoundList({
             <ClaimRow
               key={claim.id}
               claim={claim}
-              canOpenEvidence={canOpenClaimEvidence}
+              canOpenEvidence={canOpenClaimEvidence || Boolean(claim.record)}
               onAction={onClaimAction}
               enabledActions={enabledClaimActions}
             />

@@ -10,8 +10,15 @@ import {
 import { LiveControlBar } from "@/components/studio/LiveControlBar";
 import { LiveTopBar } from "@/components/studio/LiveTopBar";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { ClaimEvidenceView } from "@/components/partner/ClaimEvidenceView";
 import { useBackend } from "@/lib/backend";
-import type { AllyKind, AudioLevelEvent, Capture, TranscriptSegment } from "@/lib/ipc";
+import type {
+  AllyKind,
+  AudioLevelEvent,
+  Capture,
+  ClaimRecord,
+  TranscriptSegment,
+} from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { fanerPrompt } from "@/lib/faner";
 import { useAppStore } from "@/state/app";
@@ -50,10 +57,7 @@ import {
   makeTermDefinitionRequestId,
   type AllyFocusItem,
 } from "@/components/transcript/allyFocus";
-import {
-  TermPeek,
-  type TermPeekModel,
-} from "@/components/transcript/TermPeek";
+import { TermPeek, type TermPeekModel } from "@/components/transcript/TermPeek";
 import type {
   ClaimDisplayItem,
   ClaimRowAction,
@@ -86,7 +90,6 @@ import { ScrambleText } from "@/components/transcript/ScrambleText";
 // CaptureEvent lands (same fix `FanerReplayPanel.tsx` uses).
 const EMPTY_CAPTURES: Capture[] = [];
 const CLAIM_EVIDENCE_ACTIONS: ClaimRowAction[] = ["open_evidence"];
-const NO_CLAIM_ACTIONS: ClaimRowAction[] = [];
 
 function formatMs(ms: number): string {
   const total = Math.floor(ms / 1000);
@@ -106,7 +109,13 @@ function levelUnit(level: AudioLevelEvent | null): number {
 /** Tiny live level meter — moved here from the now-removed global `TopBar`
  *  (V4.0's `chanhead` puts Them/You meters in the transcript header itself,
  *  not a separate global strip). */
-function Bars({ level, color }: { level: AudioLevelEvent | null; color: string }) {
+function Bars({
+  level,
+  color,
+}: {
+  level: AudioLevelEvent | null;
+  color: string;
+}) {
   const u = levelUnit(level);
   const shape = [0.5, 0.8, 1, 0.75, 0.55];
   const H = 14;
@@ -365,9 +374,11 @@ function HighlightedText({
   terms: string[];
   onAsk: (action: TermAction, term: string) => void;
 }) {
-  const [menu, setMenu] = useState<{ term: string; x: number; y: number } | null>(
-    null,
-  );
+  const [menu, setMenu] = useState<{
+    term: string;
+    x: number;
+    y: number;
+  } | null>(null);
   if (terms.length === 0) return <>{text}</>;
 
   const alts = [...terms]
@@ -692,7 +703,8 @@ function Bubble({
   const finals = segments.filter((s) => s.is_final);
   const hasFinal = finals.length > 0;
   const firstFinal = finals[0];
-  const { finalUnits, liveConfirmed, liveTentative } = useTranscriptStability(segments);
+  const { finalUnits, liveConfirmed, liveTentative } =
+    useTranscriptStability(segments);
   const combinedText = finalUnits.map((u) => u.text).join(" ");
 
   // RAG-grounded highlight terms for the whole turn (best-effort). Detected
@@ -723,7 +735,9 @@ function Bubble({
   const highlightTerms = useMemo(() => {
     const seen = new Set(terms.map((t) => t.toLowerCase()));
     const out = [...terms];
-    for (const extra of searchHighlight ? [...userTerms, searchHighlight] : userTerms) {
+    for (const extra of searchHighlight
+      ? [...userTerms, searchHighlight]
+      : userTerms) {
       if (!seen.has(extra.toLowerCase())) {
         seen.add(extra.toLowerCase());
         out.push(extra);
@@ -745,9 +759,12 @@ function Bubble({
   //    dismissed (Escape / resize / scroll / an icon click) — not
   //    hover-gated, since right-click is already a deliberate action, not
   //    something that should vanish if you don't hold still.
-  const [sel, setSel] = useState<
-    { x: number; y: number; text: string; rect: DOMRect | null } | null
-  >(null);
+  const [sel, setSel] = useState<{
+    x: number;
+    y: number;
+    text: string;
+    rect: DOMRect | null;
+  } | null>(null);
   // True while the pointer is over the menu itself, for the hover-gated
   // instance — read by the effect below so crossing the small visual gap
   // between the selected text and the menu doesn't close it.
@@ -917,7 +934,9 @@ function Bubble({
           newest card derived from this turn. Aligned to the speaker's side,
           same as the bubble above it. */}
       {threadCount > 0 && (
-        <div className={`mt-1.5 flex ${inbound ? "justify-start" : "justify-end"}`}>
+        <div
+          className={`mt-1.5 flex ${inbound ? "justify-start" : "justify-end"}`}
+        >
           <button
             type="button"
             onClick={onOpenThreads}
@@ -933,63 +952,79 @@ function Bubble({
   );
 }
 
-/** Large detail drawer for one Ally card (V4.0 §7) — SAY THIS, grounding,
- *  why Ally suggests it, and action chips. Elevated (a true floating layer,
- *  --shadow-lg/r-float), slides over the transcript from the right. Reuses
- *  splitReasoning/AnswerBody so this stays in lockstep with the inline card
- *  instead of re-deriving its own copy of "what the answer is." */
+/** Existing web fallback viewer. It hosts either an Ally card or a typed claim
+ *  evidence view; desktop continues to use the dockable partner window. */
 function ThreadViewer({
   card,
+  claim,
   onClose,
+  onOpenUrl,
   onRequest,
 }: {
   card: AllyCard | null;
+  claim: ClaimRecord | null;
   onClose: () => void;
+  onOpenUrl: (url: string) => void;
   onRequest: (
     kind: AllyKind,
     question?: string,
     source?: { key: string; quote: string },
   ) => void;
 }) {
-  if (!card) return null;
-  const label = cardLabel(card);
-  const { answer, context } = splitReasoning(card.text);
-  const sayText = answer || card.text;
-  const sourceGroups = groupSourcesByFile(card.sources);
+  if (!card && !claim) return null;
+  const label = claim ? "Claim evidence" : cardLabel(card!);
+  const { answer, context } = card
+    ? splitReasoning(card.text)
+    : { answer: "", context: "" };
+  const sayText = card ? answer || card.text : "";
+  const sourceGroups = card ? groupSourcesByFile(card.sources) : [];
   const rephrase = () =>
+    card &&
     onRequest(
       "question",
       `Rephrase this a different way, same meaning: "${sayText}"`,
-      card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
+      card.sourceKey
+        ? { key: card.sourceKey, quote: card.sourceQuote ?? "" }
+        : undefined,
     );
   // Distinct from both neighbors: expand on the SAME answer (more context,
   // not a reword like Rephrase, not a wider dig like Research this line).
   const moreDetail = () =>
+    card &&
     onRequest(
       "question",
       `Give more detail on this — expand with more context, keep the same core answer: "${sayText}"`,
-      card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
+      card.sourceKey
+        ? { key: card.sourceKey, quote: card.sourceQuote ?? "" }
+        : undefined,
     );
   const researchMore = () =>
+    card &&
     onRequest(
       "question",
       `Research this further and go deeper: "${sayText}"`,
-      card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
+      card.sourceKey
+        ? { key: card.sourceKey, quote: card.sourceQuote ?? "" }
+        : undefined,
     );
 
   return (
     <div
       role="dialog"
-      aria-label={`A${card.seq} — ${label}, full detail`}
+      aria-label={
+        claim
+          ? "Claim evidence, full detail"
+          : `A${card!.seq} — ${label}, full detail`
+      }
       className="glass-raised absolute right-0 top-0 z-40 flex h-full w-[min(600px,88%)] flex-col border-l border-border-strong shadow-[var(--shadow-lg)]"
     >
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
         <span
-          className={`h-2.5 w-2.5 shrink-0 rounded-full ${card.error ? "bg-rec" : "bg-ai"}`}
+          className={`h-2.5 w-2.5 shrink-0 rounded-full ${card?.error ? "bg-rec" : claim ? "bg-primary" : "bg-ai"}`}
           aria-hidden
         />
         <h3 className="min-w-0 flex-1 truncate text-[15px] font-bold text-fg">
-          A{card.seq} · {label}
+          {claim ? label : `A${card!.seq} · ${label}`}
         </h3>
         <button
           type="button"
@@ -1003,84 +1038,95 @@ function ThreadViewer({
       </div>
 
       <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-5">
-        <div>
-          <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
-            {card.error ? "Error" : "Say this"}
-          </p>
-          {card.error ? (
-            <p className="mt-2 text-sm text-rec">{card.error}</p>
-          ) : (
-            <div className="mt-2 border-l-[3px] border-ai/50 pl-3 text-[15px] leading-relaxed text-fg">
-              <AnswerBody text={sayText || "…"} />
-            </div>
-          )}
-        </div>
-
-        {(card.sourceQuote || sourceGroups.length > 0) && (
-          <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-faint">
-              Grounding
-            </p>
-            {card.sourceQuote && (
-              <p className="mt-1.5 text-[13px] italic leading-relaxed text-fg-muted">
-                “{card.sourceQuote}”
+        {claim ? (
+          <ClaimEvidenceView claim={claim} onOpenUrl={onOpenUrl} />
+        ) : card ? (
+          <>
+            <div>
+              <p className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
+                {card.error ? "Error" : "Say this"}
               </p>
-            )}
-            {sourceGroups.length > 0 && (
-              <div className="mt-1.5 flex flex-col gap-0.5">
-                {sourceGroups.map((g) => (
-                  <p key={g.file} className="text-[12px] text-fg-faint">
-                    {g.file}
-                    <span className="text-fg-faint/70"> — {g.locations.join(", ")}</span>
+              {card.error ? (
+                <p className="mt-2 text-sm text-rec">{card.error}</p>
+              ) : (
+                <div className="mt-2 border-l-[3px] border-ai/50 pl-3 text-[15px] leading-relaxed text-fg">
+                  <AnswerBody text={sayText || "…"} />
+                </div>
+              )}
+            </div>
+
+            {(card.sourceQuote || sourceGroups.length > 0) && (
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-faint">
+                  Grounding
+                </p>
+                {card.sourceQuote && (
+                  <p className="mt-1.5 text-[13px] italic leading-relaxed text-fg-muted">
+                    “{card.sourceQuote}”
                   </p>
-                ))}
+                )}
+                {sourceGroups.length > 0 && (
+                  <div className="mt-1.5 flex flex-col gap-0.5">
+                    {sourceGroups.map((g) => (
+                      <p key={g.file} className="text-[12px] text-fg-faint">
+                        {g.file}
+                        <span className="text-fg-faint/70">
+                          {" "}
+                          — {g.locations.join(", ")}
+                        </span>
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {context && (
-          <div>
-            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-faint">
-              Why Ally suggests this
-            </p>
-            <p className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">{context}</p>
-          </div>
-        )}
+            {context && (
+              <div>
+                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-fg-faint">
+                  Why Ally suggests this
+                </p>
+                <p className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">
+                  {context}
+                </p>
+              </div>
+            )}
 
-        {!card.error && (
-          <div className="mt-1 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void navigator.clipboard.writeText(sayText)}
-              title="Copy the line to use it as-is"
-              className="rounded-full bg-ai px-3.5 py-1.5 text-[12px] font-bold text-bg transition hover:brightness-110"
-            >
-              Use it
-            </button>
-            <button
-              type="button"
-              onClick={rephrase}
-              className="rounded-full border border-ai/40 px-3.5 py-1.5 text-[12px] font-bold text-ai transition hover:bg-ai/10"
-            >
-              Rephrase
-            </button>
-            <button
-              type="button"
-              onClick={moreDetail}
-              className="rounded-full border border-ai/40 px-3.5 py-1.5 text-[12px] font-bold text-ai transition hover:bg-ai/10"
-            >
-              More detail
-            </button>
-            <button
-              type="button"
-              onClick={researchMore}
-              className="rounded-full border border-border-strong px-3.5 py-1.5 text-[12px] font-medium text-fg-muted transition hover:text-fg"
-            >
-              Research this line
-            </button>
-          </div>
-        )}
+            {!card.error && (
+              <div className="mt-1 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void navigator.clipboard.writeText(sayText)}
+                  title="Copy the line to use it as-is"
+                  className="rounded-full bg-ai px-3.5 py-1.5 text-[12px] font-bold text-bg transition hover:brightness-110"
+                >
+                  Use it
+                </button>
+                <button
+                  type="button"
+                  onClick={rephrase}
+                  className="rounded-full border border-ai/40 px-3.5 py-1.5 text-[12px] font-bold text-ai transition hover:bg-ai/10"
+                >
+                  Rephrase
+                </button>
+                <button
+                  type="button"
+                  onClick={moreDetail}
+                  className="rounded-full border border-ai/40 px-3.5 py-1.5 text-[12px] font-bold text-ai transition hover:bg-ai/10"
+                >
+                  More detail
+                </button>
+                <button
+                  type="button"
+                  onClick={researchMore}
+                  className="rounded-full border border-border-strong px-3.5 py-1.5 text-[12px] font-medium text-fg-muted transition hover:text-fg"
+                >
+                  Research this line
+                </button>
+              </div>
+            )}
+          </>
+        ) : null}
       </div>
     </div>
   );
@@ -1137,7 +1183,9 @@ function AllyAnswerCard({
     onRequest(
       "question",
       `Rephrase this a different way, same meaning: "${sayText}"`,
-      card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
+      card.sourceKey
+        ? { key: card.sourceKey, quote: card.sourceQuote ?? "" }
+        : undefined,
     );
   // Distinct from both neighbors: expand on the SAME answer (more context,
   // not a reword like Rephrase, not a wider dig like Research this line).
@@ -1145,13 +1193,17 @@ function AllyAnswerCard({
     onRequest(
       "question",
       `Give more detail on this — expand with more context, keep the same core answer: "${sayText}"`,
-      card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
+      card.sourceKey
+        ? { key: card.sourceKey, quote: card.sourceQuote ?? "" }
+        : undefined,
     );
   const researchMore = () =>
     onRequest(
       "question",
       `Research this further and go deeper: "${sayText}"`,
-      card.sourceKey ? { key: card.sourceKey, quote: card.sourceQuote ?? "" } : undefined,
+      card.sourceKey
+        ? { key: card.sourceKey, quote: card.sourceQuote ?? "" }
+        : undefined,
     );
 
   return (
@@ -1353,8 +1405,7 @@ function centerInScroller(scroller: HTMLElement, el: HTMLElement) {
 }
 
 type MenuItem =
-  | { sep: true }
-  | { label: string; danger?: boolean; run: () => void };
+  { sep: true } | { label: string; danger?: boolean; run: () => void };
 
 interface MenuState {
   x: number;
@@ -1386,7 +1437,10 @@ function ContextMenu({
   }, [onClose]);
 
   const x = Math.min(menu.x, window.innerWidth - 236);
-  const y = Math.min(menu.y, window.innerHeight - (menu.items.length * 34 + 16));
+  const y = Math.min(
+    menu.y,
+    window.innerHeight - (menu.items.length * 34 + 16),
+  );
 
   return (
     <div
@@ -1914,6 +1968,14 @@ export function TranscriptView({
   // stays as the honest-degraded-state surface where no OS window can be
   // spawned, per capabilities().system.partnerWindow).
   const [viewerCardId, setViewerCardId] = useState<string | null>(null);
+  const [viewerClaim, setViewerClaim] = useState<ClaimRecord | null>(null);
+  useEffect(() => {
+    if (!viewerClaim) return;
+    const refreshed = displayedClaims.find(
+      (claim) => claim.id === viewerClaim.id,
+    )?.record;
+    if (refreshed && refreshed !== viewerClaim) setViewerClaim(refreshed);
+  }, [displayedClaims, viewerClaim]);
   const [termPeek, setTermPeek] = useState<ActiveTermPeek | null>(null);
   const termRequestSequence = useRef(0);
   const focusRequestSequence = useRef(0);
@@ -1956,14 +2018,22 @@ export function TranscriptView({
 
   const voiceIdFor = useCallback(
     (seg: TranscriptSegment) =>
-      resolveAssignment(segmentKey(seg), fixtureVoiceId(seg.side), speakerOverrides, mergedVoices)
-        .speakerId,
+      resolveAssignment(
+        segmentKey(seg),
+        fixtureVoiceId(seg.side),
+        speakerOverrides,
+        mergedVoices,
+      ).speakerId,
     [speakerOverrides, mergedVoices],
   );
   const voiceStatusFor = useCallback(
     (seg: TranscriptSegment) =>
-      resolveAssignment(segmentKey(seg), fixtureVoiceId(seg.side), speakerOverrides, mergedVoices)
-        .status,
+      resolveAssignment(
+        segmentKey(seg),
+        fixtureVoiceId(seg.side),
+        speakerOverrides,
+        mergedVoices,
+      ).status,
     [speakerOverrides, mergedVoices],
   );
 
@@ -1971,7 +2041,10 @@ export function TranscriptView({
   // bubble starts when the voice switches (which includes every side change)
   // — no pause/time split. The turn is keyed by its first segment, so
   // Ally-card links stay stable.
-  const turns = useMemo(() => groupTurns(merged, voiceIdFor), [merged, voiceIdFor]);
+  const turns = useMemo(
+    () => groupTurns(merged, voiceIdFor),
+    [merged, voiceIdFor],
+  );
 
   // Every voice a turn resolves to needs a profile to render a label from —
   // "you" always exists; an inbound voice id is created the first time it's
@@ -1982,7 +2055,8 @@ export function TranscriptView({
   useEffect(() => {
     for (const turn of turns) {
       if (!speakers[turn.speakerId]) {
-        const kind: SpeakerKind = turn.side === "outbound" ? "you" : "anonymous";
+        const kind: SpeakerKind =
+          turn.side === "outbound" ? "you" : "anonymous";
         ensureSpeaker(turn.speakerId, kind);
       }
     }
@@ -2072,7 +2146,9 @@ export function TranscriptView({
   // window; the 640px drawer breakpoint takes over before this can push
   // under the 280 floor (spec A.2).
   const effectivePanelWidth =
-    width > 0 ? Math.min(panelWidthPx, Math.max(280, width - 320)) : panelWidthPx;
+    width > 0
+      ? Math.min(panelWidthPx, Math.max(280, width - 320))
+      : panelWidthPx;
 
   // Conversation-header responsiveness (owner, 2026-08-21: the text-size /
   // expand controls bled over the right panel at narrow widths) — measure the
@@ -2161,7 +2237,9 @@ export function TranscriptView({
   const activationNonce = useGroundingStore((s) => s.activationNonce);
   const [groundingDocs, setGroundingDocs] = useState<string[]>([]);
   const [docTerms, setDocTerms] = useState<string[]>([]);
-  const [docDefinitions, setDocDefinitions] = useState<Record<string, string>>({});
+  const [docDefinitions, setDocDefinitions] = useState<Record<string, string>>(
+    {},
+  );
   // Prepared Q&A (split-source spec 2026-08-27): pairs parsed from the
   // context's generated Q&A document + any attached doc written in Q/A
   // form — the Questions section's PREP mode. Loaded once per activation,
@@ -2190,7 +2268,8 @@ export function TranscriptView({
         // by file name — parseQaPairs returns [] for anything that isn't
         // Q/A-shaped (a resume, a spec), so fetching all of them is safe.
         const sources: { id: string; tag: string }[] = [];
-        if (session.qa_doc_id) sources.push({ id: session.qa_doc_id, tag: "ally" });
+        if (session.qa_doc_id)
+          sources.push({ id: session.qa_doc_id, tag: "ally" });
         for (const id of session.source_doc_ids) {
           if (id === session.qa_doc_id) continue;
           const name = docs.find((d) => d.id === id)?.file_name ?? id;
@@ -2365,6 +2444,7 @@ export function TranscriptView({
    *  column so its place in the conversation stays visible. */
   const openThread = useCallback(
     (card: AllyCard) => {
+      setViewerClaim(null);
       ensureAllyVisible();
       setFocusItemId(`card:${card.id}`);
       flashToken.current += 1;
@@ -2388,7 +2468,13 @@ export function TranscriptView({
         const sourceLines = groupSourcesByFile(card.sources).map(
           (g) => `${g.file} — ${g.locations.join(", ")}`,
         );
-        void backend.partner.open(term, card.kind, null, sayText || card.text, sourceLines);
+        void backend.partner.open(
+          term,
+          card.kind,
+          null,
+          sayText || card.text,
+          sourceLines,
+        );
         return;
       }
       setViewerCardId(card.id);
@@ -2397,22 +2483,30 @@ export function TranscriptView({
     [allyScroll, backend, caps, drawer, ensureAllyVisible],
   );
 
-  /** The UI-only claim checkpoint can inspect already-supplied evidence in
-   *  the existing desktop partner viewer. Verification, correction, and
-   *  dismissal stay disabled until their versioned backend contract lands. */
+  /** Open the complete typed record in the desktop partner window or the
+   *  existing internal web fallback. This is presentation only: it does not
+   *  start verification, correct, dismiss, or persist a claim. */
   const handleClaimAction = useCallback(
     (claim: ClaimDisplayItem, action: ClaimRowAction) => {
-      if (action !== "open_evidence" || !caps?.system.partnerWindow) return;
+      if (action !== "open_evidence") return;
+      if (!claim.record) return;
       const sourceLines = claim.evidence.map((source) =>
         source.location ? `${source.label} — ${source.location}` : source.label,
       );
-      void backend.partner.open(
-        claim.proposition,
-        "claim",
-        claim.evidenceSummary,
-        claim.safeWording,
-        sourceLines,
-      );
+      if (caps?.system.partnerWindow) {
+        void backend.partner.open(
+          claim.proposition,
+          "claim",
+          claim.evidenceSummary,
+          claim.safeWording,
+          sourceLines,
+          null,
+          claim.record,
+        );
+        return;
+      }
+      setViewerCardId(null);
+      setViewerClaim(claim.record);
     },
     [backend, caps],
   );
@@ -2542,17 +2636,23 @@ export function TranscriptView({
   const openFocus = useCallback(
     (item: AllyFocusItem) => {
       if (item.cardId) {
-        const card = answerCards.find((candidate) => candidate.id === item.cardId);
+        const card = answerCards.find(
+          (candidate) => candidate.id === item.cardId,
+        );
         if (card) openThread(card);
         return;
       }
       if (!item.entryKey || !caps?.system.partnerWindow) return;
-      const entry = viewEntries.find((candidate) => candidate.key === item.entryKey);
+      const entry = viewEntries.find(
+        (candidate) => candidate.key === item.entryKey,
+      );
       if (!entry) return;
       void backend.partner.open(
         entry.item.label,
         entry.item.group,
-        entry.item.radar?.bridge.text ?? entry.item.prep?.answer ?? entry.item.detail,
+        entry.item.radar?.bridge.text ??
+          entry.item.prep?.answer ??
+          entry.item.detail,
       );
     },
     [answerCards, backend, caps, openThread, viewEntries],
@@ -2566,7 +2666,10 @@ export function TranscriptView({
       if (text.trim().length <= MAX_TERM_LEN) {
         useLiveTermsStore.getState().addUserTerm(text);
       }
-      void requestVisible("question", researchPrompt(text), { key: "", quote: text });
+      void requestVisible("question", researchPrompt(text), {
+        key: "",
+        quote: text,
+      });
     },
     [requestVisible],
   );
@@ -2601,7 +2704,10 @@ export function TranscriptView({
     const linked = cardsBySource.get(key);
     const newest = linked?.[linked.length - 1];
     const items: MenuItem[] = [
-      { label: "Copy", run: () => void navigator.clipboard.writeText(seg.text) },
+      {
+        label: "Copy",
+        run: () => void navigator.clipboard.writeText(seg.text),
+      },
       { label: "Research with Ally", run: () => research(seg) },
       {
         label: "Ask Ally about this…",
@@ -2611,7 +2717,11 @@ export function TranscriptView({
           ),
       },
     ];
-    if (newest) items.push({ label: `Open A${newest.seq}`, run: () => openThread(newest) });
+    if (newest)
+      items.push({
+        label: `Open A${newest.seq}`,
+        run: () => openThread(newest),
+      });
     items.push({ sep: true });
     items.push({
       label: collapsed.has(key) ? "Expand" : "Collapse",
@@ -2626,7 +2736,10 @@ export function TranscriptView({
       ...new Set(card.sources.map((s) => `${s.file_name} · ${s.location}`)),
     ];
     const items: MenuItem[] = [
-      { label: "Copy", run: () => void navigator.clipboard.writeText(card.text) },
+      {
+        label: "Copy",
+        run: () => void navigator.clipboard.writeText(card.text),
+      },
     ];
     if (srcs.length)
       items.push({
@@ -2706,12 +2819,16 @@ export function TranscriptView({
             <span className="flex items-center gap-1.5 text-[11px] font-semibold text-inbound">
               <span className="h-[7px] w-[7px] rounded-full bg-inbound" />
               Them
-              {isTauri() && <Bars level={levels.inbound} color="var(--color-inbound)" />}
+              {isTauri() && (
+                <Bars level={levels.inbound} color="var(--color-inbound)" />
+              )}
             </span>
             <span className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--voice-you-text)]">
               <span className="h-[7px] w-[7px] rounded-full bg-outbound" />
               You
-              {isTauri() && <Bars level={levels.outbound} color="var(--color-outbound)" />}
+              {isTauri() && (
+                <Bars level={levels.outbound} color="var(--color-outbound)" />
+              )}
             </span>
             <div className="ml-auto flex items-center gap-1 text-fg-faint">
               {/* "+ New" moved UP to the LiveTopBar crown (owner, 2026-08-21
@@ -2776,7 +2893,9 @@ export function TranscriptView({
                           className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-[12px] text-fg hover:bg-white/[0.06]"
                         >
                           <Icon name="bubbleCollapse" size={13} />
-                          {collapseYou ? "Show your turns" : "Collapse your turns"}
+                          {collapseYou
+                            ? "Show your turns"
+                            : "Collapse your turns"}
                         </button>
                         <button
                           type="button"
@@ -2913,10 +3032,19 @@ export function TranscriptView({
                       kind: profile.kind,
                       // Doc §1: overlap/insufficient speech shows no
                       // confident identity claim, never a guessed name.
-                      label: status === "uncertain" ? "Unclear speaker" : profile.label,
+                      label:
+                        status === "uncertain"
+                          ? "Unclear speaker"
+                          : profile.label,
                     }
-                  : { id: turn.speakerId, kind: turn.side === "outbound" ? "you" : "anonymous", label: "…" };
-                const otherSpeakers: SpeakerHeaderInfo[] = Object.values(speakers)
+                  : {
+                      id: turn.speakerId,
+                      kind: turn.side === "outbound" ? "you" : "anonymous",
+                      label: "…",
+                    };
+                const otherSpeakers: SpeakerHeaderInfo[] = Object.values(
+                  speakers,
+                )
                   .filter((s) => s.id !== speaker.id && s.kind !== "you")
                   .map((s) => ({ id: s.id, label: s.label, kind: s.kind }));
                 return (
@@ -2942,16 +3070,24 @@ export function TranscriptView({
                     speaker={speaker}
                     speakerStatus={status}
                     otherSpeakers={otherSpeakers}
-                    onRenameSpeaker={(label) => renameSpeaker(speaker.id, label)}
+                    onRenameSpeaker={(label) =>
+                      renameSpeaker(speaker.id, label)
+                    }
                     // A true merge (doc UC5): every turn ever resolved to
                     // this voice — not just this one — folds into the
                     // target, via the merge table rather than a one-off
                     // per-segment override.
-                    onMergeSpeaker={(targetId) => mergeSpeakerInto(speaker.id, targetId)}
+                    onMergeSpeaker={(targetId) =>
+                      mergeSpeakerInto(speaker.id, targetId)
+                    }
                     onSplitSpeaker={() => {
                       const fresh = createSpeaker();
                       turn.segments.forEach((s) =>
-                        reassignSpeakerSegment(segmentKey(s), fresh.id, "confirmed"),
+                        reassignSpeakerSegment(
+                          segmentKey(s),
+                          fresh.id,
+                          "confirmed",
+                        ),
                       );
                     }}
                     onForgetSpeaker={() => forgetSpeaker(speaker.id)}
@@ -2987,12 +3123,12 @@ export function TranscriptView({
           className={
             drawer
               ? `absolute right-0 top-0 z-30 h-full w-[min(360px,92%)] shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
-              // Not a flex item of `main` in the drawer case (it's absolutely
-              // positioned), but inline it IS one — without an explicit
-              // height it shrink-wraps to content instead of filling the
-              // column, which is why the dock ("tabs") wasn't pinned to the
-              // bottom when there wasn't much to show above it.
-              : "flex h-full"
+              : // Not a flex item of `main` in the drawer case (it's absolutely
+                // positioned), but inline it IS one — without an explicit
+                // height it shrink-wraps to content instead of filling the
+                // column, which is why the dock ("tabs") wasn't pinned to the
+                // bottom when there wasn't much to show above it.
+                "flex h-full"
           }
         >
           <AllyPanel
@@ -3050,11 +3186,7 @@ export function TranscriptView({
               }
             }}
             canOpenClaimEvidence={Boolean(caps?.system.partnerWindow)}
-            enabledClaimActions={
-              caps?.system.partnerWindow
-                ? CLAIM_EVIDENCE_ACTIONS
-                : NO_CLAIM_ACTIONS
-            }
+            enabledClaimActions={CLAIM_EVIDENCE_ACTIONS}
             onClaimAction={handleClaimAction}
             splitRatio={panelSplitRatio}
             onSplitRatio={setPanelSplitRatio}
@@ -3063,8 +3195,8 @@ export function TranscriptView({
             renderAnswers={() =>
               orderedCards.length === 0 ? (
                 <p className="px-2 py-4 text-center text-xs text-fg-faint">
-                  Ally answers appear here, next to the conversation. Tap the
-                  ✦ lightbulb on any message, or ask below.
+                  Ally answers appear here, next to the conversation. Tap the ✦
+                  lightbulb on any message, or ask below.
                 </p>
               ) : (
                 orderedCards.map((c) => (
@@ -3091,7 +3223,12 @@ export function TranscriptView({
 
         <ThreadViewer
           card={answerCards.find((c) => c.id === viewerCardId) ?? null}
-          onClose={() => setViewerCardId(null)}
+          claim={viewerClaim}
+          onClose={() => {
+            setViewerCardId(null);
+            setViewerClaim(null);
+          }}
+          onOpenUrl={(url) => void backend.auth.openUrl(url)}
           onRequest={(kind, question, source) =>
             void requestVisible(kind, question, source)
           }

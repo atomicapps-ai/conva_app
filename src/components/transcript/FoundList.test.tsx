@@ -184,6 +184,44 @@ describe("FoundList", () => {
     expect(screen.getByText("The candidate reduced cloud spend by 32%.")).toBeInTheDocument();
     expect(screen.getByText("send the deck")).toBeInTheDocument();
   });
+
+  it("keeps typed claim evidence available through the internal viewer fallback", () => {
+    const onClaimAction = vi.fn();
+    const typedClaim = {
+      id: "claim-typed",
+      proposition: "A typed claim.",
+      state: "attributed" as const,
+      attribution: null,
+      consequence: "low" as const,
+      exactQuote: "A typed claim.",
+      attributionDetail: null,
+      referenceDetail: null,
+      nextAction: "Inspect evidence.",
+      evidenceSummary: "One supplied source.",
+      processingDisclosure: null,
+      safeWording: null,
+      evidence: [],
+      primaryAction: "verify" as const,
+      primaryActionLabel: "Check claim",
+      record: {} as NonNullable<FoundGroups["claims"][number]["record"]>,
+    };
+
+    render(
+      <FoundList
+        groups={{ ...groups, claims: [typedClaim] }}
+        onSelect={() => {}}
+        only="tracking"
+        canOpenClaimEvidence={false}
+        enabledClaimActions={["open_evidence"]}
+        onClaimAction={onClaimAction}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^A typed claim\./ }));
+    const evidenceButton = screen.getByRole("button", { name: "Evidence" });
+    expect(evidenceButton).toBeEnabled();
+    fireEvent.click(evidenceButton);
+    expect(onClaimAction).toHaveBeenCalledWith(typedClaim, "open_evidence");
+  });
 });
 
 describe("FoundList — Questions prep mode (split-source spec 2026-08-27)", () => {

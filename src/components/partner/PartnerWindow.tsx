@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { derivePartnerAnswer } from "@/components/partner/deriveAnswer";
+import { ClaimEvidenceView } from "@/components/partner/ClaimEvidenceView";
 import {
   addOrFocus,
   closeTab,
   documentTab,
+  itemTab,
   tabFromPayload,
   tabLabel,
   type PartnerTab,
@@ -34,6 +36,7 @@ export function PartnerWindow() {
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const cards = useAllyStore((s) => s.cards);
   const busy = useAllyStore((s) => s.busy);
+  const claimSnapshot = useAllyStore((s) => s.claimSnapshot);
   const [ask, setAsk] = useState("");
   const partnerFontPx = useUiPrefs((s) => s.partnerFontPx);
   const bumpPartnerFont = useUiPrefs((s) => s.bumpPartnerFont);
@@ -91,7 +94,12 @@ export function PartnerWindow() {
   /** Kick off the tab's research if it's a fresh term with no answer yet —
    *  on first open, and again on focus (heals a cap-evicted answer). */
   const ensureResearched = useCallback((tab: PartnerTab) => {
-    if (tab.kind !== "item" || tab.payload.answer !== null) return;
+    if (
+      tab.kind !== "item" ||
+      Boolean(tab.payload.claim) ||
+      tab.payload.answer !== null
+    )
+      return;
     const store = useAllyStore.getState();
     const key = `partner::${tab.key}`;
     if (store.busy || store.cards.some((c) => c.sourceKey === key)) return;
@@ -132,6 +140,27 @@ export function PartnerWindow() {
       unsub?.();
     };
   }, [backend, openTab]);
+
+  // A claim tab is keyed by durable claim id. When a newer cumulative live
+  // snapshot arrives in this webview, refresh the tab in place without
+  // stealing focus or creating a duplicate.
+  useEffect(() => {
+    if (!claimSnapshot) return;
+    const byId = new Map(claimSnapshot.claims.map((claim) => [claim.id, claim]));
+    setTabs((current) =>
+      current.map((tab) => {
+        if (tab.kind !== "item" || !tab.payload.claim) return tab;
+        const updated = byId.get(tab.payload.claim.id);
+        return updated
+          ? itemTab({
+              ...tab.payload,
+              term: updated.normalized_proposition,
+              claim: updated,
+            })
+          : tab;
+      }),
+    );
+  }, [claimSnapshot]);
 
   const close = async () => {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -372,10 +401,20 @@ export function PartnerWindow() {
               )}
             </div>
           </>
+        ) : active.payload.claim ? (
+          <ClaimEvidenceView
+            claim={active.payload.claim}
+            onOpenDocument={(docId, label) =>
+              openTab(documentTab(docId, label))
+            }
+            onOpenUrl={(url) => void backend.auth.openUrl(url)}
+          />
         ) : (
           <>
             <div>
-              <h2 className="text-[1.3em] font-extrabold">{tabLabel(active)}</h2>
+              <h2 className="text-[1.3em] font-extrabold">
+                {tabLabel(active)}
+              </h2>
               {active.kind === "item" && active.payload.kind && (
                 <p className="mt-0.5 font-mono text-[0.72em] uppercase text-fg-faint">
                   {active.payload.kind}
@@ -438,30 +477,34 @@ export function PartnerWindow() {
         )}
       </div>
 
-      {/* Follow-up ask — tags the ACTIVE tab. */}
-      <div className="shrink-0 border-t border-border px-3 py-2.5">
-        <label className="flex h-9 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
-          <Icon name="lightbulb" size={16} className="shrink-0 text-ai/70" />
-          <input
-            value={ask}
-            onChange={(e) => setAsk(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && submitAsk()}
-            placeholder="Ask a follow-up…"
-            aria-label="Ask a follow-up"
-            className="min-w-0 flex-1 bg-transparent text-sm text-fg placeholder:text-fg-faint focus:outline-none"
-          />
-          <button
-            type="button"
-            onClick={submitAsk}
-            disabled={busy || !ask.trim()}
-            title="Ask Ally"
-            aria-label="Ask Ally"
-            className="shrink-0 rounded-[4px] p-1.5 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
-          >
-            <Icon name="chevron" size={16} className="rotate-90" />
-          </button>
-        </label>
-      </div>
+      {/* Claim tabs are an evidence audit surface in this checkpoint. Keep the
+          existing follow-up composer on term/answer/document tabs only so it
+          cannot be mistaken for a verification action. */}
+      {!(active?.kind === "item" && active.payload.claim) && (
+        <div className="shrink-0 border-t border-border px-3 py-2.5">
+          <label className="flex h-9 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
+            <Icon name="lightbulb" size={16} className="shrink-0 text-ai/70" />
+            <input
+              value={ask}
+              onChange={(e) => setAsk(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && submitAsk()}
+              placeholder="Ask a follow-up…"
+              aria-label="Ask a follow-up"
+              className="min-w-0 flex-1 bg-transparent text-sm text-fg placeholder:text-fg-faint focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={submitAsk}
+              disabled={busy || !ask.trim()}
+              title="Ask Ally"
+              aria-label="Ask Ally"
+              className="shrink-0 rounded-[4px] p-1.5 text-ai transition-colors hover:bg-ai/10 disabled:opacity-30"
+            >
+              <Icon name="chevron" size={16} className="rotate-90" />
+            </button>
+          </label>
+        </div>
+      )}
     </div>
   );
 }
