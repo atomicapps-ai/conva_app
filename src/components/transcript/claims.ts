@@ -140,7 +140,7 @@ function projectClaimRecord(record: ClaimRecord): ClaimDisplayItem {
       admitted.length > 0
         ? `${admitted.length} admitted source${admitted.length === 1 ? "" : "s"}; inspect before relying on this claim.`
         : "No admitted evidence yet.",
-    processingDisclosure: `Source policy: ${record.policy_id}.`,
+    processingDisclosure: `Source policy: ${record.policy_id} v${record.policy_version}.`,
     safeWording: attribution
       ? `${attribution} reported that ${record.normalized_proposition}.`
       : null,

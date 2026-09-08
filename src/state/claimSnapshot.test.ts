@@ -40,7 +40,7 @@ describe("versioned claim snapshots", () => {
     apply(snapshot(2));
     apply(snapshot(1));
     apply(snapshot(3, { session_id: "another-session" }));
-    apply(snapshot(3, { contract_version: 2 }));
+    apply(snapshot(3, { contract_version: 99 }));
 
     expect(useAllyStore.getState().claimSnapshot).toEqual(snapshot(2));
 

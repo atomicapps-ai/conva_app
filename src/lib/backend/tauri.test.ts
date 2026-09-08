@@ -10,6 +10,7 @@ import type {
   SessionStateEvent,
   TranscriptSegment,
 } from "@/lib/ipc";
+import { CLAIM_SNAPSHOT_CONTRACT_VERSION } from "@/lib/ipc";
 
 type Listener = (e: { payload: unknown }) => void;
 const listeners = new Map<string, Set<Listener>>();
@@ -136,7 +137,7 @@ describe("TauriBackend — existing behavior", () => {
     const handler = vi.fn();
     const off = await b.subscribe("claimSnapshot", handler);
     const snapshot: ClaimSnapshotEvent = {
-      contract_version: 1,
+      contract_version: CLAIM_SNAPSHOT_CONTRACT_VERSION,
       session_id: "sess-42",
       epoch: 1,
       revision: 1,

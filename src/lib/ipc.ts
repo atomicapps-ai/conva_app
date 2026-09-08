@@ -234,7 +234,7 @@ export interface CaptureEvent {
 }
 
 // ── FANER claim snapshot — mirrors claim/evidence/source_policy + ipc.rs ────
-export const CLAIM_SNAPSHOT_CONTRACT_VERSION = 1;
+export const CLAIM_SNAPSHOT_CONTRACT_VERSION = 2;
 
 export type FrameKind =
   | "question"
@@ -400,6 +400,7 @@ export interface ClaimRecord {
   state: ClaimState;
   recommended_action: SuggestedAction | null;
   policy_id: string;
+  policy_version: number;
   extraction_confidence: Confidence;
   resolution_confidence: Confidence;
   claim_confidence: ClaimConfidence | null;

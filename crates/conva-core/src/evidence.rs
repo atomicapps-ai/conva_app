@@ -122,6 +122,123 @@ pub struct EvidenceConclusion {
     pub reasons: Vec<EvidenceConclusionReason>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvidenceReviewReason {
+    ContradictionNeedsReview,
+    PrimaryOfficial,
+    StrongAuthority,
+    StrongDirectness,
+    StrongSpecificity,
+    Fresh,
+    InspectableProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RankedEvidence<'a> {
+    pub record: &'a EvidenceRecord,
+    /// Explainable review cues, not a truth score.
+    pub reasons: Vec<EvidenceReviewReason>,
+}
+
+/// Order evidence for human review after admission. Rejected or stale-policy
+/// records are excluded before ranking; no score can promote them back into the
+/// evidence set. Contradictions surface first because they need attention, then
+/// stronger claim-specific quality and source classes.
+pub fn rank_admitted_evidence_for_review<'a>(
+    evidence: &'a [EvidenceRecord],
+    policy: &SourcePolicy,
+) -> Vec<RankedEvidence<'a>> {
+    let mut ranked: Vec<_> = evidence
+        .iter()
+        .filter(|record| {
+            record.admission.is_admitted()
+                && record.admission_policy_id == policy.id
+                && record.admission_policy_version == policy.version
+        })
+        .map(|record| RankedEvidence {
+            record,
+            reasons: review_reasons(record),
+        })
+        .collect();
+    ranked.sort_by(|left, right| {
+        review_sort_key(right.record)
+            .cmp(&review_sort_key(left.record))
+            .then_with(|| left.record.source_id.cmp(&right.record.source_id))
+    });
+    ranked
+}
+
+fn review_sort_key(record: &EvidenceRecord) -> (u8, u8, u8) {
+    (
+        u8::from(record.stance == EvidenceStance::Contradicts),
+        evidence_quality_score(record.quality),
+        source_class_review_priority(record.source_class),
+    )
+}
+
+fn evidence_quality_score(quality: EvidenceQuality) -> u8 {
+    [
+        quality.authority,
+        quality.directness,
+        quality.specificity,
+        quality.freshness,
+        quality.independence,
+        quality.completeness,
+        quality.provenance,
+    ]
+    .into_iter()
+    .map(quality_assessment_score)
+    .sum()
+}
+
+fn quality_assessment_score(value: QualityAssessment) -> u8 {
+    match value {
+        QualityAssessment::Unknown => 0,
+        QualityAssessment::Weak => 1,
+        QualityAssessment::Adequate => 2,
+        QualityAssessment::Strong => 3,
+    }
+}
+
+fn source_class_review_priority(class: SourceClass) -> u8 {
+    match class {
+        SourceClass::PrimaryOfficial => 7,
+        SourceClass::ContextDocument => 6,
+        SourceClass::ApprovedInternalRepository => 5,
+        SourceClass::RecognizedReporting => 4,
+        SourceClass::SpecialistReference => 3,
+        SourceClass::CommunityMaterial => 2,
+        SourceClass::GeneralWebDiscovery => 1,
+        SourceClass::ModelKnowledge => 0,
+    }
+}
+
+fn review_reasons(record: &EvidenceRecord) -> Vec<EvidenceReviewReason> {
+    let mut reasons = Vec::new();
+    if record.stance == EvidenceStance::Contradicts {
+        reasons.push(EvidenceReviewReason::ContradictionNeedsReview);
+    }
+    if record.source_class == SourceClass::PrimaryOfficial {
+        reasons.push(EvidenceReviewReason::PrimaryOfficial);
+    }
+    if record.quality.authority == QualityAssessment::Strong {
+        reasons.push(EvidenceReviewReason::StrongAuthority);
+    }
+    if record.quality.directness == QualityAssessment::Strong {
+        reasons.push(EvidenceReviewReason::StrongDirectness);
+    }
+    if record.quality.specificity == QualityAssessment::Strong {
+        reasons.push(EvidenceReviewReason::StrongSpecificity);
+    }
+    if record.quality.freshness == QualityAssessment::Strong {
+        reasons.push(EvidenceReviewReason::Fresh);
+    }
+    if record.quality.provenance == QualityAssessment::Strong {
+        reasons.push(EvidenceReviewReason::InspectableProvenance);
+    }
+    reasons
+}
+
 /// Evaluate only already-admitted evidence. Rejected records remain available
 /// for audit but cannot affect the result, regardless of their apparent quality.
 pub fn aggregate_evidence(
@@ -365,6 +482,73 @@ mod tests {
         let result = aggregate_evidence(&[record], Consequence::High, &live_policy());
         assert_eq!(result.state, ClaimState::NotVerified);
         assert_eq!(result.admitted_evidence_count, 0);
+    }
+
+    #[test]
+    fn review_ranking_excludes_rejected_and_stale_policy_evidence() {
+        let policy = live_policy();
+        let admitted = evidence(
+            "admitted",
+            SourceClass::RecognizedReporting,
+            EvidenceScope::UnderlyingProposition,
+            EvidenceStance::Supports,
+            Some("publisher"),
+        );
+        let mut rejected = admitted.clone();
+        rejected.source_id = "rejected".into();
+        rejected.admission = AdmissionDecision::Rejected(AdmissionRejection::BlockedDomain);
+        let mut stale = admitted.clone();
+        stale.source_id = "stale".into();
+        stale.admission_policy_version += 1;
+
+        let records = [rejected, stale, admitted];
+        let ranked = rank_admitted_evidence_for_review(&records, &policy);
+        assert_eq!(
+            ranked
+                .iter()
+                .map(|item| item.record.source_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["admitted"]
+        );
+    }
+
+    #[test]
+    fn review_ranking_is_explainable_and_surfaces_conflicts_first() {
+        let mut official = evidence(
+            "official",
+            SourceClass::PrimaryOfficial,
+            EvidenceScope::UnderlyingProposition,
+            EvidenceStance::Supports,
+            Some("official"),
+        );
+        official.quality.authority = QualityAssessment::Strong;
+        official.quality.directness = QualityAssessment::Strong;
+        official.quality.provenance = QualityAssessment::Strong;
+        let conflict = evidence(
+            "conflict",
+            SourceClass::RecognizedReporting,
+            EvidenceScope::UnderlyingProposition,
+            EvidenceStance::Contradicts,
+            Some("independent"),
+        );
+
+        let records = [official, conflict];
+        let policy = live_policy();
+        let ranked = rank_admitted_evidence_for_review(&records, &policy);
+        assert_eq!(ranked[0].record.source_id, "conflict");
+        assert_eq!(
+            ranked[0].reasons,
+            vec![EvidenceReviewReason::ContradictionNeedsReview]
+        );
+        assert!(ranked[1]
+            .reasons
+            .contains(&EvidenceReviewReason::PrimaryOfficial));
+        assert!(ranked[1]
+            .reasons
+            .contains(&EvidenceReviewReason::StrongAuthority));
+        assert!(ranked[1]
+            .reasons
+            .contains(&EvidenceReviewReason::InspectableProvenance));
     }
 
     #[test]

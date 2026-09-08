@@ -142,7 +142,7 @@ pub struct CaptureEvent {
     pub captures: Vec<crate::capture::Capture>,
 }
 
-pub const CLAIM_SNAPSHOT_CONTRACT_VERSION: u32 = 1;
+pub const CLAIM_SNAPSHOT_CONTRACT_VERSION: u32 = 2;
 
 /// Cumulative claim state for one live-session epoch. Consumers accept only a
 /// greater revision in the same epoch, or the first revision of a newer epoch.
@@ -297,7 +297,7 @@ mod tests {
 
         let json = serde_json::to_value(event).unwrap();
         assert_eq!(events::CLAIM_SNAPSHOT, "conva://claim-snapshot");
-        assert_eq!(json["contract_version"], 1);
+        assert_eq!(json["contract_version"], 2);
         assert_eq!(json["session_id"], "session-1");
         assert_eq!(json["epoch"], 2);
         assert_eq!(json["revision"], 7);

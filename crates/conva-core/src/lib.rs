@@ -38,5 +38,6 @@ pub mod semantic_extraction;
 pub mod source_policy;
 pub mod tracker;
 pub mod vad;
+pub mod verification;
 
 pub use error::CoreError;

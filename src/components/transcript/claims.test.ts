@@ -74,6 +74,7 @@ function record(overrides: Partial<ClaimRecord> = {}): ClaimRecord {
     state: "needs_clarification",
     recommended_action: "resolve",
     policy_id: "live-stream-claims-v1",
+    policy_version: 1,
     extraction_confidence: "high",
     resolution_confidence: "low",
     claim_confidence: null,
@@ -133,6 +134,7 @@ describe("claim presentation model", () => {
       referenceDetail: "that car crash → unresolved",
       primaryAction: "correct_links",
       primaryActionLabel: "Resolve references",
+      processingDisclosure: "Source policy: live-stream-claims-v1 v1.",
       safeWording:
         "ABC News reported that both people died in the referenced car crash in Arizona.",
     });

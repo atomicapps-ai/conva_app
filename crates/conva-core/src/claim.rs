@@ -115,7 +115,9 @@ pub enum ClaimState {
 pub enum ClaimEvent {
     AttributionFound,
     RequiredReferenceUnresolved,
+    RequiredReferencesResolved,
     CheckQueued,
+    RecheckQueued,
     CheckStarted,
     EvidenceSupported,
     EvidencePartlySupported,
@@ -147,7 +149,16 @@ pub fn transition_claim(
         (State::Detected | State::Attributed, Event::RequiredReferenceUnresolved) => {
             State::NeedsClarification
         }
+        (State::NeedsClarification, Event::RequiredReferencesResolved) => State::Attributed,
         (State::Detected | State::Attributed, Event::CheckQueued) => State::Queued,
+        (
+            State::Supported
+            | State::PartlySupported
+            | State::ConflictingEvidence
+            | State::NotVerified
+            | State::NotExternallyVerifiable,
+            Event::RecheckQueued,
+        ) => State::Queued,
         (State::Queued, Event::CheckStarted) => State::Checking,
         (State::Checking, Event::EvidenceSupported) => State::Supported,
         (State::Checking, Event::EvidencePartlySupported) => State::PartlySupported,
@@ -259,6 +270,7 @@ pub struct ClaimRecord {
     #[serde(default)]
     pub recommended_action: Option<SuggestedAction>,
     pub policy_id: String,
+    pub policy_version: u32,
     pub extraction_confidence: Confidence,
     pub resolution_confidence: Confidence,
     #[serde(default)]
@@ -414,6 +426,37 @@ mod tests {
         .unwrap();
         assert_eq!(state, ClaimState::NeedsClarification);
         assert!(transition_claim(state, ClaimEvent::CheckStarted).is_err());
+    }
+
+    #[test]
+    fn resolved_reference_returns_to_attributed_before_queueing() {
+        let attributed = transition_claim(
+            ClaimState::NeedsClarification,
+            ClaimEvent::RequiredReferencesResolved,
+        )
+        .unwrap();
+        assert_eq!(attributed, ClaimState::Attributed);
+        assert_eq!(
+            transition_claim(attributed, ClaimEvent::CheckQueued).unwrap(),
+            ClaimState::Queued
+        );
+    }
+
+    #[test]
+    fn checked_claims_can_be_queued_for_an_explicit_recheck() {
+        for state in [
+            ClaimState::Supported,
+            ClaimState::PartlySupported,
+            ClaimState::ConflictingEvidence,
+            ClaimState::NotVerified,
+            ClaimState::NotExternallyVerifiable,
+        ] {
+            assert_eq!(
+                transition_claim(state, ClaimEvent::RecheckQueued).unwrap(),
+                ClaimState::Queued
+            );
+        }
+        assert!(transition_claim(ClaimState::Dismissed, ClaimEvent::RecheckQueued).is_err());
     }
 
     #[test]
