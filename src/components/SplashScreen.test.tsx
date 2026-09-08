@@ -3,6 +3,7 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  SPLASH_FILL_TRANSITION_MS,
   SPLASH_READY_HOLD_MS,
   SPLASH_STEP_MS,
   SplashScreen,
@@ -48,14 +49,15 @@ describe("SplashScreen", () => {
     });
   }
 
-  it("starts at 0% with the 'Starting…' label", () => {
+  it("starts at 0% with a readable live status and visible percentage", () => {
     const { backend } = fakeBackend();
     render(
       <BackendProvider backend={backend}>
         <SplashScreen />
       </BackendProvider>,
     );
-    expect(screen.getByText("Starting…")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Starting Conva…");
+    expect(screen.getByRole("status")).toHaveTextContent("0%");
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
   });
 
@@ -69,14 +71,14 @@ describe("SplashScreen", () => {
 
     emit({ stage: "library_loaded", percent: 35 });
     act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
-    expect(screen.getByText("Loading your library…")).toBeInTheDocument();
+    expect(screen.getByText("Library loaded")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "35");
 
     emit({ stage: "almost_ready", percent: 85 });
     act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
-    expect(screen.getByText("Preparing your workspace…")).toBeInTheDocument();
+    expect(screen.getByText("Workspace loaded")).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
-    expect(screen.getByText("Almost ready…")).toBeInTheDocument();
+    expect(screen.getByText("Finishing startup…")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "85");
   });
 
@@ -94,7 +96,7 @@ describe("SplashScreen", () => {
     // A stale earlier stage (e.g. the get_splash_progress snapshot resolving
     // after a newer live event) must not regress the bar.
     emit({ stage: "library_loaded", percent: 35 });
-    expect(screen.getByText("Preparing your workspace…")).toBeInTheDocument();
+    expect(screen.getByText("Workspace loaded")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
 
     emit({ stage: "failed", percent: 35, message: "Late failure snapshot" });
@@ -121,7 +123,7 @@ describe("SplashScreen", () => {
     });
     act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
     act(() => vi.advanceTimersByTime(SPLASH_STEP_MS));
-    expect(screen.getByText("Preparing your workspace…")).toBeInTheDocument();
+    expect(screen.getByText("Workspace loaded")).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "60");
   });
 
@@ -183,6 +185,9 @@ describe("SplashScreen", () => {
       );
     }
     expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("100%");
+    expect(container.firstElementChild).toHaveClass("opacity-100");
+    act(() => vi.advanceTimersByTime(SPLASH_FILL_TRANSITION_MS));
     expect(container.firstElementChild).toHaveClass("opacity-100");
     act(() => vi.advanceTimersByTime(SPLASH_READY_HOLD_MS));
     expect(container.firstElementChild).toHaveClass("opacity-0");

@@ -120,11 +120,14 @@ impl StartupState {
 pub const SPLASH_LABEL: &str = "splash";
 const SPLASH_WIDTH: f64 = 640.0;
 const SPLASH_HEIGHT: f64 = 396.0;
-/// Matches the UI's one-step advance plus Ready hold (220 + 300 ms).
-const READY_BEFORE_REVEAL: Duration = Duration::from_millis(520);
-/// Keep the always-on-top splash alive while its 200 ms opacity transition
-/// reveals the already-rendered main window underneath it.
-const CROSSFADE_DURATION: Duration = Duration::from_millis(240);
+/// Give the splash time to present Ready (220 ms), visibly fill to 100%
+/// (200 ms), and hold the completed state long enough to be read (500 ms).
+/// The main window is revealed just before the splash begins fading so it is
+/// already painted underneath the transparent native surface.
+const READY_BEFORE_REVEAL: Duration = Duration::from_millis(900);
+/// Keep the always-on-top splash alive through its 200 ms opacity transition,
+/// which reveals the already-rendered main window underneath it.
+const CROSSFADE_DURATION: Duration = Duration::from_millis(300);
 
 pub fn open(app: &AppHandle) -> Result<(), String> {
     WebviewWindowBuilder::new(

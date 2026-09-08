@@ -6,16 +6,17 @@ import { getSplashProgress, showSplash } from "@/lib/commands";
 import { isTauri, type SplashProgressEvent } from "@/lib/ipc";
 
 const STAGE_LABEL: Record<SplashProgressEvent["stage"], string> = {
-  started: "Starting…",
-  library_loaded: "Loading your library…",
-  workspace_ready: "Preparing your workspace…",
-  almost_ready: "Almost ready…",
+  started: "Starting Conva…",
+  library_loaded: "Library loaded",
+  workspace_ready: "Workspace loaded",
+  almost_ready: "Finishing startup…",
   ready: "Ready",
   failed: "Startup failed",
 };
 
 export const SPLASH_STEP_MS = 220;
-export const SPLASH_READY_HOLD_MS = 300;
+export const SPLASH_FILL_TRANSITION_MS = 200;
+export const SPLASH_READY_HOLD_MS = 500;
 
 const PRESENTATION_STAGES: SplashProgressEvent[] = [
   { stage: "started", percent: 0 },
@@ -120,7 +121,7 @@ export function SplashScreen({
     if (progress.stage !== "ready") return;
     const timer = window.setTimeout(
       () => setLeaving(true),
-      SPLASH_READY_HOLD_MS,
+      SPLASH_FILL_TRANSITION_MS + SPLASH_READY_HOLD_MS,
     );
     return () => window.clearTimeout(timer);
   }, [progress.stage]);
@@ -145,13 +146,25 @@ export function SplashScreen({
         className="absolute inset-0 h-full w-full object-cover"
       />
       <div
-        className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2 px-8 pb-6 pt-10"
+        className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-2.5 px-8 pb-6 pt-12"
         style={{
           // Fades to --color-bg (#05060e) so the bar/text sit on a readable
           // scrim regardless of what's under them in the art.
           background: "linear-gradient(to top, rgba(5,6,14,0.92), rgba(5,6,14,0) 100%)",
         }}
       >
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex w-full max-w-[440px] items-center justify-between gap-4 rounded-md border border-white/10 bg-black/35 px-2.5 py-1.5 shadow-sm backdrop-blur-sm"
+        >
+          <p className="truncate text-[13px] font-semibold text-white">
+            {STAGE_LABEL[progress.stage]}
+          </p>
+          <span className="shrink-0 font-mono text-[12px] font-semibold tabular-nums text-white/90">
+            {progress.percent}%
+          </span>
+        </div>
         <div
           role="progressbar"
           aria-label="Starting conva"
@@ -165,7 +178,6 @@ export function SplashScreen({
             style={{ width: `${progress.percent}%` }}
           />
         </div>
-        <p className="text-sm text-white/70">{STAGE_LABEL[progress.stage]}</p>
         {progress.stage === "failed" && (
           <p role="alert" className="max-w-[440px] text-center text-xs text-red-300">
             {progress.message}
