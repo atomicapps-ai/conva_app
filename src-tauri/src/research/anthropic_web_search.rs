@@ -45,7 +45,11 @@ impl ResearchProvider for AnthropicWebSearchProvider {
     /// "docs-only" degrade every other adapter uses. `queries` are folded
     /// into ONE instruction rather than issued one call per query, so Claude
     /// can plan its own searches against the whole topic at once.
-    fn research(&self, queries: Vec<String>, max_sources: usize) -> Result<ResearchOutcome, CoreError> {
+    fn research(
+        &self,
+        queries: Vec<String>,
+        max_sources: usize,
+    ) -> Result<ResearchOutcome, CoreError> {
         if queries.is_empty() {
             return Ok(ResearchOutcome::default());
         }
@@ -93,7 +97,10 @@ impl ResearchProvider for AnthropicWebSearchProvider {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        let mut outcome = ResearchOutcome { sources: Vec::new(), billed_units };
+        let mut outcome = ResearchOutcome {
+            sources: Vec::new(),
+            billed_units,
+        };
         let mut seen = std::collections::HashSet::new();
         let Some(blocks) = val.get("content").and_then(|c| c.as_array()) else {
             return Ok(outcome);
@@ -111,9 +118,17 @@ impl ResearchProvider for AnthropicWebSearchProvider {
                     continue;
                 }
                 outcome.sources.push(ResearchSource {
-                    title: citation.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    title: citation
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     url: url.to_string(),
-                    snippet: citation.get("cited_text").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    snippet: citation
+                        .get("cited_text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     fetched_at_unix_ms: now_unix_ms(),
                 });
             }

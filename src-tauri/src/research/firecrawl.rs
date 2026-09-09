@@ -9,8 +9,8 @@
 
 use std::time::Duration;
 
-use conva_core::research::{ResearchOutcome, ResearchProvider, ResearchProviderId};
 use conva_core::context::ResearchSource;
+use conva_core::research::{ResearchOutcome, ResearchProvider, ResearchProviderId};
 use conva_core::CoreError;
 
 use crate::session::now_unix_ms;
@@ -27,19 +27,25 @@ const RESULTS_PER_QUERY: usize = 3;
 const CONTENT_CHAR_CAP: usize = 4_000;
 
 pub fn store_firecrawl_key(key: &str) -> Result<(), CoreError> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| CoreError::Audio(e.to_string()))?;
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+        .map_err(|e| CoreError::Audio(e.to_string()))?;
     if key.trim().is_empty() {
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(CoreError::Audio(e.to_string())),
         }
     } else {
-        entry.set_password(key.trim()).map_err(|e| CoreError::Audio(e.to_string()))
+        entry
+            .set_password(key.trim())
+            .map_err(|e| CoreError::Audio(e.to_string()))
     }
 }
 
 pub fn load_firecrawl_key() -> Option<String> {
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()?.get_password().ok()
+    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+        .ok()?
+        .get_password()
+        .ok()
 }
 
 pub struct FirecrawlProvider;
@@ -51,7 +57,11 @@ impl ResearchProvider for FirecrawlProvider {
 
     /// No key configured → empty outcome, not an error — same "docs-only"
     /// degrade the other adapters use.
-    fn research(&self, queries: Vec<String>, max_sources: usize) -> Result<ResearchOutcome, CoreError> {
+    fn research(
+        &self,
+        queries: Vec<String>,
+        max_sources: usize,
+    ) -> Result<ResearchOutcome, CoreError> {
         let Some(key) = load_firecrawl_key() else {
             return Ok(ResearchOutcome::default());
         };
@@ -89,7 +99,11 @@ impl ResearchProvider for FirecrawlProvider {
                 .and_then(|v| v.as_u64())
                 .unwrap_or(2 + RESULTS_PER_QUERY as u64);
             outcome.billed_units += credits;
-            let Some(results) = val.get("data").and_then(|d| d.get("web")).and_then(|w| w.as_array()) else {
+            let Some(results) = val
+                .get("data")
+                .and_then(|d| d.get("web"))
+                .and_then(|w| w.as_array())
+            else {
                 continue;
             };
             for r in results {
@@ -110,7 +124,11 @@ impl ResearchProvider for FirecrawlProvider {
                     .or_else(|| r.get("description").and_then(|v| v.as_str()))
                     .unwrap_or("");
                 outcome.sources.push(ResearchSource {
-                    title: r.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    title: r
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     url: url.to_string(),
                     snippet: content.chars().take(CONTENT_CHAR_CAP).collect(),
                     fetched_at_unix_ms: now_unix_ms(),

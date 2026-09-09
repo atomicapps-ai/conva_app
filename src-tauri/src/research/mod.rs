@@ -18,7 +18,9 @@ use conva_core::research::{ResearchProvider, ResearchProviderId};
 pub fn provider_for(id: ResearchProviderId) -> Box<dyn ResearchProvider> {
     match id {
         ResearchProviderId::Firecrawl => Box::new(firecrawl::FirecrawlProvider),
-        ResearchProviderId::AnthropicWebSearch => Box::new(anthropic_web_search::AnthropicWebSearchProvider),
+        ResearchProviderId::AnthropicWebSearch => {
+            Box::new(anthropic_web_search::AnthropicWebSearchProvider)
+        }
         ResearchProviderId::Tavily => Box::new(tavily::TavilyProvider),
     }
 }

@@ -30,7 +30,11 @@ impl ResearchProvider for TavilyProvider {
 
     /// No key configured → empty outcome, not an error (the profile stays
     /// docs-only) — same contract the original inline implementation had.
-    fn research(&self, queries: Vec<String>, max_sources: usize) -> Result<ResearchOutcome, CoreError> {
+    fn research(
+        &self,
+        queries: Vec<String>,
+        max_sources: usize,
+    ) -> Result<ResearchOutcome, CoreError> {
         let Some(key) = load_tavily_key() else {
             return Ok(ResearchOutcome::default());
         };
