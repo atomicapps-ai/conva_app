@@ -296,6 +296,9 @@ export function CoachingSetupView({
                 description="Ally builds three counterparty options from this Context's material."
                 action={
                   <PrimaryButton onClick={() => void generatePersonas()} disabled={busy !== null}>
+                    {busy === "personas" && (
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-ai/30 border-t-ai" />
+                    )}
                     {busy === "personas" ? "Generating…" : "Generate personas"}
                   </PrimaryButton>
                 }
@@ -358,8 +361,11 @@ export function CoachingSetupView({
               <SecondaryButton
                 onClick={() => void generateResources()}
                 disabled={busy !== null}
-                className="ml-auto"
+                className={`ml-auto ${busy === "resources" ? "border-ai/40 bg-ai/10 text-ai" : ""}`}
               >
+                {busy === "resources" && (
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-ai/30 border-t-ai" />
+                )}
                 {busy === "resources"
                   ? "Generating…"
                   : summary?.has_generated_resources

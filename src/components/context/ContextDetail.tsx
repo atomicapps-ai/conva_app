@@ -386,6 +386,9 @@ export function ContextDetail({
               disabled={busy}
               onClick={() => void generate()}
             >
+              {busy && (
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-ai/30 border-t-ai" />
+              )}
               {busy ? "Generating…" : "Generate personas"}
             </button>
           </div>
@@ -487,10 +490,13 @@ export function ContextDetail({
 
             <button
               type="button"
-              className="btn self-start"
+              className={`btn self-start ${busy ? "btn-accent" : ""}`}
               disabled={busy}
               onClick={() => void generate()}
             >
+              {busy && (
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-ai/30 border-t-ai" />
+              )}
               {busy ? "Regenerating…" : "Regenerate"}
             </button>
           </div>
