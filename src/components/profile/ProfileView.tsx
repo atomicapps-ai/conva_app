@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { AvatarEditor } from "@/components/profile/AvatarEditor";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
 import { isTauriRuntime } from "@/lib/backend/detect";
@@ -125,15 +126,20 @@ export function ProfileView() {
     unknown: "Couldn't upload that image — try again.",
   };
 
-  const pickAvatar = async (file: File | undefined) => {
-    if (!file) return;
+  // The picked file goes through AvatarEditor (crop/scale) before it's ever
+  // uploaded — `pickAvatar` below now always receives that editor's exported
+  // blob, never the raw file straight off disk.
+  const [editingFile, setEditingFile] = useState<File | null>(null);
+
+  const pickAvatar = async (blob: Blob) => {
     setUploadingAvatar(true);
     setAvatarError(null);
     try {
-      const res = await webAuth.uploadAvatar(file);
+      const res = await webAuth.uploadAvatar(blob);
       if (res.ok) {
         setAvatarBroken(false);
         setAvatarNonce((n) => n + 1);
+        setEditingFile(null);
       } else {
         setAvatarError(AVATAR_ERROR_COPY[res.error ?? "unknown"] ?? "Couldn't upload that image — try again.");
       }
@@ -245,7 +251,8 @@ export function ProfileView() {
                     className="hidden"
                     disabled={uploadingAvatar}
                     onChange={(e) => {
-                      void pickAvatar(e.target.files?.[0]);
+                      const file = e.target.files?.[0];
+                      if (file) setEditingFile(file);
                       e.target.value = "";
                     }}
                   />
@@ -352,6 +359,14 @@ export function ProfileView() {
           </span>
         </Row>
       </Section>
+
+      {editingFile && (
+        <AvatarEditor
+          file={editingFile}
+          onCancel={() => setEditingFile(null)}
+          onSave={(blob) => pickAvatar(blob)}
+        />
+      )}
     </ViewShell>
   );
 }
