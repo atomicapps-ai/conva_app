@@ -2,8 +2,9 @@
 //!
 //! conva is bring-your-own-key on the desktop, so metering here is about
 //! **visibility**: the owner sees exactly what their keys are being spent on
-//! (LLM tokens per provider, plus Tavily web searches — Tavily bills per
-//! *search*, not per token). Every LLM completion is also attributed to a
+//! (LLM tokens per provider, plus research-provider web searches — billed per
+//! *search*, not per token, regardless of which provider is active). Every
+//! LLM completion is also attributed to a
 //! **feature × provider × model** bucket ([`LlmFeatureUsage`]) so token spend
 //! is answerable per app feature, not just per provider — the counts-only
 //! local precursor of the platform's `usage_events` ledger (roadmap F8b,
@@ -11,7 +12,7 @@
 //! surfaces share one accounting model.
 //!
 //! The shell (`src-tauri/src/metering.rs`) owns persistence and calls
-//! [`UsageLedger::record_llm`] / [`UsageLedger::record_tavily_search`] at each
+//! [`UsageLedger::record_llm`] / [`UsageLedger::record_research_search`] at each
 //! metered call site. Everything here is fs/OS-free and unit-tested.
 
 use serde::{Deserialize, Serialize};
@@ -82,9 +83,11 @@ pub struct UsageLedger {
     /// Per feature × provider × model LLM token totals.
     #[serde(default)]
     pub llm_features: Vec<LlmFeatureUsage>,
-    /// Tavily web searches (each Tavily query is one billed search).
+    /// Bounded web-research searches issued (Context resource generation) —
+    /// each billed unit is one provider-defined search/credit, regardless of
+    /// which research provider (Firecrawl/Anthropic web search/Tavily) is active.
     #[serde(default)]
-    pub tavily_searches: u64,
+    pub research_searches: u64,
     /// Text-to-speech characters synthesized (Deepgram Aura bills per character).
     #[serde(default)]
     pub tts_characters: u64,
@@ -161,13 +164,13 @@ impl UsageLedger {
         }
     }
 
-    /// Count `count` Tavily searches (one per bounded research query issued).
-    pub fn record_tavily_search(&mut self, count: u64, now_unix_ms: u64) {
+    /// Count `count` research-provider searches (one per bounded research query issued).
+    pub fn record_research_search(&mut self, count: u64, now_unix_ms: u64) {
         if count == 0 {
             return;
         }
         self.start_window(now_unix_ms);
-        self.tavily_searches = self.tavily_searches.saturating_add(count);
+        self.research_searches = self.research_searches.saturating_add(count);
     }
 
     /// Count `chars` synthesized by text-to-speech (Aura bills per character).
@@ -180,7 +183,7 @@ impl UsageLedger {
     }
 
     /// Add `ms` of listening time (Live or rehearsal). No-ops on `ms == 0`
-    /// (mirrors `record_tavily_search`/`record_tts_characters`).
+    /// (mirrors `record_research_search`/`record_tts_characters`).
     pub fn record_listening_ms(&mut self, ms: u64, now_unix_ms: u64) {
         if ms == 0 {
             return;
@@ -215,7 +218,7 @@ impl UsageLedger {
             total_input_tokens,
             total_output_tokens,
             total_requests,
-            tavily_searches: self.tavily_searches,
+            research_searches: self.research_searches,
             tts_characters: self.tts_characters,
             listening_ms: self.listening_ms,
             since_unix_ms: self.since_unix_ms,
@@ -234,7 +237,7 @@ pub struct UsageSummary {
     pub total_input_tokens: u64,
     pub total_output_tokens: u64,
     pub total_requests: u64,
-    pub tavily_searches: u64,
+    pub research_searches: u64,
     pub tts_characters: u64,
     pub listening_ms: u64,
     pub since_unix_ms: u64,
@@ -405,17 +408,17 @@ mod tests {
     }
 
     #[test]
-    fn tavily_searches_count_and_ignore_zero() {
+    fn research_searches_count_and_ignore_zero() {
         let mut led = UsageLedger::default();
-        led.record_tavily_search(0, 1);
-        assert_eq!(led.tavily_searches, 0);
+        led.record_research_search(0, 1);
+        assert_eq!(led.research_searches, 0);
         assert_eq!(
             led.since_unix_ms, 0,
             "a zero count must not open the window"
         );
-        led.record_tavily_search(3, 5);
-        led.record_tavily_search(2, 6);
-        assert_eq!(led.tavily_searches, 5);
+        led.record_research_search(3, 5);
+        led.record_research_search(2, 6);
+        assert_eq!(led.research_searches, 5);
         assert_eq!(led.since_unix_ms, 5);
     }
 
@@ -453,14 +456,14 @@ mod tests {
             true,
             1,
         );
-        led.record_tavily_search(4, 2);
+        led.record_research_search(4, 2);
         led.record_tts_characters(120, 3);
         led.record_listening_ms(90_000, 4);
         assert_eq!(led.tts_characters, 120);
         led.reset(50);
         assert!(led.providers.is_empty());
         assert!(led.llm_features.is_empty());
-        assert_eq!(led.tavily_searches, 0);
+        assert_eq!(led.research_searches, 0);
         assert_eq!(led.tts_characters, 0);
         assert_eq!(led.listening_ms, 0);
         assert_eq!(led.since_unix_ms, 50);

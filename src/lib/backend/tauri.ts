@@ -218,8 +218,10 @@ export class TauriBackend implements ConvaBackend {
     startRehearsal: cmd.contextStartRehearsal,
     rehearsalYourTurn: cmd.contextRehearsalYourTurn,
     rehearsalSay: cmd.contextRehearsalSay,
-    setResearchKey: cmd.setTavilyKey,
-    researchKeyStatus: cmd.tavilyKeyStatus,
+    setResearchKey: (provider: "tavily" | "firecrawl", key: string) =>
+      provider === "firecrawl" ? cmd.setFirecrawlKey(key) : cmd.setTavilyKey(key),
+    researchKeyStatus: (provider: "tavily" | "firecrawl") =>
+      provider === "firecrawl" ? cmd.firecrawlKeyStatus() : cmd.tavilyKeyStatus(),
   };
 
   usage = {

@@ -33,6 +33,7 @@ pub mod prepared_qa;
 pub mod prompt;
 pub mod radar;
 pub mod rag;
+pub mod research;
 pub mod screenshot;
 pub mod semantic_extraction;
 pub mod source_policy;

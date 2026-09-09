@@ -17,7 +17,7 @@ use tauri::{AppHandle, Manager};
 
 use conva_core::context::{
     extract_glossary, orphaned_generated_doc_ids, ContextCategory, ContextStatus, ContextSummary,
-    ConversationContext, KnowledgeProfile, ResearchSource, DEFAULT_CONTEXT_ID,
+    ConversationContext, KnowledgeProfile, DEFAULT_CONTEXT_ID,
 };
 use conva_core::CoreError;
 
@@ -408,79 +408,13 @@ pub fn load_tavily_key() -> Option<String> {
         .ok()
 }
 
-/// Bounded autonomous web research (Step 2) via Tavily. Takes the already-built
-/// query list and a source budget — the caller decides both (default research
-/// via [`conva_core::context::research_queries`] + `RESEARCH_MAX_QUERIES`/
-/// `RESEARCH_MAX_SOURCES`, or the deep Q&A pass via `qa_research_queries` +
-/// `QA_MAX_QUERIES`/`QA_MAX_SOURCES`), so this fn stays agnostic of which pass
-/// is calling it. Returns the sources to fold into the KnowledgeProfile plus
-/// the number of Tavily searches issued (each is one billed search — the
-/// caller records it for usage metering). No key configured → returns empty
-/// (the profile is docs-only). Failures per query are skipped, never fatal.
-/// Runs on a command thread, never the UI path.
-pub(crate) fn research(
-    queries: Vec<String>,
-    max_sources: usize,
-) -> Result<(Vec<ResearchSource>, u64), CoreError> {
-    let Some(key) = load_tavily_key() else {
-        return Ok((Vec::new(), 0));
-    };
-    let mut out: Vec<ResearchSource> = Vec::new();
-    let mut searches: u64 = 0;
-    for query in queries {
-        if out.len() >= max_sources {
-            break;
-        }
-        searches += 1;
-        let body = serde_json::json!({
-            "api_key": key,
-            "query": query,
-            "max_results": 3,
-            "search_depth": "basic",
-        });
-        let resp = ureq::post("https://api.tavily.com/search")
-            .timeout(std::time::Duration::from_secs(15))
-            .send_json(body);
-        let val: serde_json::Value = match resp {
-            Ok(r) => match r.into_json() {
-                Ok(v) => v,
-                Err(_) => continue,
-            },
-            Err(_) => continue,
-        };
-        let Some(results) = val.get("results").and_then(|r| r.as_array()) else {
-            continue;
-        };
-        for r in results {
-            if out.len() >= max_sources {
-                break;
-            }
-            let url = r.get("url").and_then(|v| v.as_str()).unwrap_or("");
-            if url.is_empty() {
-                continue;
-            }
-            out.push(ResearchSource {
-                title: r
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                url: url.to_string(),
-                snippet: r
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .chars()
-                    // Tavily's content excerpt — the findings synthesis
-                    // needs more than a headline.
-                    .take(1_200)
-                    .collect(),
-                fetched_at_unix_ms: now_unix_ms(),
-            });
-        }
-    }
-    Ok((out, searches))
-}
+// The actual research execution — for any of the three providers
+// (Firecrawl/Anthropic web search/Tavily) — lives in `crate::research`,
+// selected by `AppConfig::research_provider` (owner decision 2026-09-09).
+// `load_tavily_key`/`store_tavily_key` above stay here because the live
+// Ally `web_search` tool call (`lib.rs`'s `execute_ally_tool_call`) also
+// reads them, independent of which Context-generation research provider is
+// active.
 
 #[cfg(test)]
 mod tests {

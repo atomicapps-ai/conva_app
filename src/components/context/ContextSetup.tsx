@@ -36,6 +36,7 @@ import type {
   SourcePolicy,
 } from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
+import { useAppStore } from "@/state/app";
 
 const DOC_EXTENSIONS = [
   "pdf", "docx", "md", "txt", "html",
@@ -250,9 +251,13 @@ export function ContextSetup({
       // questions" bug: the checkbox never made it to disk before the
       // dossier pipeline read `deep_qa_enabled` back off it).
       await backend.context.save(buildSavePayload());
-      const hasResearchKey = backend.context.researchKeyStatus
-        ? await backend.context.researchKeyStatus().catch(() => false)
-        : false;
+      const activeResearchProvider = useAppStore.getState().config?.research_provider ?? "firecrawl";
+      const hasResearchKey =
+        activeResearchProvider === "anthropic_web_search"
+          ? true // reuses the Anthropic key, no separate key to check
+          : backend.context.researchKeyStatus
+            ? await backend.context.researchKeyStatus(activeResearchProvider).catch(() => false)
+            : false;
       const updated = await backend.context.generateDossier(initial.id);
       setGeneratedFields({
         dossier_doc_id: updated.dossier_doc_id,

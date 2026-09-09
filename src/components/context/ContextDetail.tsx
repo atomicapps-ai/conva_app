@@ -20,6 +20,7 @@ import { useCapabilities } from "@/lib/backend/context";
 import { formatBytes } from "@/lib/formatBytes";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type ConversationContext } from "@/lib/ipc";
+import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
 import { useRehearsalStore } from "@/state/rehearsal";
 
@@ -144,9 +145,13 @@ export function ContextDetail({
     setError(null);
     setGenerationReport([]);
     try {
-      const hasResearchKey = backend.context.researchKeyStatus
-        ? await backend.context.researchKeyStatus().catch(() => false)
-        : false;
+      const activeResearchProvider = useAppStore.getState().config?.research_provider ?? "firecrawl";
+      const hasResearchKey =
+        activeResearchProvider === "anthropic_web_search"
+          ? true // reuses the Anthropic key, no separate key to check
+          : backend.context.researchKeyStatus
+            ? await backend.context.researchKeyStatus(activeResearchProvider).catch(() => false)
+            : false;
       const updated = await backend.context.generateDossier(id);
       setSession(updated);
       setGenerationReport(generationStages(updated, hasResearchKey));
