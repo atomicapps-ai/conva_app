@@ -34,7 +34,8 @@ describe("WebSiteNav", () => {
 
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", expect.stringContaining("/ops.html"));
     const wordmark = screen.getByRole("img", { name: "conva" });
-    expect(wordmark.querySelector('path[stroke="var(--color-primary)"]')).not.toBeNull();
+    expect(wordmark.querySelector(".web-brand-wordmark")).not.toBeNull();
+    expect(wordmark.querySelector(".web-brand-wordmark-a")).toHaveTextContent("A");
   });
 
   it("does not expose Admin to another signed-in account", async () => {
