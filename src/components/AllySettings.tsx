@@ -226,13 +226,14 @@ export function AllySettings() {
               void updateConfig({ tracker_enabled: e.target.checked })
             }
           />
-          Commitment &amp; entity tracker — periodic fast-slot extraction
+          Conversation intelligence — claim, commitment &amp; entity extraction
           during sessions (applies on next session start)
         </label>
         <p className="text-[11px] text-fg-faint">
           Keys are stored in the Windows Credential Manager, never in files.
           Transcript text is sent to the selected provider when you ask Ally,
-          and periodically while the tracker is enabled.
+          for live FANER routing, and periodically while conversation
+          intelligence is enabled. Claim detection does not run web research.
         </p>
       </div>
     </div>

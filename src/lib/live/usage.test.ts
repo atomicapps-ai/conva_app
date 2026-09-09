@@ -22,7 +22,7 @@ describe("hosted usage → legacy UsageSummary", () => {
     expect(s.listening_ms).toBe(240_000);
     expect(s.since_unix_ms).toBe(1_799_971_200_000);
     expect(s.updated_at_unix_ms).toBe(5_000);
-    expect(s.tavily_searches).toBe(0);
+    expect(s.research_searches).toBe(0);
     const empty = toUsageSummary({ ...USAGE, ally: { ...USAGE.ally, requests: 0, input_tokens: 0, output_tokens: 0 } }, null);
     expect(empty.providers).toEqual([]);
     expect(empty.llm_features).toEqual([]);

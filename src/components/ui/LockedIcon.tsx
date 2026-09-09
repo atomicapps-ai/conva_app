@@ -45,8 +45,16 @@ type Locked = { viewBox: string; body: ReactNode };
 // The mark's `d` data, verbatim — same coordinate string as {@link LockedMark}
 // below. Declared here (rather than only near `LockedMark`) so `LOCKED`'s
 // `nav-live-session` entry can reuse it without a forward reference.
+// Updated 2026-09-09 — the canonical mark (byte-identical to conva_web's
+// assets/conva-mark-cutout-white.svg and src-tauri/icons/masters/
+// conva-mark-cutout-white.svg, which src/assets/brand/conva-mark-cutout-white.svg
+// — used by WindowChrome.tsx's top-left logo — now also matches). The
+// previous 2026-09-08 re-export was a DIFFERENT, non-canonical geometry: it
+// made this badge and WindowChrome's mark agree with each other, but neither
+// matched the web. Never hand-derive this from a new export again without
+// diffing it against the web asset first — that's exactly how it drifted.
 const MARK_D =
-  "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91ZM402.78 307.14 337.17 388.44 234.64 408.55 143.18 358.06 105.57 260.58 139.42 161.74 228.88 107.78 332.1 123.95 400.78 202.68 354.84 222.55 309.68 168.7 240.48 156.47 241.61 204.11 179.6 191.59 155.54 257.62 179.55 323.67 240.4 358.83 309.62 346.65 354.81 292.83 402.78 307.14Z";
+  "M489.65 333.91L486.54 171.27L379.61 48.68L218.9 23.51L79.6 107.52L26.91 261.42L85.46 413.19L227.87 491.81L387.5 460.5L483.19 468.83L445.91 391.29L489.65 333.91ZM402.78 307.14L337.17 388.44L234.64 408.55L143.18 358.06L105.57 260.58L139.42 161.74L228.88 107.78L332.1 123.95L400.78 202.68L354.84 222.55L309.68 168.7L240.48 156.47L241.61 204.11L179.6 191.59L155.54 257.62L179.55 323.67L240.4 358.83L309.62 346.65L354.81 292.83L402.78 307.14Z";
 
 const LOCKED: Record<LockedIconName, Locked> = {
   // nav-home.svg
@@ -300,8 +308,16 @@ export function LockedWordmark({
         <rect x="40" y="7" width="27" height="24" rx="8" />
         <path d="M77 31V7l23 24V7" />
         <path d="M109 7l11 24h4l11-24" />
-        <path d="M143 31l10-24h6l10 24M148 21h16" />
       </g>
+      {/* The blue A is the shared website/app signature. Keep it separate
+          from the currentColor group so the wordmark remains theme-aware. */}
+      <path
+        d="M143 31l10-24h6l10 24M148 21h16"
+        stroke="var(--color-primary)"
+        strokeWidth="3.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -340,7 +356,7 @@ export function LockedMark({
  *  string, used as its own closed region for {@link LockedMarkBadge}'s
  *  backing fill + outline below. */
 const MARK_SILHOUETTE_D =
-  "M489.65 333.91L486.54 171.27 379.61 48.68 218.9 23.51 79.6 107.52 26.91 261.42 85.46 413.19 227.87 491.81 387.5 460.5 483.19 468.83 445.91 391.29 489.65 333.91Z";
+  "M489.65 333.91L486.54 171.27L379.61 48.68L218.9 23.51L79.6 107.52L26.91 261.42L85.46 413.19L227.87 491.81L387.5 460.5L483.19 468.83L445.91 391.29L489.65 333.91Z";
 
 /**
  * The mark as a blue-rimmed, glowing badge — a bright "C" cut out of a dark

@@ -205,18 +205,58 @@ describe("NavRail — responsive modes", () => {
     }
   });
 
-  it("hides the utility row in icon mode — it moves into the account flyout", async () => {
+  it("stacks the three account utilities above the avatar in icon mode", async () => {
     await renderRail(
       <BackendProvider backend={fakeBackend(authStatus())}>
         <NavRail mode="icons" />
       </BackendProvider>,
     );
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Notifications" })).toBeNull(),
+
+    const utilities = screen.getByRole("group", { name: "Account utilities" });
+    expect(utilities).toHaveClass("flex-col", "flex-nowrap");
+    for (const label of ["Notifications", "Settings", "Sign out"]) {
+      expect(utilities).toContainElement(screen.getByRole("button", { name: label }));
+    }
+  });
+
+  it("opens a stable-width, non-wrapping account menu to the right", async () => {
+    await renderRail(
+      <BackendProvider backend={fakeBackend(authStatus())}>
+        <NavRail mode="icons" />
+      </BackendProvider>,
     );
+
     fireEvent.click(await screen.findByRole("button", { name: /account/i }));
-    expect(await screen.findByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
+    const menu = await screen.findByRole("menu");
+    expect(menu).toHaveClass(
+      "left-[calc(100%+8px)]",
+      "w-60",
+      "whitespace-nowrap",
+    );
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
+
+    const search = screen.getByRole("menuitem", { name: /Search everything/i });
+    expect(search.querySelector("span:last-child")).toHaveClass(
+      "truncate",
+      "whitespace-nowrap",
+    );
+    fireEvent.click(search);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(useNavStore.getState().paletteOpen).toBe(true);
+  });
+
+  it("dismisses the compact account menu with Escape", async () => {
+    await renderRail(
+      <BackendProvider backend={fakeBackend(authStatus())}>
+        <NavRail mode="icons" />
+      </BackendProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /account/i }));
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("closes the ☰ drawer after navigating", async () => {

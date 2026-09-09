@@ -19,6 +19,7 @@ function payload(overrides: Partial<PartnerPayload> = {}): PartnerPayload {
     answer: null,
     source_lines: [],
     doc_id: null,
+    claim: null,
     ...overrides,
   };
 }
@@ -47,9 +48,28 @@ describe("addOrFocus", () => {
     expect(r.activeKey).toBe(answered.key);
   });
 
+  it("dedupes typed claim tabs by durable claim id", () => {
+    const first = itemTab(
+      payload({ claim: { id: "claim-1" } as PartnerPayload["claim"] }),
+    );
+    const updated = itemTab(
+      payload({
+        term: "Updated proposition",
+        claim: { id: "claim-1" } as PartnerPayload["claim"],
+      }),
+    );
+    const result = addOrFocus([first], updated);
+    expect(result.tabs).toHaveLength(1);
+    expect(result.activeKey).toBe("claim::claim-1");
+    expect(tabLabel(result.tabs[0]!)).toBe("Updated proposition");
+  });
+
   it("dedupes document tabs by doc id", () => {
     const d = documentTab("doc-1", "aws.pdf");
-    const r = addOrFocus(addOrFocus([], d).tabs, documentTab("doc-1", "aws.pdf"));
+    const r = addOrFocus(
+      addOrFocus([], d).tabs,
+      documentTab("doc-1", "aws.pdf"),
+    );
     expect(r.tabs).toHaveLength(1);
     expect(r.activeKey).toBe(d.key);
   });

@@ -11,6 +11,8 @@ import type {
   AudioDevice,
   AuthStatus,
   Capture,
+  ClaimRecord,
+  ClaimSnapshotEvent,
   Conversation,
   ConversationSummary,
   ContextSummary,
@@ -108,9 +110,7 @@ export function testProvider(
   return invoke<number>("test_provider", { provider, model });
 }
 
-export function listProviderModels(
-  provider: ProviderId,
-): Promise<ModelInfo[]> {
+export function listProviderModels(provider: ProviderId): Promise<ModelInfo[]> {
   return invoke<ModelInfo[]>("list_provider_models", { provider });
 }
 
@@ -318,6 +318,8 @@ export function conversationSave(
   segments: TranscriptSegment[],
   linkedDocs: string[],
   contextId?: string | null,
+  sourceSessionIds: string[] = [],
+  claimSnapshots: ClaimSnapshotEvent[] = [],
 ): Promise<Conversation> {
   return invoke<Conversation>("conversation_save", {
     id,
@@ -325,6 +327,8 @@ export function conversationSave(
     segments,
     linkedDocs,
     contextId: contextId ?? null,
+    sourceSessionIds,
+    claimSnapshots,
   });
 }
 
@@ -343,7 +347,9 @@ export function conversationDelete(id: string): Promise<void> {
 /* ── Context (Conversation Context) ── */
 
 /** Create or update a Context. An empty `id` mints a new record. */
-export function contextSave(context: ConversationContext): Promise<ConversationContext> {
+export function contextSave(
+  context: ConversationContext,
+): Promise<ConversationContext> {
   return invoke<ConversationContext>("context_save", { session: context });
 }
 
@@ -387,12 +393,16 @@ export function contextPrepare(id: string): Promise<ConversationContext> {
 }
 
 /** Load a Context's knowledge base (attached docs + researched sources). */
-export function contextLoadProfile(profileId: string): Promise<KnowledgeProfile> {
+export function contextLoadProfile(
+  profileId: string,
+): Promise<KnowledgeProfile> {
   return invoke<KnowledgeProfile>("context_load_profile", { profileId });
 }
 
 /** Generate the Ally prep dossier (saved to the library); returns the record. */
-export function contextGenerateDossier(id: string): Promise<ConversationContext> {
+export function contextGenerateDossier(
+  id: string,
+): Promise<ConversationContext> {
   return invoke<ConversationContext>("context_generate_dossier", { id });
 }
 
@@ -402,7 +412,9 @@ export function ragDocumentText(id: string): Promise<string | null> {
 }
 
 /** Generate 3 counterparty personas with the configured LLM. */
-export function contextGeneratePersonas(id: string): Promise<ConversationContext> {
+export function contextGeneratePersonas(
+  id: string,
+): Promise<ConversationContext> {
   return invoke<ConversationContext>("context_generate_personas", { id });
 }
 
@@ -411,7 +423,10 @@ export function contextChoosePersona(
   id: string,
   personaId: string,
 ): Promise<ConversationContext> {
-  return invoke<ConversationContext>("context_choose_persona", { id, personaId });
+  return invoke<ConversationContext>("context_choose_persona", {
+    id,
+    personaId,
+  });
 }
 
 /** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
@@ -438,7 +453,16 @@ export function tavilyKeyStatus(): Promise<boolean> {
   return invoke<boolean>("tavily_key_status");
 }
 
-/** Usage snapshot (LLM tokens per provider + Tavily searches) for Settings. */
+/** Store (empty clears) the Firecrawl web-research key in the OS vault. */
+export function setFirecrawlKey(key: string): Promise<void> {
+  return invoke("set_firecrawl_key", { key });
+}
+
+export function firecrawlKeyStatus(): Promise<boolean> {
+  return invoke<boolean>("firecrawl_key_status");
+}
+
+/** Usage snapshot (LLM tokens per provider + research-provider searches) for Settings. */
 export function usageSummary(): Promise<UsageSummary> {
   return invoke<UsageSummary>("usage_summary");
 }
@@ -511,8 +535,9 @@ export function hudIsOpen(): Promise<boolean> {
 
 // --- Splash window (src-tauri/src/splash.rs) ---------------------------------
 
-/** Show the main window and close the splash. Call only after
- *  `waitForStartup()` and the app's first `init()` round-trip complete. */
+/** Signal real 100% readiness, reveal the main window under the splash, and
+ *  complete the crossfade. Call only after `waitForStartup()` and the app's
+ *  first `init()` round-trip complete. */
 export function finishSplash(): Promise<void> {
   return invoke("finish_splash");
 }
@@ -536,10 +561,16 @@ export function showSplash(): Promise<void> {
   return invoke("show_splash");
 }
 
+/** Confirm that the splash has visibly rendered and held its 100% Ready
+ * state. The native shell will not reveal/close the splash before this ack. */
+export function acknowledgeSplashReady(): Promise<void> {
+  return invoke("acknowledge_splash_ready");
+}
+
 // --- Partner window (src-tauri/src/partner.rs) -------------------------------
 
-/** Open (or re-target) the partner window on a term — or, with `docId` set,
- *  a library document directly (e.g. "view" on a Library/Context row). */
+/** Open (or re-target) the partner window on a term, a typed claim, or, with
+ *  `docId` set, a library document directly. */
 export function openPartner(
   term: string,
   kind: string | null,
@@ -547,6 +578,7 @@ export function openPartner(
   answer: string | null = null,
   sourceLines: string[] = [],
   docId: string | null = null,
+  claim: ClaimRecord | null = null,
 ): Promise<void> {
   return invoke("open_partner", {
     term,
@@ -555,6 +587,7 @@ export function openPartner(
     answer,
     sourceLines,
     docId,
+    claim,
   });
 }
 

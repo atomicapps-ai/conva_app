@@ -115,7 +115,7 @@ describe("ContextsPane", () => {
     expect(screen.queryByRole("button", { name: "Add a New Context" })).toBeNull();
   });
 
-  it("the title opens the context directly; the doc-count control selects it (focuses Library) — no overflow menu, no separate chevron", () => {
+  it("the primary row opens the context; Delete lives in the overflow menu and requires confirmation", () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
     const onOpen = vi.fn();
@@ -130,9 +130,6 @@ describe("ContextsPane", () => {
         onSelect={onSelect}
       />,
     );
-    // No overflow menu of any kind.
-    expect(screen.queryByRole("button", { name: /more actions/i })).toBeNull();
-
     fireEvent.click(screen.getByRole("button", { name: /open acme interview/i }));
     expect(onOpen).toHaveBeenCalledWith("s1");
 
@@ -144,7 +141,12 @@ describe("ContextsPane", () => {
     fireEvent.click(screen.getByRole("button", { name: /edit setup for acme interview/i }));
     expect(onEdit).toHaveBeenCalledWith("s1");
 
-    fireEvent.click(screen.getByRole("button", { name: /delete acme interview/i }));
+    expect(screen.queryByRole("button", { name: /delete acme interview/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /more actions for acme interview/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.getByText(/delete “acme interview”/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /delete context/i }));
     expect(onDelete).toHaveBeenCalledWith("s1");
   });
 
@@ -163,16 +165,19 @@ describe("ContextsPane", () => {
     expect(docCountBtn).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("the Default context's row carries a distinct border — it's a template, not an owner-made context", () => {
+  it("hides the General conversation template by default and reveals it without a priority border", () => {
     renderPane(
       <ContextsPane
         {...defaultProps}
         items={[summary({ id: DEFAULT_CONTEXT_ID, title: "General conversation" })]}
       />,
     );
-    expect(screen.getByRole("button", { name: /open general conversation/i }).closest("li")).toHaveClass(
-      "border-notice/40",
-    );
+    expect(screen.queryByRole("button", { name: /open general conversation/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /show templates/i }));
+    const row = screen.getByRole("button", { name: /open general conversation/i }).closest("li");
+    expect(row).toHaveClass("border-border");
+    expect(row).not.toHaveClass("border-notice/40");
+    expect(screen.getByText("Template")).toBeInTheDocument();
   });
 
   it("Ready contexts' info popover shows Type/Status/Updated and no readiness checklist", () => {
@@ -220,11 +225,51 @@ describe("ContextsPane", () => {
         items={[summary({ id: DEFAULT_CONTEXT_ID, title: "General conversation", has_key_terms: true })]}
       />,
     );
+    fireEvent.click(screen.getByRole("button", { name: /show templates/i }));
     expect(
       screen.getByRole("button", { name: /generate resources for general conversation/i }),
     ).not.toBeDisabled();
     expect(screen.queryByRole("button", { name: /edit setup for general conversation/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /delete general conversation/i })).toBeNull();
+  });
+
+  it("keeps the title and one overflow control at narrow widths, with secondary actions in the menu", () => {
+    const onOpen = vi.fn();
+    const onSelect = vi.fn();
+    const onEdit = vi.fn();
+    const onGenerate = vi.fn();
+    renderPane(
+      <ContextsPane
+        {...defaultProps}
+        widthPx={220}
+        items={[summary({ title: "Nolan Wells investigation", has_key_terms: true })]}
+        onOpen={onOpen}
+        onSelect={onSelect}
+        onEdit={onEdit}
+        onGenerate={onGenerate}
+      />,
+    );
+
+    const openButton = screen.getByRole("button", { name: /open nolan wells investigation/i });
+    expect(openButton).toHaveTextContent("Nolan Wells investigation");
+    fireEvent.click(screen.getByTitle("Interview"));
+    expect(onOpen).toHaveBeenCalledWith("s1");
+
+    expect(screen.queryByRole("button", { name: /show documents for nolan/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /edit setup for nolan/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /generate resources for nolan/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /more actions for nolan/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /show resources in library/i }));
+    expect(onSelect).toHaveBeenCalledWith("s1");
+
+    fireEvent.click(screen.getByRole("button", { name: /more actions for nolan/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /edit setup/i }));
+    expect(onEdit).toHaveBeenCalledWith("s1");
+
+    fireEvent.click(screen.getByRole("button", { name: /more actions for nolan/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /generate resources/i }));
+    expect(onGenerate).toHaveBeenCalledWith("s1");
   });
 
   it("the title's hover tooltip totals size across every document tagged to this context", async () => {

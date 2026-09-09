@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { AllySource } from "@/lib/ipc";
 import {
   groupSourcesByFile,
+  retainPresentationCards,
   uniqueSourceFiles,
   useAllyStore,
   type AllyCard,
@@ -30,6 +31,22 @@ describe("clean source citations (owner, 2026-08-22)", () => {
       { file: "resume.docx", locations: ["¶57–68", "¶17–36", "¶37–47"] },
       { file: "prep.txt", locations: ["¶3"] },
     ]);
+  });
+});
+
+describe("presentation-specific card retention", () => {
+  it("keeps 12 answers even when many term definitions are opened", () => {
+    const answers = Array.from({ length: 13 }, (_, index) => ({
+      id: `answer-${index}`,
+      presentation: "answer" as const,
+    })) as AllyCard[];
+    const terms = Array.from({ length: 6 }, (_, index) => ({
+      id: `term-${index}`,
+      presentation: "term" as const,
+    })) as AllyCard[];
+    const retained = retainPresentationCards([...terms, ...answers]);
+    expect(retained.filter((card) => card.presentation === "answer")).toHaveLength(12);
+    expect(retained.filter((card) => card.presentation === "term")).toHaveLength(4);
   });
 });
 

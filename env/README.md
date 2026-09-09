@@ -23,6 +23,13 @@ Per environment (`dev`, `prod`) two plaintext files live at the repo root and
 | `.env.<env>` | config vars — `CONVA_SUPABASE_URL`, `CONVA_SUPABASE_ANON_KEY`, … |
 | `.env.<env>.sec` | secrets — `TAURI_SIGNING_PRIVATE_KEY`, … |
 
+**Supabase project per env** (wired 2026-09-07): `dev` → `conva-core-dev`
+(`maxpilxnmcbrebxjjbrp`), `prod` → `conva-core` (`hbxftjyooblxiiapaeei`). The
+`.env.*.example` templates carry the right public values — copy them, don't
+type the refs by hand. A `<…>` placeholder left in `.env.dev` is baked into
+every beta installer: the app now treats it as unset (falls back to prod) and
+`build-installers.yml` prints a warning naming the key.
+
 Their encrypted twins **are committed**: `.env.<env>.enc`, `.env.<env>.sec.enc`
 (AES-256-GCM). The 32-byte master key lives only in `env/master.key` (gitignored)
 or the `CONVA_ENV_KEY` env var — **never committed**; share it out-of-band.
@@ -53,6 +60,20 @@ node env/cli.mjs print dev              # dump KEY=VALUE (used by CI → $GITHUB
   `CONVA_ENV_KEY` secret and exports the vars; the Rust build **bakes** them via
   `option_env!` so a distributed dev installer points at `conva-core-dev`, and
   the `TAURI_SIGNING_PRIVATE_KEY` signs the updater artifacts.
+
+## No master key on this machine? Re-encrypt from CI
+
+This repo's master key was generated in a cloud session and lives only in the
+`CONVA_ENV_KEY` GitHub secret (GitHub cannot show it back). To change what the
+committed `.enc` files hold **without** a local key — e.g. to point `.env.dev`
+at `conva-core-dev`, or to rotate the updater signing key — run
+**Actions → "Re-encrypt env (owner-triggered)" → Run workflow** (branch `dev`;
+tick *rotate_signing_key* to mint a new keypair into both `.sec` files and
+`tauri.conf.json`). It decrypts on the runner with the secret, applies the
+public values from `.env.dev.example`, re-encrypts with the **same** key,
+masks every value, and pushes only the `.enc` twins to a new
+`chore/env-reencrypt-<run>` branch — open a PR from it. Details in the
+workflow's header comment (`.github/workflows/env-reencrypt.yml`).
 
 ## Commands
 

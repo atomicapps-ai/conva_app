@@ -14,6 +14,8 @@ import type {
   AudioLevelEvent,
   AuthChangedEvent,
   CaptureEvent,
+  ClaimSnapshotEvent,
+  ContextGenerateProgressEvent,
   ModelStatusEvent,
   PartnerLockEvent,
   PartnerPayload,
@@ -35,11 +37,13 @@ export interface EventMap {
   radar: RadarEvent;
   tracker: TrackerEvent;
   capture: CaptureEvent;
+  claimSnapshot: ClaimSnapshotEvent;
   authChanged: AuthChangedEvent;
   rehearsalState: RehearsalStateEvent;
   partnerTerm: PartnerPayload;
   partnerLock: PartnerLockEvent;
   splashProgress: SplashProgressEvent;
+  contextGenerateProgress: ContextGenerateProgressEvent;
 }
 
 /** Handle returned by `subscribe`; call to stop receiving the event. */
@@ -59,9 +63,11 @@ export const EVENT_CHANNEL: Record<keyof EventMap, string> = {
   radar: "conva://radar",
   tracker: "conva://tracker",
   capture: "conva://capture",
+  claimSnapshot: "conva://claim-snapshot",
   authChanged: "conva://auth-changed",
   rehearsalState: "conva://rehearsal-state",
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
   splashProgress: "conva://splash-progress",
+  contextGenerateProgress: "conva://context-generate-progress",
 };

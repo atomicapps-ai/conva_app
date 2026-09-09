@@ -12,7 +12,7 @@ this checklist implements.
 
 | Secret | Used for | Required? |
 |---|---|---|
-| `CONVA_ENV_KEY` | The env-toolkit master key (`env/README.md`) — unlocks the committed `.env.<env>.sec.enc` files, which is where `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` actually live now. `build-installers.yml` decrypts straight into `$GITHUB_ENV` before the build step; nothing is ever printed to the log. | Optional — without it, plain installers still build, only update artifacts + `latest.json` are skipped (same fallback the old direct secrets gave) |
+| `CONVA_ENV_KEY` | The env-toolkit master key (`env/README.md`) — unlocks the committed `.env.<env>.sec.enc` files, which is where `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` actually live now. `build-installers.yml` decrypts straight into `$GITHUB_ENV` before the build step; nothing is ever printed to the log. | Required for installer builds. CI must not produce an unsigned installer that cannot receive verified updates. |
 | `RELEASES_REPO_TOKEN` | Fine-grained GitHub PAT scoped to **only** `atomicapps-ai/conva_releases`, permission **Contents: Read and write** — lets the release build attach installers + `latest.json` to a release in that repo instead of this one | Required for a tagged release run to actually publish; a run without it fails loudly at the "Build installers" step with a GitHub API auth error (it never silently falls back to drafting in the wrong, private repo) |
 
 `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` are **no
@@ -52,6 +52,13 @@ npm run env:encrypt:dev
 npm run env:encrypt:prod
 ```
 
+**No local master key?** The same rotation runs in CI: Actions → *Re-encrypt
+env (owner-triggered)* → tick *rotate_signing_key*. It generates the keypair
+on the runner, writes the private key into both `.sec` files and the public
+key into `tauri.conf.json`, re-encrypts with the `CONVA_ENV_KEY` secret and
+pushes a `chore/env-reencrypt-<run>` branch; only the public key is printed
+(`env/README.md`).
+
 commits the encrypted `.env.dev.sec.enc` / `.env.prod.sec.enc` twins (see
 `env/README.md` for the full model). **Rotating the key also means updating
 `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`** to the newly
@@ -90,47 +97,52 @@ refuses to build if the tag doesn't match `package.json`.
 
 ## Release checklist
 
-1. **On `main`, decide the version** per the SemVer table above, then:
+1. **On the release-prep branch, decide the version** per the SemVer table,
+   write concise owner-reviewed notes at `release-notes/vX.Y.Z.md`, then:
    ```
    npm run version:set <X.Y.Z>
-   git add -A && git commit -m "chore(release): vX.Y.Z"
-   git push
+   git add -A
+   git commit -m "chore(release): vX.Y.Z"
    ```
-2. **Tag and push** — this is what triggers everything:
+2. Merge the release-prep branch into `dev`, then require the normal CI and
+   beta-build checks to pass there. This keeps the version, public notes, and
+   test fixes in the branch that is actually promoted.
+3. Promote the validated `dev` branch to `main`. Confirm `main` is clean, the
+   version carriers agree, and the curated notes file is present. The release
+   workflow deliberately refuses a tag without that file so the public
+   release never receives an unedited commit dump.
+4. **Tag and push** — owner action; this is what triggers everything:
    ```
    git tag vX.Y.Z
    git push origin vX.Y.Z
    ```
-3. **Watch the `Release` workflow** (`.github/workflows/release.yml`):
+5. **Watch the `Release` workflow** (`.github/workflows/release.yml`):
    - `version-guard` fails fast if the tag ≠ `package.json` version, and
-     generates the user-facing notes from Conventional Commits via git-cliff.
+     loads and validates `release-notes/vX.Y.Z.md`.
    - `build` (the reusable `build-installers.yml`) builds Windows
      (MSI + NSIS, Vulkan) and macOS (dmg, Metal) on GitHub-hosted runners,
-     signs updater artifacts (if the signing secrets are set), and opens a
+     signs updater artifacts, and opens a
      **draft** Release in `atomicapps-ai/conva_releases` with those notes.
-4. **Review the draft** at
+6. The `verify-draft` job blocks completion unless the draft has substantive
+   versioned notes, Windows MSI + NSIS assets, a macOS dmg + updater archive,
+   updater signatures, and a `latest.json` covering both platforms.
+7. **Review the draft** at
    https://github.com/atomicapps-ai/conva_releases/releases — check both
    platforms' assets are attached, notes read correctly, then **publish**
    it. The updater feed (`.../releases/latest/download/latest.json`) only
    resolves once a release is published, not while draft.
-5. **Regenerate the local changelog + in-app release notes** (these are not
-   yet wired into CI — do them by hand on the release branch/commit):
-   ```
-   npm run changelog:generate    # git-cliff -o CHANGELOG.md — needs the git-cliff binary on PATH
-   ```
-   and add the matching entry to `src/lib/releases.ts` (the in-app
-   "What's New" view) with an owner-edited `summary` line.
-   `npm run changelog:preview` (`git-cliff --unreleased`) previews the notes
-   for commits since the last tag without writing the file — useful while
-   deciding the version in step 1.
-6. **Update `conva_core/docs/product/roadmap.md`** in the same pass if this
+8. Ensure the same top-level changes are represented in `CHANGELOG.md` and
+   `src/lib/releases.ts` (the in-app "What's New" view). Git-cliff remains
+   useful for auditing the complete Conventional-Commit range, but its raw
+   output is not the public release message.
+9. **Update `conva_core/docs/product/roadmap.md`** in the same pass if this
    release changes priorities or closes a roadmap item (per that repo's
    CLAUDE.md).
 
 Beta builds (push to `dev`) go through the same `build-installers.yml` matrix
 via `dev-build.yml`, but with `release: false` — they upload as workflow
-artifacts only, never touch `conva_releases`, and need none of the secrets
-above except the signing ones (optional there too).
+artifacts only and never touch `conva_releases`. They still require
+`CONVA_ENV_KEY`, so they exercise the same signed updater path as releases.
 
 ## Cross-repo publishing — the `target_commitish` trap
 

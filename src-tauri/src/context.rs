@@ -17,7 +17,7 @@ use tauri::{AppHandle, Manager};
 
 use conva_core::context::{
     extract_glossary, orphaned_generated_doc_ids, ContextCategory, ContextStatus, ContextSummary,
-    ConversationContext, KnowledgeProfile, ResearchSource, DEFAULT_CONTEXT_ID,
+    ConversationContext, KnowledgeProfile, DEFAULT_CONTEXT_ID,
 };
 use conva_core::CoreError;
 
@@ -57,7 +57,13 @@ fn validate_id(id: &str) -> Result<(), CoreError> {
 /// every startup and never overwrites a later smart-evolution update. Purely
 /// local (no network) — safe to run synchronously during app setup.
 pub fn ensure_default_context(app: &AppHandle, rag: &RagStore) -> Result<(), CoreError> {
-    if load(app, DEFAULT_CONTEXT_ID).is_ok() {
+    if let Ok(existing) = load(app, DEFAULT_CONTEXT_ID) {
+        if let Some(doc_id) = existing.dossier_doc_id {
+            // The baseline briefing is the default Context's runtime pack and
+            // must participate in retrieval even if an older migration or
+            // Library checkbox left it disabled.
+            let _ = rag.set_enabled(&doc_id, true);
+        }
         return Ok(()); // already seeded (or since updated by a future version)
     }
 
@@ -67,6 +73,7 @@ pub fn ensure_default_context(app: &AppHandle, rag: &RagStore) -> Result<(), Cor
         DEFAULT_CONTEXT_ID,
     )?;
     let doc_id = report.document.id.clone();
+    rag.set_enabled(&doc_id, true)?;
     let now = now_unix_ms();
 
     let profile_id = format!("kp-{DEFAULT_CONTEXT_ID}");
@@ -93,6 +100,8 @@ specific is active."
                 .to_string(),
             job_description: None,
             category: ContextCategory::Other,
+            participation_lens: None,
+            source_policy: None,
             status: ContextStatus::Ready,
             created_at_unix_ms: now,
             updated_at_unix_ms: now,
@@ -332,14 +341,10 @@ pub fn load_profile(app: &AppHandle, id: &str) -> Result<KnowledgeProfile, CoreE
     serde_json::from_str(&content).map_err(|e| CoreError::Audio(e.to_string()))
 }
 
-/// Build (or rebuild) the reusable `KnowledgeProfile` for a Context from its
-/// attached documents (already ingested in the RAG library) plus web research,
-/// then mark the session ready. Reuses the session's existing profile id if it
-/// has one, so re-preparing after an edit updates in place.
-///
-/// The attached-doc side works today; the web-research list is filled by
-/// [`research`] only when a search API key is configured (Phase C.2) — otherwise
-/// it stays empty and the profile is docs-only.
+/// Prepare the reusable `KnowledgeProfile` shell from the Context's attached
+/// documents, then mark the session ready. Network research belongs to the
+/// explicit Generate resources action so preparing and immediately generating
+/// never bills/runs the same search twice.
 pub fn prepare(app: &AppHandle, id: &str) -> Result<ConversationContext, CoreError> {
     let mut session = load(app, id)?;
     let now = now_unix_ms();
@@ -351,31 +356,13 @@ pub fn prepare(app: &AppHandle, id: &str) -> Result<ConversationContext, CoreErr
         .map(|p| p.created_at_unix_ms)
         .unwrap_or(now);
 
-    // Web research runs when enabled for this context (defaults from the type
-    // template — decision 2). The legacy auto-generate flag still opts in.
-    let research = if session.research_enabled || session.auto_generate_context {
-        match research(
-            conva_core::context::research_queries(&session, &[], RESEARCH_MAX_QUERIES),
-            RESEARCH_MAX_SOURCES,
-        ) {
-            Ok((sources, searches)) => {
-                // Tavily bills per search — record what we actually issued.
-                crate::metering::record_tavily_search(app, searches);
-                sources
-            }
-            Err(_) => Vec::new(),
-        }
-    } else {
-        Vec::new()
-    };
-
     let profile = KnowledgeProfile {
         id: profile_id.clone(),
         title: session.title.clone(),
         created_at_unix_ms: created,
         updated_at_unix_ms: now,
         doc_ids: session.source_doc_ids.clone(),
-        research,
+        research: Vec::new(),
         ready: true,
     };
     save_profile(app, &profile)?;
@@ -421,79 +408,13 @@ pub fn load_tavily_key() -> Option<String> {
         .ok()
 }
 
-/// Bounded autonomous web research (Step 2) via Tavily. Takes the already-built
-/// query list and a source budget — the caller decides both (default research
-/// via [`conva_core::context::research_queries`] + `RESEARCH_MAX_QUERIES`/
-/// `RESEARCH_MAX_SOURCES`, or the deep Q&A pass via `qa_research_queries` +
-/// `QA_MAX_QUERIES`/`QA_MAX_SOURCES`), so this fn stays agnostic of which pass
-/// is calling it. Returns the sources to fold into the KnowledgeProfile plus
-/// the number of Tavily searches issued (each is one billed search — the
-/// caller records it for usage metering). No key configured → returns empty
-/// (the profile is docs-only). Failures per query are skipped, never fatal.
-/// Runs on a command thread, never the UI path.
-pub(crate) fn research(
-    queries: Vec<String>,
-    max_sources: usize,
-) -> Result<(Vec<ResearchSource>, u64), CoreError> {
-    let Some(key) = load_tavily_key() else {
-        return Ok((Vec::new(), 0));
-    };
-    let mut out: Vec<ResearchSource> = Vec::new();
-    let mut searches: u64 = 0;
-    for query in queries {
-        if out.len() >= max_sources {
-            break;
-        }
-        searches += 1;
-        let body = serde_json::json!({
-            "api_key": key,
-            "query": query,
-            "max_results": 3,
-            "search_depth": "basic",
-        });
-        let resp = ureq::post("https://api.tavily.com/search")
-            .timeout(std::time::Duration::from_secs(15))
-            .send_json(body);
-        let val: serde_json::Value = match resp {
-            Ok(r) => match r.into_json() {
-                Ok(v) => v,
-                Err(_) => continue,
-            },
-            Err(_) => continue,
-        };
-        let Some(results) = val.get("results").and_then(|r| r.as_array()) else {
-            continue;
-        };
-        for r in results {
-            if out.len() >= max_sources {
-                break;
-            }
-            let url = r.get("url").and_then(|v| v.as_str()).unwrap_or("");
-            if url.is_empty() {
-                continue;
-            }
-            out.push(ResearchSource {
-                title: r
-                    .get("title")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                url: url.to_string(),
-                snippet: r
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .chars()
-                    // Tavily's content excerpt — the findings synthesis
-                    // needs more than a headline.
-                    .take(1_200)
-                    .collect(),
-                fetched_at_unix_ms: now_unix_ms(),
-            });
-        }
-    }
-    Ok((out, searches))
-}
+// The actual research execution — for any of the three providers
+// (Firecrawl/Anthropic web search/Tavily) — lives in `crate::research`,
+// selected by `AppConfig::research_provider` (owner decision 2026-09-09).
+// `load_tavily_key`/`store_tavily_key` above stay here because the live
+// Ally `web_search` tool call (`lib.rs`'s `execute_ally_tool_call`) also
+// reads them, independent of which Context-generation research provider is
+// active.
 
 #[cfg(test)]
 mod tests {

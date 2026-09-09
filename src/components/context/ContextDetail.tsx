@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { categoryTemplate } from "@/components/context/categoryTemplates";
+import {
+  SOURCE_CLASS_OPTIONS,
+  normalizeSourcePolicy,
+  participationLensLabel,
+  sourcePolicyDisclosure,
+} from "@/components/context/claimPolicy";
 import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
 import { groupBySlot } from "@/components/context/documentSplit";
+import { GenerationProgressBar, GenerationStatus } from "@/components/context/ResourceGenerationStatus";
+import {
+  generationStages,
+  researchStage,
+  type GenerationStage,
+} from "@/components/context/generationStatus";
+import { useGenerationProgress } from "@/components/context/useGenerationProgress";
 import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
+import { MarkdownDocument } from "@/components/ui/MarkdownDocument";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
 import { formatBytes } from "@/lib/formatBytes";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type ConversationContext } from "@/lib/ipc";
+import { useAppStore } from "@/state/app";
 import { useNavStore } from "@/state/nav";
 import { useRehearsalStore } from "@/state/rehearsal";
 
@@ -118,6 +133,7 @@ export function ContextDetail({
   // ── Ally documents ────────────────────────────────────────────────────────
   const dossierId = session?.dossier_doc_id ?? null;
   const [dossierBusy, setDossierBusy] = useState(false);
+  const generationProgress = useGenerationProgress(dossierBusy, id);
   const [dossierText, setDossierText] = useState<string | null>(null);
   const [showDossier, setShowDossier] = useState(false);
 
@@ -128,13 +144,56 @@ export function ContextDetail({
   const qaDocId = session?.qa_doc_id ?? null;
   const [qaText, setQaText] = useState<string | null>(null);
   const [showQa, setShowQa] = useState(false);
+  const [generationReport, setGenerationReport] = useState<GenerationStage[]>([]);
+
+  // Proactive "no key" advisory — checked on mount and whenever the active
+  // provider changes, so the Generate button's section can warn *before* a
+  // run wastes an LLM pass on research that's guaranteed to come back empty
+  // (the report below the button only ever showed this after the fact).
+  // null = still checking, so the warning doesn't flash on while loading.
+  const activeResearchProvider = useAppStore((s) => s.config?.research_provider) ?? "firecrawl";
+  const [hasResearchKey, setHasResearchKey] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (activeResearchProvider === "anthropic_web_search") {
+      setHasResearchKey(true); // reuses the Anthropic key, no separate key to check
+      return;
+    }
+    let cancelled = false;
+    setHasResearchKey(null);
+    const check = backend.context.researchKeyStatus
+      ? backend.context.researchKeyStatus(activeResearchProvider)
+      : Promise.resolve(false);
+    check
+      .then((ok) => {
+        if (!cancelled) setHasResearchKey(ok);
+      })
+      .catch(() => {
+        if (!cancelled) setHasResearchKey(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backend, activeResearchProvider]);
 
   const generateDossier = async () => {
     setDossierBusy(true);
     setError(null);
+    setGenerationReport([]);
     try {
+      // Re-checked fresh here (not just the mount-time `hasResearchKey`
+      // advisory above) so a key just saved in Settings a moment ago is
+      // picked up before this run actually gates on it.
+      const provider = useAppStore.getState().config?.research_provider ?? "firecrawl";
+      const keyReady =
+        provider === "anthropic_web_search"
+          ? true // reuses the Anthropic key, no separate key to check
+          : backend.context.researchKeyStatus
+            ? await backend.context.researchKeyStatus(provider).catch(() => false)
+            : false;
       const updated = await backend.context.generateDossier(id);
       setSession(updated);
+      setGenerationReport(generationStages(updated, keyReady, provider));
+      setHasResearchKey(keyReady); // refresh the pre-run advisory from this authoritative check too
       setShowDossier(true);
       // Load the freshly written document so it shows inline right away.
       if (updated.dossier_doc_id) {
@@ -228,6 +287,9 @@ export function ContextDetail({
   const personas = session?.personas ?? [];
   const chosen = session?.chosen_persona_id ?? null;
   const chosenPersona = personas.find((p) => p.id === chosen) ?? null;
+  const claimPolicy = session
+    ? normalizeSourcePolicy(session.category, session.source_policy)
+    : null;
 
   // Which card's bio/details show below the scroll row (owner, 2026-08-30:
   // "select a card and put the bio and details below") — distinct from
@@ -324,6 +386,9 @@ export function ContextDetail({
               disabled={busy}
               onClick={() => void generate()}
             >
+              {busy && (
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-ai/30 border-t-ai" />
+              )}
               {busy ? "Generating…" : "Generate personas"}
             </button>
           </div>
@@ -425,10 +490,13 @@ export function ContextDetail({
 
             <button
               type="button"
-              className="btn self-start"
+              className={`btn self-start ${busy ? "btn-accent" : ""}`}
               disabled={busy}
               onClick={() => void generate()}
             >
+              {busy && (
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-ai/30 border-t-ai" />
+              )}
               {busy ? "Regenerating…" : "Regenerate"}
             </button>
           </div>
@@ -442,7 +510,7 @@ export function ContextDetail({
         title="Knowledge base"
         summary={
           profile
-            ? `${profile.doc_ids.length} document${profile.doc_ids.length === 1 ? "" : "s"}, updated ${formatRelativeTime(profile.updated_at_unix_ms)}`
+            ? `${session?.source_doc_ids.length ?? 0} source document${session?.source_doc_ids.length === 1 ? "" : "s"}${dossierId ? " + intelligence pack" : ""}, updated ${formatRelativeTime(profile.updated_at_unix_ms)}`
             : "Not prepared yet"
         }
       >
@@ -456,16 +524,17 @@ export function ContextDetail({
           <div className="flex flex-col gap-3">
             {/* Ally documents — the documents Ally writes from the material. */}
             <div className="rounded-lg border border-ai/30 bg-ai/[0.06] p-3">
-              {/* Row 1 — Context knowledge (Stage 1) */}
+              {dossierBusy && <GenerationProgressBar {...generationProgress} />}
+              {/* The sole generated document in the live retrieval scope. */}
               <div className="flex items-center gap-2">
                 <span
-                  title="Stage 1 — Ally reads the role, job description, and your documents together and writes a structured knowledge document (role profile, core vocabulary, likely Q&A). Saved to your Library and indexed for grounding."
+                  title="Ally compiles the briefing, prepared Q&A, and source provenance into the single document indexed for this Context's live retrieval."
                   className="shrink-0"
                 >
                   <Icon name="simicon" size={15} className="text-ai" />
                 </span>
                 <span className="text-[12px] font-semibold text-fg">
-                  Context knowledge
+                  Context Intelligence Pack
                 </span>
                 <div className="flex-1" />
                 {dossierId && (
@@ -481,10 +550,13 @@ export function ContextDetail({
                   type="button"
                   disabled={dossierBusy}
                   onClick={() => void generateDossier()}
-                  className="rounded-sm border border-ai/40 px-2 py-0.5 text-[11px] font-semibold text-ai hover:bg-ai/10 disabled:opacity-40"
+                  className="btn btn-accent min-w-28 justify-center px-3 py-1.5 text-[11px] shadow-sm disabled:opacity-70"
                 >
+                  {dossierBusy && (
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-ai/30 border-t-ai" />
+                  )}
                   {dossierBusy
-                    ? "Writing…"
+                    ? "Generating…"
                     : dossierId
                       ? "Regenerate"
                       : "Generate"}
@@ -497,13 +569,27 @@ export function ContextDetail({
                 </p>
               )}
               {dossierId && showDossier && (
-                <pre className="mt-2 max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg/50 p-2.5 text-[12px] leading-relaxed text-fg-muted">
-                  {dossierText === null
-                    ? "Loading…"
-                    : dossierText.trim() === ""
-                      ? "(No content returned — try Regenerate.)"
-                      : dossierText}
-                </pre>
+                dossierText === null ? (
+                  <p className="mt-2 text-xs text-fg-muted">Loading…</p>
+                ) : dossierText.trim() === "" ? (
+                  <p className="mt-2 text-xs text-fg-muted">(No content returned — try Regenerate.)</p>
+                ) : (
+                  <MarkdownDocument text={dossierText} className="mt-2" maxHeight="40vh" />
+                )
+              )}
+
+              {generationReport.length > 0 ? (
+                <GenerationStatus stages={generationReport} />
+              ) : (
+                hasResearchKey !== null &&
+                (() => {
+                  const preStage = researchStage(
+                    session?.research_enabled ?? false,
+                    hasResearchKey,
+                    activeResearchProvider,
+                  );
+                  return preStage.state === "blocked" && <GenerationStatus stages={[preStage]} />;
+                })()
               )}
 
               {/* Row 2 — Research findings (Stage 2) */}
@@ -535,64 +621,58 @@ export function ContextDetail({
                 )}
               </div>
               {researchDocId && showResearch && (
-                <pre className="mt-2 max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg/50 p-2.5 text-[12px] leading-relaxed text-fg-muted">
-                  {researchText === null
-                    ? "Loading…"
-                    : researchText.trim() === ""
-                      ? "(No content returned — try Regenerate.)"
-                      : researchText}
-                </pre>
+                researchText === null ? (
+                  <p className="mt-2 text-xs text-fg-muted">Loading…</p>
+                ) : researchText.trim() === "" ? (
+                  <p className="mt-2 text-xs text-fg-muted">(No content returned — try Regenerate.)</p>
+                ) : (
+                  <MarkdownDocument text={researchText} className="mt-2" maxHeight="40vh" />
+                )
               )}
 
-              {/* Row 3 — Interview Q&A (Stage 3, interview category only) */}
-              {session?.category === "interview" && (
-                <>
-                  <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
-                    <span
-                      title={
-                        qaDocId
-                          ? "Common interview questions Ally found online, with strong answers."
-                          : session?.deep_qa_enabled
-                            ? "Runs with Generate — deep Q&A research is on for this context."
-                            : 'Turn on "Deep interview Q&A research" in Edit setup to generate this.'
-                      }
-                      className="shrink-0"
-                    >
-                      <Icon name="question" size={15} className="text-ai" />
-                    </span>
-                    <span className="text-[12px] font-semibold text-fg">
-                      Interview Q&A
-                    </span>
-                    <div className="flex-1" />
-                    {qaDocId && (
-                      <button
-                        type="button"
-                        onClick={() => void toggleQa()}
-                        className="rounded-sm px-2 py-0.5 text-[11px] font-semibold text-ai hover:bg-ai/10"
-                      >
-                        {showQa ? "Hide" : "View"}
-                      </button>
-                    )}
-                  </div>
-                  {qaDocId && showQa && (
-                    <pre className="mt-2 max-h-[40vh] overflow-y-auto whitespace-pre-wrap rounded border border-border bg-bg/50 p-2.5 text-[12px] leading-relaxed text-fg-muted">
-                      {qaText === null
-                        ? "Loading…"
-                        : qaText.trim() === ""
-                          ? "(No content returned — try Regenerate.)"
-                          : qaText}
-                    </pre>
-                  )}
-                </>
+              {/* Row 3 — every Context type receives a separate Q&A review artifact. */}
+              <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">
+                <span
+                  title={
+                    qaDocId
+                      ? "Prepared questions and answers tailored to this conversation type."
+                      : session?.category === "interview" && session.deep_qa_enabled
+                        ? "Runs with Generate using the expanded interview research pass."
+                        : "Runs with Generate for every Context type."
+                  }
+                  className="shrink-0"
+                >
+                  <Icon name="question" size={15} className="text-ai" />
+                </span>
+                <span className="text-[12px] font-semibold text-fg">
+                  {session?.category === "interview" ? "Interview Q&A" : "Prepared Q&A"}
+                </span>
+                <div className="flex-1" />
+                {qaDocId && (
+                  <button
+                    type="button"
+                    onClick={() => void toggleQa()}
+                    className="rounded-sm px-2 py-0.5 text-[11px] font-semibold text-ai hover:bg-ai/10"
+                  >
+                    {showQa ? "Hide" : "View"}
+                  </button>
+                )}
+              </div>
+              {qaDocId && showQa && (
+                qaText === null ? (
+                  <p className="mt-2 text-xs text-fg-muted">Loading…</p>
+                ) : qaText.trim() === "" ? (
+                  <p className="mt-2 text-xs text-fg-muted">(No content returned — try Regenerate.)</p>
+                ) : (
+                  <MarkdownDocument text={qaText} className="mt-2" maxHeight="40vh" />
+                )
               )}
             </div>
 
             {/* Attached documents (these live in your Library too). The generated
                 Ally documents are shown above, so they're excluded here. */}
             {(() => {
-              const attached = profile.doc_ids.filter(
-                (d) => d !== dossierId && d !== researchDocId && d !== qaDocId,
-              );
+              const attached = session?.source_doc_ids ?? [];
               const attachedDocs = attached
                 .map((docId) => docs.find((d) => d.id === docId))
                 .filter((d): d is RagDocument => !!d);
@@ -725,6 +805,74 @@ export function ContextDetail({
                 </ul>
               )}
             </div>
+          </div>
+        )}
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        id="claim_policy"
+        open={openSection === "claim_policy"}
+        onToggle={(id) => setOpenSection((cur) => toggleDetailSection(cur, id))}
+        title="Claim checks & source policy"
+        summary={
+          session && claimPolicy
+            ? `${participationLensLabel(session.category, session.participation_lens)} · ${claimPolicy.allow_automatic_checks ? "automatic" : "manual"} checks · ${claimPolicy.allowed_classes.length} source class${claimPolicy.allowed_classes.length === 1 ? "" : "es"}`
+            : "Loading…"
+        }
+      >
+        {session && claimPolicy && (
+          <div className="flex flex-col gap-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded border border-border p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-faint">
+                  Participation lens
+                </p>
+                <p className="mt-1 text-[12px] font-semibold text-fg">
+                  {participationLensLabel(session.category, session.participation_lens)}
+                </p>
+              </div>
+              <div className="rounded border border-border p-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-faint">
+                  Automatic checks
+                </p>
+                <p className="mt-1 text-[12px] font-semibold text-fg">
+                  {claimPolicy.allow_automatic_checks ? "Valuable claims may be queued" : "Manual checks only"}
+                </p>
+              </div>
+            </div>
+            <div className="rounded border border-border px-3 py-2">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-fg-faint">
+                Allowed sources · ranked for this Context
+              </p>
+              <ol className="flex flex-col divide-y divide-border">
+                {claimPolicy.allowed_classes
+                  .filter((sourceClass) => sourceClass !== "model_knowledge")
+                  .map((sourceClass, index) => {
+                    const source = SOURCE_CLASS_OPTIONS.find((option) => option.value === sourceClass);
+                    if (!source) return null;
+                    return (
+                      <li key={sourceClass} className="flex items-center gap-2 py-1.5 text-[12px] text-fg">
+                        <span className="w-4 text-fg-faint">{index + 1}</span>
+                        <span className="min-w-0 flex-1">{source.label}</span>
+                        <span className="text-[10px] text-fg-faint">{source.note}</span>
+                      </li>
+                    );
+                  })}
+              </ol>
+            </div>
+            <div className="rounded border border-border p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-fg-faint">
+                High-consequence rule
+              </p>
+              <p className="mt-1 text-[12px] font-semibold text-fg">
+                {claimPolicy.high_consequence_requirement === "primary_official_only"
+                  ? "Require a primary official source"
+                  : "Require an official source or two independent admitted reports"}
+              </p>
+            </div>
+            <p className="rounded border border-amber-500/30 bg-amber-500/[0.04] px-3 py-2 text-[11px] leading-relaxed text-fg-muted">
+              {sourcePolicyDisclosure(claimPolicy)}
+            </p>
           </div>
         )}
       </CollapsibleSection>

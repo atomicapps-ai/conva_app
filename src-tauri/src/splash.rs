@@ -23,6 +23,7 @@ struct StartupSnapshot {
     progress: SplashProgressEvent,
     state: InitState,
     not_before: Instant,
+    ready_presented: bool,
 }
 
 /// Small, `Send + Sync` state available before `AppState` exists. It retains
@@ -45,6 +46,7 @@ impl StartupState {
                     progress: SplashProgressEvent::Started { percent: 0 },
                     state: InitState::Initializing,
                     not_before: Instant::now() + minimum_duration,
+                    ready_presented: false,
                 }),
                 Condvar::new(),
             )),
@@ -77,6 +79,28 @@ impl StartupState {
     pub fn mark_visible(&self) {
         let mut snapshot = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
         snapshot.not_before = Instant::now() + Duration::from_millis(2250);
+        snapshot.ready_presented = false;
+    }
+
+    pub fn acknowledge_ready_presented(&self) {
+        let mut snapshot = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
+        snapshot.ready_presented = true;
+        self.inner.1.notify_all();
+    }
+
+    pub fn wait_for_ready_presentation(&self) -> Result<(), String> {
+        let mut snapshot = self.inner.0.lock().unwrap_or_else(|e| e.into_inner());
+        while !snapshot.ready_presented {
+            if let InitState::Failed(error) = &snapshot.state {
+                return Err(error.clone());
+            }
+            snapshot = self
+                .inner
+                .1
+                .wait(snapshot)
+                .unwrap_or_else(|e| e.into_inner());
+        }
+        Ok(())
     }
 
     pub fn fail(&self, error: String) -> SplashProgressEvent {
@@ -120,6 +144,9 @@ impl StartupState {
 pub const SPLASH_LABEL: &str = "splash";
 const SPLASH_WIDTH: f64 = 640.0;
 const SPLASH_HEIGHT: f64 = 396.0;
+/// Keep the always-on-top splash alive through its 200 ms opacity transition,
+/// which reveals the already-rendered main window underneath it.
+const CROSSFADE_DURATION: Duration = Duration::from_millis(300);
 
 pub fn open(app: &AppHandle) -> Result<(), String> {
     WebviewWindowBuilder::new(
@@ -131,6 +158,11 @@ pub fn open(app: &AppHandle) -> Result<(), String> {
     .inner_size(SPLASH_WIDTH, SPLASH_HEIGHT)
     .resizable(false)
     .decorations(false)
+    // The rendered splash remains opaque until its final CSS fade. A
+    // transparent native surface lets that fade reveal the initialized main
+    // window underneath instead of fading only to the webview's dark body.
+    .transparent(true)
+    .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
     // WebView2 creates the native window before its document can paint. Keep
@@ -154,6 +186,12 @@ pub fn show(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Called by the splash webview only after its 100% fill transition and Ready
+/// hold complete. Idempotent so React development remounts remain harmless.
+pub fn acknowledge_ready(app: &AppHandle) {
+    app.state::<StartupState>().acknowledge_ready_presented();
+}
+
 /// Update the durable snapshot before emitting the non-durable event.
 pub fn progress(app: &AppHandle, progress: SplashProgressEvent) {
     if let Some(startup) = app.try_state::<StartupState>() {
@@ -170,15 +208,36 @@ pub fn fail(app: &AppHandle, error: String) {
     }
 }
 
-pub fn finish(app: &AppHandle) -> Result<(), String> {
-    if let Some(main) = app.get_webview_window("main") {
-        main.show().map_err(|e| e.to_string())?;
-        let _ = main.set_focus();
+pub async fn finish(app: &AppHandle) -> Result<(), String> {
+    // `finish` is invoked only after the main window's init round-trip. This
+    // is the real 100% milestone, not a timer-driven estimate.
+    progress(app, SplashProgressEvent::Ready { percent: 100 });
+    let startup = app.state::<StartupState>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || startup.wait_for_ready_presentation())
+        .await
+        .map_err(|error| format!("splash presentation waiter failed: {error}"))??;
+    let Some(main) = app.get_webview_window("main") else {
+        let message = "The main window was not created".to_owned();
+        fail(app, message.clone());
+        return Err(message);
+    };
+    if let Err(error) = main.show() {
+        let message = format!("Could not reveal the main window: {error}");
+        fail(app, message.clone());
+        return Err(message);
     }
+    let _ = main.set_focus();
+    wait_without_blocking(CROSSFADE_DURATION).await?;
     if let Some(splash) = app.get_webview_window(SPLASH_LABEL) {
         splash.close().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+async fn wait_without_blocking(duration: Duration) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || std::thread::sleep(duration))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -204,5 +263,22 @@ mod tests {
         let startup = StartupState::with_minimum_duration(Duration::ZERO);
         startup.ready();
         assert_eq!(startup.wait(), Ok(()));
+    }
+
+    #[test]
+    fn presentation_wait_releases_only_after_the_splash_acknowledges_ready() {
+        use std::sync::mpsc;
+
+        let startup = StartupState::with_minimum_duration(Duration::ZERO);
+        startup.ready();
+        let waiter = startup.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            tx.send(waiter.wait_for_ready_presentation()).unwrap();
+        });
+
+        assert!(rx.recv_timeout(Duration::from_millis(20)).is_err());
+        startup.acknowledge_ready_presented();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), Ok(()));
     }
 }

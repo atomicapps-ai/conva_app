@@ -37,6 +37,9 @@ export interface ListRowProps {
    *  `onDelete`. Rows with no transcript (e.g. a Rehearsals-tab context
    *  row) omit this. */
   onOpenViewer?: () => void;
+  /** Open the saved conversation's structured FANER claim review. Omit when
+   *  no review snapshot has been supplied for the row. */
+  onOpenClaimReview?: () => void;
   /** Open this row in the Live cockpit (owner request, 2026-09-04 — "the
    *  other icon to open the conversation in the live session viewer").
    *  Omit -> spacer. Distinct from `onClick` (the row's own default open
@@ -75,6 +78,7 @@ export function ListRow({
   open = false,
   onSelectChange,
   onOpenViewer,
+  onOpenClaimReview,
   onOpenLive,
   onDelete,
   onClick,
@@ -93,7 +97,7 @@ export function ListRow({
       }}
       aria-label={title}
       className={[
-        "grid h-[34px] cursor-pointer grid-cols-[3px_28px_14px_minmax(0,1fr)_auto_auto_20px_20px_20px]",
+        "grid h-[34px] cursor-pointer grid-cols-[3px_28px_14px_minmax(0,1fr)_auto_auto_20px_20px_20px_20px]",
         "items-center gap-1 rounded-md border pr-2 transition",
         open
           ? "border-ai/60 bg-ai/[0.06]"
@@ -162,6 +166,22 @@ export function ListRow({
           className="grid h-5 w-5 place-items-center rounded-sm text-fg-faint transition hover:bg-ai/10 hover:text-ai"
         >
           <Icon name="expand" size={12} />
+        </button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
+      {onOpenClaimReview ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenClaimReview();
+          }}
+          aria-label={`Review claims from ${title}`}
+          title="Review claims"
+          className="grid h-5 w-5 place-items-center rounded-sm text-fg-faint transition hover:bg-primary/10 hover:text-primary"
+        >
+          <Icon name="check" size={12} />
         </button>
       ) : (
         <span aria-hidden="true" />

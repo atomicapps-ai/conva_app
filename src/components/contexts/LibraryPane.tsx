@@ -8,13 +8,17 @@ import {
   type LibraryFilter,
 } from "@/components/contexts/libraryFilter";
 import { Icon } from "@/components/ui/Icon";
+import { DocumentTypeIcon } from "@/components/ui/DocumentTypeIcon";
+import { isImageDocument } from "@/components/contexts/documentVisual";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities, useOperationAvailability } from "@/lib/backend/context";
 import type { RagDocument } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
 
-const SUPPORTED = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
+const TEXT_SUPPORTED = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
+const IMAGE_SUPPORTED = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tif", "tiff", "heic"];
+const DESKTOP_SUPPORTED = [...TEXT_SUPPORTED, ...IMAGE_SUPPORTED];
 /** The custom drag payload MIME a library row carries — read by ContextsPane
  * rows to attach the dragged document. Reinstated (owner decision,
  * 2026-08-16) now that Library sits next to Contexts on one screen again —
@@ -345,10 +349,10 @@ export function LibraryPane({
   const ingest = useCallback(
     async (paths: string[]) => {
       const usable = paths.filter((p) =>
-        SUPPORTED.includes(p.split(".").pop()?.toLowerCase() ?? ""),
+        DESKTOP_SUPPORTED.includes(p.split(".").pop()?.toLowerCase() ?? ""),
       );
       if (usable.length === 0) {
-        setNotice("No supported files (pdf, docx, md, txt, html).");
+        setNotice("No supported documents or images.");
         return;
       }
       setBusy(true);
@@ -375,9 +379,9 @@ export function LibraryPane({
   // filter, notices and refresh as the desktop path-based ingest above.
   const uploadFiles = useCallback(
     async (files: File[]) => {
-      const usable = files.filter((f) => SUPPORTED.includes(f.name.split(".").pop()?.toLowerCase() ?? ""));
+      const usable = files.filter((f) => TEXT_SUPPORTED.includes(f.name.split(".").pop()?.toLowerCase() ?? ""));
       if (usable.length === 0) {
-        setNotice("No supported files (pdf, docx, md, txt, html).");
+        setNotice("Browser upload currently supports pdf, docx, md, txt, and html.");
         return;
       }
       setBusy(true);
@@ -424,7 +428,7 @@ export function LibraryPane({
     const { open } = await import("@tauri-apps/plugin-dialog");
     const picked = await open({
       multiple: true,
-      filters: [{ name: "Documents", extensions: [...SUPPORTED] }],
+      filters: [{ name: "Documents and images", extensions: [...DESKTOP_SUPPORTED] }],
     });
     if (picked) void ingest(Array.isArray(picked) ? picked : [picked]);
   };
@@ -506,8 +510,6 @@ export function LibraryPane({
   );
 
   const page = variant === "page";
-  const rowIcon = (d: RagDocument) =>
-    d.source === "generated" ? "sparkle" : d.source === "pasted" ? "clipboard" : "file";
 
   return (
     <div
@@ -556,7 +558,7 @@ export function LibraryPane({
               ref={fileInputRef}
               type="file"
               multiple
-              accept={SUPPORTED.map((e) => `.${e}`).join(",")}
+              accept={TEXT_SUPPORTED.map((e) => `.${e}`).join(",")}
               className="hidden"
               aria-hidden="true"
               tabIndex={-1}
@@ -743,17 +745,20 @@ export function LibraryPane({
                 <input
                   type="checkbox"
                   checked={doc.enabled}
+                  disabled={isImageDocument(doc) || doc.searchable === false}
                   onChange={(e) =>
                     void backend.rag.setEnabled(doc.id, e.target.checked).then(refresh)
                   }
-                  aria-label={`Include ${doc.file_name} in retrieval`}
+                  aria-label={
+                    isImageDocument(doc)
+                      ? `${doc.file_name} is a visual asset and is not text-searchable`
+                      : doc.searchable === false
+                        ? `${doc.file_name} is a review-only resource and is not independently searchable`
+                      : `Include ${doc.file_name} in retrieval`
+                  }
                 />
                 <span className="flex min-w-0 items-center gap-2.5">
-                <Icon
-                  name={rowIcon(doc)}
-                  size={page ? 18 : 14}
-                  className={doc.source === "generated" ? "text-ai shrink-0" : "text-fg-faint shrink-0"}
-                />
+                <DocumentTypeIcon doc={doc} size={page ? 18 : 14} />
                 <span
                   className={[
                     "min-w-0 flex-1 truncate",
@@ -761,7 +766,9 @@ export function LibraryPane({
                     doc.enabled ? "text-fg" : "text-fg-faint",
                   ].join(" ")}
                   title={
-                    doc.enabled
+                    doc.searchable === false
+                      ? `${doc.file_name} — review-only; its supported content is compiled into Context Intelligence`
+                      : doc.enabled
                       ? doc.file_name
                       : `${doc.file_name} — not included in retrieval`
                   }

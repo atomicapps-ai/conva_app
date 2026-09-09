@@ -171,10 +171,22 @@ fn respond(
         rag.retrieve_scoped(&query, 6, &ctx.profile.doc_ids)
     };
 
+    // New profiles compile web findings into their one-document intelligence
+    // pack. Keep profile.research as provenance metadata, but do not inject it
+    // a second time into the live prompt. Legacy multi-document profiles still
+    // receive their historical supplemental research block.
+    let research =
+        if ctx.session.dossier_doc_id.as_ref().is_some_and(|id| {
+            ctx.profile.doc_ids.len() == 1 && ctx.profile.doc_ids.first() == Some(id)
+        }) {
+            &[]
+        } else {
+            ctx.profile.research.as_slice()
+        };
     let request: LlmRequest = persona_live_prompt(
         &ctx.session,
         &ctx.persona,
-        &ctx.profile.research,
+        research,
         transcript.as_slice(),
         &chunks,
         REPLY_MAX_TOKENS,
@@ -263,6 +275,9 @@ fn respond(
     app.state::<crate::AppState>()
         .session
         .forward_to_capture(&final_seg);
+    app.state::<crate::AppState>()
+        .session
+        .forward_to_semantic(&final_seg);
     transcript.push(final_seg);
 
     // Speak it (best-effort; text still shows if TTS is unavailable).

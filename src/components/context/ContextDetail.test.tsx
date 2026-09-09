@@ -1,10 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ContextDetail } from "@/components/context/ContextDetail";
 import { BackendProvider } from "@/lib/backend";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
-import type { ContextPersona, ConversationContext, KnowledgeProfile } from "@/lib/ipc";
+import type { ContextGenerateProgressEvent, ContextPersona, ConversationContext, KnowledgeProfile } from "@/lib/ipc";
 
 afterEach(cleanup);
 
@@ -53,7 +53,13 @@ function profile(overrides: Partial<KnowledgeProfile> = {}): KnowledgeProfile {
   };
 }
 
-function renderDetail(backend: Partial<ConvaBackend>) {
+function renderDetail(
+  backend: Partial<ConvaBackend> = {
+    context: { load: vi.fn().mockResolvedValue(session()), loadProfile: vi.fn().mockResolvedValue(profile()) },
+    rag: { list: vi.fn().mockResolvedValue([]) },
+    capabilities: vi.fn().mockResolvedValue(null),
+  } as Partial<ConvaBackend>,
+) {
   render(
     <BackendProvider backend={backend as ConvaBackend}>
       <ContextDetail id="s1" onEdit={() => undefined} onBack={() => undefined} />
@@ -62,7 +68,95 @@ function renderDetail(backend: Partial<ConvaBackend>) {
 }
 
 describe("ContextDetail", () => {
-  it("starts with all three sections collapsed to a one-line summary", async () => {
+  it("reports the pack, blocked research, and separate Q&A after Live Stream generation", async () => {
+    const live = session({
+      category: "live_stream",
+      title: "Nolan Wells Case",
+      research_enabled: true,
+      dossier_doc_id: null,
+    });
+    const generated = { ...live, dossier_doc_id: "knowledge-1", qa_doc_id: "qa-1" };
+    renderDetail({
+      context: {
+        load: vi.fn().mockResolvedValue(live),
+        loadProfile: vi.fn().mockResolvedValue(profile()),
+        researchKeyStatus: vi.fn().mockResolvedValue(false),
+        generateDossier: vi.fn().mockResolvedValue(generated),
+      },
+      rag: {
+        list: vi.fn().mockResolvedValue([]),
+        documentText: vi.fn().mockResolvedValue("# Context Knowledge"),
+      },
+      capabilities: vi.fn().mockResolvedValue(null),
+    } as Partial<ConvaBackend>);
+
+    await screen.findByText("Counterparty");
+    fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
+    await screen.findByText("Context Intelligence Pack");
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    expect(await screen.findByText("Add a Firecrawl key in Settings → Web research (Context), then regenerate.")).toBeInTheDocument();
+    expect(screen.getByText(/Generated as a separate review resource, then compiled/i)).toBeInTheDocument();
+    expect(screen.getByText("Compiled and indexed as this Context's single live retrieval source.")).toBeInTheDocument();
+  });
+
+  it("shows a live progress bar above the button while a generation is in flight", async () => {
+    const live = session({ dossier_doc_id: null });
+    let resolveGenerate: (value: ConversationContext) => void = () => {};
+    const generateDossier = vi.fn(
+      () => new Promise<ConversationContext>((resolve) => { resolveGenerate = resolve; }),
+    );
+    let progressHandler: ((e: ContextGenerateProgressEvent) => void) | undefined;
+    const subscribe = vi.fn((event: string, handler: (e: ContextGenerateProgressEvent) => void) => {
+      if (event === "contextGenerateProgress") progressHandler = handler;
+      return Promise.resolve(() => {});
+    });
+
+    renderDetail({
+      context: {
+        load: vi.fn().mockResolvedValue(live),
+        loadProfile: vi.fn().mockResolvedValue(profile()),
+        researchKeyStatus: vi.fn().mockResolvedValue(true),
+        generateDossier,
+      },
+      rag: { list: vi.fn().mockResolvedValue([]), documentText: vi.fn().mockResolvedValue("") },
+      capabilities: vi.fn().mockResolvedValue(null),
+      subscribe,
+    } as unknown as Partial<ConvaBackend>);
+
+    await screen.findByText("Counterparty");
+    fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
+    await screen.findByText("Context Intelligence Pack");
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    // No stage event has arrived yet — the label starts here regardless.
+    expect(await screen.findByText("Starting…")).toBeInTheDocument();
+
+    act(() => {
+      progressHandler?.({ stage: "writing_qa", context_id: "s1", percent: 45 });
+    });
+    expect(await screen.findByText("Writing prepared Q&A…")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveGenerate({ ...live, dossier_doc_id: "knowledge-1", qa_doc_id: "qa-1" });
+    });
+    // The run finished — the progress bar (and its live stage label) is gone.
+    await waitFor(() => expect(screen.queryByText("Writing prepared Q&A…")).toBeNull());
+  });
+
+  it("shows safe claim-policy defaults for a Context saved before policy persistence", async () => {
+    renderDetail();
+    const policy = await screen.findByRole("button", {
+      name: /Claim checks & source policy/i,
+    });
+    expect(policy).toHaveTextContent("Candidate · automatic checks · 5 source classes");
+    fireEvent.click(policy);
+    expect(screen.getByText("Candidate")).toBeInTheDocument();
+    expect(screen.getByText("Documents attached to this Context")).toBeInTheDocument();
+    expect(screen.getByText(/normalized claim and necessary event qualifiers/i)).toBeInTheDocument();
+  });
+
+  it("starts with all four sections collapsed to a one-line summary", async () => {
     renderDetail({
       context: { load: vi.fn().mockResolvedValue(session()), loadProfile: vi.fn().mockResolvedValue(profile()) },
       rag: { list: vi.fn().mockResolvedValue([]) },
@@ -212,7 +306,10 @@ describe("ContextDetail", () => {
     };
     renderDetail({
       context: {
-        load: vi.fn().mockResolvedValue(session({ slot_doc_ids: { resume: ["d1"] } })),
+        load: vi.fn().mockResolvedValue(session({
+          source_doc_ids: ["d1", "d2"],
+          slot_doc_ids: { resume: ["d1"] },
+        })),
         loadProfile: vi.fn().mockResolvedValue(profile({ doc_ids: ["d1", "d2"] })),
       },
       rag: { list: vi.fn().mockResolvedValue([resumeDoc, otherDoc]) },
@@ -244,7 +341,7 @@ describe("ContextDetail", () => {
     };
     renderDetail({
       context: {
-        load: vi.fn().mockResolvedValue(session()), // slot_doc_ids omitted entirely
+        load: vi.fn().mockResolvedValue(session({ source_doc_ids: ["d1"] })), // slot_doc_ids omitted entirely
         loadProfile: vi.fn().mockResolvedValue(profile({ doc_ids: ["d1"] })),
       },
       rag: { list: vi.fn().mockResolvedValue([resumeDoc]) },

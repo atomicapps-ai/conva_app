@@ -5,7 +5,12 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { SessionStateEvent, TranscriptSegment } from "@/lib/ipc";
+import type {
+  ClaimSnapshotEvent,
+  SessionStateEvent,
+  TranscriptSegment,
+} from "@/lib/ipc";
+import { CLAIM_SNAPSHOT_CONTRACT_VERSION } from "@/lib/ipc";
 
 type Listener = (e: { payload: unknown }) => void;
 const listeners = new Map<string, Set<Listener>>();
@@ -125,6 +130,25 @@ describe("TauriBackend — existing behavior", () => {
     expect(handler).toHaveBeenCalledWith(seg);
     off();
     expect(unlistenCalls).toEqual(["conva://transcript-segment"]);
+  });
+
+  it("subscribes to the versioned claim snapshot channel", async () => {
+    const b = new TauriBackend(windows);
+    const handler = vi.fn();
+    const off = await b.subscribe("claimSnapshot", handler);
+    const snapshot: ClaimSnapshotEvent = {
+      contract_version: CLAIM_SNAPSHOT_CONTRACT_VERSION,
+      session_id: "sess-42",
+      epoch: 1,
+      revision: 1,
+      claims: [],
+    };
+
+    emit("conva://claim-snapshot", snapshot);
+
+    expect(handler).toHaveBeenCalledWith(snapshot);
+    off();
+    expect(unlistenCalls).toEqual(["conva://claim-snapshot"]);
   });
 });
 

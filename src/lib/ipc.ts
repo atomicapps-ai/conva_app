@@ -24,10 +24,12 @@ export const EVENTS = {
   radar: "conva://radar",
   tracker: "conva://tracker",
   capture: "conva://capture",
+  claimSnapshot: "conva://claim-snapshot",
   authChanged: "conva://auth-changed",
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
   splashProgress: "conva://splash-progress",
+  contextGenerateProgress: "conva://context-generate-progress",
 } as const;
 
 export interface TranscriptSegment {
@@ -108,6 +110,8 @@ export interface RagDocument {
   id: string;
   file_name: string;
   enabled: boolean;
+  /** False for view-only artifacts that must never enter retrieval. */
+  searchable?: boolean;
   chunk_count: number;
   ingested_at_unix_ms: number;
   source: DocSource;
@@ -205,7 +209,8 @@ export interface TrackerEvent {
 }
 
 // ── FANER capture routing (F11) — mirrors `conva-core/src/capture.rs` ─────────
-export type CaptureTrigger = "question" | "task_frame" | "prep_reference" | "gap";
+export type CaptureTrigger =
+  "question" | "task_frame" | "prep_reference" | "gap";
 export type CaptureAction = "EXPLAIN" | "RECALL" | "ASSIST" | "SYNTHESIZE";
 /** How likely a term is to be unknown — only set on EXPLAIN captures. */
 export type CaptureTier = "field" | "specialized";
@@ -232,6 +237,210 @@ export interface CaptureEvent {
   captures: Capture[];
 }
 
+// ── FANER claim snapshot — mirrors claim/evidence/source_policy + ipc.rs ────
+export const CLAIM_SNAPSHOT_CONTRACT_VERSION = 2;
+
+export type FrameKind =
+  | "question"
+  | "request"
+  | "claim"
+  | "attributed_claim"
+  | "decision"
+  | "commitment"
+  | "objection"
+  | "requirement"
+  | "definition"
+  | "observation"
+  | "opinion"
+  | "prediction"
+  | "correction";
+export type Confidence = "unknown" | "low" | "medium" | "high";
+export type Modality =
+  | "asserted"
+  | "reported"
+  | "hedged"
+  | "possible"
+  | "hypothetical"
+  | "questioned";
+export type Sensitivity =
+  "public" | "internal" | "private_personal" | "restricted";
+export type ClaimConsequence = "low" | "medium" | "high";
+export type ClaimState =
+  | "detected"
+  | "attributed"
+  | "needs_clarification"
+  | "queued"
+  | "checking"
+  | "supported"
+  | "partly_supported"
+  | "conflicting_evidence"
+  | "not_verified"
+  | "not_externally_verifiable"
+  | "superseded"
+  | "dismissed";
+export type SuggestedAction =
+  | "explain"
+  | "recall"
+  | "assist"
+  | "synthesize"
+  | "verify"
+  | "resolve"
+  | "link"
+  | "track_claim"
+  | "flag_conflict";
+export interface ClaimAttribution {
+  source_label: string;
+  reporting_verb: string;
+  directness:
+    "direct_statement" | "reported_by_speaker" | "hearsay" | "unknown";
+}
+export interface ClaimQualifier {
+  kind:
+    | "quantity"
+    | "date"
+    | "time"
+    | "location"
+    | "condition"
+    | "scope"
+    | "cause"
+    | "other";
+  value: string;
+  unit: string | null;
+}
+export interface ClaimReferenceCandidate {
+  target_id: string;
+  label: string;
+  confidence: Confidence;
+}
+export interface ClaimReferenceEdge {
+  surface_text: string;
+  kind:
+    | "pronoun"
+    | "demonstrative"
+    | "person_alias"
+    | "artifact"
+    | "event"
+    | "place";
+  required_for_verification: boolean;
+  resolved_target_id: string | null;
+  candidates: ClaimReferenceCandidate[];
+}
+export type ClaimImportanceReason =
+  | "purpose_relevant"
+  | "consequence_if_wrong"
+  | "novel"
+  | "specific_and_checkable"
+  | "named_detail"
+  | "conflicts_with_known_material"
+  | "unresolved_reference"
+  | "changes_decision"
+  | "time_sensitive"
+  | "repeated_without_change"
+  | "already_supported_by_fresh_evidence"
+  | "private_personal_assertion";
+export type SourceClass =
+  | "context_document"
+  | "approved_internal_repository"
+  | "primary_official"
+  | "recognized_reporting"
+  | "specialist_reference"
+  | "community_material"
+  | "general_web_discovery"
+  | "model_knowledge";
+export type AdmissionRejection =
+  | "model_knowledge_cannot_verify"
+  | "automatic_check_requires_user"
+  | "normalized_claim_egress_denied"
+  | "private_claim_egress_denied"
+  | "open_web_disabled"
+  | "source_class_not_allowed"
+  | "blocked_domain"
+  | "domain_not_allowed";
+export type AdmissionDecision =
+  | { decision: "admitted" }
+  | { decision: "rejected"; reason: AdmissionRejection };
+export type EvidenceScope = "attribution" | "underlying_proposition";
+export type EvidenceStance =
+  "supports" | "partly_supports" | "contradicts" | "inconclusive";
+export type QualityAssessment = "unknown" | "weak" | "adequate" | "strong";
+export interface EvidenceQuality {
+  authority: QualityAssessment;
+  directness: QualityAssessment;
+  specificity: QualityAssessment;
+  freshness: QualityAssessment;
+  independence: QualityAssessment;
+  completeness: QualityAssessment;
+  provenance: QualityAssessment;
+}
+export interface ClaimEvidenceRecord {
+  source_id: string;
+  source_class: SourceClass;
+  publisher: string;
+  title: string;
+  url: string | null;
+  local_document_id: string | null;
+  excerpt: string;
+  addressed_claim_part: string;
+  scope: EvidenceScope;
+  stance: EvidenceStance;
+  quality: EvidenceQuality;
+  independence_group: string | null;
+  admission: AdmissionDecision;
+  admission_policy_id: string;
+  admission_policy_version: number;
+  published_at_unix_ms: number | null;
+  retrieved_at_unix_ms: number;
+}
+export type ClaimConfidence =
+  "none" | "limited" | "moderate" | "strong" | "conflicted";
+export interface ClaimCorrection {
+  kind:
+    "transcript" | "attribution" | "reference" | "proposition" | "consequence";
+  previous_value: string;
+  corrected_value: string;
+  corrected_by: string;
+  created_at_unix_ms: number;
+}
+export interface ClaimRecord {
+  id: string;
+  source_segment_ids: string[];
+  speaker_side: StreamSide;
+  speaker_label: string | null;
+  exact_quote: string;
+  normalized_proposition: string;
+  predicate: string;
+  subject: string | null;
+  object: string | null;
+  frame_kind: FrameKind;
+  attribution_chain: ClaimAttribution[];
+  qualifiers: ClaimQualifier[];
+  references: ClaimReferenceEdge[];
+  modality: Modality;
+  negated: boolean;
+  sensitivity: Sensitivity;
+  consequence: ClaimConsequence;
+  importance_reasons: ClaimImportanceReason[];
+  state: ClaimState;
+  recommended_action: SuggestedAction | null;
+  policy_id: string;
+  policy_version: number;
+  extraction_confidence: Confidence;
+  resolution_confidence: Confidence;
+  claim_confidence: ClaimConfidence | null;
+  evidence: ClaimEvidenceRecord[];
+  corrections: ClaimCorrection[];
+  created_at_unix_ms: number;
+  updated_at_unix_ms: number;
+}
+
+export interface ClaimSnapshotEvent {
+  contract_version: number;
+  session_id: string;
+  epoch: number;
+  revision: number;
+  claims: ClaimRecord[];
+}
+
 /** What the partner window shows (mirror of `ipc.rs::PartnerPayload`) — the
  *  term it was opened for, plus the FANER classification + preview when it
  *  came from a capture. Read via `get_partner_payload` on window boot;
@@ -253,6 +462,9 @@ export interface PartnerPayload {
    *  `documentText`, same as clicking a "FROM YOUR DOCUMENTS" citation
    *  line. `null` for every other open. */
   doc_id: string | null;
+  /** Complete typed claim state for a Tracking evidence view. `null` for
+   *  terms, answers, and documents. Mirrors the Rust optional field. */
+  claim: ClaimRecord | null;
 }
 
 /** Mirror of `ipc.rs::PartnerLockEvent` — sent when the shell changes the
@@ -281,6 +493,10 @@ export interface Conversation {
   segments: TranscriptSegment[];
   linked_docs: string[];
   linked_context_id?: string | null;
+  /** Exact live-session ids whose finalized transcript was saved here. */
+  source_session_ids?: string[];
+  /** Latest accepted cumulative claim snapshot for each linked session. */
+  claim_snapshots?: ClaimSnapshotEvent[];
 }
 
 /** Mirror of the shell's conversations::ConversationSummary. */
@@ -292,6 +508,8 @@ export interface ConversationSummary {
   segment_count: number;
   linked_docs: string[];
   linked_context_id?: string | null;
+  source_session_count?: number;
+  has_claim_review?: boolean;
   preview: string;
 }
 
@@ -309,19 +527,57 @@ export const DEFAULT_CONTEXT_ID = "default";
 /** The kind of conversation this context is for. Launch set (fixed but
  * extensible later); drives the setup template + web-research default. */
 export type ContextCategory =
-  | "interview"
-  | "company_meeting"
-  | "sales_call"
-  | "live_stream"
-  | "other";
+  "interview" | "company_meeting" | "sales_call" | "live_stream" | "other";
+
+/** The user's role in this Context. Mirrors
+ * conva_core::context_snapshot::ParticipationLens. */
+export type ParticipationLens =
+  | "interviewer"
+  | "interviewee"
+  | "interview_observer_coach"
+  | "meeting_lead"
+  | "meeting_participant"
+  | "meeting_presenter"
+  | "meeting_decision_owner"
+  | "meeting_observer"
+  | "buyer"
+  | "seller"
+  | "sales_customer_success"
+  | "sales_coach"
+  | "live_host"
+  | "live_guest"
+  | "live_producer"
+  | "live_moderator"
+  | "other_speaker"
+  | "other_listener"
+  | "other_facilitator"
+  | "other_advisor"
+  | "other_presenter";
+
+export type HighConsequenceRequirement =
+  "primary_official_or_independent_reports" | "primary_official_only";
+
+/** Exact source-admission and privacy policy used by claim checks. Mirrors
+ * conva_core::source_policy::SourcePolicy. */
+export interface SourcePolicy {
+  id: string;
+  version: number;
+  allowed_classes: SourceClass[];
+  allowed_domains: string[];
+  blocked_domains: string[];
+  allow_open_web: boolean;
+  allow_normalized_claim_egress: boolean;
+  allow_private_claim_egress: boolean;
+  allow_cached_evidence: boolean;
+  allow_automatic_checks: boolean;
+  freshness_window_hours: number | null;
+  minimum_independent_sources: number;
+  high_consequence_requirement: HighConsequenceRequirement;
+}
 
 /** Lifecycle of a Context, start to finish. */
 export type ContextStatus =
-  | "draft"
-  | "ingesting"
-  | "ready"
-  | "running"
-  | "ended";
+  "draft" | "ingesting" | "ready" | "running" | "ended";
 
 /** The avatar gender presentation a generated persona was assigned — Ally's
  *  choice, cosmetic only (drives which silhouette icon the counterparty
@@ -367,6 +623,10 @@ export interface ConversationContext {
   /** For interviews: the target role's job description (Step 1). */
   job_description: string | null;
   category: ContextCategory;
+  /** Optional only because Contexts saved before claim intelligence omit it. */
+  participation_lens?: ParticipationLens | null;
+  /** Optional only because Contexts saved before claim intelligence omit it. */
+  source_policy?: SourcePolicy | null;
   status: ContextStatus;
   created_at_unix_ms: number;
   updated_at_unix_ms: number;
@@ -444,24 +704,35 @@ export type ModelStatusEvent =
   | { state: "error"; model: string; message: string };
 
 /** Startup progress for the splash window — each stage is a real,
- *  completed background-initialization milestone. `percent`
- *  strictly increases across the sequence; there is no "100" stage —
- *  the splash closes once the main window's own `init()` resolves. */
+ *  completed initialization milestone. Ready is emitted only after the main
+ *  window's own `init()` resolves, before the visible completion crossfade. */
 export type SplashProgressEvent =
   | { stage: "started"; percent: number }
   | { stage: "library_loaded"; percent: number }
   | { stage: "workspace_ready"; percent: number }
   | { stage: "almost_ready"; percent: number }
+  | { stage: "ready"; percent: number }
   | { stage: "failed"; percent: number; message: string };
+
+/** Coarse progress ticks for the desktop "Generate/Regenerate Context
+ *  resources" pipeline — `context.generateDossier` is one blocking round
+ *  trip with no return until every stage finishes, so this is the only
+ *  signal the UI gets for however long that takes. `percent` is a fixed
+ *  checkpoint per stage, not a measured duration — there's no real ETA to
+ *  give (depends on LLM + web-research latency), so treat it as "how far
+ *  through", not "how long left". `researching` is only emitted when web
+ *  research is enabled for the Context; a run with it off starts at
+ *  `writing_qa`. Filter by `context_id` — nothing else scopes this event to
+ *  a single generation run. */
+export type ContextGenerateProgressEvent =
+  | { stage: "researching"; context_id: string; percent: number }
+  | { stage: "writing_qa"; context_id: string; percent: number }
+  | { stage: "compiling_knowledge"; context_id: string; percent: number }
+  | { stage: "saving"; context_id: string; percent: number };
 
 /** Mirror of conva-core llm::ProviderId (snake_case serde). */
 export type ProviderId =
-  | "anthropic"
-  | "openai"
-  | "google"
-  | "xai"
-  | "deepseek"
-  | "ollama_local";
+  "anthropic" | "openai" | "google" | "xai" | "deepseek" | "ollama_local";
 
 export interface ProviderInfo {
   id: ProviderId;
@@ -514,8 +785,10 @@ export interface UsageSummary {
   total_input_tokens: number;
   total_output_tokens: number;
   total_requests: number;
-  /** Tavily searches (Tavily bills per search, not per token). */
-  tavily_searches: number;
+  /** Research-provider web searches (billed per search, not per token,
+   *  regardless of which provider — Firecrawl/Anthropic web search/Tavily —
+   *  is active). */
+  research_searches: number;
   /** TTS characters synthesized (Aura bills per character). */
   tts_characters: number;
   /** Milliseconds an active session (Live or rehearsal) has run, summed
@@ -548,6 +821,10 @@ export interface AppConfig {
   /** The user's own role/title line under their name. `null` renders no role
    *  at all rather than guessing one. */
   profile_role: string | null;
+  /** Web-research provider for Context resource generation. Firecrawl by
+   *  default; switchable to Anthropic web search or Tavily so the three can
+   *  be compared without a rebuild. */
+  research_provider: "firecrawl" | "anthropic_web_search" | "tavily";
 }
 
 /** Mirror of conva-core audio::AudioDevice. */

@@ -274,3 +274,70 @@ export function consumeSigninFailure(): string | null {
   history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
   return reason;
 }
+
+// ---------------------------------------------------------------- profile
+
+/** `public.profiles.display_name` (conva_core migration 0001), edited via the
+ *  BFF's `/api/app/profile*` routes (0010). `avatar_url` is deliberately not
+ *  surfaced here — it's Google's own OAuth-seeded value and this app's CSP
+ *  (`img-src 'self' data: blob:`) can never load it; see {@link avatarUrl}
+ *  for the actual, same-origin-served avatar. */
+export async function getProfile(): Promise<{ display_name: string | null }> {
+  const { status, body } = await call<{ display_name?: string | null; error?: string }>("/profile");
+  if (status !== 200) return { display_name: null };
+  return { display_name: body.display_name ?? null };
+}
+
+export async function updateDisplayName(display_name: string): Promise<{ ok: boolean; display_name?: string; error?: string }> {
+  const { body } = await call<{ ok: boolean; display_name?: string; error?: string }>("/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ display_name }),
+  });
+  return body;
+}
+
+/** The current avatar image, streamed same-origin from Storage (never a
+ *  direct Supabase/Google URL — the CSP forbids it). A cache-busting query
+ *  param is the caller's job after an upload/delete, since the URL itself
+ *  never changes. 404 (no upload yet) is normal — render the monogram. */
+export function avatarUrl(): string {
+  return `${BFF_BASE}/profile/avatar`;
+}
+
+export type AvatarUploadError = "unsupported_type" | "too_large" | "empty_file" | "network" | "unknown";
+
+/** Uploads (or replaces) the caller's avatar. Validates client-side first —
+ *  the same rules the server enforces (migration 0010) — so a rejected file
+ *  never makes a round trip. */
+export async function uploadAvatar(file: File): Promise<{ ok: boolean; error?: AvatarUploadError }> {
+  const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+  const MAX_BYTES = 5 * 1024 * 1024;
+  if (!ALLOWED.has(file.type)) return { ok: false, error: "unsupported_type" };
+  if (file.size === 0) return { ok: false, error: "empty_file" };
+  if (file.size > MAX_BYTES) return { ok: false, error: "too_large" };
+  try {
+    const res = await fetch(`${BFF_BASE}/profile/avatar`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: AvatarUploadError };
+      return { ok: false, error: body.error ?? "unknown" };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "network" };
+  }
+}
+
+export async function deleteAvatar(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BFF_BASE}/profile/avatar`, { method: "DELETE", credentials: "same-origin" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

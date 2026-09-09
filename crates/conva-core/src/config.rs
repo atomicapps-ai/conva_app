@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::asr::AsrEngineId;
 use crate::llm::{provider_registry, ModelSelection, DEFAULT_PROVIDER};
+use crate::research::{ResearchProviderId, DEFAULT_RESEARCH_PROVIDER};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -48,6 +49,10 @@ pub struct AppConfig {
     /// The user's own role/title line under their name. `None` renders no
     /// role at all rather than guessing one.
     pub profile_role: Option<String>,
+    /// Web-research provider for Context resource generation (§research.rs).
+    /// Firecrawl by default; switchable to Anthropic web search or Tavily so
+    /// the three can be compared without a rebuild.
+    pub research_provider: ResearchProviderId,
 }
 
 impl Default for AppConfig {
@@ -79,6 +84,7 @@ impl Default for AppConfig {
             screenshot_save_dir: None,
             profile_display_name: None,
             profile_role: None,
+            research_provider: DEFAULT_RESEARCH_PROVIDER,
         }
     }
 }
@@ -103,6 +109,14 @@ mod tests {
         assert_eq!(cfg.llm_quality.model, "claude-sonnet-5");
         assert_eq!(cfg.fast_selection().model, "claude-haiku-4-5");
         assert!(!cfg.consent_acknowledged, "consent must be opt-in");
+    }
+
+    #[test]
+    fn default_research_provider_is_firecrawl() {
+        assert_eq!(
+            AppConfig::default().research_provider,
+            ResearchProviderId::Firecrawl
+        );
     }
 
     #[test]

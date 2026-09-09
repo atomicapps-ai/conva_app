@@ -31,6 +31,32 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "0.4.0",
+    date: "2026-09-08",
+    summary:
+      "Source-aware claim intelligence, faster Context preparation, and a clearer live workspace for every supported conversation type.",
+    sections: [
+      {
+        title: "Highlights",
+        items: [
+          "Review important claims from a live or saved conversation with attribution, evidence status, confidence, and source-aware next steps.",
+          "Choose claim and source policies for interviews, company meetings, sales calls, live streams, and other high-stakes conversations.",
+          "Generate separate Research and Q&A resources, then use one compact Context Intelligence Pack for fast live retrieval.",
+          "Keep the active question, full Ally answer, and grounding together in Focus while term definitions remain in their own peek.",
+        ],
+      },
+      {
+        title: "Experience and reliability",
+        items: [
+          "Context regeneration now runs in the background so the window stays responsive.",
+          "Generated documents are formatted, scrollable, and still offer an exact Raw view.",
+          "Updates download in the background and can optionally install automatically after any active live session ends.",
+          "Startup progress, compact navigation, narrow Context rows, profile avatars, and the Conva mark were refined.",
+        ],
+      },
+    ],
+  },
+  {
     version: "0.1.1",
     date: "2026-07-31",
     summary:

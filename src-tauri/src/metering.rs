@@ -165,11 +165,11 @@ pub fn record_llm(
     persist(app, &ledger);
 }
 
-/// Count `count` Tavily searches, then persist. Best-effort.
-pub fn record_tavily_search(app: &AppHandle, count: u64) {
+/// Count `count` research-provider searches, then persist. Best-effort.
+pub fn record_research_search(app: &AppHandle, count: u64) {
     let state = app.state::<AppState>();
     let mut ledger = state.usage.lock().expect("usage lock");
-    ledger.record_tavily_search(count, now_unix_ms());
+    ledger.record_research_search(count, now_unix_ms());
     persist(app, &ledger);
 }
 
