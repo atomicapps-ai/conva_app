@@ -122,6 +122,7 @@ specific is active."
             research_doc_id: None,
             resources_stale: false,
             resources_generated_at_unix_ms: None,
+            suggestion_decisions: std::collections::BTreeMap::new(),
         },
     )?;
     Ok(())

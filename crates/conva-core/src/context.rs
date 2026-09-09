@@ -159,6 +159,25 @@ pub struct KnowledgeProfile {
     pub ready: bool,
 }
 
+/// A user's durable decision about one Ally-authored Context suggestion.
+/// Suggestions themselves remain in their generated artifacts; this compact
+/// ledger records ownership without duplicating large briefing/research text.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionDecisionStatus {
+    Accepted,
+    Dismissed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SuggestionDecision {
+    pub status: SuggestionDecisionStatus,
+    /// The user's edited replacement when they accepted after changing Ally's
+    /// proposal. `None` means accept the generated value verbatim.
+    #[serde(default)]
+    pub edited_value: Option<String>,
+}
+
 /// One Conversation Context record: Step 1 setup through Step 4 run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConversationContext {
@@ -273,6 +292,10 @@ pub struct ConversationContext {
     /// tooltip lie. `None` until the first regenerate.
     #[serde(default)]
     pub resources_generated_at_unix_ms: Option<u64>,
+    /// Stable suggestion-key -> explicit user decision. Missing means pending.
+    /// Defaulted so Contexts written before the review workflow need no migration.
+    #[serde(default)]
+    pub suggestion_decisions: std::collections::BTreeMap<String, SuggestionDecision>,
 }
 
 impl ConversationContext {
@@ -1402,6 +1425,7 @@ mod tests {
         }"#;
         let ctx: ConversationContext = serde_json::from_str(old_json).unwrap();
         assert!(ctx.slot_doc_ids.is_empty());
+        assert!(ctx.suggestion_decisions.is_empty());
         assert_eq!(ctx.participation_lens, None);
         assert_eq!(ctx.source_policy, None);
         assert_eq!(
@@ -1453,6 +1477,7 @@ mod tests {
             qa_doc_id: None,
             resources_stale: false,
             resources_generated_at_unix_ms: None,
+            suggestion_decisions: std::collections::BTreeMap::new(),
         }
     }
 
@@ -1650,6 +1675,7 @@ mod tests {
             qa_doc_id: None,
             resources_stale: false,
             resources_generated_at_unix_ms: None,
+            suggestion_decisions: std::collections::BTreeMap::new(),
         }
     }
 

@@ -623,6 +623,12 @@ export interface KnowledgeProfile {
   ready: boolean;
 }
 
+export interface SuggestionDecision {
+  status: "accepted" | "dismissed";
+  /** User-edited replacement; absent means Ally's value was accepted verbatim. */
+  edited_value?: string | null;
+}
+
 /** One Conversation Context record: Step 1 setup through Step 4 run. */
 export interface ConversationContext {
   id: string;
@@ -683,6 +689,8 @@ export interface ConversationContext {
    *  what the row's Regenerate-icon tooltip reads. null until the first
    *  regenerate. */
   resources_generated_at_unix_ms?: number | null;
+  /** Stable suggestion-key -> explicit decision. Missing means pending. */
+  suggestion_decisions?: Record<string, SuggestionDecision>;
 }
 
 /** Catalog entry for the Contexts list — carries enough to render the
