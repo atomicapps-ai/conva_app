@@ -1,4 +1,4 @@
-import type { ConversationContext } from "@/lib/ipc";
+import type { AppConfig, ConversationContext } from "@/lib/ipc";
 
 export type GenerationStageState = "ready" | "included" | "skipped" | "blocked" | "failed";
 
@@ -9,14 +9,34 @@ export interface GenerationStage {
   detail: string;
 }
 
+type ResearchProviderId = AppConfig["research_provider"];
+
+/** Display name for the "add a key" hint — must track `RESEARCH_PROVIDERS` in
+ *  SettingsPanel.tsx (the Settings dropdown labels), so the two never say
+ *  different things about the same provider. */
+const RESEARCH_PROVIDER_LABELS: Record<ResearchProviderId, string> = {
+  firecrawl: "Firecrawl",
+  anthropic_web_search: "Claude web search",
+  tavily: "Tavily",
+};
+
 /**
  * Converts the legacy all-or-nothing generate response into an honest stage report.
  * The backend currently returns a Context even when optional web stages cannot run,
  * so the UI must distinguish generated, intentionally skipped, and blocked output.
+ *
+ * `researchProviderId` names whichever provider is actually configured
+ * (Settings → Web research (Context)) so the "blocked" hint below points at
+ * the right key instead of a stale, hardcoded one — a mismatch here reads as
+ * "regenerating did nothing": a new Context Intelligence Pack + Q&A doc *is*
+ * produced each run (fresh ids, old ones deleted), but with the active
+ * provider's key missing, research stays empty every time, so the content
+ * looks unchanged. Defaults to "firecrawl" (the app default) when omitted.
  */
 export function generationStages(
   context: ConversationContext,
   hasResearchKey: boolean,
+  researchProviderId: ResearchProviderId = "firecrawl",
 ): GenerationStage[] {
   const knowledgeReady = Boolean(context.dossier_doc_id);
   const stages: GenerationStage[] = [
@@ -38,11 +58,12 @@ export function generationStages(
       detail: "Turned off in Context setup.",
     });
   } else if (!hasResearchKey) {
+    const providerLabel = RESEARCH_PROVIDER_LABELS[researchProviderId];
     stages.push({
       key: "research",
       label: "Web research",
       state: "blocked",
-      detail: "Add a Tavily key in Settings → Ally → Web research, then regenerate.",
+      detail: `Add a ${providerLabel} key in Settings → Web research (Context), then regenerate.`,
     });
   } else {
     stages.push({

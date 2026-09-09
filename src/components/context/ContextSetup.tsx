@@ -267,7 +267,7 @@ export function ContextSetup({
         glossary_definitions: updated.glossary_definitions ?? {},
         resources_stale: updated.resources_stale ?? false,
       });
-      setGenerationReport(generationStages(updated, hasResearchKey));
+      setGenerationReport(generationStages(updated, hasResearchKey, activeResearchProvider));
       setDocs(await backend.rag.list());
     } catch {
       setError("Couldn't regenerate.");
@@ -562,7 +562,7 @@ export function ContextSetup({
                   onClick={() => void regenerate()}
                 >
                   {regenerating && (
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary-ink/30 border-t-primary-ink" />
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-ai/30 border-t-ai" />
                   )}
                   {regenerating ? "Generating resources…" : "Regenerate resources"}
                 </button>

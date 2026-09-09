@@ -95,7 +95,7 @@ describe("ContextDetail", () => {
     await screen.findByText("Context Intelligence Pack");
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
 
-    expect(await screen.findByText("Add a Tavily key in Settings → Ally → Web research, then regenerate.")).toBeInTheDocument();
+    expect(await screen.findByText("Add a Firecrawl key in Settings → Web research (Context), then regenerate.")).toBeInTheDocument();
     expect(screen.getByText(/Generated as a separate review resource, then compiled/i)).toBeInTheDocument();
     expect(screen.getByText("Compiled and indexed as this Context's single live retrieval source.")).toBeInTheDocument();
   });

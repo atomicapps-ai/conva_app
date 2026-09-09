@@ -154,7 +154,7 @@ export function ContextDetail({
             : false;
       const updated = await backend.context.generateDossier(id);
       setSession(updated);
-      setGenerationReport(generationStages(updated, hasResearchKey));
+      setGenerationReport(generationStages(updated, hasResearchKey, activeResearchProvider));
       setShowDossier(true);
       // Load the freshly written document so it shows inline right away.
       if (updated.dossier_doc_id) {
@@ -507,7 +507,7 @@ export function ContextDetail({
                   className="btn btn-accent min-w-28 justify-center px-3 py-1.5 text-[11px] shadow-sm disabled:opacity-70"
                 >
                   {dossierBusy && (
-                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary-ink/30 border-t-primary-ink" />
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-ai/30 border-t-ai" />
                   )}
                   {dossierBusy
                     ? "Generating…"
