@@ -47,7 +47,8 @@ use conva_core::config::AppConfig;
 use conva_core::context::{ContextSummary, ConversationContext, KnowledgeProfile};
 use conva_core::context_snapshot::ContextSnapshot;
 use conva_core::ipc::{
-    events, AllyChunkEvent, AllySource, AllySourcesEvent, SessionStateEvent, SplashProgressEvent,
+    events, AllyChunkEvent, AllySource, AllySourcesEvent, ContextGenerateProgressEvent,
+    SessionStateEvent, SplashProgressEvent,
 };
 use conva_core::llm::{provider_registry, LlmRequest, ModelInfo, ProviderId, ProviderInfo};
 use conva_core::metering::{UsageLedger, UsageSummary};
@@ -1358,6 +1359,13 @@ fn context_generate_dossier_blocking(
         .cloned()
         .collect();
     if session.research_enabled {
+        let _ = app.emit(
+            events::CONTEXT_GENERATE_PROGRESS,
+            ContextGenerateProgressEvent::Researching {
+                context_id: session.id.clone(),
+                percent: 15,
+            },
+        );
         let queries = conva_core::context::research_queries(
             &session,
             &vocabulary,
@@ -1393,6 +1401,13 @@ fn context_generate_dossier_blocking(
     // Stage 2 — category-aware prepared Q&A. Every Context receives this.
     // Deep Interview mode adds a broader question-bank search to the sources
     // already gathered above; other categories use the standard source set.
+    let _ = app.emit(
+        events::CONTEXT_GENERATE_PROGRESS,
+        ContextGenerateProgressEvent::WritingQa {
+            context_id: session.id.clone(),
+            percent: 45,
+        },
+    );
     let mut qa_sources = research_sources.clone();
     if session.deep_qa_enabled
         && session.research_enabled
@@ -1440,6 +1455,13 @@ fn context_generate_dossier_blocking(
 
     // Stage 3 — synthesize the briefing, then compile it with the exact Q&A
     // and provenance into one indexed Context Intelligence Pack.
+    let _ = app.emit(
+        events::CONTEXT_GENERATE_PROGRESS,
+        ContextGenerateProgressEvent::CompilingKnowledge {
+            context_id: session.id.clone(),
+            percent: 75,
+        },
+    );
     let knowledge_request =
         conva_core::context::knowledge_prompt(&session, &qa_sources, &chunks, 3000);
     let mut knowledge_buffer = String::new();
@@ -1464,6 +1486,13 @@ fn context_generate_dossier_blocking(
         &qa_sources,
     );
 
+    let _ = app.emit(
+        events::CONTEXT_GENERATE_PROGRESS,
+        ContextGenerateProgressEvent::Saving {
+            context_id: session.id.clone(),
+            percent: 95,
+        },
+    );
     // Review artifacts are stored without embeddings/index entries.
     let new_research_id = if let Some(text) = &research_text {
         let name = format!("{} — Research findings", session.title.trim());

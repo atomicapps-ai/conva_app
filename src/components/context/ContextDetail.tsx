@@ -9,12 +9,13 @@ import {
 } from "@/components/context/claimPolicy";
 import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
 import { groupBySlot } from "@/components/context/documentSplit";
-import { GenerationStatus } from "@/components/context/ResourceGenerationStatus";
+import { GenerationProgressBar, GenerationStatus } from "@/components/context/ResourceGenerationStatus";
 import {
   generationStages,
   researchStage,
   type GenerationStage,
 } from "@/components/context/generationStatus";
+import { useGenerationProgress } from "@/components/context/useGenerationProgress";
 import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
@@ -132,6 +133,7 @@ export function ContextDetail({
   // ── Ally documents ────────────────────────────────────────────────────────
   const dossierId = session?.dossier_doc_id ?? null;
   const [dossierBusy, setDossierBusy] = useState(false);
+  const generationProgress = useGenerationProgress(dossierBusy, id);
   const [dossierText, setDossierText] = useState<string | null>(null);
   const [showDossier, setShowDossier] = useState(false);
 
@@ -516,6 +518,7 @@ export function ContextDetail({
           <div className="flex flex-col gap-3">
             {/* Ally documents — the documents Ally writes from the material. */}
             <div className="rounded-lg border border-ai/30 bg-ai/[0.06] p-3">
+              {dossierBusy && <GenerationProgressBar {...generationProgress} />}
               {/* The sole generated document in the live retrieval scope. */}
               <div className="flex items-center gap-2">
                 <span

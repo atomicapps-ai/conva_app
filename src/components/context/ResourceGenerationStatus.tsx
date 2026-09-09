@@ -1,4 +1,5 @@
 import type { GenerationStage } from "@/components/context/generationStatus";
+import type { GenerationProgress } from "@/components/context/useGenerationProgress";
 import { Icon } from "@/components/ui/Icon";
 
 const STATE_STYLE: Record<GenerationStage["state"], string> = {
@@ -16,6 +17,31 @@ const STATE_LABEL: Record<GenerationStage["state"], string> = {
   blocked: "Needs setup",
   failed: "Not generated",
 };
+
+/** Renders above the Generate/Regenerate button while a run is in flight —
+ *  see {@link useGenerationProgress} for why this exists (the command has no
+ *  return, and therefore no other signal, until every stage is done). */
+export function GenerationProgressBar({ percent, label, elapsedMs }: GenerationProgress) {
+  const seconds = Math.floor(elapsedMs / 1000);
+  return (
+    <div
+      className="mb-2 rounded-md border border-ai/30 bg-ai/[0.06] px-2.5 py-2"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-ai">
+        <span>{label}</span>
+        <span className="shrink-0 font-mono text-fg-faint">{seconds}s</span>
+      </div>
+      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-border/60">
+        <div
+          className="h-full rounded-full bg-ai transition-[width] duration-500 ease-out"
+          style={{ width: `${Math.max(4, percent)}%` }}
+        />
+      </div>
+    </div>
+  );
+}
 
 export function GenerationStatus({ stages }: { stages: GenerationStage[] }) {
   return (
