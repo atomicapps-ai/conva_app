@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 
 import type { ContextFileSlot } from "@/components/context/categoryTemplates";
-import { documentIcon, isImageDocument } from "@/components/contexts/documentVisual";
+import { isImageDocument } from "@/components/contexts/documentVisual";
 import { documentTypeLabel } from "@/components/contexts/libraryFilter";
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { Icon } from "@/components/ui/Icon";
+import { DocumentTypeIcon } from "@/components/ui/DocumentTypeIcon";
 import type { RagDocument } from "@/lib/ipc";
 
 export const OTHER_RESOURCE_TARGET = "__other__";
@@ -28,11 +29,7 @@ function ResourceRow({
       }}
       className="flex items-center gap-2 border-b border-border/70 py-2 last:border-0"
     >
-      <Icon
-        name={documentIcon(doc)}
-        size={16}
-        className={doc.source === "generated" ? "shrink-0 text-ai" : "shrink-0 text-fg-faint"}
-      />
+      <DocumentTypeIcon doc={doc} size={16} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[11px] font-semibold text-fg" title={doc.file_name}>
           {doc.file_name}

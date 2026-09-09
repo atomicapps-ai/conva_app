@@ -8,7 +8,8 @@ import {
   type LibraryFilter,
 } from "@/components/contexts/libraryFilter";
 import { Icon } from "@/components/ui/Icon";
-import { documentIcon, isImageDocument } from "@/components/contexts/documentVisual";
+import { DocumentTypeIcon } from "@/components/ui/DocumentTypeIcon";
+import { isImageDocument } from "@/components/contexts/documentVisual";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities, useOperationAvailability } from "@/lib/backend/context";
 import type { RagDocument } from "@/lib/ipc";
@@ -757,11 +758,7 @@ export function LibraryPane({
                   }
                 />
                 <span className="flex min-w-0 items-center gap-2.5">
-                <Icon
-                  name={documentIcon(doc)}
-                  size={page ? 18 : 14}
-                  className={doc.source === "generated" ? "text-ai shrink-0" : "text-fg-faint shrink-0"}
-                />
+                <DocumentTypeIcon doc={doc} size={page ? 18 : 14} />
                 <span
                   className={[
                     "min-w-0 flex-1 truncate",

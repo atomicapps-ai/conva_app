@@ -29,7 +29,7 @@ import {
 } from "@/components/context/generationStatus";
 import { useGenerationProgress } from "@/components/context/useGenerationProgress";
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
-import { documentIcon } from "@/components/contexts/documentVisual";
+import { DocumentTypeIcon } from "@/components/ui/DocumentTypeIcon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
 import { groupBySlot, splitDocuments } from "@/components/context/documentSplit";
@@ -531,7 +531,7 @@ export function ContextSetup({
                   <ul className="divide-y divide-border">
                     {assignedDocs.map((doc) => (
                       <li key={doc.id} className="flex items-center gap-2 py-2">
-                        <Icon name={documentIcon(doc)} size={15} className="shrink-0 text-fg-faint" />
+                        <DocumentTypeIcon doc={doc} size={15} />
                         <span className="min-w-0 flex-1 truncate text-sm text-fg">{doc.file_name}</span>
                         <button
                           type="button"
@@ -573,7 +573,7 @@ export function ContextSetup({
                 <ul className="divide-y divide-border">
                   {assignedOtherDocs.map((doc) => (
                     <li key={doc.id} className="flex items-center gap-2 py-2">
-                      <Icon name={documentIcon(doc)} size={15} className="shrink-0 text-fg-faint" />
+                      <DocumentTypeIcon doc={doc} size={15} />
                       <span className="min-w-0 flex-1 truncate text-sm text-fg">{doc.file_name}</span>
                       <button
                         type="button"
