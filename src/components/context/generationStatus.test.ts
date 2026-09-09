@@ -23,6 +23,16 @@ describe("generationStages", () => {
     ]);
   });
 
+  it("names the actual active provider in the blocked hint, not a stale hardcoded one", () => {
+    const withProvider = (provider: "firecrawl" | "anthropic_web_search" | "tavily") =>
+      generationStages(context({ qa_doc_id: "qa-1" }), false, provider).find((s) => s.key === "research");
+    expect(withProvider("firecrawl")?.detail).toContain("Firecrawl key");
+    expect(withProvider("tavily")?.detail).toContain("Tavily key");
+    // Regression: this used to unconditionally say "Add a Tavily key" even
+    // when Firecrawl (the current default) or Claude web search was active.
+    expect(withProvider("firecrawl")?.detail).not.toContain("Tavily");
+  });
+
   it("reports a separate interview Q&A document when deep research succeeds", () => {
     const stages = generationStages(
       context({ category: "interview", deep_qa_enabled: true, qa_doc_id: "qa-1", research_doc_id: "r-1" }),
