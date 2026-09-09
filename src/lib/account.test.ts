@@ -144,13 +144,14 @@ describe("greetingFor", () => {
 });
 
 describe("isOperatorEmail", () => {
-  it("allows the two owner emails from the 2026-09-09 request, case- and whitespace-insensitively", () => {
-    expect(isOperatorEmail("atomicapps.ai@gmail.com")).toBe(true);
-    expect(isOperatorEmail("Aggels.USA@Gmail.com")).toBe(true);
-    expect(isOperatorEmail("  aggels.usa@gmail.com  ")).toBe(true);
+  it("allows only the shared admin account, case- and whitespace-insensitively", () => {
+    expect(isOperatorEmail("GetConva@Gmail.com")).toBe(true);
+    expect(isOperatorEmail("  getconva@gmail.com  ")).toBe(true);
   });
 
   it("refuses anyone else, and null/undefined/empty", () => {
+    expect(isOperatorEmail("atomicapps.ai@gmail.com")).toBe(false);
+    expect(isOperatorEmail("aggels.usa@gmail.com")).toBe(false);
     expect(isOperatorEmail("someone.else@example.com")).toBe(false);
     expect(isOperatorEmail(null)).toBe(false);
     expect(isOperatorEmail(undefined)).toBe(false);

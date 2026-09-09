@@ -149,7 +149,7 @@ export function greetingFor(date: Date = new Date()): string {
 }
 
 /**
- * Emails allowed to see the hosted operator dashboard's link in Settings →
+ * Email allowed to see the hosted operator dashboard's link in Settings →
  * Account (owner request, 2026-09-09). Mirrors `OPS_EMAILS` in conva_web's
  * `wrangler.jsonc` — the real security boundary is server-side (every
  * `/api/live/{readiness,telemetry,applications}` call re-checks OPS_EMAILS
@@ -160,9 +160,9 @@ export function greetingFor(date: Date = new Date()): string {
  * a mismatch means an operator either can't find the link or gets a 403
  * after clicking it.
  */
-const OPERATOR_EMAILS = new Set(["atomicapps.ai@gmail.com", "aggels.usa@gmail.com", "getconva@gmail.com"]);
+const OPERATOR_EMAILS = new Set(["getconva@gmail.com"]);
 
-/** Is this signed-in email allowed to see the Operations link? */
+/** Is this signed-in email allowed to see the Admin link? */
 export function isOperatorEmail(email: string | null | undefined): boolean {
   return !!email && OPERATOR_EMAILS.has(email.trim().toLowerCase());
 }

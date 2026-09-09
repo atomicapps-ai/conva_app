@@ -308,8 +308,16 @@ export function LockedWordmark({
         <rect x="40" y="7" width="27" height="24" rx="8" />
         <path d="M77 31V7l23 24V7" />
         <path d="M109 7l11 24h4l11-24" />
-        <path d="M143 31l10-24h6l10 24M148 21h16" />
       </g>
+      {/* The blue A is the shared website/app signature. Keep it separate
+          from the currentColor group so the wordmark remains theme-aware. */}
+      <path
+        d="M143 31l10-24h6l10 24M148 21h16"
+        stroke="var(--color-primary)"
+        strokeWidth="3.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
