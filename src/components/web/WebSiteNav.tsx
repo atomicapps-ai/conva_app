@@ -13,6 +13,8 @@ import { useState } from "react";
 // source: the .svg file no longer carries that comment (or any other
 // content with an unescaped special character) — see its own history.
 import mark from "@/assets/brand/conva-mark-cutout-white.svg";
+import { LockedWordmark } from "@/components/ui/LockedIcon";
+import { isOperatorEmail } from "@/lib/account";
 import * as webAuth from "@/lib/backend/webAuth";
 import { useNavStore } from "@/state/nav";
 
@@ -68,10 +70,10 @@ export function WebSiteNav() {
             maskSize: "contain",
           }}
         />
-        <span className="text-[15px] font-extrabold tracking-tight">conva</span>
+        <LockedWordmark width={72} />
       </a>
 
-      <nav aria-label="Site" className="flex items-center gap-4 text-sm">
+      <nav aria-label="Site" className="flex min-w-0 items-center gap-4 text-sm">
         {/* My Account leads the link group (owner mockup) — same destination
             as the avatar button, just reachable without spotting the avatar. */}
         <button
@@ -79,7 +81,7 @@ export function WebSiteNav() {
           onClick={() => setView("profile")}
           aria-current={view === "profile" ? "page" : undefined}
           className={[
-            "no-underline transition",
+            "hidden no-underline transition md:block",
             view === "profile" ? "text-fg" : "text-fg-muted hover:text-fg",
           ].join(" ")}
         >
@@ -95,6 +97,15 @@ export function WebSiteNav() {
             {l.label}
           </a>
         ))}
+        {isOperatorEmail(email) && (
+          <a
+            href={site("/ops.html")}
+            target="_top"
+            className="hidden text-fg-muted no-underline transition hover:text-fg md:block"
+          >
+            Admin
+          </a>
+        )}
       </nav>
 
       <span className="ml-auto" />

@@ -1022,11 +1022,11 @@ function AccountSettings() {
         {isOperatorEmail(status.email) && (
           <button
             type="button"
-            title="Beta-user applications, telemetry and deployment readiness — getconva.com/ops.html"
+            title="Manage beta users, telemetry and deployment readiness — getconva.com/ops.html"
             onClick={() => void backend.auth.openUrl("https://getconva.com/ops.html")}
             className="btn shrink-0"
           >
-            Operations
+            Admin
           </button>
         )}
         <button
