@@ -1,19 +1,6 @@
 import { useState } from "react";
 
-// This file is small enough that Vite inlines it as a `data:` URI rather
-// than emitting a real file (a `?url` suffix does NOT change that here —
-// verified empirically). That matters because the encoder Vite uses for
-// that inlining escapes `<`/`>`/`#`/quotes but NOT parentheses — and the
-// SVG source used to carry a stray, unmatched `)` (an Adobe Illustrator
-// export comment, "...Build 11)"). Used inside `mask-image: url(...)`,
-// that raw `)` terminated the CSS url() token early and corrupted it, so
-// the mask silently failed to load and the browser just painted a plain
-// `currentColor` box — confirmed live: that's exactly the solid square
-// the logo was rendering as instead of the masked mark. Fixed at the
-// source: the .svg file no longer carries that comment (or any other
-// content with an unescaped special character) — see its own history.
-import mark from "@/assets/brand/conva-mark-cutout-white.svg";
-import { LockedWordmark } from "@/components/ui/LockedIcon";
+import { WebBrand } from "@/components/web/WebBrand";
 import { isOperatorEmail } from "@/lib/account";
 import * as webAuth from "@/lib/backend/webAuth";
 import { useNavStore } from "@/state/nav";
@@ -50,27 +37,10 @@ export function WebSiteNav() {
       <a
         href={site("/")}
         target="_top"
-        aria-label="conva home"
-        className="flex items-center gap-2 text-fg no-underline"
+        aria-label="Conva home"
+        className="flex items-center text-fg no-underline"
       >
-        {/* Same technique as the site's `.mark` class (conva_web/CLAUDE.md
-            "The mark"): a currentColor CSS mask over the white cutout SVG,
-            never an <img> — an <img> can't be recolored/theme-flipped. */}
-        <span
-          aria-hidden="true"
-          className="h-[22px] w-[22px] shrink-0 bg-current"
-          style={{
-            WebkitMaskImage: `url(${mark})`,
-            maskImage: `url(${mark})`,
-            WebkitMaskRepeat: "no-repeat",
-            maskRepeat: "no-repeat",
-            WebkitMaskPosition: "center",
-            maskPosition: "center",
-            WebkitMaskSize: "contain",
-            maskSize: "contain",
-          }}
-        />
-        <LockedWordmark width={72} />
+        <WebBrand />
       </a>
 
       <nav aria-label="Site" className="flex min-w-0 items-center gap-4 text-sm">
