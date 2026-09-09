@@ -128,6 +128,16 @@ swap a layer without asking the owner.**
    - Don't invent a third pattern (e.g. a persistent global breadcrumb trail)
      without updating this rule — one navigation model, consistently applied,
      beats two competing ones.
+   - **Long sub-view workflows keep their affirmative action visible twice:**
+     a compact action in `ViewShell.actions` (top-right) and the complete
+     Previous/status/primary group in `ViewActionFooter` below the scrolling
+     body. Both controls call the same handler and share disabled/busy state.
+     Dialogs keep one always-visible footer action instead of duplicating it.
+     Multi-pane workflow content owns pane scrolling (`bodyScrollable={false}`)
+     so a Library or inspector can never cover the workflow footer.
+   - **Every visible document drop target also has a compact Upload control in
+     its section header.** Drag-and-drop is an accelerator, not the only path;
+     do not spend the drop-zone body on a second large upload button.
 10. **Live cockpit: conversation column is conversation text ONLY; everything
     Ally lives in the right Ally panel — a SPINE-ICON ACCORDION.** (Owner,
     2026-08-26 — supersedes the 2026-08-22 Found/View split + control-bar

@@ -16,7 +16,7 @@ import {
   Skeleton,
   StatusPill,
 } from "@/components/studio/PageView";
-import { ViewShell } from "@/components/studio/ViewShell";
+import { ViewActionFooter, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
@@ -165,6 +165,21 @@ export function CoachingSetupView({
     }
   };
 
+  const startButton = () => (
+    <PrimaryButton
+      onClick={() => void startSession()}
+      disabled={missing !== null || busy !== null || !(caps?.capture.mic ?? false)}
+      title={
+        caps?.capture.mic
+          ? undefined
+          : "Coaching sessions need audio capture — open the desktop app"
+      }
+    >
+      {busy === "start" ? "Starting…" : "Start session"}
+      <Icon name="chevron" size={14} className="-rotate-90" />
+    </PrimaryButton>
+  );
+
   if (stage === "create") {
     return (
       <ContextSetup
@@ -218,6 +233,20 @@ export function CoachingSetupView({
       title="New coaching setup"
       subtitle="A setup is a Context plus a counterparty persona and its prepared resources."
       onBack={onCancel}
+      actions={stage === "configure" && chosenId ? startButton() : undefined}
+      footer={
+        stage === "configure" && chosenId ? (
+          <ViewActionFooter
+            previous={{ label: "Previous", onClick: () => setStage("choose") }}
+            status={missing ?? "Ready to start"}
+          >
+            <SecondaryButton onClick={onDone} className="max-sm:hidden">
+              Done
+            </SecondaryButton>
+            {startButton()}
+          </ViewActionFooter>
+        ) : undefined
+      }
     >
       <Steps
         current={stage === "choose" || !chosenId ? 1 : missing ? 2 : 3}
@@ -385,18 +414,6 @@ export function CoachingSetupView({
                 future session.
               </span>
             </span>
-            <SecondaryButton onClick={onDone}>Done</SecondaryButton>
-            <PrimaryButton
-              onClick={() => void startSession()}
-              disabled={missing !== null || busy !== null || !(caps?.capture.mic ?? false)}
-              title={
-                caps?.capture.mic
-                  ? undefined
-                  : "Coaching sessions need audio capture — open the desktop app"
-              }
-            >
-              {busy === "start" ? "Starting…" : "Start session"}
-            </PrimaryButton>
           </Panel>
         </>
       )}
