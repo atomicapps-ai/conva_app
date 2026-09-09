@@ -768,8 +768,10 @@ export interface UsageSummary {
   total_input_tokens: number;
   total_output_tokens: number;
   total_requests: number;
-  /** Tavily searches (Tavily bills per search, not per token). */
-  tavily_searches: number;
+  /** Research-provider web searches (billed per search, not per token,
+   *  regardless of which provider — Firecrawl/Anthropic web search/Tavily —
+   *  is active). */
+  research_searches: number;
   /** TTS characters synthesized (Aura bills per character). */
   tts_characters: number;
   /** Milliseconds an active session (Live or rehearsal) has run, summed
@@ -802,6 +804,10 @@ export interface AppConfig {
   /** The user's own role/title line under their name. `null` renders no role
    *  at all rather than guessing one. */
   profile_role: string | null;
+  /** Web-research provider for Context resource generation. Firecrawl by
+   *  default; switchable to Anthropic web search or Tavily so the three can
+   *  be compared without a rebuild. */
+  research_provider: "firecrawl" | "anthropic_web_search" | "tavily";
 }
 
 /** Mirror of conva-core audio::AudioDevice. */

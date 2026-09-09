@@ -375,29 +375,69 @@ function ConfigFileControls() {
  *  load them on another machine. The passphrase comes from an env var, so the
  *  file is safe to commit and keys never re-typed per launch. */
 /**
- * Web-research key (Context). A Tavily key lets a Context research the web
- * for context during setup; stored in the OS vault, desktop-only. Without
- * it, Contexts ground on the user's documents alone.
+ * Web-research provider (Context). Firecrawl by default — searches AND reads
+ * the full source pages, not just snippets. Switchable to Claude's own
+ * server-side web search (reuses the Anthropic key already configured — no
+ * separate key) or the original Tavily integration, so the three can be
+ * compared without a rebuild (owner decision 2026-09-09). Without any key
+ * configured for the active provider, Contexts ground on your documents alone.
  */
+const RESEARCH_PROVIDERS = [
+  {
+    value: "firecrawl" as const,
+    label: "Firecrawl",
+    blurb: "Searches the web and reads the full source pages — the deepest, cheapest option.",
+    keyProvider: "firecrawl" as const,
+    keyHint: "fc-…",
+    keySite: "firecrawl.dev",
+  },
+  {
+    value: "anthropic_web_search" as const,
+    label: "Claude web search (upgrade)",
+    blurb: "Claude runs its own search-and-follow-up loop using the Anthropic key already configured.",
+    keyProvider: null,
+    keyHint: "",
+    keySite: "",
+  },
+  {
+    value: "tavily" as const,
+    label: "Tavily",
+    blurb: "The original integration — shallow snippets, kept for comparison.",
+    keyProvider: "tavily" as const,
+    keyHint: "tvly-…",
+    keySite: "tavily.com",
+  },
+];
+
 function ResearchSettings() {
   const backend = useBackend();
+  const config = useAppStore((s) => s.config);
+  const updateConfig = useAppStore((s) => s.updateConfig);
   const [hasKey, setHasKey] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const provider = RESEARCH_PROVIDERS.find((p) => p.value === config?.research_provider) ?? RESEARCH_PROVIDERS[0]!;
+  const keyProvider = provider.keyProvider;
+
   useEffect(() => {
+    if (!keyProvider) {
+      setHasKey(false);
+      return;
+    }
     void backend.context
-      .researchKeyStatus()
+      .researchKeyStatus(keyProvider)
       .then(setHasKey)
       .catch(() => {});
-  }, [backend]);
+  }, [backend, keyProvider]);
 
   const save = async () => {
+    if (!keyProvider) return;
     setSaving(true);
     try {
-      await backend.context.setResearchKey(draft.trim());
+      await backend.context.setResearchKey(keyProvider, draft.trim());
       setDraft("");
-      setHasKey(await backend.context.researchKeyStatus());
+      setHasKey(await backend.context.researchKeyStatus(keyProvider));
     } finally {
       setSaving(false);
     }
@@ -405,41 +445,62 @@ function ResearchSettings() {
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-[12px] leading-relaxed text-fg-muted">
-        A <b>Tavily</b> key lets a Context research the web for context (standard
-        questions, company background, market rates) when you build one — get a
-        free key at <span className="font-mono">tavily.com</span>. Without it,
-        Contexts ground on your documents only.
-      </p>
-      <div className="flex items-end gap-2">
-        <label className="field flex-1">
-          Tavily API key {hasKey && <span className="text-ok">· saved</span>}
-          <input
-            className="input"
-            type="password"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={hasKey ? "•••••••• (saved)" : "tvly-…"}
-          />
-        </label>
-        <button
-          type="button"
-          className="btn shrink-0"
-          disabled={saving}
-          onClick={() => void save()}
+      <label className="field">
+        Provider
+        <select
+          className="input"
+          value={provider.value}
+          onChange={(e) => void updateConfig({ research_provider: e.target.value as typeof provider.value })}
         >
-          {saving ? "Saving…" : draft.trim() || !hasKey ? "Save" : "Clear"}
-        </button>
-      </div>
+          {RESEARCH_PROVIDERS.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-[12px] leading-relaxed text-fg-muted">{provider.blurb}</p>
+      {keyProvider ? (
+        <div className="flex items-end gap-2">
+          <label className="field flex-1">
+            {provider.label} API key {hasKey && <span className="text-ok">· saved</span>}
+            <input
+              className="input"
+              type="password"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={hasKey ? "•••••••• (saved)" : provider.keyHint}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn shrink-0"
+            disabled={saving}
+            onClick={() => void save()}
+          >
+            {saving ? "Saving…" : draft.trim() || !hasKey ? "Save" : "Clear"}
+          </button>
+        </div>
+      ) : (
+        <p className="text-[12px] text-fg-faint">
+          No separate key needed — this reuses the Anthropic key configured above.
+        </p>
+      )}
+      {keyProvider && (
+        <p className="text-[11px] text-fg-faint">
+          Get a free key at <span className="font-mono">{provider.keySite}</span>.
+        </p>
+      )}
     </div>
   );
 }
 
 /**
  * Usage metering. Shows what the configured keys have been spent on — LLM
- * tokens per provider and Tavily web searches (Tavily bills per search, not per
- * token) — with running totals. BYO-key desktop = visibility; the hosted future
- * turns the same counts into billable credits (roadmap F8b).
+ * tokens per provider and research-provider web searches (billed per search,
+ * not per token, regardless of which provider is active) — with running
+ * totals. BYO-key desktop = visibility; the hosted future turns the same
+ * counts into billable credits (roadmap F8b).
  */
 /** Friendly names for the Rust-side feature labels (metering.rs owns the set). */
 const FEATURE_LABELS: Record<string, string> = {
@@ -492,7 +553,7 @@ function UsageSettings() {
   const hasUsage =
     !!usage &&
     (usage.providers.length > 0 ||
-      usage.tavily_searches > 0 ||
+      usage.research_searches > 0 ||
       usage.tts_characters > 0 ||
       usage.listening_ms > 0);
 
@@ -509,9 +570,9 @@ function UsageSettings() {
       ) : (
         <p className="text-[12px] leading-relaxed text-fg-muted">
           What your keys have handled on this machine — LLM tokens per provider,
-          the same tokens broken down by feature and model, and <b>Tavily</b> web
-          searches (billed per search, not per token). Everything runs on your own
-          keys, so this is for your visibility.
+          the same tokens broken down by feature and model, and web searches from
+          your active research provider (billed per search, not per token).
+          Everything runs on your own keys, so this is for your visibility.
         </p>
       )}
 
@@ -628,11 +689,11 @@ function UsageSettings() {
             </table>
           )}
 
-          {/* Tavily searches — a separate meter (per-search billing). */}
+          {/* Research-provider web searches — a separate meter (per-search billing). */}
           <div className="flex items-center justify-between border-t border-border px-3 py-2 text-[12px]">
-            <span className="text-fg-muted">Web searches (Tavily)</span>
+            <span className="text-fg-muted">Web searches (research)</span>
             <span className="font-mono tabular-nums text-fg">
-              {fmt(usage.tavily_searches)}
+              {fmt(usage.research_searches)}
             </span>
           </div>
           {/* Aura TTS characters — separate meter (per-character billing). */}
@@ -1235,7 +1296,7 @@ export function SettingsPanel() {
       {group === "ally" && (
       <Section
         title="Web research (Context)"
-        description="Optional — a Tavily key so a Context can research context from the web."
+        description="Optional — pick a provider and key so a Context can research context from the web."
       >
         <ResearchSettings />
       </Section>

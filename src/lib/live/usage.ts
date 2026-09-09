@@ -37,7 +37,7 @@ export function toUsageSummary(u: LiveUsage, model: string | null, nowMs = Date.
     total_input_tokens: tokens.input_tokens,
     total_output_tokens: tokens.output_tokens,
     total_requests: requests,
-    tavily_searches: 0,
+    research_searches: 0,
     tts_characters: 0,
     listening_ms: u.live.used_ms,
     since_unix_ms: u.day_start_unix * 1000,

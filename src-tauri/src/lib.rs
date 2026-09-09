@@ -22,6 +22,7 @@ mod radar_worker;
 mod rag;
 mod recorder;
 mod rehearsal;
+mod research;
 mod secrets;
 mod semantic;
 mod session;
@@ -61,7 +62,7 @@ struct AppState {
     config: Mutex<AppConfig>,
     session: SessionManager,
     rag: Arc<RagStore>,
-    /// Usage ledger (LLM tokens + Tavily searches), mirrored to usage.json.
+    /// Usage ledger (LLM tokens + research-provider searches), mirrored to usage.json.
     usage: Mutex<UsageLedger>,
     /// Terms of the active conversation context (a rehearsal's key terms +
     /// digest glossary) — the strongest highlight signal. Empty when no context
@@ -1336,12 +1337,10 @@ fn context_generate_dossier_blocking(
     // run never feed back into the next run.
     let chunks = state.rag.chunks_for_documents(&session.source_doc_ids);
 
-    let selection = state
-        .config
-        .lock()
-        .expect("config lock")
-        .llm_quality
-        .clone();
+    let (selection, research_provider_id) = {
+        let config = state.config.lock().expect("config lock");
+        (config.llm_quality.clone(), config.research_provider)
+    };
     let key = resolve_key(selection.provider)?;
     let old_dossier_id = session.dossier_doc_id.clone();
     let old_research_id = session.research_doc_id.clone();
@@ -1364,10 +1363,11 @@ fn context_generate_dossier_blocking(
             &vocabulary,
             context::RESEARCH_MAX_QUERIES,
         );
-        let (sources, searches) =
-            context::research(queries, context::RESEARCH_MAX_SOURCES).map_err(|e| e.to_string())?;
-        metering::record_tavily_search(app, searches);
-        research_sources = sources;
+        let outcome = research::provider_for(research_provider_id)
+            .research(queries, context::RESEARCH_MAX_SOURCES)
+            .map_err(|e| e.to_string())?;
+        metering::record_research_search(app, outcome.billed_units);
+        research_sources = outcome.sources;
         if !research_sources.is_empty() {
             let request =
                 conva_core::context::research_findings_prompt(&session, &research_sources);
@@ -1403,12 +1403,13 @@ fn context_generate_dossier_blocking(
             &vocabulary,
             context::QA_MAX_QUERIES,
         );
-        let (additional, searches) =
-            context::research(qa_queries, context::QA_MAX_SOURCES).map_err(|e| e.to_string())?;
-        metering::record_tavily_search(app, searches);
+        let outcome = research::provider_for(research_provider_id)
+            .research(qa_queries, context::QA_MAX_SOURCES)
+            .map_err(|e| e.to_string())?;
+        metering::record_research_search(app, outcome.billed_units);
         let mut seen: std::collections::HashSet<String> =
             qa_sources.iter().map(|source| source.url.clone()).collect();
-        for source in additional {
+        for source in outcome.sources {
             if seen.insert(source.url.clone()) {
                 qa_sources.push(source);
             }
@@ -1736,6 +1737,17 @@ fn tavily_key_status() -> bool {
     context::load_tavily_key().is_some()
 }
 
+/// Store (empty clears) the Firecrawl web-research key in the OS vault.
+#[tauri::command]
+fn set_firecrawl_key(key: String) -> Result<(), String> {
+    research::store_firecrawl_key(&key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn firecrawl_key_status() -> bool {
+    research::load_firecrawl_key().is_some()
+}
+
 /// Usage snapshot for Settings → Usage: LLM tokens per provider + Tavily
 /// searches, with running totals.
 #[tauri::command]
@@ -1974,7 +1986,7 @@ fn run_web_tool(app: &AppHandle, name: &str, input: &serde_json::Value) -> Strin
     match web::tavily_search(&key, query, 3) {
         Ok(sources) => {
             // A successful request is billed by Tavily whether or not it matched.
-            metering::record_tavily_search(app, 1);
+            metering::record_research_search(app, 1);
             if sources.is_empty() {
                 return "No results found.".into();
             }
@@ -2449,6 +2461,8 @@ pub fn run() {
             context_rehearsal_say,
             set_tavily_key,
             tavily_key_status,
+            set_firecrawl_key,
+            firecrawl_key_status,
             usage_summary,
             usage_reset,
             rag_sync_library,

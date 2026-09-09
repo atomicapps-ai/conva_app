@@ -279,16 +279,18 @@ export interface ConvaBackend {
     rehearsalYourTurn(): Promise<void>;
     /** Inject a typed turn (e.g. an Ally-suggested answer) as the user's turn. */
     rehearsalSay(text: string): Promise<void>;
-    /** Store (empty clears) the Tavily web-research key. */
-    setResearchKey(key: string): Promise<void>;
-    /** Whether a web-research key is configured. */
-    researchKeyStatus(): Promise<boolean>;
+    /** Store (empty clears) a research provider's web-research key. Anthropic
+     *  web search has no key of its own here — it reuses the Anthropic LLM
+     *  key, so it's never a valid `provider` for these two methods. */
+    setResearchKey(provider: "tavily" | "firecrawl", key: string): Promise<void>;
+    /** Whether that provider's web-research key is configured. */
+    researchKeyStatus(provider: "tavily" | "firecrawl"): Promise<boolean>;
   };
 
   /**
-   * Usage metering — LLM tokens per provider + Tavily searches. Desktop keeps a
-   * local BYO-key ledger (`usage.json`); the hosted future reports server-side
-   * credit balances (roadmap F8b).
+   * Usage metering — LLM tokens per provider + research-provider searches.
+   * Desktop keeps a local BYO-key ledger (`usage.json`); the hosted future
+   * reports server-side credit balances (roadmap F8b).
    */
   usage: {
     summary(): Promise<UsageSummary>;

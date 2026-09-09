@@ -453,7 +453,16 @@ export function tavilyKeyStatus(): Promise<boolean> {
   return invoke<boolean>("tavily_key_status");
 }
 
-/** Usage snapshot (LLM tokens per provider + Tavily searches) for Settings. */
+/** Store (empty clears) the Firecrawl web-research key in the OS vault. */
+export function setFirecrawlKey(key: string): Promise<void> {
+  return invoke("set_firecrawl_key", { key });
+}
+
+export function firecrawlKeyStatus(): Promise<boolean> {
+  return invoke<boolean>("firecrawl_key_status");
+}
+
+/** Usage snapshot (LLM tokens per provider + research-provider searches) for Settings. */
 export function usageSummary(): Promise<UsageSummary> {
   return invoke<UsageSummary>("usage_summary");
 }
