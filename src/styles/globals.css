@@ -32,6 +32,7 @@
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("../assets/fonts/jetbrains-mono-400.woff2") format("woff2"); }
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap; src: url("../assets/fonts/jetbrains-mono-500.woff2") format("woff2"); }
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 600; font-display: swap; src: url("../assets/fonts/jetbrains-mono-600.woff2") format("woff2"); }
+@font-face { font-family: "Michroma"; font-style: normal; font-weight: 400; font-display: swap; src: url("../assets/fonts/michroma-latin.woff2") format("woff2"); }
 
 :root {
   /* ---- Surfaces ----
@@ -232,6 +233,27 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   overflow: hidden;
+}
+
+/* The browser app repeats conva_web's public-site lockup exactly. This is
+ * deliberately separate from the desktop rail's locked vector wordmark. */
+.web-brand-wordmark {
+  color: transparent;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  paint-order: stroke fill;
+  -webkit-text-stroke: 1.1px var(--color-fg);
+}
+
+.web-brand-wordmark-v {
+  -webkit-text-stroke-color: var(--color-fg);
+}
+
+.web-brand-wordmark-a {
+  -webkit-text-stroke-color: var(--color-primary);
 }
 
 /* Tailwind's preflight (v3.3+, still true in v4) resets <button> to the
