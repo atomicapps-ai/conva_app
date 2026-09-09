@@ -15,7 +15,7 @@ import {
   participationLensLabel,
   sourcePolicyDisclosure,
 } from "@/components/context/claimPolicy";
-import { Section, ViewShell } from "@/components/studio/ViewShell";
+import { Section, ViewActionFooter, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import {
   ContextResourceLibrary,
@@ -367,6 +367,46 @@ export function ContextSetup({
         ? sourcePolicy.allowed_classes.length > 0
         : true;
 
+  const nextStepLabel = step < 3 ? STEP_LABEL[step] : null;
+  const nextStepDisplay = nextStepLabel
+    ? nextStepLabel.charAt(0).toUpperCase() + nextStepLabel.slice(1)
+    : null;
+  const advance = () => {
+    if (step < 3) {
+      setStep((current) => current + 1);
+    } else {
+      void finish();
+    }
+  };
+  const advanceDisabled = step < 3 ? !canNext : saving;
+
+  const advanceButton = (location: "header" | "footer") => (
+    <button
+      type="button"
+      className="btn btn-primary"
+      disabled={advanceDisabled}
+      onClick={advance}
+      aria-label={
+        step < 3
+          ? location === "header"
+            ? `Next to ${nextStepDisplay}`
+            : "Next"
+          : location === "header"
+            ? "Finish Context"
+            : "Finish"
+      }
+    >
+      {step < 3
+        ? location === "footer"
+          ? `Next: ${nextStepDisplay}`
+          : "Next"
+        : saving
+          ? "Preparing…"
+          : "Finish"}
+      <Icon name="chevron" size={14} className="-rotate-90" />
+    </button>
+  );
+
   // Shared by `finish` and `regenerate` — the latter needs this to persist
   // pending edits (e.g. the deep-QA checkbox) before the dossier pipeline
   // reads the session back off disk.
@@ -427,7 +467,21 @@ export function ContextSetup({
       title={initial ? "Edit Context" : "New Context"}
       subtitle={`Step ${step} of 3 — ${STEP_LABEL[step - 1]}`}
       onBack={onCancel}
+      actions={advanceButton("header")}
+      footer={
+        <ViewActionFooter
+          previous={
+            step > 1
+              ? { label: "Previous", onClick: () => setStep((current) => current - 1) }
+              : undefined
+          }
+          status={<>Step {step} of 3</>}
+        >
+          {advanceButton("footer")}
+        </ViewActionFooter>
+      }
       wide={step === 2}
+      bodyScrollable={step !== 2}
     >
       {step === 1 && (
         <Section title="What are you rehearsing?">
@@ -497,8 +551,8 @@ export function ContextSetup({
       )}
 
       {step === 2 && (
-        <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="flex min-w-0 flex-col gap-4">
+        <div className="grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto pb-4 pr-1">
           <button
             type="button"
             onClick={() => setLibraryDrawerOpen(true)}
@@ -521,11 +575,27 @@ export function ContextSetup({
             >
               <Section
                 title={slot.label + (slot.multiple ? " (multiple)" : "")}
-                description="Select this section, then add from the Library column or drag a resource here."
+                description="Select this section, add from the Library column, or drop a resource here."
+                actions={
+                  <button
+                    type="button"
+                    className="btn h-7 px-2 py-1 text-[10px]"
+                    disabled={adding || !isDesktop}
+                    aria-label={`Upload files to ${slot.label}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setLibraryTarget(slot.key);
+                      void addDocuments(slot.key);
+                    }}
+                  >
+                    <Icon name="upload" size={12} />
+                    Upload
+                  </button>
+                }
               >
                 {assignedDocs.length === 0 ? (
                   <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] text-fg-faint">
-                    Drop resources here · selected Library destination
+                    Drop resources here
                   </p>
                 ) : (
                   <ul className="divide-y divide-border">
@@ -564,6 +634,22 @@ export function ContextSetup({
             <Section
               title="Other documents"
               description="Anything that does not fit a section above still grounds this Context."
+              actions={
+                <button
+                  type="button"
+                  className="btn h-7 px-2 py-1 text-[10px]"
+                  disabled={adding || !isDesktop}
+                  aria-label="Upload files to Other documents"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setLibraryTarget(OTHER_RESOURCE_TARGET);
+                    void addDocuments(OTHER_RESOURCE_TARGET);
+                  }}
+                >
+                  <Icon name="upload" size={12} />
+                  Upload
+                </button>
+              }
             >
               {assignedOtherDocs.length === 0 ? (
                 <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] text-fg-faint">
@@ -715,8 +801,8 @@ export function ContextSetup({
           </Section>
           </div>
 
-          <div className="hidden min-h-[36rem] xl:block">
-            <div className="sticky top-2 h-[calc(100vh-10rem)]">
+          <div className="hidden min-h-0 xl:block">
+            <div className="h-full min-h-0 pb-4">
               <ContextResourceLibrary
                 attachable={attachable}
                 generated={generated}
@@ -833,37 +919,6 @@ export function ContextSetup({
         </Section>
       )}
 
-      <div className="mt-4 flex items-center gap-2">
-        {step > 1 && (
-          <button
-            type="button"
-            className="btn"
-            onClick={() => setStep((s) => s - 1)}
-          >
-            Back
-          </button>
-        )}
-        <span className="ml-auto" />
-        {step < 3 ? (
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={!canNext}
-            onClick={() => setStep((s) => s + 1)}
-          >
-            Next
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={saving}
-            onClick={() => void finish()}
-          >
-            {saving ? "Preparing…" : "Finish"}
-          </button>
-        )}
-      </div>
     </ViewShell>
   );
 }
