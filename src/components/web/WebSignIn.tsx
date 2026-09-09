@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-import mark from "@/assets/brand/conva-mark-cutout-white.svg";
+import { GoogleSignInButton } from "@/components/web/GoogleSignInButton";
+import { WebBrand } from "@/components/web/WebBrand";
 import { useBackend, useOperationAvailability } from "@/lib/backend";
 import * as webAuth from "@/lib/backend/webAuth";
 
@@ -63,9 +64,8 @@ export function WebSignIn() {
   return (
     <div className="grid h-full place-items-center overflow-y-auto bg-bg p-6">
       <div className="glass w-full max-w-sm rounded-xl p-8">
-        <div className="mb-6 flex items-center gap-2">
-          <img src={mark} alt="" className="h-6 w-6" draggable={false} />
-          <span className="text-[15px] font-extrabold tracking-tight text-fg">conva</span>
+        <div className="mb-6">
+          <WebBrand />
         </div>
         <h1 className="text-xl font-extrabold tracking-tight text-fg">Sign in</h1>
         <p className="mt-1.5 text-sm text-fg-muted">
@@ -82,14 +82,13 @@ export function WebSignIn() {
           </p>
         ) : (
           <>
-            <button
-              type="button"
+            <GoogleSignInButton
               disabled={busy}
               onClick={() => void backend.auth.start("google")}
-              className="brand-gradient mt-6 w-full rounded-xl px-4 py-2.5 text-sm font-bold text-bg shadow-[var(--shadow-glow)] transition hover:brightness-110 disabled:opacity-60"
+              className="mt-6"
             >
               Continue with Google
-            </button>
+            </GoogleSignInButton>
 
             <div className="my-5 flex items-center gap-3 text-[11px] uppercase tracking-wide text-fg-faint">
               <span className="h-px flex-1 bg-border" />
