@@ -35,12 +35,19 @@ const CATEGORY_LABEL: Record<ContextCategory, string> = {
  * palette rules) or Ally gold (exclusively Ally-authored content) or
  * recording-red (exclusively recording/danger) — new, category-only
  * swatches instead.
+ *
+ * `live_stream` corrected 2026-09-09 (owner: "the camera icon is red... red
+ * means negative, bad, stop, error, caution") — `#E8608F` was a rose-red
+ * close enough to `--color-rec` (`#ff4d5e`) in hue to read as the app's
+ * danger/recording signal even though it was never that literal token. No
+ * category color may sit in that hue family; a category swatch just needs
+ * to be distinct from the other four, not close to red.
  */
 export const CATEGORY_ICON: Record<ContextCategory, { icon: IconName; color: string }> = {
   interview: { icon: "chatBubbles", color: "var(--color-primary)" },
   company_meeting: { icon: "groupThree", color: "#E0B84C" },
   sales_call: { icon: "phoneCall", color: "#9D7DC4" },
-  live_stream: { icon: "videoCam", color: "#E8608F" },
+  live_stream: { icon: "videoCam", color: "#6C5CE7" },
   other: { icon: "dots", color: "#67C6C5" },
 };
 
