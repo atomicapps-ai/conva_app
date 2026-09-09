@@ -309,8 +309,10 @@ export type AvatarUploadError = "unsupported_type" | "too_large" | "empty_file" 
 
 /** Uploads (or replaces) the caller's avatar. Validates client-side first —
  *  the same rules the server enforces (migration 0010) — so a rejected file
- *  never makes a round trip. */
-export async function uploadAvatar(file: File): Promise<{ ok: boolean; error?: AvatarUploadError }> {
+ *  never makes a round trip. Takes a `Blob` rather than a `File`: the caller
+ *  is always `AvatarEditor`'s exported crop (a 512×512 JPEG), never the raw
+ *  picked file — `File` still satisfies this since it extends `Blob`. */
+export async function uploadAvatar(file: Blob): Promise<{ ok: boolean; error?: AvatarUploadError }> {
   const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
   const MAX_BYTES = 5 * 1024 * 1024;
   if (!ALLOWED.has(file.type)) return { ok: false, error: "unsupported_type" };

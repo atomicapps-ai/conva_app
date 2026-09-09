@@ -231,6 +231,23 @@ export interface ConvaBackend {
     signout(): Promise<void>;
     /** Open an external URL (e.g. the shared password-reset page). */
     openUrl(url: string): Promise<void>;
+
+    /**
+     * Profile photo (roadmap 1.2). Same Supabase Storage bucket either way —
+     * desktop calls it directly with its own access token, web goes through
+     * the session BFF; see
+     * `conva_core/docs/platform/15-avatar-editor-and-shared-storage.md`.
+     * `avatarUrl` resolves to a ready-to-use `<img src>` (an object URL on
+     * desktop — the caller must `URL.revokeObjectURL` it when replaced/
+     * unmounted; a same-origin proxy URL on web, which still needs an
+     * `onError` check since this doesn't itself verify one exists) or `null`
+     * if nothing's been uploaded (render the monogram). `nonce` only matters
+     * on web (cache-busts the URL after a change) — desktop always fetches
+     * fresh.
+     */
+    avatarUrl(nonce: number): Promise<string | null>;
+    avatarUpload(blob: Blob): Promise<{ ok: boolean; error?: string }>;
+    avatarDelete(): Promise<boolean>;
   };
 
   /** Named conversations with append semantics. Local on desktop; cloud on web. */

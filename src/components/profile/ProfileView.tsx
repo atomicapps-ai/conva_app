@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { AvatarEditor } from "@/components/profile/AvatarEditor";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { useBackend } from "@/lib/backend";
 import { isTauriRuntime } from "@/lib/backend/detect";
@@ -78,26 +79,62 @@ export function ProfileView() {
   const provider = web ? webAuth.provider() : null;
   const beta = web ? webAuth.betaAccess() : null;
 
-  // Display name + avatar (web only — conva_core migration 0001/0010; there's
-  // no local desktop store for these yet, so desktop keeps showing "—" like
-  // the other web-only rows above until the PAL exposes it there too).
+  // Display name is still web-only (conva_core migration 0001/0010 via the
+  // session BFF; desktop keeps showing "—" like the other web-only rows
+  // above until the PAL exposes it there too). Avatar, unlike display name,
+  // IS on both platforms — same bucket either way, see
+  // conva_core/docs/platform/15-avatar-editor-and-shared-storage.md.
   const [nameInput, setNameInput] = useState("");
   const [savedName, setSavedName] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
   const [avatarBroken, setAvatarBroken] = useState(true);
+  const [avatarSrc, setAvatarSrc] = useState<string | null>(null);
   const [avatarNonce, setAvatarNonce] = useState(0);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!web || !status?.signed_in) return;
-    setAvatarBroken(false); // let the <img> try; onError flips it back
     void webAuth.getProfile().then(({ display_name }) => {
       setSavedName(display_name);
       setNameInput(display_name ?? "");
     });
   }, [web, status?.signed_in]);
+
+  // One call on both platforms — the adapter hides the difference (an
+  // object URL on desktop that this effect owns and must revoke; a
+  // same-origin proxy URL on web, still checked via the <img>'s onError
+  // below since avatarUrl() doesn't itself verify one exists).
+  useEffect(() => {
+    if (!status?.signed_in) {
+      setAvatarSrc(null);
+      setAvatarBroken(true);
+      return;
+    }
+    let cancelled = false;
+    let createdObjectUrl: string | null = null;
+    setAvatarBroken(false);
+    void backend.auth
+      .avatarUrl(avatarNonce)
+      .then((url) => {
+        if (cancelled) return;
+        if (url) {
+          if (!web) createdObjectUrl = url;
+          setAvatarSrc(url);
+        } else {
+          setAvatarSrc(null);
+          setAvatarBroken(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAvatarBroken(true);
+      });
+    return () => {
+      cancelled = true;
+      if (createdObjectUrl) URL.revokeObjectURL(createdObjectUrl);
+    };
+  }, [backend, web, status?.signed_in, avatarNonce]);
 
   const saveName = async () => {
     const trimmed = nameInput.trim();
@@ -125,15 +162,19 @@ export function ProfileView() {
     unknown: "Couldn't upload that image — try again.",
   };
 
-  const pickAvatar = async (file: File | undefined) => {
-    if (!file) return;
+  // The picked file goes through AvatarEditor (crop/scale) before it's ever
+  // uploaded — `pickAvatar` below now always receives that editor's exported
+  // blob, never the raw file straight off disk.
+  const [editingFile, setEditingFile] = useState<File | null>(null);
+
+  const pickAvatar = async (blob: Blob) => {
     setUploadingAvatar(true);
     setAvatarError(null);
     try {
-      const res = await webAuth.uploadAvatar(file);
+      const res = await backend.auth.avatarUpload(blob);
       if (res.ok) {
-        setAvatarBroken(false);
-        setAvatarNonce((n) => n + 1);
+        setAvatarNonce((n) => n + 1); // re-triggers the avatarUrl() effect above
+        setEditingFile(null);
       } else {
         setAvatarError(AVATAR_ERROR_COPY[res.error ?? "unknown"] ?? "Couldn't upload that image — try again.");
       }
@@ -146,8 +187,7 @@ export function ProfileView() {
     setUploadingAvatar(true);
     setAvatarError(null);
     try {
-      await webAuth.deleteAvatar();
-      setAvatarBroken(true);
+      await backend.auth.avatarDelete();
       setAvatarNonce((n) => n + 1);
     } finally {
       setUploadingAvatar(false);
@@ -212,10 +252,10 @@ export function ProfileView() {
       <Section title="Account">
         <div className="glass mb-3 flex items-center gap-4 rounded p-4">
           <div className="relative shrink-0">
-            {web && !avatarBroken ? (
+            {!avatarBroken && avatarSrc ? (
               <img
                 key={avatarNonce}
-                src={`${webAuth.avatarUrl()}?v=${avatarNonce}`}
+                src={avatarSrc}
                 onError={() => setAvatarBroken(true)}
                 alt=""
                 className="h-12 w-12 rounded-full object-cover"
@@ -234,36 +274,35 @@ export function ProfileView() {
               synced across desktop &amp; web
             </p>
           </div>
-          {web && (
-            <div className="flex shrink-0 flex-col items-end gap-1">
-              <div className="flex items-center gap-2">
-                <label className="btn cursor-pointer text-xs">
-                  {uploadingAvatar ? "Uploading…" : "Change photo"}
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    className="hidden"
-                    disabled={uploadingAvatar}
-                    onChange={(e) => {
-                      void pickAvatar(e.target.files?.[0]);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-                {!avatarBroken && (
-                  <button
-                    type="button"
-                    onClick={() => void removeAvatar()}
-                    disabled={uploadingAvatar}
-                    className="btn text-xs"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-              {avatarError && <p className="text-xs text-rec">{avatarError}</p>}
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              <label className="btn cursor-pointer text-xs">
+                {uploadingAvatar ? "Uploading…" : "Change photo"}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="hidden"
+                  disabled={uploadingAvatar}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) setEditingFile(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {!avatarBroken && (
+                <button
+                  type="button"
+                  onClick={() => void removeAvatar()}
+                  disabled={uploadingAvatar}
+                  className="btn text-xs"
+                >
+                  Remove
+                </button>
+              )}
             </div>
-          )}
+            {avatarError && <p className="text-xs text-rec">{avatarError}</p>}
+          </div>
         </div>
         <div className="flex flex-col gap-2.5">
           <Row label="Email">{status.email ?? "—"}</Row>
@@ -352,6 +391,14 @@ export function ProfileView() {
           </span>
         </Row>
       </Section>
+
+      {editingFile && (
+        <AvatarEditor
+          file={editingFile}
+          onCancel={() => setEditingFile(null)}
+          onSave={(blob) => pickAvatar(blob)}
+        />
+      )}
     </ViewShell>
   );
 }
