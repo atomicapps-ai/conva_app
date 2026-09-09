@@ -408,6 +408,9 @@ export class FakeBackend implements ConvaBackend {
     status: nc("auth.status"),
     signout: nc("auth.signout"),
     openUrl: nc("auth.openUrl"),
+    avatarUrl: nc("auth.avatarUrl"),
+    avatarUpload: nc("auth.avatarUpload"),
+    avatarDelete: nc("auth.avatarDelete"),
   };
   context = {
     save: nc("context.save"),

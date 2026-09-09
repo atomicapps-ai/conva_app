@@ -534,6 +534,13 @@ export class WebBackend implements ConvaBackend {
       window.open(url, "_blank", "noopener");
       return Promise.resolve();
     },
+    // Same-origin proxy URL, cache-busted by the caller's nonce — existence
+    // isn't checked here, same as before this was routed through the PAL
+    // (ProfileView's <img onError> still catches "never uploaded").
+    avatarUrl: (nonce: number): Promise<string | null> =>
+      Promise.resolve(`${webAuth.avatarUrl()}?v=${nonce}`),
+    avatarUpload: webAuth.uploadAvatar,
+    avatarDelete: (): Promise<boolean> => webAuth.deleteAvatar(),
   };
 
   // Cloud Conversations (M2 cp8): a hosted session is ephemeral — only an

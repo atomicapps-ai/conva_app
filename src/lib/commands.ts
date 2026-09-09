@@ -10,6 +10,7 @@ import type {
   AllyKind,
   AudioDevice,
   AuthStatus,
+  AvatarBytes,
   Capture,
   ClaimRecord,
   ClaimSnapshotEvent,
@@ -275,6 +276,25 @@ export function authStatus(): Promise<AuthStatus> {
 /** Sign out: revoke server-side (best-effort) and clear local tokens. */
 export function authSignout(): Promise<void> {
   return invoke("auth_signout");
+}
+
+/** Upload (or replace) the signed-in user's avatar — `AvatarEditor`'s
+ *  exported crop, base64-encoded (same wire convention as `saveScreenshot`).
+ *  Desktop's own path to the same Supabase Storage bucket web writes to;
+ *  see `src-tauri/src/avatar.rs`. */
+export function avatarUpload(bytesBase64: string, mime: string): Promise<void> {
+  return invoke("avatar_upload", { bytesBase64, mime });
+}
+
+/** The signed-in user's avatar, or `null` if none uploaded yet — fall back
+ *  to the monogram initial, same as web. */
+export function avatarDownload(): Promise<AvatarBytes | null> {
+  return invoke<AvatarBytes | null>("avatar_download");
+}
+
+/** Delete the signed-in user's avatar — reverts to the monogram. */
+export function avatarDelete(): Promise<void> {
+  return invoke("avatar_delete");
 }
 
 /** Write a diagnostics report to a log file; resolves to the saved path. */

@@ -9,7 +9,9 @@
 
 import { listen } from "@tauri-apps/api/event";
 
+import { base64ToBlob } from "@/lib/base64";
 import * as cmd from "@/lib/commands";
+import { blobToBase64 } from "@/lib/screenshot";
 import {
   DESKTOP_CAPABILITIES,
   type Capabilities,
@@ -193,6 +195,32 @@ export class TauriBackend implements ConvaBackend {
     status: cmd.authStatus,
     signout: cmd.authSignout,
     openUrl: cmd.openUrl,
+    // The one real exception to this file's "no new behavior" rule: the
+    // Tauri IPC boundary needs base64 (avatar_upload/download's wire
+    // format, `src-tauri/src/avatar.rs`), so the Blob<->base64 conversion
+    // has to live somewhere — here, not in every caller, so ProfileView
+    // gets one Blob-based call path regardless of platform.
+    avatarUrl: async (): Promise<string | null> => {
+      const found = await cmd.avatarDownload();
+      if (!found) return null;
+      return URL.createObjectURL(base64ToBlob(found.bytes_base64, found.mime));
+    },
+    avatarUpload: async (blob: Blob): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        await cmd.avatarUpload(await blobToBase64(blob), blob.type || "image/jpeg");
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
+    },
+    avatarDelete: async (): Promise<boolean> => {
+      try {
+        await cmd.avatarDelete();
+        return true;
+      } catch {
+        return false;
+      }
+    },
   };
 
   conversations = {

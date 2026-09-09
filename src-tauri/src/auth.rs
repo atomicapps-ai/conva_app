@@ -106,7 +106,10 @@ fn configured(s: &str) -> bool {
     !s.is_empty() && !s.contains('<') && !s.contains('>')
 }
 
-fn supabase_url() -> String {
+// `pub(crate)` (not just `fn`) — `avatar.rs` reuses these two resolvers so
+// desktop's direct Supabase Storage calls always target the same project web
+// does, with no separate config surface to drift out of sync.
+pub(crate) fn supabase_url() -> String {
     std::env::var("CONVA_SUPABASE_URL")
         .ok()
         .filter(|s| configured(s))
@@ -118,7 +121,7 @@ fn supabase_url() -> String {
         .unwrap_or_else(|| DEFAULT_SUPABASE_URL.to_string())
 }
 
-fn anon_key() -> String {
+pub(crate) fn anon_key() -> String {
     std::env::var("CONVA_SUPABASE_ANON_KEY")
         .ok()
         .filter(|s| configured(s))
@@ -505,10 +508,10 @@ pub fn sign_up_password(
     }
 }
 
-/// Renew the access/refresh pair from the stored refresh token. Wired into the
-/// entitlement/API layer in M1 (see conva_core `docs/platform/09-implementation-plan.md`);
-/// allow(dead_code) until then so CI's `-D warnings` stays green.
-#[allow(dead_code)]
+/// Renew the access/refresh pair from the stored refresh token. First real
+/// caller is `access_token()` below (M1's entitlement/API layer,
+/// `conva_core` `docs/platform/09-implementation-plan.md`, will call this
+/// directly too once it lands).
 pub fn refresh(auth_dir: &Path) -> Result<AuthStatus, String> {
     let base = supabase_url();
     let key = anon_key();
@@ -526,6 +529,23 @@ pub fn refresh(auth_dir: &Path) -> Result<AuthStatus, String> {
         .map_err(|e| e.to_string())?;
     persist(&tokens, auth_dir)?;
     Ok(status(auth_dir))
+}
+
+/// A usable Supabase access token for calling Storage/Postgres directly
+/// (`avatar.rs`) — the in-memory one from sign-in if it's still there,
+/// otherwise minted fresh from the keyring-held refresh token. desktop never
+/// proactively refreshes on a timer (no session yet needs it to), so a token
+/// requested a while after sign-in is exactly the case `refresh()` exists for.
+pub(crate) fn access_token(auth_dir: &Path) -> Result<String, String> {
+    if let Some(t) = ACCESS_TOKEN.lock().expect("access token lock").clone() {
+        return Ok(t);
+    }
+    refresh(auth_dir)?;
+    ACCESS_TOKEN
+        .lock()
+        .expect("access token lock")
+        .clone()
+        .ok_or_else(|| "not_signed_in".to_string())
 }
 
 /// Non-secret, offline snapshot of the session.

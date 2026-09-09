@@ -8,6 +8,7 @@ mod asr;
 mod asr_deepgram;
 mod audio;
 mod auth;
+mod avatar;
 mod capture;
 mod context;
 mod conversations;
@@ -850,6 +851,81 @@ async fn auth_signout(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || auth::sign_out(&dir))
         .await
         .map_err(|e| e.to_string())?
+}
+
+// ------------------------------------------------------------------- Avatar
+//
+// Desktop's own path to the SAME Supabase Storage bucket web's BFF writes to
+// (`avatar.rs` — no new backend layer, no new migration; see
+// `conva_core/docs/platform/15-avatar-editor-and-shared-storage.md`). Every
+// command re-checks sign-in state itself rather than trusting the caller,
+// same as every other authenticated command in this file.
+
+fn signed_in_user_id(dir: &std::path::Path) -> Result<String, String> {
+    auth::status(dir)
+        .user_id
+        .ok_or_else(|| "not_signed_in".to_string())
+}
+
+/// Upload (or replace) the signed-in user's avatar. `bytes_base64` is
+/// `AvatarEditor`'s exported crop (always a 512×512 JPEG in practice, but
+/// this command doesn't assume that) — base64 over the wire, same
+/// convention as `save_screenshot`'s `png_base64`.
+#[tauri::command]
+async fn avatar_upload(app: AppHandle, bytes_base64: String, mime: String) -> Result<(), String> {
+    let dir = auth_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(bytes_base64)
+            .map_err(|e| format!("invalid avatar data: {e}"))?;
+        let user_id = signed_in_user_id(&dir)?;
+        let token = auth::access_token(&dir)?;
+        avatar::upload(
+            &auth::supabase_url(),
+            &auth::anon_key(),
+            &token,
+            &user_id,
+            bytes,
+            &mime,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The signed-in user's avatar, or `None` if they've never uploaded one —
+/// the caller falls back to the monogram initial, same as web.
+#[tauri::command]
+async fn avatar_download(app: AppHandle) -> Result<Option<avatar::AvatarBytes>, String> {
+    let dir = auth_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let user_id = signed_in_user_id(&dir)?;
+        let token = auth::access_token(&dir)?;
+        let found = avatar::download(&auth::supabase_url(), &auth::anon_key(), &token, &user_id)?;
+        Ok(found.map(|(bytes, mime)| {
+            use base64::Engine;
+            avatar::AvatarBytes {
+                bytes_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+                mime,
+            }
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Delete the signed-in user's avatar — the profile reverts to the monogram.
+#[tauri::command]
+async fn avatar_delete(app: AppHandle) -> Result<(), String> {
+    let dir = auth_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let user_id = signed_in_user_id(&dir)?;
+        let token = auth::access_token(&dir)?;
+        avatar::delete(&auth::supabase_url(), &auth::anon_key(), &token, &user_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // -------------------------------------------------------------- Diagnostics
@@ -2457,6 +2533,9 @@ pub fn run() {
             auth_signup_password,
             auth_status,
             auth_signout,
+            avatar_upload,
+            avatar_download,
+            avatar_delete,
             save_debug_log,
             screenshot_trace,
             save_screenshot,
