@@ -405,11 +405,9 @@ describe("ContextSetup wizard", () => {
       screen.getByRole("heading", { name: /take-home \/ test \(multiple\)/i }),
     ).toBeInTheDocument();
 
-    // Two "Back" buttons share this accessible name — ViewShell's own header
-    // chevron (rendered whenever `onBack` is passed, unrelated to the
-    // wizard) and the wizard's own step-nav button. The wizard's is the one
-    // rendered second (DOM order: header chrome, then the step footer).
-    fireEvent.click(screen.getAllByRole("button", { name: "Back" })[1]!);
+    // ViewShell's header Back leaves the sub-view. The persistent workflow
+    // footer owns step navigation and labels it Previous.
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
     fireEvent.click(screen.getByRole("button", { name: "Company meeting" }));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(
@@ -516,5 +514,35 @@ describe("ContextSetup wizard", () => {
     const payload = save.mock.calls[0][0];
     expect(payload.source_doc_ids).toEqual(["d1"]);
     expect(payload.slot_doc_ids).toEqual({});
+  });
+
+  it("keeps step navigation visible in both the fixed header and workflow footer", async () => {
+    renderSetup();
+    fireEvent.change(await screen.findByPlaceholderText(/Senior Accountant interview/i), {
+      target: { value: "Persistent actions" },
+    });
+
+    expect(
+      screen.getByRole("button", { name: /Next to context & documents/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Workflow actions" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByRole("button", { name: /Next to review/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toHaveTextContent("Next: Review");
+  });
+
+  it("offers a compact Upload action in every document drop section", async () => {
+    renderSetup();
+    fireEvent.change(await screen.findByPlaceholderText(/Senior Accountant interview/i), {
+      target: { value: "Upload actions" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByRole("button", { name: "Upload files to Résumé / CV" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload files to Job description" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload files to Take-home / test" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload files to Other documents" })).toBeInTheDocument();
   });
 });

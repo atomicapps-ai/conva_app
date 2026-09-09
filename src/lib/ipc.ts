@@ -158,6 +158,14 @@ export interface AuthChangedEvent {
   error: string | null;
 }
 
+/** Mirror of the shell's `avatar::AvatarBytes` — a downloaded avatar,
+ *  base64-encoded for the IPC boundary (same convention as the screenshot
+ *  command's `pngBase64`). */
+export interface AvatarBytes {
+  bytes_base64: string;
+  mime: string;
+}
+
 export interface ScoredChunk {
   document_id: string;
   file_name: string;

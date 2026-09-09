@@ -31,10 +31,12 @@ export function ViewShell({
   subtitle,
   badge,
   actions,
+  footer,
   onBack,
   children,
   className = "",
   wide = false,
+  bodyScrollable = true,
 }: {
   icon: IconName;
   /** Override the default azure `brand-ring` chip with a category-specific
@@ -58,6 +60,10 @@ export function ViewShell({
   subtitle?: ReactNode;
   badge?: ReactNode;
   actions?: ReactNode;
+  /** Persistent action chrome rendered below the scrolling content. Use this
+   * for workflow navigation (Previous / Next / Save), never for contextual
+   * row actions. */
+  footer?: ReactNode;
   /** A sub-view reached from somewhere (Context setup/detail, Settings,
    *  Sessions, Conversations) gets a back control HERE — top-left, next to
    *  the icon chip — never in `actions` (top-right). Navigation controls and
@@ -68,6 +74,9 @@ export function ViewShell({
   /** Drop the default `max-w-4xl` cap for multi-pane layouts (e.g. the
    *  Contexts & Library page) that need the full window width. */
   wide?: boolean;
+  /** Multi-pane workflows can own independent pane scrolling while the
+   * shared header and footer remain fixed in the shell. */
+  bodyScrollable?: boolean;
 }) {
   return (
     <section className={`flex h-full flex-col ${className}`}>
@@ -105,7 +114,7 @@ export function ViewShell({
         >
           <Icon name={icon} size={19} />
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="truncate font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
             {breadcrumb ? (
               <>
@@ -116,7 +125,7 @@ export function ViewShell({
             )}
           </p>
           <div className="flex items-center gap-2">
-            <h2 className="text-base font-extrabold tracking-tight text-fg">
+            <h2 className="truncate text-base font-extrabold tracking-tight text-fg">
               {title}
             </h2>
             {badge}
@@ -126,13 +135,17 @@ export function ViewShell({
           )}
         </div>
         {actions && (
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
             {actions}
           </div>
         )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8">
+      <div
+        className={`min-h-0 flex-1 px-6 ${footer ? "pb-4" : "pb-8"} ${
+          bodyScrollable ? "overflow-y-auto" : "overflow-hidden"
+        }`}
+      >
         <div
           className={
             wide
@@ -143,7 +156,51 @@ export function ViewShell({
           {children}
         </div>
       </div>
+      {footer}
     </section>
+  );
+}
+
+/**
+ * Persistent workflow navigation. The shell keeps this outside its scrolling
+ * body so primary actions cannot disappear behind long content or a side
+ * panel. `previous` is navigation; `children` contains the current step's
+ * affirmative action(s).
+ */
+export function ViewActionFooter({
+  previous,
+  status,
+  children,
+}: {
+  previous?: { label: string; onClick: () => void; disabled?: boolean };
+  status?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <nav
+      aria-label="Workflow actions"
+      className="grid shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 border-t border-border bg-bg-2 px-4 py-2.5 shadow-[0_-10px_24px_rgba(0,0,0,0.18)] max-sm:grid-cols-[auto_1fr]"
+    >
+      <div className="justify-self-start">
+        {previous && (
+          <button
+            type="button"
+            className="btn"
+            disabled={previous.disabled}
+            onClick={previous.onClick}
+          >
+            <Icon name="chevron" size={14} className="rotate-90" />
+            {previous.label}
+          </button>
+        )}
+      </div>
+      <div className="min-w-0 text-center text-[10px] text-fg-faint max-sm:hidden" role="status">
+        {status}
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 justify-self-end">
+        {children}
+      </div>
+    </nav>
   );
 }
 
@@ -151,23 +208,28 @@ export function ViewShell({
 export function Section({
   title,
   description,
+  actions,
   children,
   className = "",
 }: {
   title?: string;
   description?: ReactNode;
+  actions?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <div className={`card p-4 ${className}`}>
-      {(title || description) && (
+      {(title || description || actions) && (
         <div className="mb-3">
-          {title && (
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
-              {title}
-            </h3>
-          )}
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            {title && (
+              <h3 className="min-w-0 text-xs font-semibold uppercase tracking-wider text-fg-muted">
+                {title}
+              </h3>
+            )}
+            {actions && <div className="shrink-0">{actions}</div>}
+          </div>
           {description && (
             <p className="mt-1 text-[11px] leading-relaxed text-fg-faint">
               {description}
