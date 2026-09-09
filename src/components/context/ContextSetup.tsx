@@ -21,12 +21,13 @@ import {
   ContextResourceLibrary,
   OTHER_RESOURCE_TARGET,
 } from "@/components/context/ContextResourceLibrary";
-import { GenerationStatus } from "@/components/context/ResourceGenerationStatus";
+import { GenerationProgressBar, GenerationStatus } from "@/components/context/ResourceGenerationStatus";
 import {
   generationStages,
   researchStage,
   type GenerationStage,
 } from "@/components/context/generationStatus";
+import { useGenerationProgress } from "@/components/context/useGenerationProgress";
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { documentIcon } from "@/components/contexts/documentVisual";
 import { useBackend } from "@/lib/backend";
@@ -67,6 +68,7 @@ export function ContextSetup({
   const backend = useBackend();
   const caps = useCapabilities();
   const [regenerating, setRegenerating] = useState(false);
+  const generationProgress = useGenerationProgress(regenerating, initial?.id);
   const [generationReport, setGenerationReport] = useState<GenerationStage[]>([]);
   // Proactive "no key" advisory — checked on mount and whenever the active
   // provider changes, so the Generate section can warn *before* a run wastes
@@ -596,6 +598,7 @@ export function ContextSetup({
               description="Creates Context Knowledge, then runs optional web research and Interview Q&A when configured. Every stage reports its result."
             >
               <div className="mb-3">
+                {regenerating && <GenerationProgressBar {...generationProgress} />}
                 <button
                   type="button"
                   className="btn btn-accent min-w-48 justify-center shadow-sm disabled:opacity-70"

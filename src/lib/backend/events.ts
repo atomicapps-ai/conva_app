@@ -15,6 +15,7 @@ import type {
   AuthChangedEvent,
   CaptureEvent,
   ClaimSnapshotEvent,
+  ContextGenerateProgressEvent,
   ModelStatusEvent,
   PartnerLockEvent,
   PartnerPayload,
@@ -42,6 +43,7 @@ export interface EventMap {
   partnerTerm: PartnerPayload;
   partnerLock: PartnerLockEvent;
   splashProgress: SplashProgressEvent;
+  contextGenerateProgress: ContextGenerateProgressEvent;
 }
 
 /** Handle returned by `subscribe`; call to stop receiving the event. */
@@ -67,4 +69,5 @@ export const EVENT_CHANNEL: Record<keyof EventMap, string> = {
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
   splashProgress: "conva://splash-progress",
+  contextGenerateProgress: "conva://context-generate-progress",
 };

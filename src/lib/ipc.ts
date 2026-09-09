@@ -29,6 +29,7 @@ export const EVENTS = {
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
   splashProgress: "conva://splash-progress",
+  contextGenerateProgress: "conva://context-generate-progress",
 } as const;
 
 export interface TranscriptSegment {
@@ -712,6 +713,22 @@ export type SplashProgressEvent =
   | { stage: "almost_ready"; percent: number }
   | { stage: "ready"; percent: number }
   | { stage: "failed"; percent: number; message: string };
+
+/** Coarse progress ticks for the desktop "Generate/Regenerate Context
+ *  resources" pipeline — `context.generateDossier` is one blocking round
+ *  trip with no return until every stage finishes, so this is the only
+ *  signal the UI gets for however long that takes. `percent` is a fixed
+ *  checkpoint per stage, not a measured duration — there's no real ETA to
+ *  give (depends on LLM + web-research latency), so treat it as "how far
+ *  through", not "how long left". `researching` is only emitted when web
+ *  research is enabled for the Context; a run with it off starts at
+ *  `writing_qa`. Filter by `context_id` — nothing else scopes this event to
+ *  a single generation run. */
+export type ContextGenerateProgressEvent =
+  | { stage: "researching"; context_id: string; percent: number }
+  | { stage: "writing_qa"; context_id: string; percent: number }
+  | { stage: "compiling_knowledge"; context_id: string; percent: number }
+  | { stage: "saving"; context_id: string; percent: number };
 
 /** Mirror of conva-core llm::ProviderId (snake_case serde). */
 export type ProviderId =

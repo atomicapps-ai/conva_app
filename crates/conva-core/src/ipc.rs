@@ -46,6 +46,8 @@ pub mod events {
     pub const PARTNER_LOCK: &str = "conva://partner-lock";
     /// Payload: [`super::SplashProgressEvent`]
     pub const SPLASH_PROGRESS: &str = "conva://splash-progress";
+    /// Payload: [`super::ContextGenerateProgressEvent`]
+    pub const CONTEXT_GENERATE_PROGRESS: &str = "conva://context-generate-progress";
 }
 
 /// Re-exported so the IPC module is a one-stop description of the wire.
@@ -250,6 +252,44 @@ impl SplashProgressEvent {
     }
 }
 
+/// Coarse progress ticks for the desktop "Generate/Regenerate Context
+/// resources" pipeline (`context_generate_dossier_blocking` in
+/// `src-tauri/src/lib.rs`) — that command is one blocking round trip with no
+/// return until every stage finishes, so without this the UI has nothing to
+/// show for however long that takes. `percent` is a fixed checkpoint per
+/// stage, not a measured duration — there's no real ETA to give (it depends
+/// on LLM + web-research latency), so this is "how far through" rather than
+/// "how long left". `Researching` is only emitted when web research is
+/// actually enabled for the Context; a run with it off starts at `WritingQa`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "stage")]
+pub enum ContextGenerateProgressEvent {
+    Researching { context_id: String, percent: u8 },
+    WritingQa { context_id: String, percent: u8 },
+    CompilingKnowledge { context_id: String, percent: u8 },
+    Saving { context_id: String, percent: u8 },
+}
+
+impl ContextGenerateProgressEvent {
+    pub fn context_id(&self) -> &str {
+        match self {
+            Self::Researching { context_id, .. }
+            | Self::WritingQa { context_id, .. }
+            | Self::CompilingKnowledge { context_id, .. }
+            | Self::Saving { context_id, .. } => context_id,
+        }
+    }
+
+    pub fn percent(&self) -> u8 {
+        match self {
+            Self::Researching { percent, .. }
+            | Self::WritingQa { percent, .. }
+            | Self::CompilingKnowledge { percent, .. }
+            | Self::Saving { percent, .. } => *percent,
+        }
+    }
+}
+
 /// One streamed piece of an Ally answer (U4/O2).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllyChunkEvent {
@@ -287,9 +327,24 @@ mod tests {
             events::CLAIM_SNAPSHOT,
             events::AUTH_CHANGED,
             events::SPLASH_PROGRESS,
+            events::CONTEXT_GENERATE_PROGRESS,
         ] {
             assert!(name.starts_with("conva://"), "{name}");
         }
+    }
+
+    #[test]
+    fn context_generate_progress_serializes_with_tag_and_exposes_id_and_percent() {
+        let e = ContextGenerateProgressEvent::WritingQa {
+            context_id: "c1".into(),
+            percent: 45,
+        };
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(json["stage"], "writing_qa");
+        assert_eq!(json["context_id"], "c1");
+        assert_eq!(json["percent"], 45);
+        assert_eq!(e.context_id(), "c1");
+        assert_eq!(e.percent(), 45);
     }
 
     #[test]

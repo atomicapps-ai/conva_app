@@ -311,9 +311,13 @@ function ContextRowMenu({
                       onGenerate();
                       setOpen(null);
                     }}
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-fg-muted hover:bg-panel-raised hover:text-fg disabled:opacity-40"
+                    className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] hover:bg-panel-raised disabled:opacity-40 ${
+                      isGenerating ? "text-ai" : "text-fg-muted hover:text-fg"
+                    }`}
                   >
-                    <Icon name="sparkle" size={13} />
+                    <span className={isGenerating ? "inline-block animate-spin" : "inline-block"}>
+                      <Icon name="sparkle" size={13} />
+                    </span>
                     {isGenerating ? "Generating resources…" : "Generate resources"}
                   </button>
                 </>
