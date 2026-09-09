@@ -1,5 +1,17 @@
 import { useState } from "react";
 
+// This file is small enough that Vite inlines it as a `data:` URI rather
+// than emitting a real file (a `?url` suffix does NOT change that here —
+// verified empirically). That matters because the encoder Vite uses for
+// that inlining escapes `<`/`>`/`#`/quotes but NOT parentheses — and the
+// SVG source used to carry a stray, unmatched `)` (an Adobe Illustrator
+// export comment, "...Build 11)"). Used inside `mask-image: url(...)`,
+// that raw `)` terminated the CSS url() token early and corrupted it, so
+// the mask silently failed to load and the browser just painted a plain
+// `currentColor` box — confirmed live: that's exactly the solid square
+// the logo was rendering as instead of the masked mark. Fixed at the
+// source: the .svg file no longer carries that comment (or any other
+// content with an unescaped special character) — see its own history.
 import mark from "@/assets/brand/conva-mark-cutout-white.svg";
 import * as webAuth from "@/lib/backend/webAuth";
 import { useNavStore } from "@/state/nav";
