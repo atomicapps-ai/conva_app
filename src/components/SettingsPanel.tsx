@@ -12,6 +12,7 @@ import { Notice, Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
 import { LockedIcon } from "@/components/ui/LockedIcon";
 import { useBackend, useOperationAvailability } from "@/lib/backend";
+import { isOperatorEmail } from "@/lib/account";
 import { useAccount } from "@/lib/useAccount";
 import { BUILD } from "@/lib/debug";
 import type {
@@ -1018,6 +1019,16 @@ function AccountSettings() {
           </p>
           <p className="text-[11px] text-fg-faint">Signed in to conva</p>
         </div>
+        {isOperatorEmail(status.email) && (
+          <button
+            type="button"
+            title="Beta-user applications, telemetry and deployment readiness — getconva.com/ops.html"
+            onClick={() => void backend.auth.openUrl("https://getconva.com/ops.html")}
+            className="btn shrink-0"
+          >
+            Operations
+          </button>
+        )}
         <button
           type="button"
           disabled={busy}

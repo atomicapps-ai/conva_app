@@ -4,6 +4,7 @@ import {
   accountInitials,
   formatLastSignIn,
   greetingFor,
+  isOperatorEmail,
   resolveAccount,
   SIGNED_IN_FALLBACK_NAME,
   SIGNED_OUT_NAME,
@@ -139,5 +140,20 @@ describe("greetingFor", () => {
   it("treats noon as afternoon and midnight as morning", () => {
     expect(greetingFor(new Date(2026, 8, 2, 12, 0))).toBe("Good afternoon");
     expect(greetingFor(new Date(2026, 8, 2, 0, 0))).toBe("Good morning");
+  });
+});
+
+describe("isOperatorEmail", () => {
+  it("allows the two owner emails from the 2026-09-09 request, case- and whitespace-insensitively", () => {
+    expect(isOperatorEmail("atomicapps.ai@gmail.com")).toBe(true);
+    expect(isOperatorEmail("Aggels.USA@Gmail.com")).toBe(true);
+    expect(isOperatorEmail("  aggels.usa@gmail.com  ")).toBe(true);
+  });
+
+  it("refuses anyone else, and null/undefined/empty", () => {
+    expect(isOperatorEmail("someone.else@example.com")).toBe(false);
+    expect(isOperatorEmail(null)).toBe(false);
+    expect(isOperatorEmail(undefined)).toBe(false);
+    expect(isOperatorEmail("")).toBe(false);
   });
 });
