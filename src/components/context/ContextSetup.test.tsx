@@ -252,6 +252,60 @@ describe("ContextSetup wizard", () => {
     expect(secondPayload.glossary_definitions).toEqual({ "SOC 2": "a compliance framework." });
   });
 
+  it("warns that the active provider's key is missing before Generate is ever clicked", async () => {
+    const backend = {
+      rag: { list: vi.fn().mockResolvedValue([]) },
+      context: {
+        save: vi.fn().mockResolvedValue({ id: "s1" }),
+        prepare: vi.fn().mockResolvedValue({ id: "s1" }),
+        researchKeyStatus: vi.fn().mockResolvedValue(false),
+      },
+      capabilities: vi.fn().mockResolvedValue(null),
+    } as unknown as ConvaBackend;
+
+    const initial: ConversationContext = {
+      id: "s1",
+      title: "Amazon Interview",
+      purpose: "",
+      job_description: null,
+      category: "interview",
+      status: "ready",
+      created_at_unix_ms: 0,
+      updated_at_unix_ms: 0,
+      source_doc_ids: [],
+      auto_generate_context: true,
+      research_enabled: true,
+      deep_qa_enabled: false,
+      key_terms: [],
+      glossary: [],
+      glossary_definitions: {},
+      knowledge_profile_id: "kp-1",
+      personas: [],
+      chosen_persona_id: null,
+      conversation_id: null,
+      dossier_doc_id: "doc-1",
+      research_doc_id: null,
+      qa_doc_id: "doc-3",
+      resources_stale: false,
+    };
+
+    render(
+      <BackendProvider backend={backend}>
+        <ContextSetup initial={initial} onDone={() => undefined} onCancel={() => undefined} />
+      </BackendProvider>,
+    );
+
+    await screen.findByDisplayValue("Amazon Interview");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+
+    // This is the pre-run advisory (researchKeyStatus resolving false) — no
+    // Regenerate click has happened, so this is not the post-run report.
+    expect(
+      await screen.findByText(/Add a Firecrawl key in Settings → Web research \(Context\)/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /Resource generation results/i })?.children.length ?? 0).toBe(1);
+  });
+
   it("does not render resource generation controls in creation mode", async () => {
     renderSetup();
     const name = await screen.findByPlaceholderText(/Senior Accountant interview/i);

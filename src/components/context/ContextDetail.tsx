@@ -10,7 +10,11 @@ import {
 import { type DetailSectionId, toggleDetailSection } from "@/components/context/detailSections";
 import { groupBySlot } from "@/components/context/documentSplit";
 import { GenerationStatus } from "@/components/context/ResourceGenerationStatus";
-import { generationStages, type GenerationStage } from "@/components/context/generationStatus";
+import {
+  generationStages,
+  researchStage,
+  type GenerationStage,
+} from "@/components/context/generationStatus";
 import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
@@ -140,21 +144,54 @@ export function ContextDetail({
   const [showQa, setShowQa] = useState(false);
   const [generationReport, setGenerationReport] = useState<GenerationStage[]>([]);
 
+  // Proactive "no key" advisory — checked on mount and whenever the active
+  // provider changes, so the Generate button's section can warn *before* a
+  // run wastes an LLM pass on research that's guaranteed to come back empty
+  // (the report below the button only ever showed this after the fact).
+  // null = still checking, so the warning doesn't flash on while loading.
+  const activeResearchProvider = useAppStore((s) => s.config?.research_provider) ?? "firecrawl";
+  const [hasResearchKey, setHasResearchKey] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (activeResearchProvider === "anthropic_web_search") {
+      setHasResearchKey(true); // reuses the Anthropic key, no separate key to check
+      return;
+    }
+    let cancelled = false;
+    setHasResearchKey(null);
+    const check = backend.context.researchKeyStatus
+      ? backend.context.researchKeyStatus(activeResearchProvider)
+      : Promise.resolve(false);
+    check
+      .then((ok) => {
+        if (!cancelled) setHasResearchKey(ok);
+      })
+      .catch(() => {
+        if (!cancelled) setHasResearchKey(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backend, activeResearchProvider]);
+
   const generateDossier = async () => {
     setDossierBusy(true);
     setError(null);
     setGenerationReport([]);
     try {
-      const activeResearchProvider = useAppStore.getState().config?.research_provider ?? "firecrawl";
-      const hasResearchKey =
-        activeResearchProvider === "anthropic_web_search"
+      // Re-checked fresh here (not just the mount-time `hasResearchKey`
+      // advisory above) so a key just saved in Settings a moment ago is
+      // picked up before this run actually gates on it.
+      const provider = useAppStore.getState().config?.research_provider ?? "firecrawl";
+      const keyReady =
+        provider === "anthropic_web_search"
           ? true // reuses the Anthropic key, no separate key to check
           : backend.context.researchKeyStatus
-            ? await backend.context.researchKeyStatus(activeResearchProvider).catch(() => false)
+            ? await backend.context.researchKeyStatus(provider).catch(() => false)
             : false;
       const updated = await backend.context.generateDossier(id);
       setSession(updated);
-      setGenerationReport(generationStages(updated, hasResearchKey, activeResearchProvider));
+      setGenerationReport(generationStages(updated, keyReady, provider));
+      setHasResearchKey(keyReady); // refresh the pre-run advisory from this authoritative check too
       setShowDossier(true);
       // Load the freshly written document so it shows inline right away.
       if (updated.dossier_doc_id) {
@@ -532,7 +569,19 @@ export function ContextDetail({
                 )
               )}
 
-              {generationReport.length > 0 && <GenerationStatus stages={generationReport} />}
+              {generationReport.length > 0 ? (
+                <GenerationStatus stages={generationReport} />
+              ) : (
+                hasResearchKey !== null &&
+                (() => {
+                  const preStage = researchStage(
+                    session?.research_enabled ?? false,
+                    hasResearchKey,
+                    activeResearchProvider,
+                  );
+                  return preStage.state === "blocked" && <GenerationStatus stages={[preStage]} />;
+                })()
+              )}
 
               {/* Row 2 — Research findings (Stage 2) */}
               <div className="mt-3 flex items-center gap-2 border-t border-border/60 pt-3">

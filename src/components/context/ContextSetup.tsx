@@ -22,7 +22,11 @@ import {
   OTHER_RESOURCE_TARGET,
 } from "@/components/context/ContextResourceLibrary";
 import { GenerationStatus } from "@/components/context/ResourceGenerationStatus";
-import { generationStages, type GenerationStage } from "@/components/context/generationStatus";
+import {
+  generationStages,
+  researchStage,
+  type GenerationStage,
+} from "@/components/context/generationStatus";
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
 import { documentIcon } from "@/components/contexts/documentVisual";
 import { useBackend } from "@/lib/backend";
@@ -64,6 +68,39 @@ export function ContextSetup({
   const caps = useCapabilities();
   const [regenerating, setRegenerating] = useState(false);
   const [generationReport, setGenerationReport] = useState<GenerationStage[]>([]);
+  // Proactive "no key" advisory — checked on mount and whenever the active
+  // provider changes, so the Generate section can warn *before* a run wastes
+  // an LLM pass on research that's guaranteed to come back empty (the report
+  // below the button only ever showed this after the fact). null = still
+  // checking, so the warning doesn't flash on for an instant while loading.
+  const activeResearchProvider = useAppStore((s) => s.config?.research_provider) ?? "firecrawl";
+  const [hasResearchKey, setHasResearchKey] = useState<boolean | null>(null);
+  useEffect(() => {
+    // Only the "Generate Context resources" section (rendered for an
+    // existing Context, i.e. `initial` is set) shows this advisory, so skip
+    // the check entirely in creation mode — also keeps this a no-op against
+    // a minimal backend fake that doesn't stub `context` at all.
+    if (!initial) return;
+    if (activeResearchProvider === "anthropic_web_search") {
+      setHasResearchKey(true); // reuses the Anthropic key, no separate key to check
+      return;
+    }
+    let cancelled = false;
+    setHasResearchKey(null);
+    const check = backend.context.researchKeyStatus
+      ? backend.context.researchKeyStatus(activeResearchProvider)
+      : Promise.resolve(false);
+    check
+      .then((ok) => {
+        if (!cancelled) setHasResearchKey(ok);
+      })
+      .catch(() => {
+        if (!cancelled) setHasResearchKey(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [backend, activeResearchProvider, initial]);
   const [libraryDrawerOpen, setLibraryDrawerOpen] = useState(false);
   const [step, setStep] = useState(1);
   const [title, setTitle] = useState(initial?.title ?? "");
@@ -251,12 +288,15 @@ export function ContextSetup({
       // questions" bug: the checkbox never made it to disk before the
       // dossier pipeline read `deep_qa_enabled` back off it).
       await backend.context.save(buildSavePayload());
-      const activeResearchProvider = useAppStore.getState().config?.research_provider ?? "firecrawl";
-      const hasResearchKey =
-        activeResearchProvider === "anthropic_web_search"
+      // Re-checked fresh here (not just the mount-time `hasResearchKey`
+      // advisory above) so a key just saved in Settings a moment ago is
+      // picked up before this run actually gates on it.
+      const provider = useAppStore.getState().config?.research_provider ?? "firecrawl";
+      const keyReady =
+        provider === "anthropic_web_search"
           ? true // reuses the Anthropic key, no separate key to check
           : backend.context.researchKeyStatus
-            ? await backend.context.researchKeyStatus(activeResearchProvider).catch(() => false)
+            ? await backend.context.researchKeyStatus(provider).catch(() => false)
             : false;
       const updated = await backend.context.generateDossier(initial.id);
       setGeneratedFields({
@@ -267,8 +307,9 @@ export function ContextSetup({
         glossary_definitions: updated.glossary_definitions ?? {},
         resources_stale: updated.resources_stale ?? false,
       });
-      setGenerationReport(generationStages(updated, hasResearchKey, activeResearchProvider));
+      setGenerationReport(generationStages(updated, keyReady, provider));
       setDocs(await backend.rag.list());
+      setHasResearchKey(keyReady); // refresh the pre-run advisory from this authoritative check too
     } catch {
       setError("Couldn't regenerate.");
     } finally {
@@ -567,7 +608,15 @@ export function ContextSetup({
                   {regenerating ? "Generating resources…" : "Regenerate resources"}
                 </button>
               </div>
-              {generationReport.length > 0 && <GenerationStatus stages={generationReport} />}
+              {generationReport.length > 0 ? (
+                <GenerationStatus stages={generationReport} />
+              ) : (
+                hasResearchKey !== null &&
+                (() => {
+                  const preStage = researchStage(research, hasResearchKey, activeResearchProvider);
+                  return preStage.state === "blocked" && <GenerationStatus stages={[preStage]} />;
+                })()
+              )}
             </Section>
           )}
           <Section
