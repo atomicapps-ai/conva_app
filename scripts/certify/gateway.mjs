@@ -91,6 +91,13 @@ export function startGateway({ distDir, port = 0, sessionId = "live_certify", lo
       const raw = await readBody(req);
       const isUpload = p === "/api/live/library/upload";
       const r = cloud.handle({ method: req.method, path: p.slice("/api/live".length), body: isUpload ? raw : raw.length ? parseJson(raw) : null, headers: req.headers });
+      // The download route (`GET /library/<id>/original`) answers raw bytes as
+      // an attachment, not JSON — `downloadOriginal()` (libraryClient.ts) reads
+      // the body as a Blob and the file name from Content-Disposition.
+      if (r.raw !== undefined) {
+        res.writeHead(r.status, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${r.fileName}"`, "Cache-Control": "no-store" });
+        return res.end(r.raw);
+      }
       return json(res, r.status, r.body);
     }
     // Cloud stores: empty and healthy, so console errors stay a real signal.

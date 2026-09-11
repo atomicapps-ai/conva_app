@@ -223,7 +223,7 @@ describe("WebBackend — cloud Contexts (M2 cp7)", () => {
     expect(on.capabilityStore.snapshot().operations["context.list"].state).toBe("unimplemented");
     await tick();
     const ops = on.capabilityStore.snapshot().operations;
-    for (const op of ["context.save", "context.list", "context.load", "context.delete", "context.activateContext", "context.deactivateContext"] as const) {
+    for (const op of ["context.save", "context.list", "context.load", "context.delete", "context.activateContext", "context.deactivateContext", "context.prepare"] as const) {
       expect(ops[op].state, op).toBe("available");
     }
     expect(ops["context.storeDocs"].state).toBe("unsupported");
@@ -257,6 +257,30 @@ describe("WebBackend — cloud Contexts (M2 cp7)", () => {
 
     route(STATUS_ON, { "GET /api/live/contexts": () => json({ error: "unprovisioned", reason: "Apply migration 0005." }, 503) });
     await expect(b.context.list()).rejects.toMatchObject({ code: "unprovisioned", message: "Apply migration 0005." });
+  });
+
+  it("prepare marks a draft Context ready without touching its other fields, and is a no-op past draft (M2 cp20 — the setup wizard's Finish awaits this on web)", async () => {
+    const draft = { ...CTX, id: "ctx-2", status: "draft" as const };
+    const saved: unknown[] = [];
+    route(STATUS_ON, {
+      "GET /api/live/contexts/ctx-2": () => json({ context: draft }),
+      "POST /api/live/contexts": (init) => {
+        const body = JSON.parse(init.body as string);
+        saved.push(body);
+        return json({ context: body });
+      },
+    });
+    const b = new WebBackend(chromeWindows);
+    await tick();
+    const ready = await b.context.prepare("ctx-2");
+    expect(ready).toMatchObject({ ...draft, status: "ready" });
+    expect(saved).toEqual([{ ...draft, status: "ready" }]);
+
+    // Already past draft: no save call, the record comes back unchanged.
+    route(STATUS_ON, { "GET /api/live/contexts/ctx-2": () => json({ context: { ...draft, status: "ready" } }) });
+    const before = fetchMock.mock.calls.length;
+    expect(await b.context.prepare("ctx-2")).toMatchObject({ status: "ready" });
+    expect(fetchMock.mock.calls.length).toBe(before + 1); // the GET only — no POST
   });
 
   it("activateContext loads the record and grounds every following Ally ask with its id; deactivate (or the default Context) goes back to ungrounded", async () => {
