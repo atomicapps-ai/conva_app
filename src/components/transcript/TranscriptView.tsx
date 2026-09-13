@@ -37,6 +37,7 @@ import { useTranscriptJump } from "@/state/transcriptJump";
 import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
 import { groupTurns, segmentKey } from "@/lib/turns";
 import { parseQaPairs, type PrepQaPair } from "@/components/transcript/qaPairs";
+import { suggestionKey } from "@/components/contexts/suggestionReview";
 import { buildDocTerms } from "@/components/transcript/terms";
 import {
   buildFoundGroups,
@@ -2288,8 +2289,29 @@ export function TranscriptView({
         for (const p of parsed.flat()) {
           const key = p.question.toLowerCase();
           if (seen.has(key)) continue;
+          const reviewKey = suggestionKey("qa", `${p.question}\n${p.answer}`);
+          const decision = session.suggestion_decisions?.[reviewKey];
+          if (decision?.status === "dismissed") continue;
           seen.add(key);
-          all.push(p);
+          if (decision?.edited_value) {
+            try {
+              const edited = JSON.parse(decision.edited_value) as {
+                question?: string;
+                answer?: string;
+              };
+              all.push({
+                ...p,
+                question: edited.question?.trim() || p.question,
+                answer: edited.answer?.trim() || p.answer,
+                source: "you",
+              });
+              continue;
+            } catch {
+              all.push({ ...p, answer: decision.edited_value, source: "you" });
+              continue;
+            }
+          }
+          all.push(decision?.status === "accepted" ? { ...p, source: "you" } : p);
         }
         setPrepQa(all);
       })
