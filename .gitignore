@@ -17,6 +17,10 @@ target/
 # Models are fetched on first run, never committed
 models/
 
+# `.cva` archive WASM module — built by `npm run build:wasm`
+# (scripts/build-wasm.mjs) from crates/conva-core-wasm, never committed.
+public/wasm/
+
 # Env / secrets — plaintext env files never get committed…
 .env
 .env.*

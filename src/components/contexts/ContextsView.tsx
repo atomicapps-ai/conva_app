@@ -8,7 +8,9 @@ import { ContextSetup } from "@/components/context/ContextSetup";
 import { EmptyState, PageView, PrimaryButton } from "@/components/studio/PageView";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
+import type { WebBackend } from "@/lib/backend/web";
 import { DEFAULT_CONTEXT_ID, type ConversationContext, type ContextSummary } from "@/lib/ipc";
+import { isDesktop } from "@/lib/platform";
 import { CENTER_MIN_PX, resolveLayout } from "@/lib/responsive";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useGroundingStore } from "@/state/grounding";
@@ -195,17 +197,14 @@ export function ContextsView() {
   // — nothing is persisted until the confirmation below and the subsequent
   // `importArchive` call. A native `confirm()` is a placeholder for the
   // designed import-preview dialog (spec §8.3); it shows the same counts but
-  // not the full visual review screen.
-  const importContextArchive = async () => {
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const picked = await open({
-      multiple: false,
-      filters: [{ name: "conva archive", extensions: ["cva"] }],
-    });
-    if (!picked || Array.isArray(picked)) return;
+  // not the full visual review screen. Shared by both platforms — desktop's
+  // `archiveDigest` is a file path, web's is a `registerLocalArchiveFile`/
+  // `prepareLocalFile` content digest, but `inspectArchive`/`importArchive`
+  // themselves take that string opaquely either way (`ConvaBackend.ts`).
+  const runImportFlow = async (archiveDigest: string) => {
     const operationId = `archive-import-${Date.now()}`;
     try {
-      const inspection = await backend.archive.inspectArchive(picked, operationId);
+      const inspection = await backend.archive.inspectArchive(archiveDigest, operationId);
       const lines = [
         `Import "${inspection.title}"?`,
         inspection.context
@@ -221,7 +220,7 @@ export function ContextsView() {
       ].filter((line): line is string => line !== null);
       if (!window.confirm(lines.join("\n"))) return;
       const result = await backend.archive.importArchive(
-        picked,
+        archiveDigest,
         {
           include_document_ids: inspection.documents.filter((d) => d.included).map((d) => d.portable_id),
           reuse_exact_document_ids: [],
@@ -240,6 +239,43 @@ export function ContextsView() {
       }
     } catch (e) {
       setNotice(`Couldn't import: ${String(e)}`);
+    }
+  };
+
+  // Desktop picks its own source path via a native dialog; web has no file
+  // system, so `onImport` (below) clicks a hidden `<input type="file">`
+  // instead (`importFileInputRef`) and `onImportFileSelected` registers the
+  // picked bytes (`prepareLocalFile` — web-only, not part of the shared
+  // `ConvaBackend` contract, same reasoning as desktop's dialog living only
+  // in `tauri.ts`) before running the same `runImportFlow` both platforms
+  // share.
+  const importContextArchiveDesktop = async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({
+      multiple: false,
+      filters: [{ name: "conva archive", extensions: ["cva"] }],
+    });
+    if (!picked || Array.isArray(picked)) return;
+    await runImportFlow(picked);
+  };
+  const importFileInputRef = useRef<HTMLInputElement>(null);
+  const importContextArchive = () => {
+    if (isDesktop) {
+      void importContextArchiveDesktop();
+    } else {
+      importFileInputRef.current?.click();
+    }
+  };
+  const onImportFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file next time
+    if (!file) return;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const digest = await (backend as WebBackend).archive.prepareLocalFile(bytes);
+      await runImportFlow(digest);
+    } catch (err) {
+      setNotice(`Couldn't import: ${String(err)}`);
     }
   };
 
@@ -334,7 +370,7 @@ export function ContextsView() {
             onDelete={(id) => void remove(id)}
             onGenerate={(id) => void generate(id)}
             onExport={(id) => void exportContextArchive(id)}
-            onImport={() => void importContextArchive()}
+            onImport={importContextArchive}
             onAttach={(contextId, docId) => void attach(docId, contextId)}
             generatingId={generatingId}
             refreshToken={libraryRefreshToken}
@@ -461,6 +497,17 @@ export function ContextsView() {
           )}
         </div>
       )}
+      {/* Hidden file picker behind the Import button's web path
+          (Checkpoint E's import slice) — see importContextArchive above.
+          Always mounted so the ref is stable; only ever clicked on web
+          (`isDesktop` picks the native dialog instead). */}
+      <input
+        ref={importFileInputRef}
+        type="file"
+        accept=".cva"
+        className="hidden"
+        onChange={(e) => void onImportFileSelected(e)}
+      />
     </PageView>
   );
 }

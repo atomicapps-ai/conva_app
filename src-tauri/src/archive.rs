@@ -22,16 +22,17 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+use conva_core::archive::MAX_ARCHIVE_BYTES;
 use conva_core::archive::{
-    format_utc_timestamp, is_supported_format_version, validate_manifest, validate_payload_names,
-    ArchiveContents, ArchiveCreator, ArchiveEntry, ArchiveManifest, FORMAT, FORMAT_VERSION,
-    MAX_ARCHIVE_BYTES, MAX_ENTRIES, MAX_ENTRY_BYTES, MAX_UNCOMPRESSED_BYTES,
+    build_archive_bytes, format_utc_timestamp, inspect_loaded, load_archive_bytes,
+    validate_manifest, ArchiveContents, ArchiveCreator, ArchiveEntry, ArchiveManifest,
+    LoadedArchive, FORMAT, FORMAT_VERSION, MAX_ENTRY_BYTES,
 };
 use conva_core::archive_conversation::{
     conversation_document_ids, export_conversation as export_conversation_dto,
@@ -39,15 +40,15 @@ use conva_core::archive_conversation::{
     ConversationExportInput, ConversationImportIds, ImportedConversation, PortableConversationV1,
 };
 use conva_core::archive_payload::{
-    export_context as export_context_dto, export_document_metadata,
-    import_context as import_context_dto, validate_document_index, ContextImportIds,
-    GeneratedArtifactKind, PortableContextV1, PortableDocumentV1, PortableGeneratedArtifactV1,
+    build_context_archive, export_context as export_context_dto, export_document_metadata,
+    filter_context_doc_refs, import_context as import_context_dto, validate_document_index,
+    ArchivePayloadFile, AssembledContextDocuments, ContextImportIds, GeneratedArtifactKind,
+    PortableContextV1, PortableDocumentV1, PortableGeneratedArtifactV1,
 };
 use conva_core::context::{ConversationContext, KnowledgeProfile};
 use conva_core::ipc::{
-    ArchiveCompatibilityWarning, ArchiveContextPreview, ArchiveConversationPreview,
-    ArchiveDocumentPreview, ArchiveExportEstimate, ArchiveExportOptions, ArchiveExportResult,
-    ArchiveImportOptions, ArchiveInspection, ArchiveOmittedDocument, ArchiveProgressEvent,
+    ArchiveExportEstimate, ArchiveExportOptions, ArchiveExportResult, ArchiveImportOptions,
+    ArchiveInspection, ArchiveOmittedDocument, ArchiveProgressEvent,
 };
 use conva_core::rag::{DocSource, IngestReport, RagDocument};
 use conva_core::CoreError;
@@ -119,17 +120,38 @@ struct PendingEntry {
 }
 
 /// Write `manifest.json` plus every pending entry to `dest`, atomically:
-/// build the whole file at a temporary sibling path, flush + sync it, then
-/// `rename` over `dest` (rename is overwrite-atomic on both POSIX and
-/// Windows — spec §"Decide destination-exists behavior explicitly": this
-/// implementation replaces an existing file at `dest` in one atomic step,
-/// never partially). On any error the temporary file is removed and `dest`
-/// is left completely untouched.
+/// build the whole ZIP in memory (`conva_core::archive::build_archive_bytes`
+/// — Checkpoint E: the actual ZIP writer moved there so the wasm32 web
+/// adapter shares it verbatim), then write those bytes to a temporary
+/// sibling path, flush + sync it, then `rename` over `dest` (rename is
+/// overwrite-atomic on both POSIX and Windows — spec §"Decide
+/// destination-exists behavior explicitly": this implementation replaces an
+/// existing file at `dest` in one atomic step, never partially). On any
+/// error the temporary file is removed and `dest` is left completely
+/// untouched.
 fn write_archive_atomic(
     dest: &Path,
     manifest: &ArchiveManifest,
     entries: &[PendingEntry],
 ) -> Result<u64, CoreError> {
+    let pending: Vec<(String, Vec<u8>)> = entries
+        .iter()
+        .map(|e| (e.path.clone(), e.bytes.clone()))
+        .collect();
+    let bytes = build_archive_bytes(manifest, &pending)?;
+    write_bytes_atomic(dest, &bytes)
+}
+
+/// Write already-built `.cva` bytes to `dest`, atomically: a temporary
+/// sibling path, flush + sync, then `rename` over `dest` (rename is
+/// overwrite-atomic on both POSIX and Windows — spec §"Decide
+/// destination-exists behavior explicitly": this implementation replaces an
+/// existing file at `dest` in one atomic step, never partially). On any
+/// error the temporary file is removed and `dest` is left completely
+/// untouched. Split out from [`write_archive_atomic`] so callers that
+/// already have final bytes (e.g. `export_context`, via `conva_core::
+/// archive_payload::build_context_archive`) don't build the ZIP twice.
+fn write_bytes_atomic(dest: &Path, bytes: &[u8]) -> Result<u64, CoreError> {
     let tmp_name = format!(
         ".{}.cva-tmp-{}",
         dest.file_name()
@@ -140,39 +162,21 @@ fn write_archive_atomic(
     let tmp_path = dest.with_file_name(tmp_name);
 
     let result = (|| -> Result<u64, CoreError> {
-        let file = File::create(&tmp_path).map_err(|e| CoreError::Archive(e.to_string()))?;
-        let mut zip = zip::ZipWriter::new(file);
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
-
-        let manifest_json =
-            serde_json::to_vec_pretty(manifest).map_err(|e| CoreError::Archive(e.to_string()))?;
-        zip.start_file("manifest.json", opts)
-            .map_err(|e| CoreError::Archive(e.to_string()))?;
-        zip.write_all(&manifest_json)
-            .map_err(|e| CoreError::Archive(e.to_string()))?;
-
-        for entry in entries {
-            zip.start_file(&entry.path, opts)
-                .map_err(|e| CoreError::Archive(e.to_string()))?;
-            zip.write_all(&entry.bytes)
-                .map_err(|e| CoreError::Archive(e.to_string()))?;
-        }
-        let file = zip
-            .finish()
+        let mut file = File::create(&tmp_path).map_err(|e| CoreError::Archive(e.to_string()))?;
+        file.write_all(bytes)
             .map_err(|e| CoreError::Archive(e.to_string()))?;
         file.sync_all()
             .map_err(|e| CoreError::Archive(e.to_string()))?;
-        Ok(file.metadata().map(|m| m.len()).unwrap_or(0))
+        Ok(bytes.len() as u64)
     })();
 
     match result {
-        Ok(bytes) => {
+        Ok(len) => {
             fs::rename(&tmp_path, dest).map_err(|e| {
                 let _ = fs::remove_file(&tmp_path);
                 CoreError::Archive(format!("could not save archive: {e}"))
             })?;
-            Ok(bytes)
+            Ok(len)
         }
         Err(e) => {
             let _ = fs::remove_file(&tmp_path);
@@ -391,75 +395,44 @@ pub fn export_context(
     progress: &mut ProgressFn<'_>,
     cancel: &CancelFn<'_>,
 ) -> Result<ArchiveExportResult, CoreError> {
-    let portable = export_context_dto(context, profile)?;
     let doc_ids = source_and_generated_doc_ids(context);
-    let (documents, artifacts, mut entries) =
+    let (documents, artifacts, entries) =
         assemble_documents(rag, &doc_ids, options.include_source_documents)?;
     if cancel() {
         return Err(CoreError::Archive("cancelled".into()));
     }
-    validate_document_index(&portable, &documents, &artifacts)?;
-
-    let mut pending = Vec::new();
-    let context_bytes =
-        serde_json::to_vec_pretty(&portable).map_err(|e| CoreError::Archive(e.to_string()))?;
-    pending.push(PendingEntry {
-        path: "context/context.json".into(),
-        media_type: "application/json".into(),
-        bytes: context_bytes,
-    });
-    if !documents.is_empty() {
-        let bytes =
-            serde_json::to_vec_pretty(&documents).map_err(|e| CoreError::Archive(e.to_string()))?;
-        pending.push(PendingEntry {
-            path: "documents/index.json".into(),
-            media_type: "application/json".into(),
-            bytes,
-        });
-    }
-    if !artifacts.is_empty() {
-        let bytes =
-            serde_json::to_vec_pretty(&artifacts).map_err(|e| CoreError::Archive(e.to_string()))?;
-        pending.push(PendingEntry {
-            path: "generated/index.json".into(),
-            media_type: "application/json".into(),
-            bytes,
-        });
-    }
-    pending.append(&mut entries);
 
     progress(ArchiveProgressEvent::Hashing {
         operation_id: operation_id.to_string(),
         processed_bytes: 0,
-        total_bytes: pending.iter().map(|e| e.bytes.len() as u64).sum(),
+        total_bytes: entries.iter().map(|e| e.bytes.len() as u64).sum(),
     });
-    let manifest_entries: Vec<ArchiveEntry> = pending
-        .iter()
-        .map(|e| ArchiveEntry {
-            path: e.path.clone(),
-            media_type: e.media_type.clone(),
-            bytes: e.bytes.len() as u64,
-            sha256: sha256_hex(&e.bytes),
-        })
-        .collect();
-    let manifest = ArchiveManifest {
-        format: FORMAT.to_owned(),
-        format_version: FORMAT_VERSION,
-        created_at: now_iso(),
-        created_by: ArchiveCreator {
+    // The DTO conversion, manifest assembly, hashing, and ZIP build are all
+    // pure — done once, in `conva-core`, shared verbatim with the wasm32 web
+    // export path (`conva-core-wasm`). This function's remaining job is
+    // purely the desktop-specific parts: gathering document bytes from
+    // `RagStore` (above) and writing the result to a file (below).
+    let bytes = build_context_archive(
+        context,
+        profile,
+        AssembledContextDocuments {
+            documents: documents.clone(),
+            artifacts: artifacts.clone(),
+            files: entries
+                .into_iter()
+                .map(|e| ArchivePayloadFile {
+                    path: e.path,
+                    media_type: e.media_type,
+                    bytes: e.bytes,
+                })
+                .collect(),
+        },
+        crate::session::now_unix_ms(),
+        ArchiveCreator {
             app: APP_NAME.into(),
             app_version: APP_VERSION.into(),
         },
-        title: context.title.clone(),
-        contents: ArchiveContents {
-            context: true,
-            conversation: false,
-            documents: documents.len(),
-            generated_artifacts: artifacts.len(),
-        },
-        entries: manifest_entries,
-    };
-    validate_manifest(&manifest)?;
+    )?;
     if cancel() {
         return Err(CoreError::Archive("cancelled".into()));
     }
@@ -467,15 +440,14 @@ pub fn export_context(
     progress(ArchiveProgressEvent::WritingEntries {
         operation_id: operation_id.to_string(),
         processed_items: 0,
-        total_items: pending.len() as u32,
+        total_items: (documents.len() + artifacts.len() + 1) as u32,
     });
-    let bytes = write_archive_atomic(dest, &manifest, &pending)?;
-    let archive_digest =
-        sha256_hex(&fs::read(dest).map_err(|e| CoreError::Archive(e.to_string()))?);
+    let written = write_bytes_atomic(dest, &bytes)?;
+    let archive_digest = sha256_hex(&bytes);
     Ok(ArchiveExportResult {
         destination: dest.to_string_lossy().into_owned(),
         archive_digest,
-        bytes,
+        bytes: written,
     })
 }
 
@@ -600,174 +572,17 @@ pub fn export_conversation(
 }
 
 // ── Load + validate (shared by inspect and import) ──────────────────────
+//
+// The actual ZIP read/validate now lives in `conva_core::archive` —
+// `load_archive_bytes` (Checkpoint E: moved so the wasm32 web adapter can
+// share the exact same implementation instead of a parallel one). This
+// function is the desktop-only remainder: read the file into memory, then
+// hand its bytes to the pure loader.
 
-/// Every declared payload's bytes, already checked against the manifest's
-/// length/hash. Buffered fully in memory — bounded by
-/// [`MAX_UNCOMPRESSED_BYTES`] (500 MiB), acceptable for a desktop v1; true
-/// zero-buffering streaming is a follow-up, not required by the size limits
-/// already enforced here.
-struct LoadedArchive {
-    manifest: ArchiveManifest,
-    archive_digest: String,
-    payloads: BTreeMap<String, Vec<u8>>,
-}
-
-impl LoadedArchive {
-    fn json<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>, CoreError> {
-        match self.payloads.get(path) {
-            Some(bytes) => Ok(Some(
-                serde_json::from_slice(bytes).map_err(|e| CoreError::Archive(e.to_string()))?,
-            )),
-            None => Ok(None),
-        }
-    }
-}
-
-/// Open, validate, and fully load a `.cva` at `path` — the one place every
-/// required-rejection check from spec §6.2 is enforced before any content is
-/// trusted. Side-effect-free: never writes anything, never touches the
-/// Context/conversation/RAG stores. Used by both `inspect` (which stops
-/// here) and `import` (which re-derives everything it persists from this
-/// same loaded, validated data — it does not trust a separate prior
-/// inspection call).
 fn load_archive(path: &Path) -> Result<LoadedArchive, CoreError> {
-    let archive_len = fs::metadata(path)
-        .map_err(|e| CoreError::Archive(format!("can't read '{}': {e}", path.display())))?
-        .len();
-    if archive_len > MAX_ARCHIVE_BYTES {
-        return Err(CoreError::Archive(
-            "archive exceeds the file size limit".into(),
-        ));
-    }
-    let archive_digest = {
-        let mut file = File::open(path).map_err(|e| CoreError::Archive(e.to_string()))?;
-        let mut hasher = Sha256::new();
-        let mut buf = [0u8; 64 * 1024];
-        loop {
-            let n = file
-                .read(&mut buf)
-                .map_err(|e| CoreError::Archive(e.to_string()))?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-        }
-        hasher
-            .finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
-    };
-
-    let file = File::open(path).map_err(|e| CoreError::Archive(e.to_string()))?;
-    let mut zip = zip::ZipArchive::new(file)
-        .map_err(|e| CoreError::Archive(format!("not a valid ZIP: {e}")))?;
-    if zip.len() > MAX_ENTRIES + 1 {
-        return Err(CoreError::Archive(
-            "archive exceeds the entry count limit".into(),
-        ));
-    }
-
-    let names: Vec<String> = (0..zip.len())
-        .filter_map(|i| zip.name_for_index(i).map(str::to_string))
-        .collect();
-
-    let manifest_bytes = {
-        let mut entry = zip
-            .by_name("manifest.json")
-            .map_err(|_| CoreError::Archive("missing manifest.json".into()))?;
-        if entry.is_dir() {
-            return Err(CoreError::Archive(
-                "manifest.json is not a regular entry".into(),
-            ));
-        }
-        let mut buf = Vec::new();
-        entry
-            .read_to_end(&mut buf)
-            .map_err(|e| CoreError::Archive(e.to_string()))?;
-        buf
-    };
-    let manifest: ArchiveManifest = serde_json::from_slice(&manifest_bytes)
-        .map_err(|e| CoreError::Archive(format!("invalid manifest.json: {e}")))?;
-    validate_manifest(&manifest)?;
-    if !is_supported_format_version(manifest.format_version) {
-        return Err(CoreError::Archive("unsupported .cva format version".into()));
-    }
-    validate_payload_names(&manifest, names.iter().map(String::as_str))?;
-
-    let mut payloads = BTreeMap::new();
-    let mut total = 0u64;
-    for declared in &manifest.entries {
-        let mut entry = zip.by_name(&declared.path).map_err(|_| {
-            CoreError::Archive(format!("missing declared entry '{}'", declared.path))
-        })?;
-        if entry.is_dir() {
-            return Err(CoreError::Archive(format!(
-                "'{}' is not a regular file entry",
-                declared.path
-            )));
-        }
-        // Reject symlinks/devices via the stored Unix mode when present
-        // (spec §6.2: "symlink, hard-link, device, or other non-regular
-        // entry"). Archives written on platforms without Unix permission
-        // bits (Windows) carry no such bit, so absence is not itself a
-        // rejection — only an explicit non-regular mode is.
-        if let Some(mode) = entry.unix_mode() {
-            const S_IFMT: u32 = 0o170000;
-            const S_IFREG: u32 = 0o100000;
-            if mode & S_IFMT != 0 && mode & S_IFMT != S_IFREG {
-                return Err(CoreError::Archive(format!(
-                    "'{}' is not a regular file",
-                    declared.path
-                )));
-            }
-        }
-        let compressed = entry.compressed_size();
-        let uncompressed = entry.size();
-        if uncompressed != declared.bytes {
-            return Err(CoreError::Archive(format!(
-                "'{}' length does not match the manifest",
-                declared.path
-            )));
-        }
-        if uncompressed > MAX_ENTRY_BYTES {
-            return Err(CoreError::Archive(
-                "archive entry exceeds the size limit".into(),
-            ));
-        }
-        if compressed > 0
-            && uncompressed / compressed.max(1) > conva_core::archive::MAX_COMPRESSION_RATIO
-        {
-            return Err(CoreError::Archive(
-                "archive entry exceeds the compression ratio limit".into(),
-            ));
-        }
-        total = total
-            .checked_add(uncompressed)
-            .filter(|t| *t <= MAX_UNCOMPRESSED_BYTES)
-            .ok_or_else(|| {
-                CoreError::Archive("archive exceeds the uncompressed size limit".into())
-            })?;
-
-        let mut buf = Vec::with_capacity(uncompressed as usize);
-        entry
-            .read_to_end(&mut buf)
-            .map_err(|e| CoreError::Archive(e.to_string()))?;
-        if sha256_hex(&buf) != declared.sha256 {
-            return Err(CoreError::Archive(format!(
-                "'{}' does not match its declared checksum",
-                declared.path
-            )));
-        }
-        payloads.insert(declared.path.clone(), buf);
-    }
-    let _ = total;
-
-    Ok(LoadedArchive {
-        manifest,
-        archive_digest,
-        payloads,
-    })
+    let bytes = fs::read(path)
+        .map_err(|e| CoreError::Archive(format!("can't read '{}': {e}", path.display())))?;
+    load_archive_bytes(&bytes)
 }
 
 // ── Import provenance ledger ─────────────────────────────────────────────
@@ -802,41 +617,12 @@ pub fn record_imported_digest(ledger_path: &Path, digest: &str) {
 }
 
 // ── Inspect ───────────────────────────────────────────────────────────────
-
-fn context_preview(
-    context: &PortableContextV1,
-    has_source_documents: bool,
-) -> ArchiveContextPreview {
-    ArchiveContextPreview {
-        title: context.title.clone(),
-        category: context.category,
-        key_terms_count: context.key_terms.len() as u32,
-        prepared_qa_count: 0, // Q&A lives in generated text, not a countable field here.
-        has_source_documents,
-    }
-}
-
-fn conversation_preview(conversation: &PortableConversationV1) -> ArchiveConversationPreview {
-    let mut speakers = std::collections::HashSet::new();
-    let mut start = u64::MAX;
-    let mut end = 0u64;
-    for seg in &conversation.segments {
-        speakers.insert(seg.side);
-        start = start.min(seg.start_ms);
-        end = end.max(seg.end_ms);
-    }
-    ArchiveConversationPreview {
-        title: conversation.title.clone(),
-        created_at_unix_ms: conversation.created_at_unix_ms,
-        segment_count: conversation.segments.len() as u32,
-        speaker_count: speakers.len() as u32,
-        duration_ms: end.saturating_sub(if start == u64::MAX { 0 } else { start }),
-        has_claim_review: conversation
-            .claim_snapshots
-            .iter()
-            .any(|s| !s.claims.is_empty()),
-    }
-}
+//
+// The actual preview assembly now lives in `conva_core::archive::
+// inspect_loaded` (Checkpoint E: moved alongside the ZIP reader/writer for
+// the same reason — the wasm32 web adapter builds the identical
+// `ArchiveInspection` from the identical loaded archive, not a parallel
+// implementation of it).
 
 /// Side-effect-free preview (spec §8.3/Checkpoint C). Selecting a file for
 /// inspection never creates a record — this function only reads.
@@ -845,98 +631,16 @@ pub fn inspect(
     previously_imported_digests: &BTreeSet<String>,
 ) -> Result<ArchiveInspection, CoreError> {
     let loaded = load_archive(path)?;
-    let context: Option<PortableContextV1> = loaded.json("context/context.json")?;
-    let conversation: Option<PortableConversationV1> =
-        loaded.json("conversation/conversation.json")?;
-    let documents: Vec<PortableDocumentV1> =
-        loaded.json("documents/index.json")?.unwrap_or_default();
-    let artifacts: Vec<PortableGeneratedArtifactV1> =
-        loaded.json("generated/index.json")?.unwrap_or_default();
-    if let Some(context) = &context {
-        validate_document_index(context, &documents, &artifacts)?;
-    }
-
-    let artifact_doc_ids: BTreeSet<&str> =
-        artifacts.iter().map(|a| a.document_id.as_str()).collect();
-    let has_source_documents = documents
-        .iter()
-        .any(|d| d.archive_path.is_some() && !artifact_doc_ids.contains(d.id.as_str()));
-
-    let mut warnings = Vec::new();
-    if previously_imported_digests.contains(&loaded.archive_digest) {
-        warnings.push(ArchiveCompatibilityWarning::DuplicateArchiveDigest);
-    }
-    if loaded.manifest.format_version != FORMAT_VERSION {
-        warnings.push(ArchiveCompatibilityWarning::MigratedFromOlderVersion {
-            from_format_version: loaded.manifest.format_version,
-        });
-    }
-    let document_previews: Vec<ArchiveDocumentPreview> = documents
-        .iter()
-        .map(|d| ArchiveDocumentPreview {
-            portable_id: d.id.clone(),
-            file_name: d.file_name.clone(),
-            bytes: d.bytes,
-            included: d.archive_path.is_some() || artifact_doc_ids.contains(d.id.as_str()),
-        })
-        .collect();
-
-    Ok(ArchiveInspection {
-        archive_digest: loaded.archive_digest,
-        format_version: loaded.manifest.format_version,
-        created_by_app_version: loaded.manifest.created_by.app_version.clone(),
-        created_at: loaded.manifest.created_at.clone(),
-        title: loaded.manifest.title.clone(),
-        context: context.map(|c| context_preview(&c, has_source_documents)),
-        conversation: conversation.as_ref().map(conversation_preview),
-        documents: document_previews,
-        warnings,
-    })
+    inspect_loaded(&loaded, previously_imported_digests)
 }
 
 // ── Import ────────────────────────────────────────────────────────────────
-
-/// Drop references to documents that were not actually staged (omitted:
-/// metadata-only, excluded by the user, or failed ingestion) before handing
-/// the portable Context to `archive_payload::import_context`, which requires
-/// *every* reference to resolve — the "does the user continue without this
-/// document" policy decision (spec §6.3) lives here, at the shell layer, not
-/// in the pure crate.
-fn filter_context_doc_refs(
-    mut portable: PortableContextV1,
-    available: &BTreeSet<String>,
-) -> PortableContextV1 {
-    portable.source_doc_ids.retain(|id| available.contains(id));
-    for docs in portable.slot_doc_ids.values_mut() {
-        docs.retain(|id| available.contains(id));
-    }
-    portable.slot_doc_ids.retain(|_, docs| !docs.is_empty());
-    if portable
-        .dossier_doc_id
-        .as_ref()
-        .is_some_and(|id| !available.contains(id))
-    {
-        portable.dossier_doc_id = None;
-    }
-    if portable
-        .research_doc_id
-        .as_ref()
-        .is_some_and(|id| !available.contains(id))
-    {
-        portable.research_doc_id = None;
-    }
-    if portable
-        .qa_doc_id
-        .as_ref()
-        .is_some_and(|id| !available.contains(id))
-    {
-        portable.qa_doc_id = None;
-    }
-    if let Some(profile) = &mut portable.knowledge_profile {
-        profile.doc_ids.retain(|id| available.contains(id));
-    }
-    portable
-}
+//
+// `filter_context_doc_refs` (the "does the user continue without this
+// document" policy step, spec §6.3) moved to `conva_core::archive_payload`
+// in the Checkpoint E import slice, so `conva-core-wasm` can reuse the exact
+// same logic for web import rather than a parallel TS reimplementation —
+// imported above alongside the rest of this module's `archive_payload` uses.
 
 fn filter_conversation_doc_refs(
     mut portable: PortableConversationV1,
