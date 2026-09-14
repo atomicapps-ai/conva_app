@@ -1,0 +1,66 @@
+{
+  "format": "conva-archive",
+  "format_version": 1,
+  "created_at": "2026-09-09T20:15:00Z",
+  "created_by": {
+    "app": "conva",
+    "app_version": "0.4.0"
+  },
+  "title": "Nolan Wells Case",
+  "contents": {
+    "context": true,
+    "conversation": true,
+    "documents": 5,
+    "generated_artifacts": 3
+  },
+  "entries": [
+    {
+      "path": "context/context.json",
+      "media_type": "application/json",
+      "bytes": 2650,
+      "sha256": "79c414308c225abeb1e9456591f818bccdbb22b54babd7ca516a7c22886137b7"
+    },
+    {
+      "path": "conversation/conversation.json",
+      "media_type": "application/json",
+      "bytes": 4252,
+      "sha256": "16df24f8ed90c66660eba5cfe153fac04d45db94c131f81e99e785ad1d236d19"
+    },
+    {
+      "path": "documents/index.json",
+      "media_type": "application/json",
+      "bytes": 1302,
+      "sha256": "8a381b545b5b6e52174b42878a38e58ca06f1f1a46157f9070e3c6657b335832"
+    },
+    {
+      "path": "generated/index.json",
+      "media_type": "application/json",
+      "bytes": 480,
+      "sha256": "4e1338b9a8a333d534c26b6d467d984aedac9b28dd2bf55d9b048b506846aea9"
+    },
+    {
+      "path": "documents/files/doc-resume",
+      "media_type": "application/pdf",
+      "bytes": 24,
+      "sha256": "9eb006e85971cb31446b363c179cb88838c70e11d6ff7d19504458f10603adb9"
+    },
+    {
+      "path": "generated/files/doc-dossier.md",
+      "media_type": "text/markdown",
+      "bytes": 76,
+      "sha256": "d60d7547fb5184598722361cbfc62b22f61adfe774ae0dd1f61d7d9cf99ca66e"
+    },
+    {
+      "path": "generated/files/doc-research.md",
+      "media_type": "text/markdown",
+      "bytes": 65,
+      "sha256": "43aa9c7ebabeaae57e231dc0a9b30b3ec3e496591be767cb5482b3cbe66cc166"
+    },
+    {
+      "path": "generated/files/doc-qa.md",
+      "media_type": "text/markdown",
+      "bytes": 62,
+      "sha256": "2883288370b20251faebb3926140c532365fe997b9eb45166c19fd079e3060fc"
+    }
+  ]
+}

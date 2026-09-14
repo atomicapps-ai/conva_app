@@ -76,7 +76,7 @@ vi.mock("@/lib/commands", () => {
 
 import { DESKTOP_CAPABILITIES } from "@/lib/backend/capabilities";
 import { sourceOfKind, type RuntimeProbe } from "@/lib/backend/capabilitySnapshot";
-import { DESKTOP_UNKNOWN_SESSION, TauriBackend } from "@/lib/backend/tauri";
+import { DESKTOP_UNKNOWN_SESSION, TauriBackend, UnimplementedOnDesktopError } from "@/lib/backend/tauri";
 import { conversationToEvents } from "@/lib/capture/legacy";
 
 const windows: RuntimeProbe = {
@@ -200,5 +200,17 @@ describe("TauriBackend — M0 additions", () => {
 
     off();
     expect(unlistenCalls.sort()).toEqual(["conva://session-state", "conva://transcript-segment"]);
+  });
+
+  it(".cva archive operations honestly reject — no Tauri command exists yet (checkpoint A)", async () => {
+    const b = new TauriBackend(windows);
+    await expect(
+      b.archive.exportArchive(
+        { kind: "context", context_id: "ctx-1" },
+        { include_source_documents: false },
+        "op-1",
+      ),
+    ).rejects.toThrow(/archive.exportArchive/);
+    await expect(b.archive.cancel("op-1")).rejects.toBeInstanceOf(UnimplementedOnDesktopError);
   });
 });

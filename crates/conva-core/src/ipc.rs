@@ -48,6 +48,9 @@ pub mod events {
     pub const SPLASH_PROGRESS: &str = "conva://splash-progress";
     /// Payload: [`super::ContextGenerateProgressEvent`]
     pub const CONTEXT_GENERATE_PROGRESS: &str = "conva://context-generate-progress";
+    /// Payload: [`super::ArchiveProgressEvent`]. No adapter emits this yet
+    /// (checkpoint A defines the contract only).
+    pub const ARCHIVE_PROGRESS: &str = "conva://archive-progress";
 }
 
 /// Re-exported so the IPC module is a one-stop description of the wire.
@@ -301,6 +304,194 @@ pub struct AllyChunkEvent {
     pub error: Option<String>,
 }
 
+// ── `.cva` archive operation contract (checkpoint A) ────────────────────────
+//
+// MAINTENANCE: this is the OPERATION-level contract the shared UI/backend
+// call through (`ConvaBackend.archive` in `src/lib/backend/ConvaBackend.ts`,
+// mirrored in `src/lib/ipc.ts`) — distinct from the pure portable DTOs in
+// `archive.rs`/`archive_payload.rs`/`archive_conversation.rs`, which never
+// cross this boundary directly (an inspection preview is a deliberately
+// reduced, sanitized view — never a raw portable payload, file path, or
+// opaque backend handle; see `.cva` spec §8.3/§9). No adapter implements
+// these operations yet (checkpoint B+): every capability answers
+// `unimplemented` until real ZIP I/O and persistence exist behind it. A
+// field/shape change here is illustrative-contract churn until then, but
+// still updates the TypeScript mirror and `ConvaBackend` in the same commit.
+
+/// What to export: a Context alone, or a saved conversation optionally
+/// bundled with its linked Context (spec §2.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ArchiveExportScope {
+    Context {
+        context_id: String,
+    },
+    Conversation {
+        conversation_id: String,
+        include_context: bool,
+    },
+}
+
+/// User choice controlling source-document inclusion (spec §2.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveExportOptions {
+    pub include_source_documents: bool,
+}
+
+/// A coarse, content-free size/privacy estimate shown before the user
+/// commits to writing the file (spec §8.2). Never a preview of document or
+/// transcript text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveExportEstimate {
+    pub document_count: u32,
+    pub estimated_bytes: u64,
+    pub includes_source_documents: bool,
+}
+
+/// Result of a completed export.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveExportResult {
+    /// Desktop: the saved file path. Web: an opaque download reference the
+    /// UI already used to trigger the browser download — never a raw local
+    /// path on either platform beyond what the OS save dialog itself shows.
+    pub destination: String,
+    pub archive_digest: String,
+    pub bytes: u64,
+}
+
+/// Sanitized summary of one Context inside an inspected archive — never the
+/// raw `PortableContextV1`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveContextPreview {
+    pub title: String,
+    pub category: crate::context::ContextCategory,
+    pub key_terms_count: u32,
+    pub prepared_qa_count: u32,
+    pub has_source_documents: bool,
+}
+
+/// Sanitized summary of one conversation inside an inspected archive.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveConversationPreview {
+    pub title: String,
+    pub created_at_unix_ms: u64,
+    pub segment_count: u32,
+    pub speaker_count: u32,
+    pub duration_ms: u64,
+    pub has_claim_review: bool,
+}
+
+/// One document/generated-artifact entry as shown in the import preview
+/// (spec §8.3) — `included` is false for a metadata-only reference whose
+/// original bytes were not part of this export.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveDocumentPreview {
+    pub portable_id: String,
+    pub file_name: String,
+    pub bytes: Option<u64>,
+    pub included: bool,
+}
+
+/// Non-blocking compatibility/duplicate signals shown in the import preview
+/// (spec §7.2). Never a reason to refuse the preview itself — only to shape
+/// the default "Import as copy" choice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ArchiveCompatibilityWarning {
+    DuplicateArchiveDigest,
+    DuplicateDocument { portable_id: String },
+    PossibleDuplicateContext,
+    PossibleDuplicateConversation,
+    UnsupportedDocument { portable_id: String, reason: String },
+    MigratedFromOlderVersion { from_format_version: u32 },
+}
+
+/// Side-effect-free preview of a selected/uploaded `.cva`. Selecting a file
+/// must never itself create a record (spec §8.3) — this is the entire
+/// result of that inspection step.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveInspection {
+    pub archive_digest: String,
+    pub format_version: u32,
+    pub created_by_app_version: String,
+    pub created_at: String,
+    pub title: String,
+    pub context: Option<ArchiveContextPreview>,
+    pub conversation: Option<ArchiveConversationPreview>,
+    pub documents: Vec<ArchiveDocumentPreview>,
+    pub warnings: Vec<ArchiveCompatibilityWarning>,
+}
+
+/// User decisions confirmed on the import preview screen (spec §8.3):
+/// editable destination titles plus which previewed documents to actually
+/// bring in vs. reuse an existing identical one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveImportOptions {
+    #[serde(default)]
+    pub context_title: Option<String>,
+    #[serde(default)]
+    pub conversation_title: Option<String>,
+    pub include_document_ids: Vec<String>,
+    #[serde(default)]
+    pub reuse_exact_document_ids: Vec<String>,
+}
+
+/// One document the importer declined to bring in, with a user-facing
+/// reason (spec §5.3/§6.3) — the import itself still succeeds for the rest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveOmittedDocument {
+    pub portable_id: String,
+    pub reason: String,
+}
+
+/// Result of a completed import (spec §8.3/§9). IDs are always freshly
+/// minted destination IDs — an import never reuses a portable/source ID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchiveImportResult {
+    pub context_id: Option<String>,
+    pub conversation_id: Option<String>,
+    pub imported_document_ids: Vec<String>,
+    pub reused_document_ids: Vec<String>,
+    pub omitted_documents: Vec<ArchiveOmittedDocument>,
+}
+
+/// Streamed progress for an in-flight export/import/inspect operation (spec
+/// §10) — `operation_id` scopes cancellation and lets the UI ignore stale
+/// events from an operation it already gave up on. Never carries transcript
+/// or document content, only coarse counts and a safe display message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "phase", rename_all = "snake_case")]
+pub enum ArchiveProgressEvent {
+    Hashing {
+        operation_id: String,
+        processed_bytes: u64,
+        total_bytes: u64,
+    },
+    WritingEntries {
+        operation_id: String,
+        processed_items: u32,
+        total_items: u32,
+    },
+    Validating {
+        operation_id: String,
+    },
+    Importing {
+        operation_id: String,
+        processed_items: u32,
+        total_items: u32,
+    },
+    Completed {
+        operation_id: String,
+    },
+    Cancelled {
+        operation_id: String,
+    },
+    Failed {
+        operation_id: String,
+        message: String,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,5 +620,77 @@ mod tests {
         let json = serde_json::to_value(SplashProgressEvent::Started { percent: 0 }).unwrap();
         assert_eq!(json["stage"], "started");
         assert_eq!(json["percent"], 0);
+    }
+
+    #[test]
+    fn archive_export_scope_tags_context_and_conversation_variants() {
+        let context_scope = ArchiveExportScope::Context {
+            context_id: "ctx-1".into(),
+        };
+        let json = serde_json::to_value(&context_scope).unwrap();
+        assert_eq!(json["kind"], "context");
+        assert_eq!(json["context_id"], "ctx-1");
+
+        let conversation_scope = ArchiveExportScope::Conversation {
+            conversation_id: "conv-1".into(),
+            include_context: true,
+        };
+        let json = serde_json::to_value(&conversation_scope).unwrap();
+        assert_eq!(json["kind"], "conversation");
+        assert_eq!(json["include_context"], true);
+    }
+
+    #[test]
+    fn archive_compatibility_warning_round_trips_every_variant() {
+        let warnings = [
+            ArchiveCompatibilityWarning::DuplicateArchiveDigest,
+            ArchiveCompatibilityWarning::DuplicateDocument {
+                portable_id: "doc-1".into(),
+            },
+            ArchiveCompatibilityWarning::PossibleDuplicateContext,
+            ArchiveCompatibilityWarning::PossibleDuplicateConversation,
+            ArchiveCompatibilityWarning::UnsupportedDocument {
+                portable_id: "doc-2".into(),
+                reason: "unsupported type".into(),
+            },
+            ArchiveCompatibilityWarning::MigratedFromOlderVersion {
+                from_format_version: 1,
+            },
+        ];
+        for warning in warnings {
+            let json = serde_json::to_string(&warning).unwrap();
+            let decoded: ArchiveCompatibilityWarning = serde_json::from_str(&json).unwrap();
+            assert_eq!(decoded, warning);
+        }
+    }
+
+    #[test]
+    fn archive_progress_event_tags_on_phase_and_scopes_by_operation_id() {
+        let event = ArchiveProgressEvent::Hashing {
+            operation_id: "op-1".into(),
+            processed_bytes: 10,
+            total_bytes: 100,
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["phase"], "hashing");
+        assert_eq!(json["operation_id"], "op-1");
+
+        let failed = ArchiveProgressEvent::Failed {
+            operation_id: "op-1".into(),
+            message: "disk full".into(),
+        };
+        let json = serde_json::to_value(&failed).unwrap();
+        assert_eq!(json["phase"], "failed");
+        assert_eq!(json["message"], "disk full");
+    }
+
+    #[test]
+    fn archive_import_options_default_optional_titles_and_reuse_list() {
+        let json = serde_json::json!({ "include_document_ids": ["doc-1"] });
+        let options: ArchiveImportOptions = serde_json::from_value(json).unwrap();
+        assert_eq!(options.context_title, None);
+        assert_eq!(options.conversation_title, None);
+        assert!(options.reuse_exact_document_ids.is_empty());
+        assert_eq!(options.include_document_ids, ["doc-1"]);
     }
 }

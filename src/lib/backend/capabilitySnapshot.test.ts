@@ -97,7 +97,20 @@ describe("available vs unsupported vs unimplemented", () => {
     // Desktop: every shell command is available; the PAL-only per-source
     // capture control (start/stop/status/subscribe) is honestly unimplemented
     // because both sides start together on session.start().
-    const desktopUnimplemented = new Set(["capture.start", "capture.stop", "capture.recover", "capture.status", "capture.subscribe"]);
+    const desktopUnimplemented = new Set([
+      "capture.start",
+      "capture.stop",
+      "capture.recover",
+      "capture.status",
+      "capture.subscribe",
+      // `.cva` import/export: checkpoint A defines the contract only, no
+      // adapter (ZIP I/O, persistence) exists yet on any platform.
+      "archive.estimateExport",
+      "archive.exportArchive",
+      "archive.inspectArchive",
+      "archive.importArchive",
+      "archive.cancel",
+    ]);
     // Desktop ingests files by path; browser File uploads (cp10) are the web path.
     const desktopUnsupported = new Set(["rag.upload"]);
     for (const op of ALL_OPERATIONS) {

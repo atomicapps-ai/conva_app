@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { CATEGORIES, categoryTemplate, researchDefault } from "@/components/context/categoryTemplates";
+import { contextStarter } from "@/components/context/contextStarters";
 import {
   ClaimPolicyControls,
   ParticipationLensControl,
@@ -492,7 +493,7 @@ export function ContextSetup({
                 className="input"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Senior Accountant interview with the CFO"
+                placeholder={contextStarter(category).namePlaceholder}
               />
             </label>
             <label className="field">
@@ -502,7 +503,7 @@ export function ContextSetup({
                 rows={3}
                 value={purpose}
                 onChange={(e) => setPurpose(e.target.value)}
-                placeholder="Prep for technical GAAP questions and leadership scenarios"
+                placeholder={contextStarter(category).purposePlaceholder}
               />
             </label>
             <div className="field">
@@ -717,7 +718,7 @@ export function ContextSetup({
               rows={3}
               value={keyTerms}
               onChange={(e) => setKeyTerms(e.target.value)}
-              placeholder={"pensive theory\ndeferred revenue\nSOC 2"}
+              placeholder={contextStarter(category).keyTermsPlaceholder}
             />
           </Section>
           {isDesktop && (

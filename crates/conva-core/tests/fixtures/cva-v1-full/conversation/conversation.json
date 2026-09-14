@@ -1,0 +1,137 @@
+{
+  "id": "conv-nolan-wells",
+  "title": "Nolan Wells Case",
+  "created_at_unix_ms": 1726000500000,
+  "updated_at_unix_ms": 1726003600000,
+  "segments": [
+    {
+      "side": "outbound",
+      "seq": 0,
+      "text": "Can you walk me through the year-end close?",
+      "is_final": true,
+      "start_ms": 0,
+      "end_ms": 2200,
+      "confidence": 0.96,
+      "latency_ms": 190
+    },
+    {
+      "side": "inbound",
+      "seq": 1,
+      "text": "The reconciliation had 7 open items at close.",
+      "is_final": true,
+      "start_ms": 2300,
+      "end_ms": 4600,
+      "confidence": 0.94,
+      "latency_ms": 205
+    }
+  ],
+  "linked_docs": [
+    "doc-resume"
+  ],
+  "linked_context_id": "ctx-nolan-wells",
+  "source_session_ids": [
+    "session-nolan-wells-1"
+  ],
+  "claim_snapshots": [
+    {
+      "session_id": "session-nolan-wells-1",
+      "epoch": 0,
+      "revision": 1,
+      "claims": [
+        {
+          "id": "claim-reconciliation",
+          "source_segment_ids": [
+            "inbound:1"
+          ],
+          "speaker_side": "inbound",
+          "speaker_label": "Nolan Wells",
+          "exact_quote": "The reconciliation had 7 open items at close.",
+          "normalized_proposition": "the reconciliation had 7 open items at close",
+          "predicate": "had",
+          "subject": "the reconciliation",
+          "object": null,
+          "frame_kind": "claim",
+          "attribution_chain": [
+            {
+              "source_label": "Nolan Wells",
+              "reporting_verb": "stated",
+              "directness": "direct_statement"
+            }
+          ],
+          "qualifiers": [
+            {
+              "kind": "quantity",
+              "value": "7",
+              "unit": "open items"
+            }
+          ],
+          "references": [
+            {
+              "surface_text": "the reconciliation",
+              "kind": "artifact",
+              "required_for_verification": false,
+              "resolved_target_id": null,
+              "candidates": []
+            }
+          ],
+          "modality": "asserted",
+          "negated": false,
+          "sensitivity": "internal",
+          "consequence": "medium",
+          "importance_reasons": [
+            "specific_and_checkable"
+          ],
+          "state": "supported",
+          "recommended_action": "verify",
+          "policy_id": "default-interview",
+          "policy_version": 1,
+          "extraction_confidence": "high",
+          "resolution_confidence": "high",
+          "claim_confidence": "strong",
+          "evidence": [
+            {
+              "source_id": "doc-dossier-excerpt",
+              "source_class": "context_document",
+              "publisher": "Internal audit file",
+              "title": "Year-end close reconciliation",
+              "url": null,
+              "local_document_id": "doc-dossier",
+              "excerpt": "7 items remained open at close.",
+              "addressed_claim_part": "the underlying proposition",
+              "scope": "underlying_proposition",
+              "stance": "supports",
+              "quality": {
+                "authority": "strong",
+                "directness": "strong",
+                "specificity": "adequate",
+                "freshness": "adequate",
+                "independence": "adequate",
+                "completeness": "adequate",
+                "provenance": "strong"
+              },
+              "independence_group": "internal-audit",
+              "admission": {
+                "decision": "admitted"
+              },
+              "admission_policy_id": "default-interview",
+              "admission_policy_version": 1,
+              "published_at_unix_ms": 1726001500000,
+              "retrieved_at_unix_ms": 1726001600000
+            }
+          ],
+          "corrections": [
+            {
+              "kind": "proposition",
+              "previous_value": "the reconciliation had 8 open items at close",
+              "corrected_value": "the reconciliation had 7 open items at close",
+              "corrected_by": "user",
+              "created_at_unix_ms": 1726001700000
+            }
+          ],
+          "created_at_unix_ms": 1726001000000,
+          "updated_at_unix_ms": 1726001800000
+        }
+      ]
+    }
+  ]
+}

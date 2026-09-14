@@ -552,3 +552,32 @@ describe("WebBackend — hosted-processing notice (M2 cp16)", () => {
     expect(old.capabilityStore.snapshot().operations["session.start"].state).toBe("available");
   });
 });
+
+describe("WebBackend — .cva archive (checkpoint A, no hosted endpoint yet)", () => {
+  beforeEach(() => {
+    webAuth._resetForTests();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url === "/api/live/status") return json(STATUS_OFF);
+        if (url === "/api/app/session") return json({ signed_in: false, configured: true });
+        return json({ error: "not_found" }, 404);
+      }),
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("every archive operation rejects — checkpoint A defines the contract only", async () => {
+    const b = new WebBackend(chromeWindows);
+    await expect(
+      b.archive.exportArchive(
+        { kind: "context", context_id: "ctx-1" },
+        { include_source_documents: false },
+        "op-1",
+      ),
+    ).rejects.toThrow(/archives\/export/);
+    await expect(b.archive.cancel("op-1")).rejects.toThrow(/not implemented yet/);
+  });
+});

@@ -459,6 +459,13 @@ export class FakeBackend implements ConvaBackend {
     setLocked: nc("partner.setLocked"),
     locked: nc("partner.locked"),
   };
+  archive = {
+    estimateExport: nc("archive.estimateExport"),
+    exportArchive: nc("archive.exportArchive"),
+    inspectArchive: nc("archive.inspectArchive"),
+    importArchive: nc("archive.importArchive"),
+    cancel: nc("archive.cancel"),
+  };
 }
 
 /** A method that honestly rejects as "not configured". */

@@ -11,6 +11,7 @@
 import type {
   AllyChunkEvent,
   AllySourcesEvent,
+  ArchiveProgressEvent,
   AudioLevelEvent,
   AuthChangedEvent,
   CaptureEvent,
@@ -44,6 +45,8 @@ export interface EventMap {
   partnerLock: PartnerLockEvent;
   splashProgress: SplashProgressEvent;
   contextGenerateProgress: ContextGenerateProgressEvent;
+  /** No adapter emits this yet (checkpoint A defines the contract only). */
+  archiveProgress: ArchiveProgressEvent;
 }
 
 /** Handle returned by `subscribe`; call to stop receiving the event. */
@@ -70,4 +73,5 @@ export const EVENT_CHANNEL: Record<keyof EventMap, string> = {
   partnerLock: "conva://partner-lock",
   splashProgress: "conva://splash-progress",
   contextGenerateProgress: "conva://context-generate-progress",
+  archiveProgress: "conva://archive-progress",
 };

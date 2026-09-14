@@ -1,0 +1,108 @@
+{
+  "id": "ctx-nolan-wells",
+  "title": "Nolan Wells Case",
+  "purpose": "Prepare for the Nolan Wells deposition",
+  "job_description": "Senior Accountant",
+  "category": "interview",
+  "participation_lens": "interviewee",
+  "source_policy": {
+    "id": "default-interview",
+    "version": 1,
+    "allowed_classes": [
+      "context_document",
+      "approved_internal_repository",
+      "primary_official",
+      "recognized_reporting",
+      "specialist_reference"
+    ],
+    "allowed_domains": [],
+    "blocked_domains": [],
+    "allow_open_web": true,
+    "allow_normalized_claim_egress": true,
+    "allow_private_claim_egress": false,
+    "allow_cached_evidence": true,
+    "allow_automatic_checks": true,
+    "freshness_window_hours": 720,
+    "minimum_independent_sources": 1,
+    "high_consequence_requirement": "primary_official_or_independent_reports"
+  },
+  "created_at_unix_ms": 1726000000000,
+  "updated_at_unix_ms": 1726003600000,
+  "source_doc_ids": [
+    "doc-resume",
+    "doc-jd"
+  ],
+  "slot_doc_ids": {
+    "job_description": [
+      "doc-jd"
+    ],
+    "resume": [
+      "doc-resume"
+    ]
+  },
+  "auto_generate_context": true,
+  "research_enabled": true,
+  "deep_qa_enabled": true,
+  "key_terms": [
+    "GAAP",
+    "deposition"
+  ],
+  "glossary": [
+    "GAAP"
+  ],
+  "glossary_definitions": {
+    "GAAP": "Generally Accepted Accounting Principles"
+  },
+  "knowledge_profile": {
+    "id": "kp-1",
+    "title": "Nolan Wells knowledge",
+    "created_at_unix_ms": 1726000000000,
+    "updated_at_unix_ms": 1726001000000,
+    "doc_ids": [
+      "doc-resume",
+      "doc-jd",
+      "doc-dossier",
+      "doc-research",
+      "doc-qa"
+    ],
+    "research": [
+      {
+        "title": "GAAP overview",
+        "url": "https://example.com/gaap",
+        "snippet": "GAAP is the common set of accounting standards.",
+        "fetched_at_unix_ms": 1726000500000
+      }
+    ],
+    "ready": true
+  },
+  "personas": [
+    {
+      "id": "persona-1",
+      "title": "Skeptical opposing counsel",
+      "summary": "Probes inconsistencies in financial testimony.",
+      "style_tags": [
+        "skeptical",
+        "detail-oriented"
+      ],
+      "recommended": true,
+      "gender": "female"
+    }
+  ],
+  "chosen_persona_id": "persona-1",
+  "conversation_id": "conv-nolan-wells",
+  "dossier_doc_id": "doc-dossier",
+  "research_doc_id": "doc-research",
+  "qa_doc_id": "doc-qa",
+  "resources_stale": false,
+  "resources_generated_at_unix_ms": 1726002000000,
+  "suggestion_decisions": {
+    "qa:1": {
+      "status": "accepted",
+      "edited_value": null
+    },
+    "qa:2": {
+      "status": "dismissed",
+      "edited_value": null
+    }
+  }
+}
