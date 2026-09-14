@@ -320,11 +320,10 @@ export function desktopSnapshot(
       "capture.status": unimplemented(DESKTOP_CAPTURE),
       "capture.subscribe": unimplemented(DESKTOP_CAPTURE),
       "rag.upload": unsupported("Desktop ingests files by path (rag.ingest); browser uploads are the web path."),
-      "archive.estimateExport": unimplemented(ARCHIVE_CHECKPOINT_A),
-      "archive.exportArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
-      "archive.inspectArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
-      "archive.importArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
-      "archive.cancel": unimplemented(ARCHIVE_CHECKPOINT_A),
+      // `.cva` archive (Checkpoints B/C/D): real ZIP I/O + persistence now
+      // backs every desktop archive.* operation (archive.rs, archive_*
+      // Tauri commands) — falls through to the uniform AVAILABLE default.
+      // Web (Checkpoint E) is not implemented; see `ARCHIVE_WEB_NOT_IMPLEMENTED`.
     },
   };
 }
@@ -332,11 +331,13 @@ export function desktopSnapshot(
 const DESKTOP_CAPTURE =
   "Desktop starts microphone and system audio together on session.start(); per-source control is not a shell command yet.";
 
-/** `.cva` import/export (checkpoint A defines the contract only — no ZIP
- *  reader/writer or Tauri command exists yet). Never report this as
- *  available before a real adapter backs it. */
-const ARCHIVE_CHECKPOINT_A =
-  "`.cva` import/export is not implemented yet (checkpoint A defines the contract only).";
+/** `.cva` import/export on the web adapter (Checkpoint E: browser file
+ *  selection/download + hosted inspect/import/export). Desktop is real as
+ *  of Checkpoints B/C/D — see `archive.rs`; only the web path is still
+ *  unimplemented. Never report this as available before a real adapter
+ *  backs it. */
+const ARCHIVE_WEB_NOT_IMPLEMENTED =
+  "`.cva` import/export is not implemented on the web adapter yet (architecture Checkpoint E).";
 
 // ── Web (browser) ────────────────────────────────────────────────────────────
 
@@ -533,11 +534,11 @@ export function webOperations(): OperationAvailability {
     "partner.payload": unsupported(NO_OS_WINDOW),
     "partner.setLocked": unsupported(NO_OS_WINDOW),
     "partner.locked": unsupported(NO_OS_WINDOW),
-    "archive.estimateExport": unimplemented(ARCHIVE_CHECKPOINT_A),
-    "archive.exportArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
-    "archive.inspectArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
-    "archive.importArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
-    "archive.cancel": unimplemented(ARCHIVE_CHECKPOINT_A),
+    "archive.estimateExport": unimplemented(ARCHIVE_WEB_NOT_IMPLEMENTED),
+    "archive.exportArchive": unimplemented(ARCHIVE_WEB_NOT_IMPLEMENTED),
+    "archive.inspectArchive": unimplemented(ARCHIVE_WEB_NOT_IMPLEMENTED),
+    "archive.importArchive": unimplemented(ARCHIVE_WEB_NOT_IMPLEMENTED),
+    "archive.cancel": unimplemented(ARCHIVE_WEB_NOT_IMPLEMENTED),
   };
 }
 

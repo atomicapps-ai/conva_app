@@ -103,13 +103,6 @@ describe("available vs unsupported vs unimplemented", () => {
       "capture.recover",
       "capture.status",
       "capture.subscribe",
-      // `.cva` import/export: checkpoint A defines the contract only, no
-      // adapter (ZIP I/O, persistence) exists yet on any platform.
-      "archive.estimateExport",
-      "archive.exportArchive",
-      "archive.inspectArchive",
-      "archive.importArchive",
-      "archive.cancel",
     ]);
     // Desktop ingests files by path; browser File uploads (cp10) are the web path.
     const desktopUnsupported = new Set(["rag.upload"]);

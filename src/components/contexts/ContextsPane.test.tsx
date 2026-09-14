@@ -53,6 +53,8 @@ const defaultProps = {
   onDelete: noop,
   onGenerate: noop,
   onAttach: noop,
+  onExport: noop,
+  onImport: noop,
   generatingId: null,
   widthPx: 400,
   onResize: noop,
@@ -148,6 +150,16 @@ describe("ContextsPane", () => {
     expect(screen.getByText(/delete “acme interview”/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /delete context/i }));
     expect(onDelete).toHaveBeenCalledWith("s1");
+  });
+
+  it("Export .cva lives in the overflow menu and fires immediately (no confirmation step)", () => {
+    const onExport = vi.fn();
+    renderPane(
+      <ContextsPane {...defaultProps} items={[summary({ has_key_terms: true })]} onExport={onExport} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /more actions for acme interview/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /export \.cva/i }));
+    expect(onExport).toHaveBeenCalledWith("s1");
   });
 
   it("selecting a context never highlights the row body — only the doc-count icon reflects it", () => {
