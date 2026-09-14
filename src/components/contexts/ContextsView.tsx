@@ -8,7 +8,8 @@ import { ContextSetup } from "@/components/context/ContextSetup";
 import { EmptyState, PageView, PrimaryButton } from "@/components/studio/PageView";
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
-import { DEFAULT_CONTEXT_ID, type ConversationContext, type ContextSummary } from "@/lib/ipc";
+import type { WebBackend } from "@/lib/backend/web";
+import { DEFAULT_CONTEXT_ID, type ArchiveInspection, type ConversationContext, type ContextSummary } from "@/lib/ipc";
 import { CENTER_MIN_PX, resolveLayout } from "@/lib/responsive";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useGroundingStore } from "@/state/grounding";
@@ -243,6 +244,45 @@ export function ContextsView() {
     }
   };
 
+  // `.cva` inspect on web (Checkpoint E, part 1 — verification surface, not
+  // the designed feature: see the render site in ContextsPane.tsx's
+  // `!isDesktop` block and the implementation handoff's "Known gaps" #2).
+  // `archive.inspectArchive` is the one real web archive operation today;
+  // this proves it end to end from a real click, not just from a test
+  // harness or a Node/Playwright script. `prepareLocalFile` is web-only —
+  // not part of the shared `ConvaBackend` contract (same reasoning as
+  // desktop's native dialog living only in `tauri.ts`) — hence the cast,
+  // only ever exercised behind `isDesktop` being false.
+  const testInspectFileInputRef = useRef<HTMLInputElement>(null);
+  const testInspectArchive = () => testInspectFileInputRef.current?.click();
+  const onTestInspectFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file next time
+    if (!file) return;
+    const operationId = `archive-inspect-${Date.now()}`;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const digest = await (backend as WebBackend).archive.prepareLocalFile(bytes);
+      const inspection: ArchiveInspection = await backend.archive.inspectArchive(digest, operationId);
+      const lines = [
+        `Inspected "${inspection.title}" (preview only — web import isn't built yet).`,
+        inspection.context
+          ? `Context: ${inspection.context.title} (${inspection.context.category})`
+          : null,
+        inspection.conversation
+          ? `Conversation: ${inspection.conversation.title}, ${inspection.conversation.segment_count} segment(s)`
+          : null,
+        inspection.documents.length
+          ? `${inspection.documents.filter((d) => d.included).length} of ${inspection.documents.length} document(s) included`
+          : null,
+        inspection.warnings.length ? `${inspection.warnings.length} compatibility warning(s)` : null,
+      ].filter((line): line is string => line !== null);
+      window.alert(lines.join("\n"));
+    } catch (err) {
+      window.alert(`Couldn't inspect: ${String(err)}`);
+    }
+  };
+
   const activate = async (id: string) => {
     try {
       const ctx = await backend.context.activateContext(id);
@@ -335,6 +375,7 @@ export function ContextsView() {
             onGenerate={(id) => void generate(id)}
             onExport={(id) => void exportContextArchive(id)}
             onImport={() => void importContextArchive()}
+            onTestInspect={testInspectArchive}
             onAttach={(contextId, docId) => void attach(docId, contextId)}
             generatingId={generatingId}
             refreshToken={libraryRefreshToken}
@@ -461,6 +502,17 @@ export function ContextsView() {
           )}
         </div>
       )}
+      {/* Hidden native picker behind ContextsPane's web-only "Test .cva
+          inspect" button (Checkpoint E, part 1) — see testInspectArchive
+          above. Always mounted so the ref is stable; invisible either way
+          since the button that triggers it only renders on web. */}
+      <input
+        ref={testInspectFileInputRef}
+        type="file"
+        accept=".cva"
+        className="hidden"
+        onChange={(e) => void onTestInspectFileSelected(e)}
+      />
     </PageView>
   );
 }

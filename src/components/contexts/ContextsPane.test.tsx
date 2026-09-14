@@ -117,6 +117,20 @@ describe("ContextsPane", () => {
     expect(screen.queryByRole("button", { name: "Add a New Context" })).toBeNull();
   });
 
+  it("shows the .cva inspect button off-desktop only when onTestInspect is provided, and fires it (Checkpoint E)", () => {
+    // Absent when the caller doesn't pass a handler at all (matches
+    // defaultProps, which omits it) — e.g. before this checkpoint existed.
+    renderPane(<ContextsPane {...defaultProps} items={[]} />);
+    expect(screen.queryByRole("button", { name: /inspect a \.cva archive/i })).toBeNull();
+    cleanup();
+
+    const onTestInspect = vi.fn();
+    renderPane(<ContextsPane {...defaultProps} items={[]} onTestInspect={onTestInspect} />);
+    const btn = screen.getByRole("button", { name: /inspect a \.cva archive/i });
+    fireEvent.click(btn);
+    expect(onTestInspect).toHaveBeenCalledTimes(1);
+  });
+
   it("the primary row opens the context; Delete lives in the overflow menu and requires confirmation", () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();

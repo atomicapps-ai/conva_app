@@ -394,6 +394,7 @@ export function ContextsPane({
   onAttach,
   onExport,
   onImport,
+  onTestInspect,
   generatingId,
   refreshToken,
   widthPx,
@@ -415,6 +416,11 @@ export function ContextsPane({
   onExport: (contextId: string) => void;
   /** Pick a `.cva` and import it as a new Context (spec §8.1). */
   onImport: () => void;
+  /** Web only, Checkpoint E verification surface (not spec §8.1's designed
+   *  feature — see the render site below): pick a local `.cva` and show its
+   *  side-effect-free inspection. Optional so callers/tests that don't care
+   *  about the web path (e.g. desktop-only fixtures) need no changes. */
+  onTestInspect?: () => void;
   generatingId: string | null;
   /** Bump this to re-fetch the child-doc list (e.g. after an attach). */
   refreshToken?: number;
@@ -502,6 +508,29 @@ export function ContextsPane({
             >
               <Icon name="add" size={14} />
               <Icon name="simicon" size={13} />
+            </button>
+          </div>
+        )}
+        {!isDesktop && onTestInspect && (
+          <div className="flex shrink-0 items-center gap-1">
+            {/* `.cva` inspect on web (Checkpoint E, part 1 — verification
+             *  surface only, not spec §8.1/§8.3's designed import flow):
+             *  `archive.inspectArchive` is the one real, client-side,
+             *  WASM-backed web archive operation today. This button proves
+             *  it's reachable from the running app, not just from a test
+             *  harness — pick a `.cva`, see its side-effect-free preview.
+             *  Nothing is imported/persisted; export/import stay
+             *  desktop-only until the rest of Checkpoint E lands. Remove
+             *  (or replace with the real designed feature) once web import
+             *  is real — see the implementation handoff's "Known gaps". */}
+            <button
+              type="button"
+              onClick={onTestInspect}
+              title="Inspect a .cva archive (preview only — web import isn't built yet)"
+              aria-label="Inspect a .cva archive"
+              className="btn shrink-0 gap-1 px-2 py-1"
+            >
+              <Icon name="upload" size={14} />
             </button>
           </div>
         )}
