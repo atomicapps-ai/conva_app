@@ -41,6 +41,7 @@ import { downloadBlobFile, downloadName, downloadTextFile, transcriptMarkdown } 
 import { deleteContext, listContexts, loadContext, saveContext } from "@/lib/live/contextsClient";
 import { deleteConversation, listConversations, loadConversation, saveConversation } from "@/lib/live/conversationsClient";
 import { attachDocumentContext, deleteDocument, detachDocumentContext, documentText, downloadOriginal, ingestText, listDocuments, setDocumentEnabled, uploadDocument } from "@/lib/live/libraryClient";
+import { inspectLocalArchive, registerLocalArchiveFile } from "@/lib/live/archiveWasm";
 import { DEFAULT_CONTEXT_ID } from "@/lib/ipc";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
@@ -691,14 +692,28 @@ export class WebBackend implements ConvaBackend {
     locked: (): Promise<boolean> => Promise.resolve(false),
   };
 
-  // `.cva` archive: checkpoint A defines the contract only — no hosted
-  // endpoint exists yet. `capabilitySnapshot.ts` already reports these
-  // `unimplemented`, so the UI never offers the action in the first place.
+  // `.cva` archive: Checkpoint E, part 1. `inspectArchive` is real — see
+  // `archiveWasm.ts` — running the same Rust validator desktop uses,
+  // client-side, on a locally-selected file's bytes (never uploaded).
+  // export/import/estimate/cancel still have no hosted endpoint and stay
+  // `unimplemented` (`capabilitySnapshot.ts` reports them so, so the UI
+  // never offers those actions yet).
   archive = {
     estimateExport: (): Promise<ArchiveExportEstimate> => todo("POST /v1/archives/estimate"),
     exportArchive: (): Promise<ArchiveExportResult> => todo("POST /v1/archives/export"),
-    inspectArchive: (): Promise<ArchiveInspection> => todo("POST /v1/archives/inspect"),
+    /** `archiveDigest` must come from {@link registerLocalArchiveFile} (this
+     *  adapter's own extra method, not part of the shared `ConvaBackend`
+     *  contract — getting bytes out of a browser `File` is adapter-specific,
+     *  same reasoning as desktop's native dialog living in `tauri.ts`). */
+    inspectArchive: (archiveDigest: string): Promise<ArchiveInspection> =>
+      inspectLocalArchive(archiveDigest),
     importArchive: (): Promise<ArchiveImportResult> => todo("POST /v1/archives/import"),
     cancel: (): Promise<void> => todo("POST /v1/archives/:operationId/cancel"),
+    /** Web-only: register a browser-selected `.cva` `File`'s bytes for
+     *  {@link inspectArchive} and return the digest to pass as its
+     *  `archiveDigest`. Not part of `ConvaBackend` — callers that need this
+     *  already know they're on the web adapter (they're the ones rendering
+     *  a browser file picker instead of calling a native dialog). */
+    prepareLocalFile: (bytes: Uint8Array): Promise<string> => registerLocalArchiveFile(bytes),
   };
 }

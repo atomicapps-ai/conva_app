@@ -90,6 +90,22 @@ describe("available vs unsupported vs unimplemented", () => {
     expect(ops["context.startRehearsal"].state).toBe("unimplemented");
   });
 
+  it(".cva archive: desktop is fully available; web has real inspect only (Checkpoint E, part 1)", () => {
+    const desktop = desktopSnapshot(DESKTOP_CAPABILITIES, chromeWindows).operations;
+    expect(desktop["archive.estimateExport"].state).toBe("available");
+    expect(desktop["archive.exportArchive"].state).toBe("available");
+    expect(desktop["archive.inspectArchive"].state).toBe("available");
+    expect(desktop["archive.importArchive"].state).toBe("available");
+    expect(desktop["archive.cancel"].state).toBe("available");
+
+    const web = webOperations();
+    expect(web["archive.inspectArchive"].state).toBe("available");
+    expect(web["archive.estimateExport"].state).toBe("unimplemented");
+    expect(web["archive.exportArchive"].state).toBe("unimplemented");
+    expect(web["archive.importArchive"].state).toBe("unimplemented");
+    expect(web["archive.cancel"].state).toBe("unimplemented");
+  });
+
   it("every operation has an entry in every table", () => {
     const web = webOperations();
     const desktop = desktopSnapshot(DESKTOP_CAPABILITIES, chromeWindows).operations;

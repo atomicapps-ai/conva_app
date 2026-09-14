@@ -4,6 +4,7 @@ import type { AllyChunkEvent, AllySourcesEvent } from "@/lib/ipc";
 import type { RuntimeProbe } from "@/lib/backend/capabilitySnapshot";
 import { WebBackend } from "@/lib/backend/web";
 import * as webAuth from "@/lib/backend/webAuth";
+import * as archiveWasm from "@/lib/live/archiveWasm";
 import { useHostedConsentStore } from "@/state/hostedConsent";
 
 const chromeWindows: RuntimeProbe = { os: "windows", hasGetUserMedia: true, hasGetDisplayMedia: true, secureContext: true };
@@ -553,7 +554,12 @@ describe("WebBackend — hosted-processing notice (M2 cp16)", () => {
   });
 });
 
-describe("WebBackend — .cva archive (checkpoint A, no hosted endpoint yet)", () => {
+vi.mock("@/lib/live/archiveWasm", () => ({
+  inspectLocalArchive: vi.fn(),
+  registerLocalArchiveFile: vi.fn(),
+}));
+
+describe("WebBackend — .cva archive (Checkpoint E, part 1: inspect only)", () => {
   beforeEach(() => {
     webAuth._resetForTests();
     vi.stubGlobal(
@@ -567,9 +573,11 @@ describe("WebBackend — .cva archive (checkpoint A, no hosted endpoint yet)", (
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.mocked(archiveWasm.inspectLocalArchive).mockReset();
+    vi.mocked(archiveWasm.registerLocalArchiveFile).mockReset();
   });
 
-  it("every archive operation rejects — checkpoint A defines the contract only", async () => {
+  it("export/import/cancel still have no hosted endpoint — Part 2, not this session", async () => {
     const b = new WebBackend(chromeWindows);
     await expect(
       b.archive.exportArchive(
@@ -578,6 +586,35 @@ describe("WebBackend — .cva archive (checkpoint A, no hosted endpoint yet)", (
         "op-1",
       ),
     ).rejects.toThrow(/archives\/export/);
+    await expect(b.archive.importArchive("digest-1", { include_document_ids: [] }, "op-1")).rejects.toThrow(
+      /archives\/import/,
+    );
     await expect(b.archive.cancel("op-1")).rejects.toThrow(/not implemented yet/);
+  });
+
+  it("inspectArchive delegates to the wasm-backed local inspector by digest", async () => {
+    const inspection = {
+      archive_digest: "abc123",
+      format_version: 1,
+      created_by_app_version: "0.4.0",
+      created_at: "2026-09-14T00:00:00.000Z",
+      title: "Example",
+      context: null,
+      conversation: null,
+      documents: [],
+      warnings: [],
+    };
+    vi.mocked(archiveWasm.inspectLocalArchive).mockResolvedValue(inspection);
+    const b = new WebBackend(chromeWindows);
+    await expect(b.archive.inspectArchive("abc123", "op-1")).resolves.toEqual(inspection);
+    expect(archiveWasm.inspectLocalArchive).toHaveBeenCalledWith("abc123");
+  });
+
+  it("prepareLocalFile (web-only, not part of ConvaBackend) delegates to registerLocalArchiveFile", async () => {
+    vi.mocked(archiveWasm.registerLocalArchiveFile).mockResolvedValue("computed-digest");
+    const b = new WebBackend(chromeWindows);
+    const bytes = new Uint8Array([1, 2, 3]);
+    await expect(b.archive.prepareLocalFile(bytes)).resolves.toBe("computed-digest");
+    expect(archiveWasm.registerLocalArchiveFile).toHaveBeenCalledWith(bytes);
   });
 });

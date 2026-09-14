@@ -22,16 +22,17 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+use conva_core::archive::MAX_ARCHIVE_BYTES;
 use conva_core::archive::{
-    format_utc_timestamp, is_supported_format_version, validate_manifest, validate_payload_names,
-    ArchiveContents, ArchiveCreator, ArchiveEntry, ArchiveManifest, FORMAT, FORMAT_VERSION,
-    MAX_ARCHIVE_BYTES, MAX_ENTRIES, MAX_ENTRY_BYTES, MAX_UNCOMPRESSED_BYTES,
+    build_archive_bytes, format_utc_timestamp, inspect_loaded, load_archive_bytes,
+    validate_manifest, ArchiveContents, ArchiveCreator, ArchiveEntry, ArchiveManifest,
+    LoadedArchive, FORMAT, FORMAT_VERSION, MAX_ENTRY_BYTES,
 };
 use conva_core::archive_conversation::{
     conversation_document_ids, export_conversation as export_conversation_dto,
@@ -45,9 +46,8 @@ use conva_core::archive_payload::{
 };
 use conva_core::context::{ConversationContext, KnowledgeProfile};
 use conva_core::ipc::{
-    ArchiveCompatibilityWarning, ArchiveContextPreview, ArchiveConversationPreview,
-    ArchiveDocumentPreview, ArchiveExportEstimate, ArchiveExportOptions, ArchiveExportResult,
-    ArchiveImportOptions, ArchiveInspection, ArchiveOmittedDocument, ArchiveProgressEvent,
+    ArchiveExportEstimate, ArchiveExportOptions, ArchiveExportResult, ArchiveImportOptions,
+    ArchiveInspection, ArchiveOmittedDocument, ArchiveProgressEvent,
 };
 use conva_core::rag::{DocSource, IngestReport, RagDocument};
 use conva_core::CoreError;
@@ -119,12 +119,15 @@ struct PendingEntry {
 }
 
 /// Write `manifest.json` plus every pending entry to `dest`, atomically:
-/// build the whole file at a temporary sibling path, flush + sync it, then
-/// `rename` over `dest` (rename is overwrite-atomic on both POSIX and
-/// Windows — spec §"Decide destination-exists behavior explicitly": this
-/// implementation replaces an existing file at `dest` in one atomic step,
-/// never partially). On any error the temporary file is removed and `dest`
-/// is left completely untouched.
+/// build the whole ZIP in memory (`conva_core::archive::build_archive_bytes`
+/// — Checkpoint E: the actual ZIP writer moved there so the wasm32 web
+/// adapter shares it verbatim), then write those bytes to a temporary
+/// sibling path, flush + sync it, then `rename` over `dest` (rename is
+/// overwrite-atomic on both POSIX and Windows — spec §"Decide
+/// destination-exists behavior explicitly": this implementation replaces an
+/// existing file at `dest` in one atomic step, never partially). On any
+/// error the temporary file is removed and `dest` is left completely
+/// untouched.
 fn write_archive_atomic(
     dest: &Path,
     manifest: &ArchiveManifest,
@@ -140,30 +143,18 @@ fn write_archive_atomic(
     let tmp_path = dest.with_file_name(tmp_name);
 
     let result = (|| -> Result<u64, CoreError> {
-        let file = File::create(&tmp_path).map_err(|e| CoreError::Archive(e.to_string()))?;
-        let mut zip = zip::ZipWriter::new(file);
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
-
-        let manifest_json =
-            serde_json::to_vec_pretty(manifest).map_err(|e| CoreError::Archive(e.to_string()))?;
-        zip.start_file("manifest.json", opts)
-            .map_err(|e| CoreError::Archive(e.to_string()))?;
-        zip.write_all(&manifest_json)
-            .map_err(|e| CoreError::Archive(e.to_string()))?;
-
-        for entry in entries {
-            zip.start_file(&entry.path, opts)
-                .map_err(|e| CoreError::Archive(e.to_string()))?;
-            zip.write_all(&entry.bytes)
-                .map_err(|e| CoreError::Archive(e.to_string()))?;
-        }
-        let file = zip
-            .finish()
+        let pending: Vec<(String, Vec<u8>)> = entries
+            .iter()
+            .map(|e| (e.path.clone(), e.bytes.clone()))
+            .collect();
+        let bytes = build_archive_bytes(manifest, &pending)?;
+        let len = bytes.len() as u64;
+        let mut file = File::create(&tmp_path).map_err(|e| CoreError::Archive(e.to_string()))?;
+        file.write_all(&bytes)
             .map_err(|e| CoreError::Archive(e.to_string()))?;
         file.sync_all()
             .map_err(|e| CoreError::Archive(e.to_string()))?;
-        Ok(file.metadata().map(|m| m.len()).unwrap_or(0))
+        Ok(len)
     })();
 
     match result {
@@ -600,174 +591,17 @@ pub fn export_conversation(
 }
 
 // ── Load + validate (shared by inspect and import) ──────────────────────
+//
+// The actual ZIP read/validate now lives in `conva_core::archive` —
+// `load_archive_bytes` (Checkpoint E: moved so the wasm32 web adapter can
+// share the exact same implementation instead of a parallel one). This
+// function is the desktop-only remainder: read the file into memory, then
+// hand its bytes to the pure loader.
 
-/// Every declared payload's bytes, already checked against the manifest's
-/// length/hash. Buffered fully in memory — bounded by
-/// [`MAX_UNCOMPRESSED_BYTES`] (500 MiB), acceptable for a desktop v1; true
-/// zero-buffering streaming is a follow-up, not required by the size limits
-/// already enforced here.
-struct LoadedArchive {
-    manifest: ArchiveManifest,
-    archive_digest: String,
-    payloads: BTreeMap<String, Vec<u8>>,
-}
-
-impl LoadedArchive {
-    fn json<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>, CoreError> {
-        match self.payloads.get(path) {
-            Some(bytes) => Ok(Some(
-                serde_json::from_slice(bytes).map_err(|e| CoreError::Archive(e.to_string()))?,
-            )),
-            None => Ok(None),
-        }
-    }
-}
-
-/// Open, validate, and fully load a `.cva` at `path` — the one place every
-/// required-rejection check from spec §6.2 is enforced before any content is
-/// trusted. Side-effect-free: never writes anything, never touches the
-/// Context/conversation/RAG stores. Used by both `inspect` (which stops
-/// here) and `import` (which re-derives everything it persists from this
-/// same loaded, validated data — it does not trust a separate prior
-/// inspection call).
 fn load_archive(path: &Path) -> Result<LoadedArchive, CoreError> {
-    let archive_len = fs::metadata(path)
-        .map_err(|e| CoreError::Archive(format!("can't read '{}': {e}", path.display())))?
-        .len();
-    if archive_len > MAX_ARCHIVE_BYTES {
-        return Err(CoreError::Archive(
-            "archive exceeds the file size limit".into(),
-        ));
-    }
-    let archive_digest = {
-        let mut file = File::open(path).map_err(|e| CoreError::Archive(e.to_string()))?;
-        let mut hasher = Sha256::new();
-        let mut buf = [0u8; 64 * 1024];
-        loop {
-            let n = file
-                .read(&mut buf)
-                .map_err(|e| CoreError::Archive(e.to_string()))?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-        }
-        hasher
-            .finalize()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
-    };
-
-    let file = File::open(path).map_err(|e| CoreError::Archive(e.to_string()))?;
-    let mut zip = zip::ZipArchive::new(file)
-        .map_err(|e| CoreError::Archive(format!("not a valid ZIP: {e}")))?;
-    if zip.len() > MAX_ENTRIES + 1 {
-        return Err(CoreError::Archive(
-            "archive exceeds the entry count limit".into(),
-        ));
-    }
-
-    let names: Vec<String> = (0..zip.len())
-        .filter_map(|i| zip.name_for_index(i).map(str::to_string))
-        .collect();
-
-    let manifest_bytes = {
-        let mut entry = zip
-            .by_name("manifest.json")
-            .map_err(|_| CoreError::Archive("missing manifest.json".into()))?;
-        if entry.is_dir() {
-            return Err(CoreError::Archive(
-                "manifest.json is not a regular entry".into(),
-            ));
-        }
-        let mut buf = Vec::new();
-        entry
-            .read_to_end(&mut buf)
-            .map_err(|e| CoreError::Archive(e.to_string()))?;
-        buf
-    };
-    let manifest: ArchiveManifest = serde_json::from_slice(&manifest_bytes)
-        .map_err(|e| CoreError::Archive(format!("invalid manifest.json: {e}")))?;
-    validate_manifest(&manifest)?;
-    if !is_supported_format_version(manifest.format_version) {
-        return Err(CoreError::Archive("unsupported .cva format version".into()));
-    }
-    validate_payload_names(&manifest, names.iter().map(String::as_str))?;
-
-    let mut payloads = BTreeMap::new();
-    let mut total = 0u64;
-    for declared in &manifest.entries {
-        let mut entry = zip.by_name(&declared.path).map_err(|_| {
-            CoreError::Archive(format!("missing declared entry '{}'", declared.path))
-        })?;
-        if entry.is_dir() {
-            return Err(CoreError::Archive(format!(
-                "'{}' is not a regular file entry",
-                declared.path
-            )));
-        }
-        // Reject symlinks/devices via the stored Unix mode when present
-        // (spec §6.2: "symlink, hard-link, device, or other non-regular
-        // entry"). Archives written on platforms without Unix permission
-        // bits (Windows) carry no such bit, so absence is not itself a
-        // rejection — only an explicit non-regular mode is.
-        if let Some(mode) = entry.unix_mode() {
-            const S_IFMT: u32 = 0o170000;
-            const S_IFREG: u32 = 0o100000;
-            if mode & S_IFMT != 0 && mode & S_IFMT != S_IFREG {
-                return Err(CoreError::Archive(format!(
-                    "'{}' is not a regular file",
-                    declared.path
-                )));
-            }
-        }
-        let compressed = entry.compressed_size();
-        let uncompressed = entry.size();
-        if uncompressed != declared.bytes {
-            return Err(CoreError::Archive(format!(
-                "'{}' length does not match the manifest",
-                declared.path
-            )));
-        }
-        if uncompressed > MAX_ENTRY_BYTES {
-            return Err(CoreError::Archive(
-                "archive entry exceeds the size limit".into(),
-            ));
-        }
-        if compressed > 0
-            && uncompressed / compressed.max(1) > conva_core::archive::MAX_COMPRESSION_RATIO
-        {
-            return Err(CoreError::Archive(
-                "archive entry exceeds the compression ratio limit".into(),
-            ));
-        }
-        total = total
-            .checked_add(uncompressed)
-            .filter(|t| *t <= MAX_UNCOMPRESSED_BYTES)
-            .ok_or_else(|| {
-                CoreError::Archive("archive exceeds the uncompressed size limit".into())
-            })?;
-
-        let mut buf = Vec::with_capacity(uncompressed as usize);
-        entry
-            .read_to_end(&mut buf)
-            .map_err(|e| CoreError::Archive(e.to_string()))?;
-        if sha256_hex(&buf) != declared.sha256 {
-            return Err(CoreError::Archive(format!(
-                "'{}' does not match its declared checksum",
-                declared.path
-            )));
-        }
-        payloads.insert(declared.path.clone(), buf);
-    }
-    let _ = total;
-
-    Ok(LoadedArchive {
-        manifest,
-        archive_digest,
-        payloads,
-    })
+    let bytes = fs::read(path)
+        .map_err(|e| CoreError::Archive(format!("can't read '{}': {e}", path.display())))?;
+    load_archive_bytes(&bytes)
 }
 
 // ── Import provenance ledger ─────────────────────────────────────────────
@@ -802,41 +636,12 @@ pub fn record_imported_digest(ledger_path: &Path, digest: &str) {
 }
 
 // ── Inspect ───────────────────────────────────────────────────────────────
-
-fn context_preview(
-    context: &PortableContextV1,
-    has_source_documents: bool,
-) -> ArchiveContextPreview {
-    ArchiveContextPreview {
-        title: context.title.clone(),
-        category: context.category,
-        key_terms_count: context.key_terms.len() as u32,
-        prepared_qa_count: 0, // Q&A lives in generated text, not a countable field here.
-        has_source_documents,
-    }
-}
-
-fn conversation_preview(conversation: &PortableConversationV1) -> ArchiveConversationPreview {
-    let mut speakers = std::collections::HashSet::new();
-    let mut start = u64::MAX;
-    let mut end = 0u64;
-    for seg in &conversation.segments {
-        speakers.insert(seg.side);
-        start = start.min(seg.start_ms);
-        end = end.max(seg.end_ms);
-    }
-    ArchiveConversationPreview {
-        title: conversation.title.clone(),
-        created_at_unix_ms: conversation.created_at_unix_ms,
-        segment_count: conversation.segments.len() as u32,
-        speaker_count: speakers.len() as u32,
-        duration_ms: end.saturating_sub(if start == u64::MAX { 0 } else { start }),
-        has_claim_review: conversation
-            .claim_snapshots
-            .iter()
-            .any(|s| !s.claims.is_empty()),
-    }
-}
+//
+// The actual preview assembly now lives in `conva_core::archive::
+// inspect_loaded` (Checkpoint E: moved alongside the ZIP reader/writer for
+// the same reason — the wasm32 web adapter builds the identical
+// `ArchiveInspection` from the identical loaded archive, not a parallel
+// implementation of it).
 
 /// Side-effect-free preview (spec §8.3/Checkpoint C). Selecting a file for
 /// inspection never creates a record — this function only reads.
@@ -845,53 +650,7 @@ pub fn inspect(
     previously_imported_digests: &BTreeSet<String>,
 ) -> Result<ArchiveInspection, CoreError> {
     let loaded = load_archive(path)?;
-    let context: Option<PortableContextV1> = loaded.json("context/context.json")?;
-    let conversation: Option<PortableConversationV1> =
-        loaded.json("conversation/conversation.json")?;
-    let documents: Vec<PortableDocumentV1> =
-        loaded.json("documents/index.json")?.unwrap_or_default();
-    let artifacts: Vec<PortableGeneratedArtifactV1> =
-        loaded.json("generated/index.json")?.unwrap_or_default();
-    if let Some(context) = &context {
-        validate_document_index(context, &documents, &artifacts)?;
-    }
-
-    let artifact_doc_ids: BTreeSet<&str> =
-        artifacts.iter().map(|a| a.document_id.as_str()).collect();
-    let has_source_documents = documents
-        .iter()
-        .any(|d| d.archive_path.is_some() && !artifact_doc_ids.contains(d.id.as_str()));
-
-    let mut warnings = Vec::new();
-    if previously_imported_digests.contains(&loaded.archive_digest) {
-        warnings.push(ArchiveCompatibilityWarning::DuplicateArchiveDigest);
-    }
-    if loaded.manifest.format_version != FORMAT_VERSION {
-        warnings.push(ArchiveCompatibilityWarning::MigratedFromOlderVersion {
-            from_format_version: loaded.manifest.format_version,
-        });
-    }
-    let document_previews: Vec<ArchiveDocumentPreview> = documents
-        .iter()
-        .map(|d| ArchiveDocumentPreview {
-            portable_id: d.id.clone(),
-            file_name: d.file_name.clone(),
-            bytes: d.bytes,
-            included: d.archive_path.is_some() || artifact_doc_ids.contains(d.id.as_str()),
-        })
-        .collect();
-
-    Ok(ArchiveInspection {
-        archive_digest: loaded.archive_digest,
-        format_version: loaded.manifest.format_version,
-        created_by_app_version: loaded.manifest.created_by.app_version.clone(),
-        created_at: loaded.manifest.created_at.clone(),
-        title: loaded.manifest.title.clone(),
-        context: context.map(|c| context_preview(&c, has_source_documents)),
-        conversation: conversation.as_ref().map(conversation_preview),
-        documents: document_previews,
-        warnings,
-    })
+    inspect_loaded(&loaded, previously_imported_digests)
 }
 
 // ── Import ────────────────────────────────────────────────────────────────

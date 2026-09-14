@@ -1,0 +1,47 @@
+[package]
+name = "conva-core-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# `.cva` archive bindings for the browser (Checkpoint E). Deliberately a
+# SEPARATE crate from `conva-core`, not a feature flag inside it:
+# `crate-type = ["cdylib", "rlib"]` below is what `wasm-bindgen` needs to
+# produce a loadable `.wasm` module, and isolating it here means
+# `conva-core`'s own Cargo.toml, dependency graph, and default (native)
+# build are completely untouched — `cargo build -p conva-core` /
+# `-p conva-app` never even sees `wasm-bindgen`. This crate is NOT a
+# dependency of `src-tauri`/`conva-app` (desktop uses `conva-core` directly)
+# and is NOT in the workspace `default-members` — it only builds when asked
+# for by name/target, exactly like `src-tauri`.
+#
+# Build: `wasm-pack build crates/conva-core-wasm --target web --out-dir
+# ../../src/lib/wasm/conva-core-wasm` (wires into the `npm run build:web`
+# pipeline — see the web build script). A plain
+# `cargo build -p conva-core-wasm --target wasm32-unknown-unknown` also
+# works as a compile-only check (no JS glue) and needs the wasm32-
+# unknown-unknown target: `rustup target add wasm32-unknown-unknown`.
+#
+# Every function here is a THIN wrapper: parse JSON/bytes in, call the real
+# logic in `conva-core`, serialize the typed result out. No archive/DTO
+# logic belongs in this crate — see `conva-core/src/archive.rs`'s
+# "ZIP container I/O (Checkpoint E)" section for why.
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+conva-core = { path = "../conva-core" }
+serde = { workspace = true }
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"
+
+# `wasm-opt` (binaryen) is a size-optimization pass wasm-pack runs by
+# default after `wasm-bindgen`, fetched from a GitHub release on first use.
+# Disabled: it isn't reachable from every build environment (this sandbox
+# included) and it's a size optimization, not a correctness step — a
+# non-optimized `.wasm` is still exactly as correct, just a bit larger.
+# Revisit once bundle size actually matters for the beta.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
