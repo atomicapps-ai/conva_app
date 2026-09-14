@@ -75,6 +75,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # `npm run build:web` needs the wasm32 target (Checkpoint E: the .cva
+      # archive WASM module, scripts/build-wasm.mjs) — same toolchain as the
+      # `core` job, plus the extra target.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - run: npm ci
       # The harness drives the pinned web artifact, so build it first (same as a deploy).
       - run: npm run build:web
@@ -117,6 +124,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # `npm run build:web` needs the wasm32 target (Checkpoint E: the .cva
+      # archive WASM module, scripts/build-wasm.mjs) — same toolchain as the
+      # `core` job, plus the extra target.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - run: npm ci
       - run: npm run build:web
       - name: Playwright browser cache
