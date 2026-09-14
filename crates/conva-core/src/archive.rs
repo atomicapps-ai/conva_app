@@ -703,6 +703,60 @@ pub fn inspect_bytes(
     inspect_loaded(&loaded, previously_imported_digests)
 }
 
+// ── Context-scope import materials (Checkpoint E, import slice) ───────────
+
+/// Everything a Context-scope import needs from an already-loaded archive:
+/// the raw portable Context DTO (still carrying source-installation IDs,
+/// unlike [`ArchiveContextPreview`]'s sanitized summary), per-document/
+/// per-artifact metadata, and whether the archive also declares a
+/// conversation. Document/artifact *bytes* deliberately stay out of this
+/// struct — a caller fetches one entry's bytes at a time from
+/// [`LoadedArchive::payloads`] (by the document's own `archive_path`, or the
+/// artifact's) as it stages each one, rather than holding every document's
+/// content in memory at once.
+///
+/// This function does not itself decide policy (e.g. "refuse a Context with
+/// a research profile" or "refuse when a conversation is also present") —
+/// that decision lives with the caller, same as how the export slice's own
+/// scope/profile refusals live in `archiveExport.ts`, not in Rust. Desktop's
+/// own Context-only `import_context` (`src-tauri/src/archive.rs`) has no
+/// such restriction and does not use this helper; it is new, web-adapter-
+/// facing code.
+#[derive(Debug)]
+pub struct ContextImportMaterials {
+    pub archive_digest: String,
+    pub context: PortableContextV1,
+    pub documents: Vec<PortableDocumentV1>,
+    pub artifacts: Vec<PortableGeneratedArtifactV1>,
+    pub has_conversation: bool,
+}
+
+pub fn load_context_import_materials(
+    loaded: &LoadedArchive,
+) -> Result<ContextImportMaterials, CoreError> {
+    let context: Option<PortableContextV1> = loaded.json("context/context.json")?;
+    let Some(context) = context else {
+        return Err(CoreError::Archive(
+            "archive has no Context to import".into(),
+        ));
+    };
+    let has_conversation = loaded
+        .json::<PortableConversationV1>("conversation/conversation.json")?
+        .is_some();
+    let documents: Vec<PortableDocumentV1> =
+        loaded.json("documents/index.json")?.unwrap_or_default();
+    let artifacts: Vec<PortableGeneratedArtifactV1> =
+        loaded.json("generated/index.json")?.unwrap_or_default();
+    crate::archive_payload::validate_document_index(&context, &documents, &artifacts)?;
+    Ok(ContextImportMaterials {
+        archive_digest: loaded.archive_digest.clone(),
+        context,
+        documents,
+        artifacts,
+        has_conversation,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1011,5 +1065,255 @@ mod tests {
         let huge = vec![0u8; (MAX_ARCHIVE_BYTES + 1) as usize];
         let err = load_archive_bytes(&huge).unwrap_err();
         assert!(matches!(err, CoreError::Archive(msg) if msg.contains("file size limit")));
+    }
+
+    // ── load_context_import_materials (Checkpoint E, import slice) ────────
+
+    fn minimal_context(id: &str) -> crate::context::ConversationContext {
+        crate::context::ConversationContext {
+            id: id.into(),
+            title: "Case file".into(),
+            purpose: "Test".into(),
+            job_description: None,
+            category: crate::context::ContextCategory::Other,
+            participation_lens: None,
+            source_policy: None,
+            status: crate::context::ContextStatus::Draft,
+            created_at_unix_ms: 1,
+            updated_at_unix_ms: 2,
+            source_doc_ids: vec![],
+            slot_doc_ids: BTreeMap::new(),
+            auto_generate_context: false,
+            research_enabled: false,
+            key_terms: vec![],
+            glossary: vec![],
+            glossary_definitions: BTreeMap::new(),
+            knowledge_profile_id: None,
+            personas: vec![],
+            chosen_persona_id: None,
+            conversation_id: None,
+            dossier_doc_id: None,
+            research_doc_id: None,
+            deep_qa_enabled: false,
+            qa_doc_id: None,
+            resources_stale: false,
+            resources_generated_at_unix_ms: None,
+            suggestion_decisions: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn load_context_import_materials_extracts_context_documents_and_artifacts() {
+        use crate::archive_payload::{
+            build_context_archive, ArchivePayloadFile, AssembledContextDocuments,
+            GeneratedArtifactKind, PortableDocumentV1, PortableGeneratedArtifactV1,
+        };
+        use crate::rag::DocSource;
+
+        let mut context = minimal_context("ctx-old");
+        context.source_doc_ids = vec!["doc-file".into()];
+        context.dossier_doc_id = Some("doc-dossier".into());
+
+        let bytes = build_context_archive(
+            &context,
+            None,
+            AssembledContextDocuments {
+                documents: vec![
+                    PortableDocumentV1 {
+                        id: "doc-file".into(),
+                        file_name: "notes.txt".into(),
+                        source: DocSource::File,
+                        enabled: true,
+                        searchable: true,
+                        ingested_at_unix_ms: 3,
+                        archive_path: Some("documents/files/doc-file".into()),
+                        bytes: Some(5),
+                        sha256: Some(sha256_hex_for_test(b"hello")),
+                    },
+                    PortableDocumentV1 {
+                        id: "doc-dossier".into(),
+                        file_name: "dossier.md".into(),
+                        source: DocSource::Generated,
+                        enabled: true,
+                        searchable: false,
+                        ingested_at_unix_ms: 4,
+                        archive_path: None,
+                        bytes: None,
+                        sha256: None,
+                    },
+                ],
+                artifacts: vec![PortableGeneratedArtifactV1 {
+                    document_id: "doc-dossier".into(),
+                    kind: GeneratedArtifactKind::Dossier,
+                    archive_path: "generated/files/doc-dossier.md".into(),
+                    created_at_unix_ms: 4,
+                }],
+                files: vec![
+                    ArchivePayloadFile {
+                        path: "documents/files/doc-file".into(),
+                        media_type: "text/plain".into(),
+                        bytes: b"hello".to_vec(),
+                    },
+                    ArchivePayloadFile {
+                        path: "generated/files/doc-dossier.md".into(),
+                        media_type: "text/markdown".into(),
+                        bytes: b"# Dossier".to_vec(),
+                    },
+                ],
+            },
+            0,
+            ArchiveCreator {
+                app: "conva".into(),
+                app_version: "0.4.0".into(),
+            },
+        )
+        .unwrap();
+
+        let loaded = load_archive_bytes(&bytes).unwrap();
+        let materials = load_context_import_materials(&loaded).unwrap();
+        assert_eq!(materials.context.id, "ctx-old");
+        assert!(!materials.has_conversation);
+        assert_eq!(materials.documents.len(), 2);
+        assert_eq!(materials.artifacts.len(), 1);
+        assert_eq!(
+            loaded
+                .payloads
+                .get("documents/files/doc-file")
+                .map(Vec::as_slice),
+            Some(b"hello".as_slice())
+        );
+        assert_eq!(
+            loaded
+                .payloads
+                .get("generated/files/doc-dossier.md")
+                .map(Vec::as_slice),
+            Some(b"# Dossier".as_slice())
+        );
+    }
+
+    /// Test-only helper — production code never hand-computes a digest to
+    /// declare in a manifest entry it also controls the bytes for; real
+    /// callers (`build_context_archive`) do this internally.
+    pub(crate) fn sha256_hex_for_test(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    #[test]
+    fn load_context_import_materials_rejects_a_conversation_only_archive() {
+        // A valid manifest needs at least one of context/conversation
+        // (`validate_manifest`) — so "no Context to import" is reachable
+        // only via a conversation-ONLY archive, not an empty one.
+        let conversation_json = serde_json::to_vec(&serde_json::json!({
+            "id": "conv-old",
+            "title": "Call",
+            "created_at_unix_ms": 1,
+            "updated_at_unix_ms": 2,
+            "segments": [],
+        }))
+        .unwrap();
+        let manifest = ArchiveManifest {
+            format: FORMAT.into(),
+            format_version: FORMAT_VERSION,
+            created_at: format_utc_timestamp(0),
+            created_by: ArchiveCreator {
+                app: "conva".into(),
+                app_version: "0.4.0".into(),
+            },
+            title: "No Context".into(),
+            contents: ArchiveContents {
+                context: false,
+                conversation: true,
+                documents: 0,
+                generated_artifacts: 0,
+            },
+            entries: vec![entry("conversation/conversation.json", &conversation_json)],
+        };
+        let bytes = build_archive_bytes(
+            &manifest,
+            &[("conversation/conversation.json".into(), conversation_json)],
+        )
+        .unwrap();
+        let loaded = load_archive_bytes(&bytes).unwrap();
+        let err = load_context_import_materials(&loaded).unwrap_err();
+        assert!(matches!(err, CoreError::Archive(msg) if msg.contains("no Context")));
+    }
+
+    #[test]
+    fn load_context_import_materials_reports_has_conversation_when_present() {
+        let context_json = serde_json::to_vec(&minimal_portable_context("ctx-old")).unwrap();
+        let conversation_json = serde_json::to_vec(&serde_json::json!({
+            "id": "conv-old",
+            "title": "Call",
+            "created_at_unix_ms": 1,
+            "updated_at_unix_ms": 2,
+            "segments": [],
+        }))
+        .unwrap();
+        let manifest = ArchiveManifest {
+            format: FORMAT.into(),
+            format_version: FORMAT_VERSION,
+            created_at: format_utc_timestamp(0),
+            created_by: ArchiveCreator {
+                app: "conva".into(),
+                app_version: "0.4.0".into(),
+            },
+            title: "Both".into(),
+            contents: ArchiveContents {
+                context: true,
+                conversation: true,
+                documents: 0,
+                generated_artifacts: 0,
+            },
+            entries: vec![
+                entry("context/context.json", &context_json),
+                entry("conversation/conversation.json", &conversation_json),
+            ],
+        };
+        let bytes = build_archive_bytes(
+            &manifest,
+            &[
+                ("context/context.json".into(), context_json),
+                ("conversation/conversation.json".into(), conversation_json),
+            ],
+        )
+        .unwrap();
+        let loaded = load_archive_bytes(&bytes).unwrap();
+        let materials = load_context_import_materials(&loaded).unwrap();
+        assert!(materials.has_conversation);
+    }
+
+    fn minimal_portable_context(id: &str) -> PortableContextV1 {
+        PortableContextV1 {
+            id: id.into(),
+            title: "Case file".into(),
+            purpose: "Test".into(),
+            job_description: None,
+            category: crate::context::ContextCategory::Other,
+            participation_lens: None,
+            source_policy: None,
+            created_at_unix_ms: 1,
+            updated_at_unix_ms: 2,
+            source_doc_ids: vec![],
+            slot_doc_ids: BTreeMap::new(),
+            auto_generate_context: false,
+            research_enabled: false,
+            deep_qa_enabled: false,
+            key_terms: vec![],
+            glossary: vec![],
+            glossary_definitions: BTreeMap::new(),
+            knowledge_profile: None,
+            personas: vec![],
+            chosen_persona_id: None,
+            conversation_id: None,
+            dossier_doc_id: None,
+            research_doc_id: None,
+            qa_doc_id: None,
+            resources_stale: false,
+            resources_generated_at_unix_ms: None,
+            suggestion_decisions: BTreeMap::new(),
+        }
     }
 }

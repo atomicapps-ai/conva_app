@@ -41,8 +41,9 @@ import { downloadBlobFile, downloadName, downloadTextFile, transcriptMarkdown } 
 import { deleteContext, listContexts, loadContext, saveContext } from "@/lib/live/contextsClient";
 import { deleteConversation, listConversations, loadConversation, saveConversation } from "@/lib/live/conversationsClient";
 import { attachDocumentContext, deleteDocument, detachDocumentContext, documentText, downloadOriginal, ingestText, listDocuments, setDocumentEnabled, uploadDocument } from "@/lib/live/libraryClient";
-import { inspectLocalArchive, registerLocalArchiveFile, sha256Hex } from "@/lib/live/archiveWasm";
+import { getLocalArchiveBytes, inspectLocalArchive, registerLocalArchiveFile, sha256Hex } from "@/lib/live/archiveWasm";
 import { buildContextArchiveForDownload } from "@/lib/live/archiveExport";
+import { importContextArchive } from "@/lib/live/archiveImport";
 import { DEFAULT_CONTEXT_ID } from "@/lib/ipc";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
@@ -55,6 +56,7 @@ import type {
   ArchiveExportOptions,
   ArchiveExportResult,
   ArchiveExportScope,
+  ArchiveImportOptions,
   ArchiveImportResult,
   ArchiveInspection,
   AudioDevice,
@@ -695,14 +697,17 @@ export class WebBackend implements ConvaBackend {
     locked: (): Promise<boolean> => Promise.resolve(false),
   };
 
-  // `.cva` archive: Checkpoint E. `inspectArchive` and `exportArchive`
-  // (Context scope only) are real — see `archiveWasm.ts`/`archiveExport.ts`
-  // — running the same Rust logic desktop uses, client-side. Conversation
-  // export, import, estimate, and cancel still have no hosted endpoint/web
-  // implementation and stay `unimplemented` (`capabilitySnapshot.ts`
-  // reports `exportArchive` itself as available since the Context scope
-  // works; the conversation scope's own `todo()` below is what a caller
-  // actually hits if it tries that path today).
+  // `.cva` archive: Checkpoint E. `inspectArchive`, `exportArchive`, and now
+  // `importArchive` (all Context scope only) are real — see
+  // `archiveWasm.ts`/`archiveExport.ts`/`archiveImport.ts` — running the
+  // same Rust logic desktop uses, client-side, plus (import only)
+  // client-orchestrated persistence through the existing hosted endpoints.
+  // Conversation scope (export and import both), estimate, and cancel still
+  // have no hosted endpoint/web implementation and stay `unimplemented`
+  // (`capabilitySnapshot.ts` reports `exportArchive`/`importArchive`
+  // themselves as available since the Context scope works; each one's own
+  // `todo()`/refusal below is what a caller actually hits if it tries the
+  // conversation-scope path today).
   archive = {
     estimateExport: (): Promise<ArchiveExportEstimate> => todo("POST /v1/archives/estimate"),
     /** Context scope only today — see `archiveExport.ts`'s doc comment for
@@ -734,7 +739,24 @@ export class WebBackend implements ConvaBackend {
      *  same reasoning as desktop's native dialog living in `tauri.ts`). */
     inspectArchive: (archiveDigest: string): Promise<ArchiveInspection> =>
       inspectLocalArchive(archiveDigest),
-    importArchive: (): Promise<ArchiveImportResult> => todo("POST /v1/archives/import"),
+    /** Context scope only, client-orchestrated and best-effort, not
+     *  transactional (owner decision, 2026-09-14) — see `archiveImport.ts`'s
+     *  doc comment for the full pipeline and exactly what is and isn't
+     *  atomic. `archiveDigest` must come from {@link registerLocalArchiveFile}
+     *  like `inspectArchive`'s. */
+    importArchive: (
+      archiveDigest: string,
+      options: ArchiveImportOptions,
+      _operationId: string,
+    ): Promise<ArchiveImportResult> => {
+      const bytes = getLocalArchiveBytes(archiveDigest);
+      if (!bytes) {
+        return Promise.reject(
+          new Error("No locally-selected .cva file matches this digest — select the file again."),
+        );
+      }
+      return importContextArchive({ fetch: (i, o) => fetch(i, o) }, bytes, options);
+    },
     cancel: (): Promise<void> => todo("POST /v1/archives/:operationId/cancel"),
     /** Web-only: register a browser-selected `.cva` `File`'s bytes for
      *  {@link inspectArchive} and return the digest to pass as its

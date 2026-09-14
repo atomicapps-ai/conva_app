@@ -460,6 +460,53 @@ pub(crate) fn remap_optional(
     id.as_deref().map(|id| remap(id, ids)).transpose()
 }
 
+/// Drop references to documents that were not actually staged (omitted:
+/// metadata-only, excluded by the caller, or failed ingestion) before
+/// handing the portable Context to [`import_context`], which requires
+/// *every* reference to resolve — the "does the caller continue without
+/// this document" policy decision (spec §6.3) lives at the shell/adapter
+/// layer (desktop's `src-tauri/src/archive.rs`, web's `archiveImport.ts` via
+/// the `conva-core-wasm` binding), not here; this is just the shared
+/// mechanical step both platforms need afterward. Moved here from
+/// `src-tauri` (Checkpoint E, import slice) so `conva-core-wasm` can reuse
+/// the exact same logic rather than a parallel TS reimplementation —
+/// desktop's own Context-only import now calls this too.
+pub fn filter_context_doc_refs(
+    mut portable: PortableContextV1,
+    available: &BTreeSet<String>,
+) -> PortableContextV1 {
+    portable.source_doc_ids.retain(|id| available.contains(id));
+    for docs in portable.slot_doc_ids.values_mut() {
+        docs.retain(|id| available.contains(id));
+    }
+    portable.slot_doc_ids.retain(|_, docs| !docs.is_empty());
+    if portable
+        .dossier_doc_id
+        .as_ref()
+        .is_some_and(|id| !available.contains(id))
+    {
+        portable.dossier_doc_id = None;
+    }
+    if portable
+        .research_doc_id
+        .as_ref()
+        .is_some_and(|id| !available.contains(id))
+    {
+        portable.research_doc_id = None;
+    }
+    if portable
+        .qa_doc_id
+        .as_ref()
+        .is_some_and(|id| !available.contains(id))
+    {
+        portable.qa_doc_id = None;
+    }
+    if let Some(profile) = &mut portable.knowledge_profile {
+        profile.doc_ids.retain(|id| available.contains(id));
+    }
+    portable
+}
+
 /// MAINTENANCE: mirror every new export field here. Reject missing mappings;
 /// never leave portable IDs in live records, even in profile or slot lists.
 pub fn import_context(
@@ -780,6 +827,47 @@ mod tests {
             resources_generated_at_unix_ms: None,
             suggestion_decisions: BTreeMap::new(),
         }
+    }
+
+    // ── filter_context_doc_refs (Checkpoint E, import slice) ───────────
+
+    #[test]
+    fn filter_context_doc_refs_drops_unavailable_ids_from_every_list() {
+        let (context, profile) = sample();
+        let portable = export_context(&context, Some(&profile)).unwrap();
+        // Only "source-old" made it through staging — "pack-old" (dossier),
+        // "research-old", "qa-old", and the profile's own "pack-old" doc did
+        // not (e.g. upload failed, or the caller excluded them).
+        let available = BTreeSet::from(["source-old".to_string()]);
+        let filtered = filter_context_doc_refs(portable, &available);
+        assert_eq!(filtered.source_doc_ids, ["source-old"]);
+        assert_eq!(filtered.slot_doc_ids["source"], ["source-old"]);
+        assert!(filtered.dossier_doc_id.is_none());
+        assert!(filtered.research_doc_id.is_none());
+        assert!(filtered.qa_doc_id.is_none());
+        assert!(filtered.knowledge_profile.unwrap().doc_ids.is_empty());
+        // The filtered result must now satisfy `import_context` with only
+        // that one document mapped.
+        let ids = ContextImportIds {
+            context_id: "ctx-new".into(),
+            document_ids: BTreeMap::from([("source-old".into(), "source-new".into())]),
+            profile_id: Some("kp-new".into()),
+            conversation_id: Some("conversation-new".into()),
+        };
+        let filtered_again = filter_context_doc_refs(
+            export_context(&context, Some(&profile)).unwrap(),
+            &available,
+        );
+        import_context(filtered_again, &ids).unwrap();
+    }
+
+    #[test]
+    fn filter_context_doc_refs_drops_an_empty_slot_entirely() {
+        let (context, profile) = sample();
+        let portable = export_context(&context, Some(&profile)).unwrap();
+        let filtered = filter_context_doc_refs(portable, &BTreeSet::new());
+        assert!(filtered.slot_doc_ids.is_empty());
+        assert!(filtered.source_doc_ids.is_empty());
     }
 
     // ── build_context_archive (Checkpoint E, export slice) ─────────────

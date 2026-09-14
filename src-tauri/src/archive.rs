@@ -41,9 +41,9 @@ use conva_core::archive_conversation::{
 };
 use conva_core::archive_payload::{
     build_context_archive, export_context as export_context_dto, export_document_metadata,
-    import_context as import_context_dto, validate_document_index, ArchivePayloadFile,
-    AssembledContextDocuments, ContextImportIds, GeneratedArtifactKind, PortableContextV1,
-    PortableDocumentV1, PortableGeneratedArtifactV1,
+    filter_context_doc_refs, import_context as import_context_dto, validate_document_index,
+    ArchivePayloadFile, AssembledContextDocuments, ContextImportIds, GeneratedArtifactKind,
+    PortableContextV1, PortableDocumentV1, PortableGeneratedArtifactV1,
 };
 use conva_core::context::{ConversationContext, KnowledgeProfile};
 use conva_core::ipc::{
@@ -635,48 +635,12 @@ pub fn inspect(
 }
 
 // ── Import ────────────────────────────────────────────────────────────────
-
-/// Drop references to documents that were not actually staged (omitted:
-/// metadata-only, excluded by the user, or failed ingestion) before handing
-/// the portable Context to `archive_payload::import_context`, which requires
-/// *every* reference to resolve — the "does the user continue without this
-/// document" policy decision (spec §6.3) lives here, at the shell layer, not
-/// in the pure crate.
-fn filter_context_doc_refs(
-    mut portable: PortableContextV1,
-    available: &BTreeSet<String>,
-) -> PortableContextV1 {
-    portable.source_doc_ids.retain(|id| available.contains(id));
-    for docs in portable.slot_doc_ids.values_mut() {
-        docs.retain(|id| available.contains(id));
-    }
-    portable.slot_doc_ids.retain(|_, docs| !docs.is_empty());
-    if portable
-        .dossier_doc_id
-        .as_ref()
-        .is_some_and(|id| !available.contains(id))
-    {
-        portable.dossier_doc_id = None;
-    }
-    if portable
-        .research_doc_id
-        .as_ref()
-        .is_some_and(|id| !available.contains(id))
-    {
-        portable.research_doc_id = None;
-    }
-    if portable
-        .qa_doc_id
-        .as_ref()
-        .is_some_and(|id| !available.contains(id))
-    {
-        portable.qa_doc_id = None;
-    }
-    if let Some(profile) = &mut portable.knowledge_profile {
-        profile.doc_ids.retain(|id| available.contains(id));
-    }
-    portable
-}
+//
+// `filter_context_doc_refs` (the "does the user continue without this
+// document" policy step, spec §6.3) moved to `conva_core::archive_payload`
+// in the Checkpoint E import slice, so `conva-core-wasm` can reuse the exact
+// same logic for web import rather than a parallel TS reimplementation —
+// imported above alongside the rest of this module's `archive_payload` uses.
 
 fn filter_conversation_doc_refs(
     mut portable: PortableConversationV1,

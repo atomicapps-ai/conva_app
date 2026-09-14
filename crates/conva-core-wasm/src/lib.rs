@@ -200,3 +200,152 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
+
+// ── Import (Checkpoint E, import slice) ─────────────────────────────────
+//
+// Mirrors desktop's `import_context` pipeline (`src-tauri/src/archive.rs`):
+// load materials → caller stages each document/generated-artifact through
+// the existing hosted endpoints, building a portable-id → destination-id
+// map → `importContextWithIds` (wraps `filter_context_doc_refs` +
+// `archive_payload::import_context`, the exact same pure functions desktop
+// uses) → the caller persists the result via `saveContext`. Nothing here
+// touches the network or a document store; that stays in `archiveImport.ts`.
+
+/// One generated artifact's metadata plus its decoded Markdown text — the
+/// import-side twin of `WasmArtifactInput` above, but going the other
+/// direction (Rust → JS) and reading the text out of the loaded archive's
+/// payloads rather than taking it as input.
+#[derive(Serialize)]
+struct ArtifactWithText<'a> {
+    document_id: &'a str,
+    kind: conva_core::archive_payload::GeneratedArtifactKind,
+    created_at_unix_ms: u64,
+    text: String,
+}
+
+/// Everything `archiveImport.ts` needs to drive a Context-scope import, one
+/// JS object. `context` is the RAW portable DTO (still carrying the source
+/// installation's IDs) — round-tripped back into {@link import_context_with_ids}
+/// once every document has a destination ID. `documents` carries each
+/// document's `archive_path` so the caller knows which ones to fetch bytes
+/// for via {@link get_archive_entry_bytes} (and which have none at all — a
+/// metadata-only reference the caller must omit). This function does not
+/// itself refuse a Context with a research profile or an archive that also
+/// contains a conversation — see `conva-core`'s `load_context_import_materials`
+/// doc comment: that policy decision belongs to the caller
+/// (`archiveImport.ts`), matching where the export slice's own equivalent
+/// refusals live (TypeScript, not Rust).
+#[derive(Serialize)]
+struct ImportMaterialsOut<'a> {
+    archive_digest: &'a str,
+    context: &'a conva_core::archive_payload::PortableContextV1,
+    documents: &'a [PortableDocumentV1],
+    artifacts: Vec<ArtifactWithText<'a>>,
+    has_conversation: bool,
+}
+
+/// Validate a `.cva`'s bytes and extract everything a Context-scope import
+/// needs — the browser-side twin of desktop's `import_context`'s own
+/// loading step (`src-tauri/src/archive.rs`), stopping short of staging any
+/// document (that needs the network; this function does not touch it).
+#[wasm_bindgen(js_name = loadContextArchiveForImport)]
+pub fn load_context_archive_for_import(bytes: &[u8]) -> Result<JsValue, JsValue> {
+    let loaded = conva_core::archive::load_archive_bytes(bytes)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let materials = conva_core::archive::load_context_import_materials(&loaded)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let artifacts = materials
+        .artifacts
+        .iter()
+        .map(|a| ArtifactWithText {
+            document_id: &a.document_id,
+            kind: a.kind,
+            created_at_unix_ms: a.created_at_unix_ms,
+            text: loaded
+                .payloads
+                .get(&a.archive_path)
+                .map(|b| String::from_utf8_lossy(b).into_owned())
+                .unwrap_or_default(),
+        })
+        .collect();
+    to_js(&ImportMaterialsOut {
+        archive_digest: &materials.archive_digest,
+        context: &materials.context,
+        documents: &materials.documents,
+        artifacts,
+        has_conversation: materials.has_conversation,
+    })
+}
+
+/// Fetch one already-validated archive entry's raw bytes by its canonical
+/// path (a document's own `archive_path`, from
+/// {@link load_context_archive_for_import}'s `documents` list) — called once
+/// per source document the caller decides to stage, so archives with many
+/// documents never need every document's bytes in memory at once. Re-parses
+/// `bytes` each call rather than keeping wasm-side state between calls
+/// (simpler, and cheap enough for a Context's typical document count); a
+/// caller that already parsed the whole archive to reach this point pays
+/// that cost again per document — an accepted, documented trade-off for a
+/// first import slice, not a hidden inefficiency.
+#[wasm_bindgen(js_name = getArchiveEntryBytes)]
+pub fn get_archive_entry_bytes(bytes: &[u8], path: &str) -> Result<Vec<u8>, JsValue> {
+    let loaded = conva_core::archive::load_archive_bytes(bytes)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    loaded
+        .payloads
+        .get(path)
+        .cloned()
+        .ok_or_else(|| JsValue::from_str(&format!("archive entry '{path}' not found")))
+}
+
+/// Build the final, ready-to-save `ConversationContext` once every document
+/// the caller decided to keep has a real destination ID — the browser-side
+/// twin of desktop's `filter_context_doc_refs` + `archive_payload::
+/// import_context` pipeline (`src-tauri/src/archive.rs`), reusing those
+/// exact pure functions rather than a parallel TS reimplementation.
+///
+/// `portable_context` is the same raw DTO `loadContextArchiveForImport`
+/// returned (JSON round-tripped through the caller, unmodified except
+/// possibly `title`). `document_ids` is the portable-id → destination-id map
+/// built while staging documents: a key simply absent means that document
+/// was omitted (upload failed, excluded, or had no bytes to begin with) —
+/// every reference to an omitted document is dropped from the output,
+/// mirroring desktop's own omission handling. Web never imports the linked
+/// conversation or a research profile (Context scope only, no `loadProfile`
+/// endpoint) — `conversation_id` is dropped unconditionally before calling
+/// `import_context` (any such reference is guaranteed dangling in the
+/// destination store; desktop's own Context-only `import_context` has this
+/// same latent gap, untested since it happens not to have been hit yet —
+/// fixed here rather than in `src-tauri` to keep this slice's change scope
+/// to the web adapter), and a caller-supplied `knowledge_profile` is left
+/// for `import_context`'s own validation to reject (it requires a
+/// destination `profile_id`, always `None` here) — a backstop in case
+/// `archiveImport.ts`'s own refusal check is ever skipped, not the primary
+/// enforcement point.
+#[wasm_bindgen(js_name = importContextWithIds)]
+pub fn import_context_with_ids(
+    portable_context: JsValue,
+    context_id: String,
+    document_ids: JsValue,
+) -> Result<JsValue, JsValue> {
+    let mut portable: conva_core::archive_payload::PortableContextV1 =
+        serde_wasm_bindgen::from_value(portable_context)
+            .map_err(|e| JsValue::from_str(&format!("invalid portable Context: {e}")))?;
+    let document_ids: std::collections::BTreeMap<String, String> =
+        serde_wasm_bindgen::from_value(document_ids)
+            .map_err(|e| JsValue::from_str(&format!("invalid document id map: {e}")))?;
+
+    portable.conversation_id = None;
+
+    let available: std::collections::BTreeSet<String> = document_ids.keys().cloned().collect();
+    let filtered = conva_core::archive_payload::filter_context_doc_refs(portable, &available);
+    let ids = conva_core::archive_payload::ContextImportIds {
+        context_id,
+        document_ids,
+        profile_id: None,
+        conversation_id: None,
+    };
+    let (context, _profile) = conva_core::archive_payload::import_context(filtered, &ids)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    to_js(&context)
+}

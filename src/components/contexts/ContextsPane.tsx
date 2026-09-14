@@ -394,7 +394,6 @@ export function ContextsPane({
   onAttach,
   onExport,
   onImport,
-  onTestInspect,
   generatingId,
   refreshToken,
   widthPx,
@@ -414,13 +413,10 @@ export function ContextsPane({
   onAttach: (contextId: string, docId: string) => void;
   /** Export this Context as a `.cva` portable archive (spec §8.1). */
   onExport: (contextId: string) => void;
-  /** Pick a `.cva` and import it as a new Context (spec §8.1). */
+  /** Pick a `.cva` and import it as a new Context (spec §8.1) — real on
+   *  both platforms (Checkpoint E's import slice); the caller branches on
+   *  platform internally (native dialog vs. hidden file input). */
   onImport: () => void;
-  /** Web only, Checkpoint E verification surface (not spec §8.1's designed
-   *  feature — see the render site below): pick a local `.cva` and show its
-   *  side-effect-free inspection. Optional so callers/tests that don't care
-   *  about the web path (e.g. desktop-only fixtures) need no changes. */
-  onTestInspect?: () => void;
   generatingId: string | null;
   /** Bump this to re-fetch the child-doc list (e.g. after an attach). */
   refreshToken?: number;
@@ -478,27 +474,35 @@ export function ContextsPane({
         <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-fg-muted">
           Contexts
         </h3>
-        {isDesktop && (
-          <div className="flex shrink-0 items-center gap-1">
-            {/* `.cva` portable archive import (spec §8.1 "top-level compact
-             *  Import action near New context"). Desktop-only for now — the
-             *  browser adapter doesn't implement archive.* yet (Checkpoint E). */}
-            <button
-              type="button"
-              onClick={onImport}
-              title="Import a .cva archive"
-              aria-label="Import a .cva archive"
-              className="btn shrink-0 gap-1 px-2 py-1"
-            >
-              <Icon name="upload" size={14} />
-            </button>
-            {/* Icon-only + tooltip (owner decision, 2026-08-17) — "Brief Ally"
-                as a label read as jargon; the + is the app's one "create new"
-                glyph (ConversationsPanel's "New conversation" uses the same
-                `add` icon), paired with the context glyph so it's unambiguous
-                which kind of "new" this is. A deliberate exception to the
-                mockup's own buttons rule (primary = icon + one word) — the
-                confusing word was the actual bug being fixed here. */}
+        <div className="flex shrink-0 items-center gap-1">
+          {/* `.cva` portable archive import (spec §8.1 "top-level compact
+           *  Import action near New context"). Real on both platforms as of
+           *  Checkpoint E's import slice — desktop via a native file dialog
+           *  (`tauri.ts`), web via a hidden `<input type="file">` + the
+           *  client-orchestrated, best-effort import pipeline
+           *  (`archiveImport.ts`); `onImport` (from `ContextsView.tsx`)
+           *  already branches on platform, so this button needs no gating
+           *  of its own — same reasoning as the row menu's "Export .cva"
+           *  item never needing one. */}
+          <button
+            type="button"
+            onClick={onImport}
+            title="Import a .cva archive"
+            aria-label="Import a .cva archive"
+            className="btn shrink-0 gap-1 px-2 py-1"
+          >
+            <Icon name="upload" size={14} />
+          </button>
+          {isDesktop && (
+            /* Icon-only + tooltip (owner decision, 2026-08-17) — "Brief Ally"
+               as a label read as jargon; the + is the app's one "create new"
+               glyph (ConversationsPanel's "New conversation" uses the same
+               `add` icon), paired with the context glyph so it's unambiguous
+               which kind of "new" this is. A deliberate exception to the
+               mockup's own buttons rule (primary = icon + one word) — the
+               confusing word was the actual bug being fixed here. Desktop
+               only: `PageView`'s own "New context" action (`ContextsView.tsx`)
+               already covers web, this is just desktop's faster shortcut. */
             <button
               type="button"
               onClick={onNew}
@@ -509,31 +513,8 @@ export function ContextsPane({
               <Icon name="add" size={14} />
               <Icon name="simicon" size={13} />
             </button>
-          </div>
-        )}
-        {!isDesktop && onTestInspect && (
-          <div className="flex shrink-0 items-center gap-1">
-            {/* `.cva` inspect on web (Checkpoint E, part 1 — verification
-             *  surface only, not spec §8.1/§8.3's designed import flow):
-             *  `archive.inspectArchive` is the one real, client-side,
-             *  WASM-backed web archive operation today. This button proves
-             *  it's reachable from the running app, not just from a test
-             *  harness — pick a `.cva`, see its side-effect-free preview.
-             *  Nothing is imported/persisted; export/import stay
-             *  desktop-only until the rest of Checkpoint E lands. Remove
-             *  (or replace with the real designed feature) once web import
-             *  is real — see the implementation handoff's "Known gaps". */}
-            <button
-              type="button"
-              onClick={onTestInspect}
-              title="Inspect a .cva archive (preview only — web import isn't built yet)"
-              aria-label="Inspect a .cva archive"
-              className="btn shrink-0 gap-1 px-2 py-1"
-            >
-              <Icon name="upload" size={14} />
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="mb-2 flex items-center gap-1.5">

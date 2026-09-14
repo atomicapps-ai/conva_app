@@ -1,14 +1,28 @@
 /**
- * `.cva` archive support for the browser (Checkpoint E, part 1: inspect
- * only — see `conva_core/docs/technical/cva-import-export-implementation-
- * handoff.md`). Loads the `conva-core-wasm` module (built by `npm run
- * build:wasm` into `public/wasm/conva-core-wasm/` — see that script's doc
- * comment for why it's a runtime-fetched public asset rather than a
- * bundled `src/` import) and runs the exact same Rust `.cva` validator
- * desktop uses, client-side, on bytes the browser already has in memory.
- * No hosted endpoint involved — see `web.ts`'s `archive.inspectArchive`.
+ * `.cva` archive support for the browser (Checkpoint E — see
+ * `conva_core/docs/technical/cva-import-export-implementation-handoff.md`
+ * for exactly what's shipped: inspect, Context-scope export, and now
+ * Context-scope import). Loads the `conva-core-wasm` module (built by `npm
+ * run build:wasm` into `public/wasm/conva-core-wasm/` — see that script's
+ * doc comment for why it's a runtime-fetched public asset rather than a
+ * bundled `src/` import) and runs the exact same Rust `.cva` logic desktop
+ * uses, client-side, on bytes the browser already has in memory. No hosted
+ * endpoint involved for inspect/export/the pure part of import — see
+ * `web.ts`'s `archive.*` and `archiveImport.ts` (which does use the
+ * existing `/api/live/contexts`/`/api/live/library` endpoints to actually
+ * stage/persist an import, since that part necessarily isn't pure).
  */
-import type { ArchiveInspection, ConversationContext, KnowledgeProfile } from "@/lib/ipc";
+import type {
+  ArchiveInspection,
+  ContextCategory,
+  ContextPersona,
+  ConversationContext,
+  KnowledgeProfile,
+  ParticipationLens,
+  ResearchSource,
+  SourcePolicy,
+  SuggestionDecision,
+} from "@/lib/ipc";
 
 /** One document the caller already has bytes/text for (or has decided to
  *  omit) — mirrors `conva-core-wasm`'s `WasmDocInput` field-for-field
@@ -43,12 +57,108 @@ export interface ArchiveExportContextInput {
   app_version: string;
 }
 
+/** A portable Knowledge-profile reference nested in {@link PortableContextV1}
+ *  — mirrors `conva-core`'s `PortableKnowledgeProfileV1` field-for-field.
+ *  Always absent from an archive built on web (no way to fetch a profile to
+ *  export) and always refused before it reaches {@link importContextWithIds}
+ *  (no way to persist one to import) — see `archiveImport.ts`. */
+export interface PortableKnowledgeProfileV1 {
+  id: string;
+  title: string;
+  created_at_unix_ms: number;
+  updated_at_unix_ms: number;
+  doc_ids: string[];
+  research: ResearchSource[];
+  ready: boolean;
+}
+
+/** The RAW portable Context DTO — still carrying the *source* installation's
+ *  IDs, unlike {@link ArchiveInspection}'s sanitized preview. Mirrors
+ *  `conva-core`'s `PortableContextV1` field-for-field (snake_case, same IPC
+ *  convention as everywhere else). Round-tripped opaquely by
+ *  `archiveImport.ts`: read out of {@link loadContextArchiveForImport}'s
+ *  result, optionally have `title` overridden, then handed back into
+ *  {@link importContextWithIds} unmodified otherwise — never hand-built or
+ *  hand-edited field-by-field in TypeScript. */
+export interface PortableContextV1 {
+  id: string;
+  title: string;
+  purpose: string;
+  job_description: string | null;
+  category: ContextCategory;
+  participation_lens: ParticipationLens | null;
+  source_policy: SourcePolicy | null;
+  created_at_unix_ms: number;
+  updated_at_unix_ms: number;
+  source_doc_ids: string[];
+  slot_doc_ids: Record<string, string[]>;
+  auto_generate_context: boolean;
+  research_enabled: boolean;
+  deep_qa_enabled: boolean;
+  key_terms: string[];
+  glossary: string[];
+  glossary_definitions: Record<string, string>;
+  knowledge_profile: PortableKnowledgeProfileV1 | null;
+  personas: ContextPersona[];
+  chosen_persona_id: string | null;
+  conversation_id: string | null;
+  dossier_doc_id: string | null;
+  research_doc_id: string | null;
+  qa_doc_id: string | null;
+  resources_stale: boolean;
+  resources_generated_at_unix_ms: number | null;
+  suggestion_decisions: Record<string, SuggestionDecision>;
+}
+
+/** One document referenced by a Context being imported — mirrors
+ *  `conva-core`'s `PortableDocumentV1`. `archive_path` is the entry to pass
+ *  to {@link getArchiveEntryBytes} when present; `null` means a
+ *  metadata-only reference with no content to bring in. */
+export interface ArchiveImportDocument {
+  id: string;
+  file_name: string;
+  source: "file" | "pasted" | "generated";
+  enabled: boolean;
+  searchable: boolean;
+  ingested_at_unix_ms: number;
+  archive_path: string | null;
+  bytes: number | null;
+  sha256: string | null;
+}
+
+/** One generated artifact's metadata plus its already-decoded Markdown
+ *  text — ready to hand to `ingestText`, no separate byte-fetch needed
+ *  (unlike a source document). */
+export interface ArchiveImportArtifact {
+  document_id: string;
+  kind: "dossier" | "research" | "prepared_qa";
+  created_at_unix_ms: number;
+  text: string;
+}
+
+/** Everything {@link importContextArchive} (`archiveImport.ts`) needs from a
+ *  validated `.cva`, before staging any document. */
+export interface ContextImportMaterials {
+  archive_digest: string;
+  context: PortableContextV1;
+  documents: ArchiveImportDocument[];
+  artifacts: ArchiveImportArtifact[];
+  has_conversation: boolean;
+}
+
 /** Shape of the wasm-bindgen "web" target's generated ESM module — only the
  *  parts this file actually calls. */
 interface ArchiveWasmModule {
   default: (module_or_path?: unknown) => Promise<unknown>;
   inspectArchiveBytes: (bytes: Uint8Array) => unknown;
   exportContextArchiveBytes: (input: ArchiveExportContextInput) => Uint8Array;
+  loadContextArchiveForImport: (bytes: Uint8Array) => ContextImportMaterials;
+  getArchiveEntryBytes: (bytes: Uint8Array, path: string) => Uint8Array;
+  importContextWithIds: (
+    portableContext: PortableContextV1,
+    contextId: string,
+    documentIds: Record<string, string>,
+  ) => ConversationContext;
 }
 
 let modulePromise: Promise<ArchiveWasmModule> | null = null;
@@ -133,6 +243,14 @@ export async function inspectLocalArchive(archiveDigest: string): Promise<Archiv
   }
 }
 
+/** Look up a previously {@link registerLocalArchiveFile}d archive's bytes by
+ *  digest — `web.ts`'s `archive.importArchive` needs the real bytes (not
+ *  just a preview), since actually staging documents reads directly out of
+ *  them (`getArchiveEntryBytes`), unlike `inspectLocalArchive`. */
+export function getLocalArchiveBytes(archiveDigest: string): Uint8Array | undefined {
+  return localArchives.get(archiveDigest);
+}
+
 /** Build a Context `.cva`'s complete bytes, entirely client-side — the web
  *  half of `web.ts`'s `archive.exportArchive` (Context scope). The caller
  *  (`archiveExport.ts`) has already fetched every included document's
@@ -146,5 +264,60 @@ export async function exportContextArchive(input: ArchiveExportContextInput): Pr
     return wasm.exportContextArchiveBytes(input);
   } catch (e) {
     throw new Error(typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
+  }
+}
+
+function normalizeWasmError(e: unknown): Error {
+  // Same normalization as every other wasm call in this file — the binding
+  // rejects with a plain string, not an `Error`.
+  return e instanceof Error ? e : new Error(typeof e === "string" ? e : String(e));
+}
+
+// ── Import (Checkpoint E, import slice) ─────────────────────────────────
+
+/** Validate a locally-selected `.cva`'s bytes and extract everything a
+ *  Context-scope import needs — the web half of `web.ts`'s
+ *  `archive.importArchive`. Does not itself refuse a Context with a
+ *  research profile or an archive that also contains a conversation; that
+ *  policy decision is `archiveImport.ts`'s (matching where the export
+ *  slice's own equivalent refusals live). Does not stage/upload anything —
+ *  side-effect-free like {@link inspectLocalArchive}. */
+export async function loadContextArchiveForImport(bytes: Uint8Array): Promise<ContextImportMaterials> {
+  const wasm = await loadArchiveWasm();
+  try {
+    return wasm.loadContextArchiveForImport(bytes);
+  } catch (e) {
+    throw normalizeWasmError(e);
+  }
+}
+
+/** Fetch one archive entry's raw bytes by path (a document's own
+ *  `archive_path`) — called once per source document `archiveImport.ts`
+ *  decides to stage. */
+export async function getArchiveEntryBytes(bytes: Uint8Array, path: string): Promise<Uint8Array> {
+  const wasm = await loadArchiveWasm();
+  try {
+    return wasm.getArchiveEntryBytes(bytes, path);
+  } catch (e) {
+    throw normalizeWasmError(e);
+  }
+}
+
+/** Build the final, ready-to-save `ConversationContext` once every document
+ *  the caller decided to keep has a real destination ID — see
+ *  `conva-core-wasm`'s `import_context_with_ids` doc comment for exactly
+ *  what this does and does not enforce (in particular: a document id simply
+ *  absent from `documentIds` means that reference is dropped, not an
+ *  error). */
+export async function importContextWithIds(
+  portableContext: PortableContextV1,
+  contextId: string,
+  documentIds: Record<string, string>,
+): Promise<ConversationContext> {
+  const wasm = await loadArchiveWasm();
+  try {
+    return wasm.importContextWithIds(portableContext, contextId, documentIds);
+  } catch (e) {
+    throw normalizeWasmError(e);
   }
 }

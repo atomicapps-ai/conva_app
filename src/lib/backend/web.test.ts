@@ -6,6 +6,7 @@ import { WebBackend } from "@/lib/backend/web";
 import * as webAuth from "@/lib/backend/webAuth";
 import * as archiveWasm from "@/lib/live/archiveWasm";
 import * as archiveExport from "@/lib/live/archiveExport";
+import * as archiveImport from "@/lib/live/archiveImport";
 import { useHostedConsentStore } from "@/state/hostedConsent";
 
 const chromeWindows: RuntimeProbe = { os: "windows", hasGetUserMedia: true, hasGetDisplayMedia: true, secureContext: true };
@@ -558,6 +559,7 @@ describe("WebBackend — hosted-processing notice (M2 cp16)", () => {
 vi.mock("@/lib/live/archiveWasm", () => ({
   inspectLocalArchive: vi.fn(),
   registerLocalArchiveFile: vi.fn(),
+  getLocalArchiveBytes: vi.fn(),
   sha256Hex: vi.fn(),
 }));
 
@@ -565,7 +567,11 @@ vi.mock("@/lib/live/archiveExport", () => ({
   buildContextArchiveForDownload: vi.fn(),
 }));
 
-describe("WebBackend — .cva archive (Checkpoint E: inspect + Context-scope export)", () => {
+vi.mock("@/lib/live/archiveImport", () => ({
+  importContextArchive: vi.fn(),
+}));
+
+describe("WebBackend — .cva archive (Checkpoint E: inspect + Context-scope export/import)", () => {
   beforeEach(() => {
     webAuth._resetForTests();
     vi.stubGlobal(
@@ -581,11 +587,13 @@ describe("WebBackend — .cva archive (Checkpoint E: inspect + Context-scope exp
     vi.unstubAllGlobals();
     vi.mocked(archiveWasm.inspectLocalArchive).mockReset();
     vi.mocked(archiveWasm.registerLocalArchiveFile).mockReset();
+    vi.mocked(archiveWasm.getLocalArchiveBytes).mockReset();
     vi.mocked(archiveWasm.sha256Hex).mockReset();
     vi.mocked(archiveExport.buildContextArchiveForDownload).mockReset();
+    vi.mocked(archiveImport.importContextArchive).mockReset();
   });
 
-  it("import/cancel still have no hosted endpoint, and conversation-scope export still has no client-side path — Part 2, not this session", async () => {
+  it("cancel still has no hosted endpoint, and conversation-scope export still has no client-side path — Part 2, not this session", async () => {
     const b = new WebBackend(chromeWindows);
     await expect(
       b.archive.exportArchive(
@@ -594,10 +602,35 @@ describe("WebBackend — .cva archive (Checkpoint E: inspect + Context-scope exp
         "op-1",
       ),
     ).rejects.toThrow(/archives\/export/);
-    await expect(b.archive.importArchive("digest-1", { include_document_ids: [] }, "op-1")).rejects.toThrow(
-      /archives\/import/,
-    );
     await expect(b.archive.cancel("op-1")).rejects.toThrow(/not implemented yet/);
+  });
+
+  it("importArchive (Context scope) delegates to the client-orchestrated importer with the registered bytes", async () => {
+    const bytes = new Uint8Array([9, 9, 9]);
+    vi.mocked(archiveWasm.getLocalArchiveBytes).mockReturnValue(bytes);
+    const result = {
+      context_id: "ctx-new",
+      conversation_id: null,
+      imported_document_ids: ["doc-new"],
+      reused_document_ids: [],
+      omitted_documents: [],
+    };
+    vi.mocked(archiveImport.importContextArchive).mockResolvedValue(result);
+
+    const b = new WebBackend(chromeWindows);
+    const options = { include_document_ids: [], reuse_exact_document_ids: [] };
+    await expect(b.archive.importArchive("digest-1", options, "op-1")).resolves.toEqual(result);
+    expect(archiveWasm.getLocalArchiveBytes).toHaveBeenCalledWith("digest-1");
+    expect(archiveImport.importContextArchive).toHaveBeenCalledWith(expect.anything(), bytes, options);
+  });
+
+  it("importArchive rejects when the digest matches no locally-selected file", async () => {
+    vi.mocked(archiveWasm.getLocalArchiveBytes).mockReturnValue(undefined);
+    const b = new WebBackend(chromeWindows);
+    await expect(
+      b.archive.importArchive("missing-digest", { include_document_ids: [] }, "op-1"),
+    ).rejects.toThrow(/select the file again/);
+    expect(archiveImport.importContextArchive).not.toHaveBeenCalled();
   });
 
   it("exportArchive (Context scope) assembles a .cva client-side and triggers a browser download — nothing is fetched by WebBackend itself", async () => {

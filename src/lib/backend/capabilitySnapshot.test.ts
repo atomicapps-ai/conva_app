@@ -90,7 +90,7 @@ describe("available vs unsupported vs unimplemented", () => {
     expect(ops["context.startRehearsal"].state).toBe("unimplemented");
   });
 
-  it(".cva archive: desktop is fully available; web has real inspect + Context-scope export (Checkpoint E)", () => {
+  it(".cva archive: desktop is fully available; web has real inspect + Context-scope export/import (Checkpoint E)", () => {
     const desktop = desktopSnapshot(DESKTOP_CAPABILITIES, chromeWindows).operations;
     expect(desktop["archive.estimateExport"].state).toBe("available");
     expect(desktop["archive.exportArchive"].state).toBe("available");
@@ -100,11 +100,12 @@ describe("available vs unsupported vs unimplemented", () => {
 
     const web = webOperations();
     expect(web["archive.inspectArchive"].state).toBe("available");
-    // Context scope only — conversation scope's own `todo()` in `web.ts`
-    // is what a caller actually hits if it tries that path (see there).
+    // Context scope only — each one's own conversation-scope `todo()`/
+    // refusal in `web.ts` is what a caller actually hits if it tries that
+    // path (see there).
     expect(web["archive.exportArchive"].state).toBe("available");
+    expect(web["archive.importArchive"].state).toBe("available");
     expect(web["archive.estimateExport"].state).toBe("unimplemented");
-    expect(web["archive.importArchive"].state).toBe("unimplemented");
     expect(web["archive.cancel"].state).toBe("unimplemented");
   });
 
