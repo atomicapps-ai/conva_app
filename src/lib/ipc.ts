@@ -855,3 +855,141 @@ export interface AudioDevice {
 export function isTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
+
+/* ── `.cva` archive operation contract (checkpoint A) ────────────────────────
+ * Mirror of the `.cva archive operation contract` block in
+ * `crates/conva-core/src/ipc.rs` — see that file's MAINTENANCE comment.
+ * OPERATION-level types only (what `ConvaBackend.archive` exchanges with the
+ * shell/hosted API), never the pure portable DTOs
+ * (`PortableContextV1`/`PortableConversationV1`/...), which stay Rust-side —
+ * an inspection preview is a deliberately reduced, sanitized view, not a raw
+ * payload. No adapter implements these operations yet: every capability
+ * answers "unimplemented" (`capabilitySnapshot.ts`) until real ZIP I/O and
+ * persistence exist behind it (`.cva` spec checkpoints B+). */
+
+/** What to export: a Context alone, or a saved conversation optionally
+ *  bundled with its linked Context (spec §2.4). */
+export type ArchiveExportScope =
+  | { kind: "context"; context_id: string }
+  | { kind: "conversation"; conversation_id: string; include_context: boolean };
+
+/** User choice controlling source-document inclusion (spec §2.4). */
+export interface ArchiveExportOptions {
+  include_source_documents: boolean;
+}
+
+/** A coarse, content-free size/privacy estimate shown before the user
+ *  commits to writing the file (spec §8.2). Never a preview of document or
+ *  transcript text. */
+export interface ArchiveExportEstimate {
+  document_count: number;
+  estimated_bytes: number;
+  includes_source_documents: boolean;
+}
+
+/** Result of a completed export. */
+export interface ArchiveExportResult {
+  /** Desktop: the saved file path. Web: an opaque download reference the UI
+   *  already used to trigger the browser download — never a raw local path
+   *  on either platform beyond what the OS save dialog itself shows. */
+  destination: string;
+  archive_digest: string;
+  bytes: number;
+}
+
+/** Sanitized summary of one Context inside an inspected archive — never the
+ *  raw portable Context DTO. */
+export interface ArchiveContextPreview {
+  title: string;
+  category: ContextCategory;
+  key_terms_count: number;
+  prepared_qa_count: number;
+  has_source_documents: boolean;
+}
+
+/** Sanitized summary of one conversation inside an inspected archive. */
+export interface ArchiveConversationPreview {
+  title: string;
+  created_at_unix_ms: number;
+  segment_count: number;
+  speaker_count: number;
+  duration_ms: number;
+  has_claim_review: boolean;
+}
+
+/** One document/generated-artifact entry as shown in the import preview
+ *  (spec §8.3) — `included` is false for a metadata-only reference whose
+ *  original bytes were not part of this export. */
+export interface ArchiveDocumentPreview {
+  portable_id: string;
+  file_name: string;
+  bytes: number | null;
+  included: boolean;
+}
+
+/** Non-blocking compatibility/duplicate signals shown in the import preview
+ *  (spec §7.2). Never a reason to refuse the preview itself — only to shape
+ *  the default "Import as copy" choice. */
+export type ArchiveCompatibilityWarning =
+  | { kind: "duplicate_archive_digest" }
+  | { kind: "duplicate_document"; portable_id: string }
+  | { kind: "possible_duplicate_context" }
+  | { kind: "possible_duplicate_conversation" }
+  | { kind: "unsupported_document"; portable_id: string; reason: string }
+  | { kind: "migrated_from_older_version"; from_format_version: number };
+
+/** Side-effect-free preview of a selected/uploaded `.cva`. Selecting a file
+ *  must never itself create a record (spec §8.3) — this is the entire
+ *  result of that inspection step. */
+export interface ArchiveInspection {
+  archive_digest: string;
+  format_version: number;
+  created_by_app_version: string;
+  created_at: string;
+  title: string;
+  context: ArchiveContextPreview | null;
+  conversation: ArchiveConversationPreview | null;
+  documents: ArchiveDocumentPreview[];
+  warnings: ArchiveCompatibilityWarning[];
+}
+
+/** User decisions confirmed on the import preview screen (spec §8.3):
+ *  editable destination titles plus which previewed documents to actually
+ *  bring in vs. reuse an existing identical one. */
+export interface ArchiveImportOptions {
+  context_title?: string | null;
+  conversation_title?: string | null;
+  include_document_ids: string[];
+  reuse_exact_document_ids?: string[];
+}
+
+/** One document the importer declined to bring in, with a user-facing
+ *  reason (spec §5.3/§6.3) — the import itself still succeeds for the rest. */
+export interface ArchiveOmittedDocument {
+  portable_id: string;
+  reason: string;
+}
+
+/** Result of a completed import (spec §8.3/§9). IDs are always freshly
+ *  minted destination IDs — an import never reuses a portable/source ID. */
+export interface ArchiveImportResult {
+  context_id: string | null;
+  conversation_id: string | null;
+  imported_document_ids: string[];
+  reused_document_ids: string[];
+  omitted_documents: ArchiveOmittedDocument[];
+}
+
+/** Streamed progress for an in-flight export/import/inspect operation (spec
+ *  §10), delivered over `conva://archive-progress` — `operation_id` scopes
+ *  cancellation and lets the UI ignore stale events from an operation it
+ *  already gave up on. Never carries transcript or document content, only
+ *  coarse counts and a safe display message. */
+export type ArchiveProgressEvent =
+  | { phase: "hashing"; operation_id: string; processed_bytes: number; total_bytes: number }
+  | { phase: "writing_entries"; operation_id: string; processed_items: number; total_items: number }
+  | { phase: "validating"; operation_id: string }
+  | { phase: "importing"; operation_id: string; processed_items: number; total_items: number }
+  | { phase: "completed"; operation_id: string }
+  | { phase: "cancelled"; operation_id: string }
+  | { phase: "failed"; operation_id: string; message: string };

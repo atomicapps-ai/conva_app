@@ -9,6 +9,9 @@
 //! Architecture reference: docs/phase-1-design-and-spec.md §3 (module
 //! boundaries) and §2.4 (threading & data-flow contract).
 
+pub mod archive;
+pub mod archive_conversation;
+pub mod archive_payload;
 pub mod asr;
 pub mod audio;
 pub mod bm25;

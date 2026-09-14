@@ -49,6 +49,10 @@ import type { SocketLike } from "@/lib/live/liveClient";
 import type {
   AllyKind,
   AppConfig,
+  ArchiveExportEstimate,
+  ArchiveExportResult,
+  ArchiveImportResult,
+  ArchiveInspection,
   AudioDevice,
   AuthStatus,
   ClaimSnapshotEvent,
@@ -685,5 +689,16 @@ export class WebBackend implements ConvaBackend {
     payload: () => Promise.resolve(null),
     setLocked: (): Promise<void> => Promise.resolve(),
     locked: (): Promise<boolean> => Promise.resolve(false),
+  };
+
+  // `.cva` archive: checkpoint A defines the contract only — no hosted
+  // endpoint exists yet. `capabilitySnapshot.ts` already reports these
+  // `unimplemented`, so the UI never offers the action in the first place.
+  archive = {
+    estimateExport: (): Promise<ArchiveExportEstimate> => todo("POST /v1/archives/estimate"),
+    exportArchive: (): Promise<ArchiveExportResult> => todo("POST /v1/archives/export"),
+    inspectArchive: (): Promise<ArchiveInspection> => todo("POST /v1/archives/inspect"),
+    importArchive: (): Promise<ArchiveImportResult> => todo("POST /v1/archives/import"),
+    cancel: (): Promise<void> => todo("POST /v1/archives/:operationId/cancel"),
   };
 }

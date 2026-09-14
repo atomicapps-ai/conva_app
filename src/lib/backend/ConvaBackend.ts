@@ -22,6 +22,13 @@
 import type {
   AllyKind,
   AppConfig,
+  ArchiveExportEstimate,
+  ArchiveExportOptions,
+  ArchiveExportResult,
+  ArchiveExportScope,
+  ArchiveImportOptions,
+  ArchiveImportResult,
+  ArchiveInspection,
   AudioDevice,
   AuthStatus,
   Conversation,
@@ -391,5 +398,51 @@ export interface ConvaBackend {
     setLocked(locked: boolean): Promise<void>;
     /** Current lock state; `false` where the window doesn't exist (web). */
     locked(): Promise<boolean>;
+  };
+
+  /**
+   * `.cva` portable Context/conversation archive
+   * (`conva_core/docs/technical/cva-context-conversation-portable-archive.md`).
+   * Checkpoint A only: every method here is `unimplemented` on every adapter
+   * (real ZIP I/O and persistence land in checkpoints B–E) — check
+   * `capabilityStore`/`capabilities()` before offering the UI action, per
+   * "do not advertise import/export before it works". Progress streams over
+   * `subscribe("archiveProgress", ...)`, scoped by the `operationId` each
+   * method returns/accepts.
+   */
+  archive: {
+    /** Coarse, content-free size/privacy estimate shown before export.
+     *  `operationId` is caller-generated (like `capture.start`) so a slow
+     *  estimate over many documents can still be cancelled. */
+    estimateExport(
+      scope: ArchiveExportScope,
+      options: ArchiveExportOptions,
+      operationId: string,
+    ): Promise<ArchiveExportEstimate>;
+    /** Write (desktop: native save dialog) or trigger a browser download
+     *  (web). Resolves once the archive is fully written. */
+    exportArchive(
+      scope: ArchiveExportScope,
+      options: ArchiveExportOptions,
+      operationId: string,
+    ): Promise<ArchiveExportResult>;
+    /** Side-effect-free preview of a selected/uploaded `.cva`. Desktop:
+     *  `archiveDigest` names a file the user picked via a native dialog.
+     *  Web: uploads the file's content for hosted inspection — never call
+     *  this without the user first choosing to import that file. */
+    inspectArchive(
+      archiveDigest: string,
+      operationId: string,
+    ): Promise<ArchiveInspection>;
+    /** Persist a previously inspected archive (by its digest) as new
+     *  destination records. Never overwrites an existing record. */
+    importArchive(
+      archiveDigest: string,
+      options: ArchiveImportOptions,
+      operationId: string,
+    ): Promise<ArchiveImportResult>;
+    /** Cancel an in-flight estimate/export/inspect/import by operation id
+     *  (a no-op once that operation has already settled). */
+    cancel(operationId: string): Promise<void>;
   };
 }
