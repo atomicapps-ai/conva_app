@@ -10,6 +10,7 @@
 //! boundaries) and §2.4 (threading & data-flow contract).
 
 pub mod archive;
+pub mod archive_conversation;
 pub mod archive_payload;
 pub mod asr;
 pub mod audio;

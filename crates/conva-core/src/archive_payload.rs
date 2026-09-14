@@ -322,14 +322,19 @@ pub fn validate_context_references(p: &PortableContextV1) -> Result<(), ArchiveE
     Ok(())
 }
 
-fn remap(id: &str, ids: &BTreeMap<String, String>) -> Result<String, ArchiveError> {
+/// Shared by every `.cva` converter (Context, conversation, claim/evidence):
+/// look up the caller-supplied destination ID for one source ID, rejecting a
+/// missing mapping or an accidental identity mapping. Each entity kind (doc,
+/// profile, conversation, session, claim, ...) must pass its own map here —
+/// never let one namespace resolve through another's `BTreeMap`.
+pub(crate) fn remap(id: &str, ids: &BTreeMap<String, String>) -> Result<String, ArchiveError> {
     ids.get(id)
         .filter(|new| !new.trim().is_empty() && new.as_str() != id)
         .cloned()
-        .ok_or(ArchiveError::InvalidManifest("unmapped document ID"))
+        .ok_or(ArchiveError::InvalidManifest("unmapped portable ID"))
 }
 
-fn remap_optional(
+pub(crate) fn remap_optional(
     id: &Option<String>,
     ids: &BTreeMap<String, String>,
 ) -> Result<Option<String>, ArchiveError> {

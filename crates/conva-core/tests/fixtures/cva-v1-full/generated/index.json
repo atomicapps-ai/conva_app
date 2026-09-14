@@ -1,0 +1,20 @@
+[
+  {
+    "document_id": "doc-dossier",
+    "kind": "dossier",
+    "archive_path": "generated/files/doc-dossier.md",
+    "created_at_unix_ms": 1726002000000
+  },
+  {
+    "document_id": "doc-research",
+    "kind": "research",
+    "archive_path": "generated/files/doc-research.md",
+    "created_at_unix_ms": 1726002000000
+  },
+  {
+    "document_id": "doc-qa",
+    "kind": "prepared_qa",
+    "archive_path": "generated/files/doc-qa.md",
+    "created_at_unix_ms": 1726002000000
+  }
+]

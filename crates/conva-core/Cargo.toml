@@ -10,3 +10,16 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
+# `.cva` archive path-collision defense: two visually/structurally distinct
+# entry names can normalize to the same Unicode form (NFC/NFD), which some
+# filesystems (notably macOS HFS+/APFS) silently fold on write. Detecting that
+# at manifest-validation time (archive.rs) is cross-platform and needs no
+# filesystem access.
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+# Test-only: computing real SHA-256 digests for retained `.cva` golden
+# fixtures (crates/conva-core/tests/cva_v1_fixtures.rs) so their manifests are
+# byte-accurate, matching what a real ZIP writer will produce in Checkpoint B.
+# Never a production dependency of conva-core itself.
+sha2 = "0.10"

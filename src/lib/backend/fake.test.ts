@@ -58,6 +58,14 @@ describe("FakeBackend — honesty", () => {
     await expect(b.rag.analyzeTerms("x")).rejects.toThrow(/rag.analyzeTerms/);
     await expect(b.hud.isOpen()).rejects.toThrow(/not configured/);
   });
+
+  it("rejects .cva archive operations — checkpoint A has no adapter yet", async () => {
+    const b = new FakeBackend();
+    await expect(
+      b.archive.exportArchive({ kind: "context", context_id: "ctx-1" }, { include_source_documents: false }, "op-1"),
+    ).rejects.toThrow(/archive.exportArchive/);
+    await expect(b.archive.cancel("op-1")).rejects.toBeInstanceOf(FakeBackendNotConfiguredError);
+  });
 });
 
 describe("FakeBackend — capability revisions", () => {

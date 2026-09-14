@@ -14,12 +14,27 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
+use unicode_normalization::UnicodeNormalization;
 
 pub const FORMAT: &str = "conva-archive";
 /// Bump only for an incompatible `.cva` wire-format change. A new field in an
 /// app record does NOT automatically change this version: decide explicitly
 /// whether it belongs in the portable DTO and provide a migration/default.
 pub const FORMAT_VERSION: u32 = 1;
+/// Every `format_version` a reader must still accept (spec §2.2: "Readers
+/// remain able to import every archive version still listed as supported").
+/// Distinct from [`FORMAT_VERSION`], which is the only version a writer may
+/// ever emit. MAINTENANCE: adding a new supported version means (a) adding it
+/// here, (b) writing that version's migration into the current in-memory DTO
+/// shape (there is nothing to migrate yet — v1 has no predecessor), (c)
+/// keeping a permanent fixture/test for every version still listed, and (d)
+/// never silently reinterpreting an old payload under the new shape without
+/// an explicit migrator.
+pub const SUPPORTED_FORMAT_VERSIONS: &[u32] = &[FORMAT_VERSION];
+
+pub fn is_supported_format_version(version: u32) -> bool {
+    SUPPORTED_FORMAT_VERSIONS.contains(&version)
+}
 pub const MAX_ARCHIVE_BYTES: u64 = 250 * 1024 * 1024;
 pub const MAX_UNCOMPRESSED_BYTES: u64 = 500 * 1024 * 1024;
 pub const MAX_ENTRY_BYTES: u64 = 100 * 1024 * 1024;
@@ -102,41 +117,146 @@ pub fn validate_path(path: &str) -> Result<(), ArchiveError> {
     Ok(())
 }
 
+/// The only entry paths a v1 archive may declare (besides `manifest.json`,
+/// which is never itself a declared entry). Fixed. MAINTENANCE: a new payload
+/// kind is a new canonical path added here, in the exporter, and in the
+/// importer together — never let an exporter start writing a path this
+/// allowlist doesn't already know about.
+fn is_canonical_payload_path(path: &str) -> bool {
+    matches!(
+        path,
+        "context/context.json"
+            | "conversation/conversation.json"
+            | "documents/index.json"
+            | "generated/index.json"
+    ) || path
+        .strip_prefix("documents/files/")
+        .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'))
+        || path.strip_prefix("generated/files/").is_some_and(|rest| {
+            rest.ends_with(".md") && rest.len() > ".md".len() && !rest.contains('/')
+        })
+}
+
+/// Loose RFC 3339 UTC ("Zulu") check: `YYYY-MM-DDTHH:MM:SS[.fraction]Z` with
+/// each numeric field in its calendar range. Deliberately not a full calendar
+/// library dependency for one display-only manifest field — this rejects
+/// garbage/local-offset timestamps without claiming full RFC 3339 coverage
+/// (e.g. it does not special-case February's day count or leap seconds).
+fn is_plausible_utc_timestamp(value: &str) -> bool {
+    let Some(body) = value.strip_suffix('Z') else {
+        return false;
+    };
+    let bytes = body.as_bytes();
+    let digits_at = |range: std::ops::Range<usize>| {
+        bytes
+            .get(range.clone())
+            .is_some_and(|s| s.iter().all(u8::is_ascii_digit))
+            && !range.is_empty()
+    };
+    if body.len() < 19
+        || !digits_at(0..4)
+        || bytes[4] != b'-'
+        || !digits_at(5..7)
+        || bytes[7] != b'-'
+        || !digits_at(8..10)
+        || bytes[10] != b'T'
+        || !digits_at(11..13)
+        || bytes[13] != b':'
+        || !digits_at(14..16)
+        || bytes[16] != b':'
+        || !digits_at(17..19)
+    {
+        return false;
+    }
+    if body.len() > 19 {
+        let frac = &body[19..];
+        if !frac.starts_with('.')
+            || frac.len() < 2
+            || !frac[1..].bytes().all(|b| b.is_ascii_digit())
+        {
+            return false;
+        }
+    }
+    let two = |range: std::ops::Range<usize>| body[range].parse::<u32>().unwrap_or(99);
+    let month = two(5..7);
+    let day = two(8..10);
+    let hour = two(11..13);
+    let minute = two(14..16);
+    let second = two(17..19);
+    (1..=12).contains(&month)
+        && (1..=31).contains(&day)
+        && hour <= 23
+        && minute <= 59
+        // A leap second (60) is valid RFC 3339; reject only clear garbage.
+        && second <= 60
+}
+
+/// Exact media type required for the archive's own JSON payloads/indexes.
+const CANONICAL_JSON_MEDIA_TYPE: &str = "application/json";
+
+/// Loose `type/subtype` syntax check for a source document's declared media
+/// type. Deliberately not a finite allowlist: the set of document types the
+/// ingest pipeline supports evolves independently of the archive format, and
+/// this function's job is to reject garbage, not to gatekeep new formats.
+fn is_syntactically_valid_media_type(value: &str) -> bool {
+    let is_token = |s: &str| {
+        !s.is_empty()
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"!#$&-^_.+".contains(&b))
+    };
+    value
+        .split_once('/')
+        .is_some_and(|(kind, sub)| is_token(kind) && is_token(sub))
+}
+
 /// Validate manifest invariants before looking at any payload. The ZIP reader
 /// must additionally reject non-regular/encrypted entries, compare actual
 /// uncompressed lengths and SHA-256, and impose compressed-size limits.
 pub fn validate_manifest(manifest: &ArchiveManifest) -> Result<(), ArchiveError> {
-    if manifest.format != FORMAT || manifest.format_version != FORMAT_VERSION {
+    if manifest.format != FORMAT || !is_supported_format_version(manifest.format_version) {
         return Err(ArchiveError::UnsupportedFormat);
     }
     if !manifest.contents.context && !manifest.contents.conversation {
         return Err(ArchiveError::InvalidManifest("no Context or conversation"));
     }
-    if manifest.title.trim().is_empty()
-        || manifest.created_at.trim().is_empty()
-        || manifest.created_by.app.trim().is_empty()
-    {
+    if manifest.title.trim().is_empty() || manifest.created_by.app.trim().is_empty() {
         return Err(ArchiveError::InvalidManifest("missing display metadata"));
+    }
+    if !is_plausible_utc_timestamp(&manifest.created_at) {
+        return Err(ArchiveError::InvalidManifest(
+            "created_at is not a UTC RFC 3339 timestamp",
+        ));
     }
     if manifest.entries.len() > MAX_ENTRIES {
         return Err(ArchiveError::LimitExceeded("entry count"));
     }
     let mut names = BTreeSet::new();
+    // Case-folded AND Unicode-normalized (NFC) canonical spellings, so a
+    // filesystem that folds either dimension (Windows/macOS case-folding,
+    // macOS HFS+/APFS Unicode normalization on write) can never end up
+    // holding two entries this archive intended to keep distinct.
+    let mut canonical_names = BTreeSet::new();
     let mut total = 0u64;
     for entry in &manifest.entries {
         validate_path(&entry.path)?;
         if entry.path == "manifest.json" {
             return Err(ArchiveError::InvalidManifest("manifest lists itself"));
         }
-        // Windows treats case-only variants as one name. Reject them here so
-        // the same archive has the same semantics on Windows, web and macOS.
-        if !names.insert(entry.path.to_ascii_lowercase()) {
+        if !is_canonical_payload_path(&entry.path) {
+            return Err(ArchiveError::InvalidPath(entry.path.clone()));
+        }
+        if !names.insert(entry.path.clone()) {
+            return Err(ArchiveError::DuplicatePath(entry.path.clone()));
+        }
+        let canonical: String = entry.path.nfc().collect::<String>().to_ascii_lowercase();
+        if !canonical_names.insert(canonical) {
             return Err(ArchiveError::DuplicatePath(entry.path.clone()));
         }
         if entry.bytes > MAX_ENTRY_BYTES {
             return Err(ArchiveError::LimitExceeded("single entry"));
         }
-        if entry.path.ends_with(".json") && entry.bytes > MAX_JSON_BYTES {
+        let is_json_index = entry.path.ends_with(".json");
+        if is_json_index && entry.bytes > MAX_JSON_BYTES {
             return Err(ArchiveError::LimitExceeded("JSON payload"));
         }
         total = total
@@ -145,7 +265,12 @@ pub fn validate_manifest(manifest: &ArchiveManifest) -> Result<(), ArchiveError>
         if total > MAX_UNCOMPRESSED_BYTES {
             return Err(ArchiveError::LimitExceeded("uncompressed bytes"));
         }
-        if entry.media_type.trim().is_empty()
+        let media_type_ok = if is_json_index {
+            entry.media_type == CANONICAL_JSON_MEDIA_TYPE
+        } else {
+            is_syntactically_valid_media_type(&entry.media_type)
+        };
+        if !media_type_ok
             || entry.sha256.len() != 64
             || !entry
                 .sha256
@@ -180,10 +305,11 @@ pub fn validate_payload_names<'a>(
     validate_manifest(manifest)?;
     let expected: BTreeSet<_> = manifest.entries.iter().map(|e| e.path.as_str()).collect();
     let mut actual = BTreeSet::new();
-    let mut folded = BTreeSet::new();
+    let mut canonical_names = BTreeSet::new();
     for name in zip_names {
         validate_path(name)?;
-        if !actual.insert(name) || !folded.insert(name.to_ascii_lowercase()) {
+        let canonical: String = name.nfc().collect::<String>().to_ascii_lowercase();
+        if !actual.insert(name) || !canonical_names.insert(canonical) {
             return Err(ArchiveError::DuplicatePath(name.to_owned()));
         }
     }
@@ -269,15 +395,79 @@ mod tests {
         ] {
             assert!(validate_path(path).is_err(), "{path}");
         }
+        // A fixed canonical path (e.g. "context/context.json") is case-exact
+        // by construction — a spelling variant is simply not canonical.
+        // Case/Unicode-normalization collisions matter for the
+        // caller-generated ids inside "documents/files/<id>" and
+        // "generated/files/<id>.md".
         let mut m = valid();
         m.entries.push(ArchiveEntry {
-            path: "Context/context.json".into(),
+            path: "context/CONTEXT.json".into(),
             ..m.entries[0].clone()
+        });
+        assert!(matches!(
+            validate_manifest(&m),
+            Err(ArchiveError::InvalidPath(_))
+        ));
+
+        let mut m = valid();
+        m.entries.push(ArchiveEntry {
+            path: "documents/files/doc-1".into(),
+            media_type: "application/pdf".into(),
+            bytes: 2,
+            sha256: "b".repeat(64),
+        });
+        m.entries.push(ArchiveEntry {
+            path: "documents/files/DOC-1".into(),
+            media_type: "application/pdf".into(),
+            bytes: 2,
+            sha256: "b".repeat(64),
         });
         assert!(matches!(
             validate_manifest(&m),
             Err(ArchiveError::DuplicatePath(_))
         ));
+
+        // NFC vs. NFD forms of an accented character must also collide.
+        let mut m = valid();
+        m.entries.push(ArchiveEntry {
+            path: "documents/files/caf\u{e9}".into(), // "café", precomposed (NFC)
+            media_type: "application/pdf".into(),
+            bytes: 2,
+            sha256: "b".repeat(64),
+        });
+        m.entries.push(ArchiveEntry {
+            path: "documents/files/cafe\u{301}".into(), // "café", decomposed (NFD)
+            media_type: "application/pdf".into(),
+            bytes: 2,
+            sha256: "b".repeat(64),
+        });
+        assert!(matches!(
+            validate_manifest(&m),
+            Err(ArchiveError::DuplicatePath(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_non_canonical_paths_and_bad_media_types() {
+        let mut m = valid();
+        m.entries[0].path = "extra/not-a-real-payload.json".into();
+        assert!(matches!(
+            validate_manifest(&m),
+            Err(ArchiveError::InvalidPath(_))
+        ));
+
+        let mut m = valid();
+        m.entries[0].media_type = "text/plain".into();
+        assert!(validate_manifest(&m).is_err());
+
+        let mut m = valid();
+        m.created_at = "2026-09-09 20:15:00".into(); // missing T/Z
+        assert!(validate_manifest(&m).is_err());
+        m.created_at = "2026-13-09T20:15:00Z".into(); // month 13
+        assert!(validate_manifest(&m).is_err());
+        m.created_at = "2026-09-09T20:15:00.123Z".into(); // fractional seconds OK
+        assert!(validate_manifest(&m).is_ok());
     }
 
     #[test]

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "doc-resume",
+    "file_name": "resume.pdf",
+    "source": "file",
+    "enabled": true,
+    "searchable": true,
+    "ingested_at_unix_ms": 1726000000000,
+    "archive_path": "documents/files/doc-resume",
+    "bytes": 24,
+    "sha256": "9eb006e85971cb31446b363c179cb88838c70e11d6ff7d19504458f10603adb9"
+  },
+  {
+    "id": "doc-jd",
+    "file_name": "job-description.pdf",
+    "source": "file",
+    "enabled": true,
+    "searchable": true,
+    "ingested_at_unix_ms": 1726000000000,
+    "archive_path": null,
+    "bytes": null,
+    "sha256": null
+  },
+  {
+    "id": "doc-dossier",
+    "file_name": "Ally Dossier.md",
+    "source": "generated",
+    "enabled": true,
+    "searchable": true,
+    "ingested_at_unix_ms": 1726002000000,
+    "archive_path": null,
+    "bytes": null,
+    "sha256": null
+  },
+  {
+    "id": "doc-research",
+    "file_name": "Research.md",
+    "source": "generated",
+    "enabled": true,
+    "searchable": true,
+    "ingested_at_unix_ms": 1726002000000,
+    "archive_path": null,
+    "bytes": null,
+    "sha256": null
+  },
+  {
+    "id": "doc-qa",
+    "file_name": "Prepared Q&A.md",
+    "source": "generated",
+    "enabled": true,
+    "searchable": true,
+    "ingested_at_unix_ms": 1726002000000,
+    "archive_path": null,
+    "bytes": null,
+    "sha256": null
+  }
+]

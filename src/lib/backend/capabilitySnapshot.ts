@@ -222,6 +222,11 @@ export const ALL_OPERATIONS = [
   "partner.payload",
   "partner.setLocked",
   "partner.locked",
+  "archive.estimateExport",
+  "archive.exportArchive",
+  "archive.inspectArchive",
+  "archive.importArchive",
+  "archive.cancel",
 ] as const satisfies readonly BackendOperation[];
 
 // Completeness in the other direction: every BackendOperation appears above.
@@ -315,12 +320,23 @@ export function desktopSnapshot(
       "capture.status": unimplemented(DESKTOP_CAPTURE),
       "capture.subscribe": unimplemented(DESKTOP_CAPTURE),
       "rag.upload": unsupported("Desktop ingests files by path (rag.ingest); browser uploads are the web path."),
+      "archive.estimateExport": unimplemented(ARCHIVE_CHECKPOINT_A),
+      "archive.exportArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
+      "archive.inspectArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
+      "archive.importArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
+      "archive.cancel": unimplemented(ARCHIVE_CHECKPOINT_A),
     },
   };
 }
 
 const DESKTOP_CAPTURE =
   "Desktop starts microphone and system audio together on session.start(); per-source control is not a shell command yet.";
+
+/** `.cva` import/export (checkpoint A defines the contract only — no ZIP
+ *  reader/writer or Tauri command exists yet). Never report this as
+ *  available before a real adapter backs it. */
+const ARCHIVE_CHECKPOINT_A =
+  "`.cva` import/export is not implemented yet (checkpoint A defines the contract only).";
 
 // ── Web (browser) ────────────────────────────────────────────────────────────
 
@@ -517,6 +533,11 @@ export function webOperations(): OperationAvailability {
     "partner.payload": unsupported(NO_OS_WINDOW),
     "partner.setLocked": unsupported(NO_OS_WINDOW),
     "partner.locked": unsupported(NO_OS_WINDOW),
+    "archive.estimateExport": unimplemented(ARCHIVE_CHECKPOINT_A),
+    "archive.exportArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
+    "archive.inspectArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
+    "archive.importArchive": unimplemented(ARCHIVE_CHECKPOINT_A),
+    "archive.cancel": unimplemented(ARCHIVE_CHECKPOINT_A),
   };
 }
 

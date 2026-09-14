@@ -292,4 +292,21 @@ export class TauriBackend implements ConvaBackend {
     setLocked: cmd.setPartnerLocked,
     locked: cmd.getPartnerLocked,
   };
+
+  // `.cva` archive: checkpoint A defines the contract only — no Tauri
+  // command exists yet (no ZIP reader/writer, no persistence). Every method
+  // honestly rejects; `capabilitySnapshot.ts` already reports these
+  // `unimplemented`, so the UI never offers the action in the first place.
+  archive = {
+    estimateExport: (): Promise<never> =>
+      Promise.reject(new UnimplementedOnDesktopError("archive.estimateExport")),
+    exportArchive: (): Promise<never> =>
+      Promise.reject(new UnimplementedOnDesktopError("archive.exportArchive")),
+    inspectArchive: (): Promise<never> =>
+      Promise.reject(new UnimplementedOnDesktopError("archive.inspectArchive")),
+    importArchive: (): Promise<never> =>
+      Promise.reject(new UnimplementedOnDesktopError("archive.importArchive")),
+    cancel: (): Promise<never> =>
+      Promise.reject(new UnimplementedOnDesktopError("archive.cancel")),
+  };
 }
