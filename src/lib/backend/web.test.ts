@@ -5,6 +5,7 @@ import type { RuntimeProbe } from "@/lib/backend/capabilitySnapshot";
 import { WebBackend } from "@/lib/backend/web";
 import * as webAuth from "@/lib/backend/webAuth";
 import * as archiveWasm from "@/lib/live/archiveWasm";
+import * as archiveExport from "@/lib/live/archiveExport";
 import { useHostedConsentStore } from "@/state/hostedConsent";
 
 const chromeWindows: RuntimeProbe = { os: "windows", hasGetUserMedia: true, hasGetDisplayMedia: true, secureContext: true };
@@ -557,9 +558,14 @@ describe("WebBackend — hosted-processing notice (M2 cp16)", () => {
 vi.mock("@/lib/live/archiveWasm", () => ({
   inspectLocalArchive: vi.fn(),
   registerLocalArchiveFile: vi.fn(),
+  sha256Hex: vi.fn(),
 }));
 
-describe("WebBackend — .cva archive (Checkpoint E, part 1: inspect only)", () => {
+vi.mock("@/lib/live/archiveExport", () => ({
+  buildContextArchiveForDownload: vi.fn(),
+}));
+
+describe("WebBackend — .cva archive (Checkpoint E: inspect + Context-scope export)", () => {
   beforeEach(() => {
     webAuth._resetForTests();
     vi.stubGlobal(
@@ -575,13 +581,15 @@ describe("WebBackend — .cva archive (Checkpoint E, part 1: inspect only)", () 
     vi.unstubAllGlobals();
     vi.mocked(archiveWasm.inspectLocalArchive).mockReset();
     vi.mocked(archiveWasm.registerLocalArchiveFile).mockReset();
+    vi.mocked(archiveWasm.sha256Hex).mockReset();
+    vi.mocked(archiveExport.buildContextArchiveForDownload).mockReset();
   });
 
-  it("export/import/cancel still have no hosted endpoint — Part 2, not this session", async () => {
+  it("import/cancel still have no hosted endpoint, and conversation-scope export still has no client-side path — Part 2, not this session", async () => {
     const b = new WebBackend(chromeWindows);
     await expect(
       b.archive.exportArchive(
-        { kind: "context", context_id: "ctx-1" },
+        { kind: "conversation", conversation_id: "conv-1" },
         { include_source_documents: false },
         "op-1",
       ),
@@ -590,6 +598,51 @@ describe("WebBackend — .cva archive (Checkpoint E, part 1: inspect only)", () 
       /archives\/import/,
     );
     await expect(b.archive.cancel("op-1")).rejects.toThrow(/not implemented yet/);
+  });
+
+  it("exportArchive (Context scope) assembles a .cva client-side and triggers a browser download — nothing is fetched by WebBackend itself", async () => {
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+    vi.mocked(archiveExport.buildContextArchiveForDownload).mockResolvedValue({
+      bytes,
+      fileName: "Acme Interview.cva",
+    });
+    vi.mocked(archiveWasm.sha256Hex).mockResolvedValue("deadbeef");
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "URL",
+      Object.assign(URL, {
+        createObjectURL: (blob: Blob) => {
+          urls.push(`blob:${blob.size}`);
+          return "blob:x";
+        },
+        revokeObjectURL: () => {},
+      }),
+    );
+    const clicks: string[] = [];
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = origCreate(tag);
+      if (tag === "a") (el as HTMLAnchorElement).click = () => clicks.push((el as HTMLAnchorElement).download);
+      return el;
+    });
+
+    const b = new WebBackend(chromeWindows);
+    const before = vi.mocked(fetch).mock.calls.length;
+    const result = await b.archive.exportArchive(
+      { kind: "context", context_id: "ctx-1" },
+      { include_source_documents: true },
+      "op-1",
+    );
+
+    expect(archiveExport.buildContextArchiveForDownload).toHaveBeenCalledWith(
+      expect.anything(),
+      "ctx-1",
+      true,
+    );
+    expect(result).toEqual({ destination: "Acme Interview.cva", archive_digest: "deadbeef", bytes: 4 });
+    expect(clicks).toEqual(["Acme Interview.cva"]);
+    expect(urls).toEqual(["blob:4"]);
+    expect(vi.mocked(fetch).mock.calls.length).toBe(before);
   });
 
   it("inspectArchive delegates to the wasm-backed local inspector by digest", async () => {

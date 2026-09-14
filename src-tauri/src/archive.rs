@@ -40,9 +40,10 @@ use conva_core::archive_conversation::{
     ConversationExportInput, ConversationImportIds, ImportedConversation, PortableConversationV1,
 };
 use conva_core::archive_payload::{
-    export_context as export_context_dto, export_document_metadata,
-    import_context as import_context_dto, validate_document_index, ContextImportIds,
-    GeneratedArtifactKind, PortableContextV1, PortableDocumentV1, PortableGeneratedArtifactV1,
+    build_context_archive, export_context as export_context_dto, export_document_metadata,
+    import_context as import_context_dto, validate_document_index, ArchivePayloadFile,
+    AssembledContextDocuments, ContextImportIds, GeneratedArtifactKind, PortableContextV1,
+    PortableDocumentV1, PortableGeneratedArtifactV1,
 };
 use conva_core::context::{ConversationContext, KnowledgeProfile};
 use conva_core::ipc::{
@@ -133,6 +134,24 @@ fn write_archive_atomic(
     manifest: &ArchiveManifest,
     entries: &[PendingEntry],
 ) -> Result<u64, CoreError> {
+    let pending: Vec<(String, Vec<u8>)> = entries
+        .iter()
+        .map(|e| (e.path.clone(), e.bytes.clone()))
+        .collect();
+    let bytes = build_archive_bytes(manifest, &pending)?;
+    write_bytes_atomic(dest, &bytes)
+}
+
+/// Write already-built `.cva` bytes to `dest`, atomically: a temporary
+/// sibling path, flush + sync, then `rename` over `dest` (rename is
+/// overwrite-atomic on both POSIX and Windows — spec §"Decide
+/// destination-exists behavior explicitly": this implementation replaces an
+/// existing file at `dest` in one atomic step, never partially). On any
+/// error the temporary file is removed and `dest` is left completely
+/// untouched. Split out from [`write_archive_atomic`] so callers that
+/// already have final bytes (e.g. `export_context`, via `conva_core::
+/// archive_payload::build_context_archive`) don't build the ZIP twice.
+fn write_bytes_atomic(dest: &Path, bytes: &[u8]) -> Result<u64, CoreError> {
     let tmp_name = format!(
         ".{}.cva-tmp-{}",
         dest.file_name()
@@ -143,27 +162,21 @@ fn write_archive_atomic(
     let tmp_path = dest.with_file_name(tmp_name);
 
     let result = (|| -> Result<u64, CoreError> {
-        let pending: Vec<(String, Vec<u8>)> = entries
-            .iter()
-            .map(|e| (e.path.clone(), e.bytes.clone()))
-            .collect();
-        let bytes = build_archive_bytes(manifest, &pending)?;
-        let len = bytes.len() as u64;
         let mut file = File::create(&tmp_path).map_err(|e| CoreError::Archive(e.to_string()))?;
-        file.write_all(&bytes)
+        file.write_all(bytes)
             .map_err(|e| CoreError::Archive(e.to_string()))?;
         file.sync_all()
             .map_err(|e| CoreError::Archive(e.to_string()))?;
-        Ok(len)
+        Ok(bytes.len() as u64)
     })();
 
     match result {
-        Ok(bytes) => {
+        Ok(len) => {
             fs::rename(&tmp_path, dest).map_err(|e| {
                 let _ = fs::remove_file(&tmp_path);
                 CoreError::Archive(format!("could not save archive: {e}"))
             })?;
-            Ok(bytes)
+            Ok(len)
         }
         Err(e) => {
             let _ = fs::remove_file(&tmp_path);
@@ -382,75 +395,44 @@ pub fn export_context(
     progress: &mut ProgressFn<'_>,
     cancel: &CancelFn<'_>,
 ) -> Result<ArchiveExportResult, CoreError> {
-    let portable = export_context_dto(context, profile)?;
     let doc_ids = source_and_generated_doc_ids(context);
-    let (documents, artifacts, mut entries) =
+    let (documents, artifacts, entries) =
         assemble_documents(rag, &doc_ids, options.include_source_documents)?;
     if cancel() {
         return Err(CoreError::Archive("cancelled".into()));
     }
-    validate_document_index(&portable, &documents, &artifacts)?;
-
-    let mut pending = Vec::new();
-    let context_bytes =
-        serde_json::to_vec_pretty(&portable).map_err(|e| CoreError::Archive(e.to_string()))?;
-    pending.push(PendingEntry {
-        path: "context/context.json".into(),
-        media_type: "application/json".into(),
-        bytes: context_bytes,
-    });
-    if !documents.is_empty() {
-        let bytes =
-            serde_json::to_vec_pretty(&documents).map_err(|e| CoreError::Archive(e.to_string()))?;
-        pending.push(PendingEntry {
-            path: "documents/index.json".into(),
-            media_type: "application/json".into(),
-            bytes,
-        });
-    }
-    if !artifacts.is_empty() {
-        let bytes =
-            serde_json::to_vec_pretty(&artifacts).map_err(|e| CoreError::Archive(e.to_string()))?;
-        pending.push(PendingEntry {
-            path: "generated/index.json".into(),
-            media_type: "application/json".into(),
-            bytes,
-        });
-    }
-    pending.append(&mut entries);
 
     progress(ArchiveProgressEvent::Hashing {
         operation_id: operation_id.to_string(),
         processed_bytes: 0,
-        total_bytes: pending.iter().map(|e| e.bytes.len() as u64).sum(),
+        total_bytes: entries.iter().map(|e| e.bytes.len() as u64).sum(),
     });
-    let manifest_entries: Vec<ArchiveEntry> = pending
-        .iter()
-        .map(|e| ArchiveEntry {
-            path: e.path.clone(),
-            media_type: e.media_type.clone(),
-            bytes: e.bytes.len() as u64,
-            sha256: sha256_hex(&e.bytes),
-        })
-        .collect();
-    let manifest = ArchiveManifest {
-        format: FORMAT.to_owned(),
-        format_version: FORMAT_VERSION,
-        created_at: now_iso(),
-        created_by: ArchiveCreator {
+    // The DTO conversion, manifest assembly, hashing, and ZIP build are all
+    // pure — done once, in `conva-core`, shared verbatim with the wasm32 web
+    // export path (`conva-core-wasm`). This function's remaining job is
+    // purely the desktop-specific parts: gathering document bytes from
+    // `RagStore` (above) and writing the result to a file (below).
+    let bytes = build_context_archive(
+        context,
+        profile,
+        AssembledContextDocuments {
+            documents: documents.clone(),
+            artifacts: artifacts.clone(),
+            files: entries
+                .into_iter()
+                .map(|e| ArchivePayloadFile {
+                    path: e.path,
+                    media_type: e.media_type,
+                    bytes: e.bytes,
+                })
+                .collect(),
+        },
+        crate::session::now_unix_ms(),
+        ArchiveCreator {
             app: APP_NAME.into(),
             app_version: APP_VERSION.into(),
         },
-        title: context.title.clone(),
-        contents: ArchiveContents {
-            context: true,
-            conversation: false,
-            documents: documents.len(),
-            generated_artifacts: artifacts.len(),
-        },
-        entries: manifest_entries,
-    };
-    validate_manifest(&manifest)?;
+    )?;
     if cancel() {
         return Err(CoreError::Archive("cancelled".into()));
     }
@@ -458,15 +440,14 @@ pub fn export_context(
     progress(ArchiveProgressEvent::WritingEntries {
         operation_id: operation_id.to_string(),
         processed_items: 0,
-        total_items: pending.len() as u32,
+        total_items: (documents.len() + artifacts.len() + 1) as u32,
     });
-    let bytes = write_archive_atomic(dest, &manifest, &pending)?;
-    let archive_digest =
-        sha256_hex(&fs::read(dest).map_err(|e| CoreError::Archive(e.to_string()))?);
+    let written = write_bytes_atomic(dest, &bytes)?;
+    let archive_digest = sha256_hex(&bytes);
     Ok(ArchiveExportResult {
         destination: dest.to_string_lossy().into_owned(),
         archive_digest,
-        bytes,
+        bytes: written,
     })
 }
 

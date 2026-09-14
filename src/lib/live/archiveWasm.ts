@@ -8,13 +8,47 @@
  * desktop uses, client-side, on bytes the browser already has in memory.
  * No hosted endpoint involved — see `web.ts`'s `archive.inspectArchive`.
  */
-import type { ArchiveInspection } from "@/lib/ipc";
+import type { ArchiveInspection, ConversationContext, KnowledgeProfile } from "@/lib/ipc";
+
+/** One document the caller already has bytes/text for (or has decided to
+ *  omit) — mirrors `conva-core-wasm`'s `WasmDocInput` field-for-field
+ *  (snake_case, matching this codebase's IPC convention everywhere else,
+ *  not a camelCase JS convention for just this one boundary). */
+export interface ArchiveExportDocInput {
+  id: string;
+  file_name: string;
+  source: "file" | "pasted" | "generated";
+  enabled: boolean;
+  searchable: boolean;
+  ingested_at_unix_ms: number;
+  media_type: string;
+  /** Omit (or `null`) for a metadata-only reference. Always ignored for
+   *  `source: "generated"` documents — see `conva-core-wasm`'s doc comment. */
+  bytes?: Uint8Array | null;
+}
+
+export interface ArchiveExportArtifactInput {
+  document_id: string;
+  kind: "dossier" | "research" | "prepared_qa";
+  created_at_unix_ms: number;
+  text: string;
+}
+
+export interface ArchiveExportContextInput {
+  context: ConversationContext;
+  profile?: KnowledgeProfile | null;
+  documents: ArchiveExportDocInput[];
+  artifacts: ArchiveExportArtifactInput[];
+  created_at_unix_ms: number;
+  app_version: string;
+}
 
 /** Shape of the wasm-bindgen "web" target's generated ESM module — only the
  *  parts this file actually calls. */
 interface ArchiveWasmModule {
   default: (module_or_path?: unknown) => Promise<unknown>;
   inspectArchiveBytes: (bytes: Uint8Array) => unknown;
+  exportContextArchiveBytes: (input: ArchiveExportContextInput) => Uint8Array;
 }
 
 let modulePromise: Promise<ArchiveWasmModule> | null = null;
@@ -95,6 +129,22 @@ export async function inspectLocalArchive(archiveDigest: string): Promise<Archiv
   } catch (e) {
     // The wasm binding rejects with a plain string (see conva-core-wasm's
     // `JsValue::from_str`), not an `Error` — normalize it.
+    throw new Error(typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
+  }
+}
+
+/** Build a Context `.cva`'s complete bytes, entirely client-side — the web
+ *  half of `web.ts`'s `archive.exportArchive` (Context scope). The caller
+ *  (`archiveExport.ts`) has already fetched every included document's
+ *  bytes/text via the existing hosted library endpoints; this only runs the
+ *  same Rust assembly logic desktop's `export_context` uses
+ *  (`conva_core::archive_payload::build_context_archive`), compiled to wasm.
+ */
+export async function exportContextArchive(input: ArchiveExportContextInput): Promise<Uint8Array> {
+  const wasm = await loadArchiveWasm();
+  try {
+    return wasm.exportContextArchiveBytes(input);
+  } catch (e) {
     throw new Error(typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
   }
 }

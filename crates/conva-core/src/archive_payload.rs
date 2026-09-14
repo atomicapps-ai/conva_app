@@ -10,12 +10,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::archive::ArchiveError;
+use crate::archive::{
+    build_archive_bytes, format_utc_timestamp, ArchiveContents, ArchiveCreator, ArchiveEntry,
+    ArchiveError, ArchiveManifest, FORMAT, FORMAT_VERSION,
+};
 use crate::context::{
     ContextCategory, ContextPersona, ContextStatus, ConversationContext, KnowledgeProfile,
     ResearchSource, SuggestionDecision,
 };
 use crate::context_snapshot::ParticipationLens;
+use crate::error::CoreError;
 use crate::rag::{DocSource, RagDocument};
 use crate::source_policy::SourcePolicy;
 
@@ -293,6 +297,121 @@ pub fn export_context(
     };
     validate_context_references(&portable)?;
     Ok(portable)
+}
+
+/// One already-fetched payload file for [`build_context_archive`] — the
+/// caller (desktop: `RagStore`; web: already-downloaded `Blob`/text bytes)
+/// has already produced these bytes; this function only assembles them into
+/// a `.cva`.
+pub struct ArchivePayloadFile {
+    pub path: String,
+    pub media_type: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Every referenced document/generated-artifact's portable metadata plus its
+/// file bytes (when included) — the caller assembles this from wherever its
+/// own document store lives (desktop's `RagStore`, web's hosted library
+/// calls); this module never touches either directly.
+#[derive(Default)]
+pub struct AssembledContextDocuments {
+    pub documents: Vec<PortableDocumentV1>,
+    pub artifacts: Vec<PortableGeneratedArtifactV1>,
+    pub files: Vec<ArchivePayloadFile>,
+}
+
+/// Build a complete Context `.cva`'s bytes — the pure remainder of what used
+/// to be desktop-only `export_context` (`src-tauri/src/archive.rs`): convert
+/// to the portable DTO, assemble `manifest.json` + every payload entry, hash
+/// and validate, hand off to [`crate::archive::build_archive_bytes`]. Takes
+/// already-fetched document bytes (see [`AssembledContextDocuments`]) rather
+/// than reading them itself, so it has no filesystem/RAG-store/network
+/// dependency and can run identically on desktop (via a thin `src-tauri`
+/// wrapper that reads from `RagStore`) and in the wasm32 web build (via
+/// `conva-core-wasm`, fed bytes the browser already downloaded).
+///
+/// `created_at_unix_ms` and `created_by` are caller-supplied because neither
+/// wall-clock time nor the embedding app's own version is available to pure
+/// core code — desktop passes its real clock/`CARGO_PKG_VERSION`; the wasm
+/// binding passes `Date.now()`/the package version baked in at build time.
+pub fn build_context_archive(
+    context: &ConversationContext,
+    profile: Option<&KnowledgeProfile>,
+    assembled: AssembledContextDocuments,
+    created_at_unix_ms: u64,
+    created_by: ArchiveCreator,
+) -> Result<Vec<u8>, CoreError> {
+    let portable = export_context(context, profile)?;
+    validate_document_index(&portable, &assembled.documents, &assembled.artifacts)?;
+
+    let mut pending: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut manifest_entries = Vec::new();
+
+    let mut push = |path: String, media_type: String, bytes: Vec<u8>| {
+        let entry = ArchiveEntry {
+            path: path.clone(),
+            media_type,
+            bytes: bytes.len() as u64,
+            sha256: sha256_hex(&bytes),
+        };
+        manifest_entries.push(entry);
+        pending.push((path, bytes));
+    };
+
+    let context_bytes =
+        serde_json::to_vec_pretty(&portable).map_err(|e| CoreError::Archive(e.to_string()))?;
+    push(
+        "context/context.json".into(),
+        "application/json".into(),
+        context_bytes,
+    );
+
+    if !assembled.documents.is_empty() {
+        let bytes = serde_json::to_vec_pretty(&assembled.documents)
+            .map_err(|e| CoreError::Archive(e.to_string()))?;
+        push(
+            "documents/index.json".into(),
+            "application/json".into(),
+            bytes,
+        );
+    }
+    if !assembled.artifacts.is_empty() {
+        let bytes = serde_json::to_vec_pretty(&assembled.artifacts)
+            .map_err(|e| CoreError::Archive(e.to_string()))?;
+        push(
+            "generated/index.json".into(),
+            "application/json".into(),
+            bytes,
+        );
+    }
+    for file in assembled.files {
+        push(file.path, file.media_type, file.bytes);
+    }
+
+    let manifest = ArchiveManifest {
+        format: FORMAT.to_owned(),
+        format_version: FORMAT_VERSION,
+        created_at: format_utc_timestamp(created_at_unix_ms),
+        created_by,
+        title: context.title.clone(),
+        contents: ArchiveContents {
+            context: true,
+            conversation: false,
+            documents: assembled.documents.len(),
+            generated_artifacts: assembled.artifacts.len(),
+        },
+        entries: manifest_entries,
+    };
+    crate::archive::validate_manifest(&manifest)?;
+    build_archive_bytes(&manifest, &pending)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Check relationships before allocating or writing destination records.
@@ -628,5 +747,96 @@ mod tests {
         let mut invalid = documents;
         invalid[0].archive_path = Some("documents/files/../evil".into());
         assert!(validate_document_index(&portable, &invalid, &artifacts).is_err());
+    }
+
+    fn minimal_context() -> ConversationContext {
+        ConversationContext {
+            id: "ctx-1".into(),
+            title: "Minimal".into(),
+            purpose: "Test".into(),
+            job_description: None,
+            category: ContextCategory::Other,
+            participation_lens: None,
+            source_policy: None,
+            status: ContextStatus::Draft,
+            created_at_unix_ms: 1,
+            updated_at_unix_ms: 2,
+            source_doc_ids: vec![],
+            slot_doc_ids: BTreeMap::new(),
+            auto_generate_context: false,
+            research_enabled: false,
+            key_terms: vec![],
+            glossary: vec![],
+            glossary_definitions: BTreeMap::new(),
+            knowledge_profile_id: None,
+            personas: vec![],
+            chosen_persona_id: None,
+            conversation_id: None,
+            dossier_doc_id: None,
+            research_doc_id: None,
+            deep_qa_enabled: false,
+            qa_doc_id: None,
+            resources_stale: false,
+            resources_generated_at_unix_ms: None,
+            suggestion_decisions: BTreeMap::new(),
+        }
+    }
+
+    // ── build_context_archive (Checkpoint E, export slice) ─────────────
+
+    #[test]
+    fn build_context_archive_produces_a_loadable_valid_cva() {
+        let context = minimal_context();
+        let bytes = build_context_archive(
+            &context,
+            None,
+            AssembledContextDocuments::default(),
+            0,
+            ArchiveCreator {
+                app: "conva".into(),
+                app_version: "0.4.0".into(),
+            },
+        )
+        .unwrap();
+
+        // Loadable by the exact same reader desktop and web both use.
+        let loaded = crate::archive::load_archive_bytes(&bytes).unwrap();
+        assert_eq!(loaded.manifest.title, "Minimal");
+        assert!(loaded.manifest.contents.context);
+        assert!(!loaded.manifest.contents.conversation);
+        let round_tripped: PortableContextV1 =
+            loaded.json("context/context.json").unwrap().unwrap();
+        assert_eq!(round_tripped.id, "ctx-1");
+        assert_eq!(round_tripped.title, "Minimal");
+    }
+
+    #[test]
+    fn build_context_archive_rejects_a_profile_id_mismatch() {
+        // Same guard `export_context` itself enforces (spec: a Context's
+        // `knowledge_profile_id` must agree with the profile the caller
+        // supplies) — proven here at the archive-building entry point too,
+        // not just the DTO converter underneath it.
+        let context = minimal_context();
+        let mismatched_profile = KnowledgeProfile {
+            id: "kp-1".into(),
+            title: "Unrelated".into(),
+            created_at_unix_ms: 0,
+            updated_at_unix_ms: 0,
+            doc_ids: vec![],
+            research: vec![],
+            ready: false,
+        };
+        let err = build_context_archive(
+            &context,
+            Some(&mismatched_profile),
+            AssembledContextDocuments::default(),
+            0,
+            ArchiveCreator {
+                app: "conva".into(),
+                app_version: "0.4.0".into(),
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, CoreError::Archive(_)));
     }
 }

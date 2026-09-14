@@ -34,6 +34,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 conva-core = { path = "../conva-core" }
 serde = { workspace = true }
+sha2 = "0.10"
 wasm-bindgen = "0.2"
 serde-wasm-bindgen = "0.6"
 
