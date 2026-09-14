@@ -40,6 +40,25 @@ describe("ContextSetup wizard", () => {
     }
   });
 
+  it("swaps the Name/Goal/Key terms starter skeleton when the category changes", async () => {
+    renderSetup();
+    expect(await screen.findByPlaceholderText(/Senior Accountant interview/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Prep for technical GAAP/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sales call" }));
+
+    expect(screen.getByPlaceholderText(/Discovery call with Acme Corp/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Understand their pain points/i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Senior Accountant interview/i)).toBeNull();
+    // A category switch is example copy only — it must never touch what the
+    // user already typed.
+    fireEvent.change(screen.getByPlaceholderText(/Discovery call with Acme Corp/i), {
+      target: { value: "My real title" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Live stream" }));
+    expect(screen.getByDisplayValue("My real title")).toBeInTheDocument();
+  });
+
   it("adapts participation lenses by Context and saves the approved claim policy", async () => {
     const save = vi.fn().mockResolvedValue({ id: "s1" });
     const prepare = vi.fn().mockResolvedValue({ id: "s1" });
