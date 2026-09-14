@@ -259,6 +259,38 @@ pub fn save(app: &AppHandle, input: SaveConversation) -> Result<Conversation, Co
     Ok(conversation)
 }
 
+/// Persist an imported conversation as a brand-new record (`.cva` import,
+/// spec §2.3 "imported records receive new IDs"). Unlike [`save`], this
+/// never overwrites an existing record and never stamps `created_at_unix_ms`
+/// to "now" — the imported conversation's original recorded timestamps are
+/// display data (spec §5.2), not a claim about when this install first saw
+/// it, so this function is the one place the on-disk write is allowed to
+/// disagree with `now_unix_ms()`. Still runs the same session/claim-linkage
+/// validation `save` does — an import bypasses `save` but not its safety
+/// checks.
+pub fn import(app: &AppHandle, conversation: Conversation) -> Result<Conversation, CoreError> {
+    validate_id(&conversation.id)?;
+    if load(app, &conversation.id).is_ok() {
+        return Err(CoreError::Audio(
+            "a conversation with this id already exists".into(),
+        ));
+    }
+    let (source_session_ids, claim_snapshots) = normalize_claim_linkage(
+        conversation.source_session_ids,
+        conversation.claim_snapshots,
+    )?;
+    let conversation = Conversation {
+        source_session_ids,
+        claim_snapshots,
+        ..conversation
+    };
+    let path = conversations_dir(app)?.join(format!("{}.json", conversation.id));
+    let json =
+        serde_json::to_string_pretty(&conversation).map_err(|e| CoreError::Audio(e.to_string()))?;
+    fs::write(path, json).map_err(|e| CoreError::Audio(e.to_string()))?;
+    Ok(conversation)
+}
+
 pub fn load(app: &AppHandle, id: &str) -> Result<Conversation, CoreError> {
     validate_id(id)?;
     let path = conversations_dir(app)?.join(format!("{id}.json"));

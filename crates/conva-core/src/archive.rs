@@ -191,6 +191,40 @@ fn is_plausible_utc_timestamp(value: &str) -> bool {
         && second <= 60
 }
 
+/// Format a Unix millisecond timestamp as the UTC RFC 3339 string
+/// [`is_plausible_utc_timestamp`] accepts. No `chrono`/`time` dependency
+/// exists in this workspace for one manifest field — pure integer
+/// civil-calendar math instead (Howard Hinnant's well-known
+/// `civil_from_days` algorithm: <https://howardhinnant.github.io/date_algorithms.html>).
+/// MAINTENANCE: keep the emitted shape in sync with
+/// [`is_plausible_utc_timestamp`]'s accepted shape.
+pub fn format_utc_timestamp(unix_ms: u64) -> String {
+    let secs = unix_ms / 1000;
+    let ms = unix_ms % 1000;
+    let days = (secs / 86_400) as i64;
+    let time_of_day = secs % 86_400;
+    let hour = time_of_day / 3600;
+    let minute = (time_of_day % 3600) / 60;
+    let second = time_of_day % 60;
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{ms:03}Z")
+}
+
+/// Days-since-1970-01-01 -> (year, month, day), proleptic Gregorian.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
+    let year = if month <= 2 { y + 1 } else { y };
+    (year, month, day)
+}
+
 /// Exact media type required for the archive's own JSON payloads/indexes.
 const CANONICAL_JSON_MEDIA_TYPE: &str = "application/json";
 
@@ -502,6 +536,24 @@ mod tests {
         m.entries[0].bytes = 2;
         m.entries[0].sha256 = "G".repeat(64);
         assert!(validate_manifest(&m).is_err());
+    }
+
+    #[test]
+    fn format_utc_timestamp_matches_known_instants_and_validates() {
+        assert_eq!(format_utc_timestamp(0), "1970-01-01T00:00:00.000Z");
+        // A leap-day instant, to exercise the civil-calendar math's Feb 29
+        // (verified against `date -u -d @1709251199`).
+        assert_eq!(
+            format_utc_timestamp(1_709_251_199_000),
+            "2024-02-29T23:59:59.000Z"
+        );
+        for unix_ms in [0u64, 1_000, 1_757_448_900_123, 1_709_251_199_000] {
+            let formatted = format_utc_timestamp(unix_ms);
+            assert!(
+                is_plausible_utc_timestamp(&formatted),
+                "{formatted} (from {unix_ms}) should be a plausible UTC timestamp"
+            );
+        }
     }
 
     #[test]

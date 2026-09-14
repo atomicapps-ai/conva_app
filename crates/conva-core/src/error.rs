@@ -19,4 +19,13 @@ pub enum CoreError {
 
     #[error("configuration error: {0}")]
     Config(String),
+
+    #[error("archive error: {0}")]
+    Archive(String),
+}
+
+impl From<crate::archive::ArchiveError> for CoreError {
+    fn from(e: crate::archive::ArchiveError) -> Self {
+        CoreError::Archive(e.to_string())
+    }
 }

@@ -172,6 +172,77 @@ export function ContextsView() {
     [backend, refresh],
   );
 
+  // `.cva` portable archive (Checkpoints B/C). Desktop's `exportArchive`
+  // opens the native save dialog itself (see `tauri.ts`) — a rejection
+  // whose message names that cancellation is the user closing the dialog,
+  // not a real failure, so it's swallowed rather than surfaced as an error.
+  const exportContextArchive = async (id: string) => {
+    const operationId = `archive-export-${Date.now()}`;
+    try {
+      const result = await backend.archive.exportArchive(
+        { kind: "context", context_id: id },
+        { include_source_documents: true },
+        operationId,
+      );
+      setNotice(`Exported to ${result.destination}.`);
+    } catch (e) {
+      if (e instanceof Error && /destination file was chosen/.test(e.message)) return;
+      setNotice(`Couldn't export: ${String(e)}`);
+    }
+  };
+
+  // Selecting a file only previews it (`inspectArchive` is side-effect-free)
+  // — nothing is persisted until the confirmation below and the subsequent
+  // `importArchive` call. A native `confirm()` is a placeholder for the
+  // designed import-preview dialog (spec §8.3); it shows the same counts but
+  // not the full visual review screen.
+  const importContextArchive = async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({
+      multiple: false,
+      filters: [{ name: "conva archive", extensions: ["cva"] }],
+    });
+    if (!picked || Array.isArray(picked)) return;
+    const operationId = `archive-import-${Date.now()}`;
+    try {
+      const inspection = await backend.archive.inspectArchive(picked, operationId);
+      const lines = [
+        `Import "${inspection.title}"?`,
+        inspection.context
+          ? `Context: ${inspection.context.title} (${inspection.context.category})`
+          : null,
+        inspection.conversation
+          ? `Conversation: ${inspection.conversation.title}, ${inspection.conversation.segment_count} segment(s)`
+          : null,
+        inspection.documents.length
+          ? `${inspection.documents.filter((d) => d.included).length} of ${inspection.documents.length} document(s) will be included`
+          : null,
+        inspection.warnings.length ? `${inspection.warnings.length} compatibility warning(s)` : null,
+      ].filter((line): line is string => line !== null);
+      if (!window.confirm(lines.join("\n"))) return;
+      const result = await backend.archive.importArchive(
+        picked,
+        {
+          include_document_ids: inspection.documents.filter((d) => d.included).map((d) => d.portable_id),
+          reuse_exact_document_ids: [],
+        },
+        operationId,
+      );
+      refresh();
+      if (result.context_id) setWorkspaceId(result.context_id);
+      const omitted = result.omitted_documents.length;
+      setNotice(
+        `Imported "${inspection.title}".${omitted ? ` ${omitted} document(s) omitted — see the console for why.` : ""}`,
+      );
+      if (omitted) {
+        // eslint-disable-next-line no-console -- best-effort detail, not worth a second dialog
+        console.info("[cva import] omitted documents:", result.omitted_documents);
+      }
+    } catch (e) {
+      setNotice(`Couldn't import: ${String(e)}`);
+    }
+  };
+
   const activate = async (id: string) => {
     try {
       const ctx = await backend.context.activateContext(id);
@@ -262,6 +333,8 @@ export function ContextsView() {
             onEdit={(id) => void edit(id)}
             onDelete={(id) => void remove(id)}
             onGenerate={(id) => void generate(id)}
+            onExport={(id) => void exportContextArchive(id)}
+            onImport={() => void importContextArchive()}
             onAttach={(contextId, docId) => void attach(docId, contextId)}
             generatingId={generatingId}
             refreshToken={libraryRefreshToken}
