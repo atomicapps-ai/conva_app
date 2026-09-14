@@ -46,6 +46,12 @@ export interface ListRowProps {
    *  action) so both can be wired to the same handler without conflating
    *  "click anywhere on the row" with "this specific icon." */
   onOpenLive?: () => void;
+  /** Export this row as a `.cva` portable archive
+   *  (`conva_core/docs/technical/cva-context-conversation-portable-archive.md`).
+   *  Omit -> spacer, same convention as `onDelete` — a row with nothing
+   *  archivable (an unsaved session, a Rehearsals-tab context) leaves this
+   *  out rather than exporting nothing. */
+  onExport?: () => void;
   /** Omit -> the trash-can column renders as an empty spacer. */
   onDelete?: () => void;
   onClick: () => void;
@@ -80,6 +86,7 @@ export function ListRow({
   onOpenViewer,
   onOpenClaimReview,
   onOpenLive,
+  onExport,
   onDelete,
   onClick,
 }: ListRowProps) {
@@ -97,7 +104,7 @@ export function ListRow({
       }}
       aria-label={title}
       className={[
-        "grid h-[34px] cursor-pointer grid-cols-[3px_28px_14px_minmax(0,1fr)_auto_auto_20px_20px_20px_20px]",
+        "grid h-[34px] cursor-pointer grid-cols-[3px_28px_14px_minmax(0,1fr)_auto_auto_20px_20px_20px_20px_20px]",
         "items-center gap-1 rounded-md border pr-2 transition",
         open
           ? "border-ai/60 bg-ai/[0.06]"
@@ -198,6 +205,22 @@ export function ListRow({
           className="grid h-5 w-5 place-items-center rounded-sm text-fg-faint transition hover:bg-primary/10 hover:text-primary"
         >
           <Icon name="live" size={12} />
+        </button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
+      {onExport ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onExport();
+          }}
+          aria-label={`Export ${title} as .cva`}
+          title="Export .cva"
+          className="grid h-5 w-5 place-items-center rounded-sm text-fg-faint transition hover:bg-primary/10 hover:text-primary"
+        >
+          <Icon name="download" size={12} />
         </button>
       ) : (
         <span aria-hidden="true" />

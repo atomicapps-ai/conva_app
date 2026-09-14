@@ -1665,10 +1665,12 @@ mod tests {
         // Now pad the file past the archive size limit by growing an unused
         // trailing region — cheap way to exercise the file-size gate without
         // materializing hundreds of MB of real ZIP content in a unit test.
-        let file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&dest)
-            .unwrap();
+        // `.write(true)`, not `.append(true)` — Windows denies `set_len`
+        // (`SetEndOfFile`) on an append-only handle (`FILE_APPEND_DATA`
+        // alone doesn't carry the access `SetEndOfFile` needs), which
+        // surfaced as a real CI failure on the Windows runner even though
+        // this passes on Linux/macOS.
+        let file = std::fs::OpenOptions::new().write(true).open(&dest).unwrap();
         file.set_len(MAX_ARCHIVE_BYTES + 1024).unwrap();
 
         let result = inspect(&dest, &BTreeSet::new());

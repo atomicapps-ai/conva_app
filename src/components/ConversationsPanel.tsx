@@ -27,7 +27,7 @@ import { groupTurns } from "@/lib/turns";
 import { useConversationStore } from "@/state/conversation";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
 import { useNavStore } from "@/state/nav";
-import { isWeb } from "@/lib/platform";
+import { isDesktop, isWeb } from "@/lib/platform";
 import { useTranscriptStore } from "@/state/transcript";
 import { useTranscriptJump } from "@/state/transcriptJump";
 
@@ -551,6 +551,84 @@ export function ConversationsPanel({
     }
   };
 
+  // `.cva` portable archive (Checkpoint D) — distinct from `exportShown`'s
+  // Markdown export above (spec §8.1: "keep existing Export transcript (.md)
+  // clearly separate"). Only saved conversations (not raw sessions or
+  // Rehearsals-tab context rows) get an Export .cva action — see
+  // `ListRow`'s `onExport` doc comment. Bundles the conversation's linked
+  // Context when it has one; the user isn't offered a scope choice yet
+  // (see the implementation handoff's "Known gaps"). Desktop only — the web
+  // adapter doesn't implement `archive.*` yet (Checkpoint E).
+  const exportConversationArchive = async (id: string) => {
+    const operationId = `archive-export-${Date.now()}`;
+    try {
+      const result = await backend.archive.exportArchive(
+        { kind: "conversation", conversation_id: id, include_context: true },
+        { include_source_documents: true },
+        operationId,
+      );
+      setNotice(`Exported to ${result.destination}.`);
+    } catch (e) {
+      if (e instanceof Error && /destination file was chosen/.test(e.message)) return;
+      setNotice(`Couldn't export: ${String(e)}`);
+    }
+  };
+
+  // Selecting a file only previews it (`inspectArchive` is side-effect-free)
+  // — nothing is persisted until the confirmation below and the subsequent
+  // `importArchive` call. A native `confirm()` is a placeholder for the
+  // designed import-preview dialog (spec §8.3), same simplification as the
+  // Contexts page's import flow (`ContextsView.tsx`).
+  const importConversationArchive = async () => {
+    const { open: openFileDialog } = await import("@tauri-apps/plugin-dialog");
+    const picked = await openFileDialog({
+      multiple: false,
+      filters: [{ name: "conva archive", extensions: ["cva"] }],
+    });
+    if (!picked || Array.isArray(picked)) return;
+    const operationId = `archive-import-${Date.now()}`;
+    try {
+      const inspection = await backend.archive.inspectArchive(picked, operationId);
+      const lines = [
+        `Import "${inspection.title}"?`,
+        inspection.context
+          ? `Context: ${inspection.context.title} (${inspection.context.category})`
+          : null,
+        inspection.conversation
+          ? `Conversation: ${inspection.conversation.title}, ${inspection.conversation.segment_count} segment(s)`
+          : null,
+        inspection.documents.length
+          ? `${inspection.documents.filter((d) => d.included).length} of ${inspection.documents.length} document(s) will be included`
+          : null,
+        inspection.warnings.length ? `${inspection.warnings.length} compatibility warning(s)` : null,
+      ].filter((line): line is string => line !== null);
+      if (!window.confirm(lines.join("\n"))) return;
+      const result = await backend.archive.importArchive(
+        picked,
+        {
+          include_document_ids: inspection.documents.filter((d) => d.included).map((d) => d.portable_id),
+          reuse_exact_document_ids: [],
+        },
+        operationId,
+      );
+      await refresh();
+      const omitted = result.omitted_documents.length;
+      setNotice(
+        `Imported "${inspection.title}".${omitted ? ` ${omitted} document(s) omitted — see the console for why.` : ""}`,
+      );
+      if (omitted) {
+        // eslint-disable-next-line no-console -- best-effort detail, not worth a second dialog
+        console.info("[cva import] omitted documents:", result.omitted_documents);
+      }
+      // `open()` navigates to Live (setView) and handles its own errors —
+      // called last, and after the notice above, so a failure there doesn't
+      // clobber the "Imported" notice with its own "couldn't open" one.
+      if (result.conversation_id) await open(result.conversation_id);
+    } catch (e) {
+      setNotice(`Couldn't import: ${String(e)}`);
+    }
+  };
+
   // Merge + interleave by time for "All activity"; "Saved" stays exactly the
   // original conversations-only list/order.
   const rows: Row[] =
@@ -624,6 +702,20 @@ export function ConversationsPanel({
           >
             <Icon name="add" size={16} />
           </button>
+          {isDesktop && (
+            // `.cva` portable archive import (spec §8.1 "top-level Import
+            // action"), desktop-only for now — same gate/pattern as the
+            // Contexts page's toolbar Import button (`ContextsPane.tsx`).
+            <button
+              type="button"
+              onClick={() => void importConversationArchive()}
+              title="Import a .cva archive"
+              aria-label="Import a .cva archive"
+              className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+            >
+              <Icon name="upload" size={16} />
+            </button>
+          )}
         </>
       }
     >
@@ -847,6 +939,7 @@ export function ConversationsPanel({
                           : undefined
                       }
                       onOpenLive={() => void open(row.id)}
+                      onExport={isDesktop ? () => void exportConversationArchive(row.id) : undefined}
                       onDelete={() => void remove(row.id)}
                       onClick={() => void open(row.id)}
                     />
