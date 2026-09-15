@@ -103,6 +103,14 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
       .then(([cs, ds]) => {
         setContexts(cs);
         setDocs(ds);
+        // Reflect what's actually grounding the session right now — without
+        // this the picker always opened looking empty, even right after
+        // picking a context. Only seed from a context that's actually in
+        // this list — `activeId` can be the synthetic default context
+        // ("General conversation"), which isn't a listed, checkable row.
+        if (activeId && cs.some((c) => c.id === activeId)) {
+          setCheckedContexts(new Set([activeId]));
+        }
       })
       .catch(() => setError("Couldn't load contexts or library."))
       .finally(() => setLoadingLists(false));
@@ -182,6 +190,16 @@ export function GroundPicker({ disabled }: { disabled?: boolean }) {
 
   const apply = async () => {
     if (!canApply) return;
+    // Reselecting the context that's already grounding this session is a
+    // no-op, not a re-activation: a context that became active via another
+    // entry point (e.g. Contexts' "Use for next session") isn't guaranteed
+    // to be `status: "ready"`, and re-running prepare+generateDossier on it
+    // here could fail (missing key/source) purely from re-selecting the
+    // unchanged current context — exactly the reported "gave me an error".
+    if (soleContextId && soleContextId === activeId && !soleContextTouched) {
+      setOpen(null);
+      return;
+    }
     setError(null);
     setActivating(true);
     try {
