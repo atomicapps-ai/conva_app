@@ -362,6 +362,19 @@ async fn stop_session(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
     state.session.stop(&app).map_err(|e| e.to_string())
 }
 
+/// Pause the active session (mic/loopback keep the device open; nothing is
+/// transcribed or recorded while paused). No-op if no session is active.
+#[tauri::command]
+fn pause_session(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    state.session.pause(&app).map_err(|e| e.to_string())
+}
+
+/// Resume a paused session.
+#[tauri::command]
+fn resume_session(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    state.session.resume(&app).map_err(|e| e.to_string())
+}
+
 /// Start recording the live call to a stereo WAV; returns the file path.
 #[tauri::command]
 fn start_recording(app: AppHandle, state: State<AppState>) -> Result<String, String> {
@@ -2937,6 +2950,8 @@ pub fn run() {
             deepgram_key_status,
             start_session,
             stop_session,
+            pause_session,
+            resume_session,
             start_recording,
             stop_recording,
             recording_status,

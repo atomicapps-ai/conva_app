@@ -142,6 +142,10 @@ export interface ConvaBackend {
     /** Resolves to the session id. */
     start(): Promise<string>;
     stop(): Promise<void>;
+    /** Mic/loopback devices stay open; nothing is transcribed or recorded
+     *  while paused, so resume is instant. No-op if no session is active. */
+    pause(): Promise<void>;
+    resume(): Promise<void>;
   };
 
   /**

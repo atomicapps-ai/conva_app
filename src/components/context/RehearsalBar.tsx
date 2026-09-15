@@ -46,9 +46,10 @@ export function RehearsalBar() {
 
   const endRehearsal = async () => {
     try {
-      // Mark the saved conversation as a Context rehearsal so it's identifiable
-      // in the Conversations list, then route through the app store's stop so ending
-      // offers to save the full transcript (both sides) — same as top-bar Stop.
+      // Pre-fill a title identifying this as a Context rehearsal in the
+      // Conversations list, for whenever it's saved — End itself is a plain
+      // stop now (owner, 2026-09-15), same as the top control bar's End; the
+      // persistent Save action there is the explicit way to keep it.
       const { useConversationStore } = await import("@/state/conversation");
       if (!useConversationStore.getState().openId) {
         useConversationStore.getState().setTitle(`Context — ${persona}`);

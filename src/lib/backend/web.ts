@@ -444,6 +444,12 @@ export class WebBackend implements ConvaBackend {
       if (this.runner) await this.runner.stop();
       useHostedConsentStore.getState().reset();
     },
+    // No pause/resume in the hosted pipeline yet — a paused hosted session
+    // would still be charged credit for an idle WebSocket with nothing to
+    // show for it, unlike desktop's local mic (free, and the device stays
+    // open at zero marginal cost). Stop/Start is the only path today.
+    pause: (): Promise<void> => unsupported("session.pause"),
+    resume: (): Promise<void> => unsupported("session.resume"),
   };
 
   capture = {

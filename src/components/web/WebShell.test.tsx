@@ -11,10 +11,11 @@ const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, head
 const session = { signed_in: true, configured: true, email: "a@b.co", user_id: "u-1", expires_at_unix: 9e9, last_sign_in_at: null, provider: "google", beta_access: true, beta_status: "active" };
 
 /**
- * End on web sets the shared `savePromptOpen` flag (app store `stop`); the
- * dialog that renders it was mounted only in the desktop StudioShell, so the
- * first-run rehearsal found step 11 ("Save conversation") silently impossible
- * on web (#238). The web shell must mount it too.
+ * Saving sets the shared `savePromptOpen` flag (the control bar's Save
+ * action, and "+ New" with unsaved content — see `state/conversation.ts`);
+ * the dialog that renders it was mounted only in the desktop StudioShell, so
+ * the first-run rehearsal found step 11 ("Save conversation") silently
+ * impossible on web (#238). The web shell must mount it too.
  */
 describe("WebShell — the save-conversation prompt renders on web", () => {
   beforeEach(() => webAuth._resetForTests());

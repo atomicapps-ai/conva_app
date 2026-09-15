@@ -3,6 +3,9 @@ import { Icon } from "@/components/ui/Icon";
 import { ResponsiveLabel } from "@/components/ui/ResponsiveLabel";
 import { useAppStore } from "@/state/app";
 import { useElapsed } from "@/lib/useElapsed";
+import { hasTranscribedContent } from "@/lib/turns";
+import { useConversationStore } from "@/state/conversation";
+import { useRehearsalStore } from "@/state/rehearsal";
 import { useTranscriptStore } from "@/state/transcript";
 
 /**
@@ -14,26 +17,33 @@ import { useTranscriptStore } from "@/state/transcript";
  *   "the animation is not the button to start listening"): the `<Core>`
  *   sonar is lit while listening/preparing and dimmed when idle. The
  *   session toggle is the labeled button — idle: "Start listening"
- *   (primary), listening: "End" (red, with elapsed) → today's stop, which
- *   offers to save the transcript. (V4.0 briefly made the sonar the click
- *   target; reversed per the same owner feedback.)
- * - `Pause` → present but disabled. `Paused` exists as an IPC enum variant
- *   (`crates/conva-core/src/ipc.rs`) but nothing in `src-tauri` ever
- *   constructs or handles it — there's no backend to wire this to yet.
- * - mic / Ally toggles → present but disabled, same reason: no mid-call
- *   mute or Ally-silence command exists today. Shipping them visibly-off
- *   rather than omitting them keeps the gap honest instead of hidden.
+ *   (primary), listening: "End" (red, with elapsed). (V4.0 briefly made the
+ *   sonar the click target; reversed per the same owner feedback.)
+ * - `Pause` → real (owner, 2026-09-15 — previously present but hard-disabled
+ *   with no backend at all). Mic/loopback devices stay open; the session's
+ *   frame sink just stops forwarding while paused, so resume is instant.
+ *   Toggles to "Resume" when `session.state === "paused"`.
+ * - `Save` → also real, 2026-09-15: End used to ALWAYS force a save/discard
+ *   decision the moment anything was transcribed, which read as "I just
+ *   wanted to pause, not be interrogated." End is now a plain stop — the
+ *   transcript just stays on screen, undecided — and this button is the
+ *   explicit, always-available way to save it (opens the same naming
+ *   dialog, `SaveConversationDialog`), enabled whenever there's something to
+ *   save (`hasTranscribedContent`). Nothing is silently lost either way: the
+ *   raw run persists on-device in Sessions regardless, and "+ New" still
+ *   asks what to do with unsaved content before discarding it
+ *   (`requestNew`) — only the forced prompt on every End is gone.
+ * - mic / Ally mute toggles → present but disabled: no mid-call mute or
+ *   Ally-silence command exists today. Shipping them visibly-off rather than
+ *   omitting them keeps the gap honest instead of hidden.
  * - the "ASK CONVA" hint → informational only. The real, working ask box
  *   stays exactly where it already lived (bottom of the transcript column,
  *   `TranscriptView.tsx`) rather than being uprooted into this 62px-tall
  *   strip — moving working, tested state wiring wasn't worth the risk for
  *   a purely cosmetic slot.
- * - `End & summarise` → today's Stop, which already opens
- *   `SaveConversationDialog` to save the transcript as a named conversation
- *   — a genuine semantic match, not a relabel.
  * - Record sits here too (owner feedback) — it was stranded alone up in
  *   `LiveTopBar`; it's a session-lifecycle action, same family as Start/Stop
- *   and End & summarise, so it belongs grouped with them.
+ *   and Save, so it belongs grouped with them.
  * - The Details/Terms tab zone is RETIRED (spine-accordion spec,
  *   2026-08-26): the right panel is now a spine-icon accordion that
  *   carries its own section controls, so the bar holds no panel tabs.
@@ -50,16 +60,37 @@ export function LiveControlBar({
 }) {
   const session = useTranscriptStore((s) => s.session);
   const listening = session.state === "listening";
+  const paused = session.state === "paused";
+  // A paused session is still an active session (not idle) — the End toggle
+  // below must keep offering End, not silently flip to "Start listening"
+  // (which would try to start a SECOND session on top of the paused one).
+  const sessionActive = listening || paused;
   const preparing = session.state === "preparing";
+  // A rehearsal is a Live session under the hood (session.state === "listening"
+  // exactly as a normal call), so this bar's own session toggle would show a
+  // SECOND, identically-behaving "End" alongside RehearsalBar's floating one —
+  // both call the exact same stop(), just labeled/positioned differently
+  // (owner report, 2026-09-15: "strange to have two end buttons"). RehearsalBar
+  // is the fuller, rehearsal-aware control surface, so it owns End here.
+  const rehearsalActive = useRehearsalStore((s) => s.active);
+  const archived = useTranscriptStore((s) => s.archived);
+  const segments = useTranscriptStore((s) => s.segments);
+  const canSave = hasTranscribedContent(archived, segments);
+  const requestSave = useConversationStore((s) => s.setSavePromptOpen);
   const busy = useAppStore((s) => s.busy);
   const lastError = useAppStore((s) => s.lastError);
   const modelStatus = useAppStore((s) => s.modelStatus);
   const start = useAppStore((s) => s.start);
   const stop = useAppStore((s) => s.stop);
+  const pause = useAppStore((s) => s.pause);
+  const resume = useAppStore((s) => s.resume);
   const recording = useAppStore((s) => s.recording);
   const startRecording = useAppStore((s) => s.startRecording);
   const stopRecording = useAppStore((s) => s.stopRecording);
-  const elapsed = useElapsed(listening);
+  // Keeps ticking through a pause (matches the backend: resume() re-emits
+  // Listening with the ORIGINAL start time, not now) — resetting to 00:00
+  // on every pause/resume would read as "did this start a new session?".
+  const elapsed = useElapsed(sessionActive);
 
   const statusText = (() => {
     if (preparing) return session.message;
@@ -97,8 +128,12 @@ export function LiveControlBar({
           bar shrank) — 34px in a 38px bar, vs. every button's 28px. */}
       <div
         role="status"
-        aria-label={listening ? "Listening" : preparing ? "Preparing" : "Not listening"}
-        title={listening ? "Listening" : preparing ? "Preparing" : "Not listening"}
+        aria-label={
+          listening ? "Listening" : paused ? "Paused" : preparing ? "Preparing" : "Not listening"
+        }
+        title={
+          listening ? "Listening" : paused ? "Paused" : preparing ? "Preparing" : "Not listening"
+        }
         className={`grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full transition-opacity ${
           listening || preparing ? "" : "opacity-35 saturate-50"
         }`}
@@ -118,13 +153,18 @@ export function LiveControlBar({
         <>
           <button
             type="button"
-            disabled
-            title="Pause — not wired up yet"
-            aria-label="Pause (not yet available)"
-            className="hidden h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] border border-border-strong px-2 text-xs font-bold text-fg-faint opacity-50 md:flex"
+            disabled={!listening && !paused}
+            onClick={() => void (paused ? resume() : pause())}
+            aria-pressed={paused}
+            title={
+              paused
+                ? "Resume — mic was idle, nothing was transcribed while paused"
+                : "Pause — the mic stays connected; nothing is transcribed or recorded until you resume"
+            }
+            className="hidden h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] border border-border-strong px-2 text-xs font-bold text-fg-muted transition hover:text-fg disabled:text-fg-faint disabled:opacity-50 md:flex"
           >
-            <Icon name="pause" size={13} />
-            <ResponsiveLabel full="Pause" short="" />
+            <Icon name={paused ? "live" : "pause"} size={13} />
+            <ResponsiveLabel full={paused ? "Resume" : "Pause"} short="" />
           </button>
           <button
             type="button"
@@ -170,32 +210,49 @@ export function LiveControlBar({
         <ResponsiveLabel full={recording ? "Recording" : "Record"} short="Rec" />
       </button>
 
-      {/* THE session toggle (owner, 2026-08-21): Start listening ↔ End. */}
+      {/* THE session toggle (owner, 2026-08-21): Start listening ↔ End.
+          Hidden during an active rehearsal — see rehearsalActive above. */}
+      {!rehearsalActive && (
+        <button
+          type="button"
+          disabled={busy || preparing}
+          onClick={() => void (sessionActive ? stop() : start())}
+          aria-pressed={sessionActive}
+          title={
+            sessionActive
+              ? "End — stops listening (a plain stop; use Save to keep the transcript)"
+              : "Start listening"
+          }
+          className={[
+            "flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-2 text-xs font-bold transition hover:brightness-110 disabled:opacity-40",
+            sessionActive
+              ? "border border-rec/50 bg-rec/10 text-rec"
+              : "bg-primary text-primary-ink",
+          ].join(" ")}
+        >
+          <Icon name={sessionActive ? "record" : "live"} size={12} />
+          <ResponsiveLabel
+            full={sessionActive ? "End" : "Start listening"}
+            short={sessionActive ? "End" : "Start"}
+          />
+          {sessionActive && (
+            <span className="font-mono text-[10.5px] font-bold text-rec/80">{elapsed}</span>
+          )}
+        </button>
+      )}
+
+      {/* Explicit Save, next to End (owner, 2026-09-15) — see the doc
+          comment above. Available any time there's something to save, not
+          just right after End. */}
       <button
         type="button"
-        disabled={busy || preparing}
-        onClick={() => void (listening ? stop() : start())}
-        aria-pressed={listening}
-        title={
-          listening
-            ? "End — stops listening and offers to save the transcript"
-            : "Start listening"
-        }
-        className={[
-          "flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-2 text-xs font-bold transition hover:brightness-110 disabled:opacity-40",
-          listening
-            ? "border border-rec/50 bg-rec/10 text-rec"
-            : "bg-primary text-primary-ink",
-        ].join(" ")}
+        disabled={!canSave}
+        onClick={() => requestSave(true)}
+        title={canSave ? "Save this conversation" : "Nothing to save yet"}
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] border border-border-strong px-2 text-xs font-bold text-fg-muted transition hover:text-fg disabled:opacity-40"
       >
-        <Icon name={listening ? "record" : "live"} size={12} />
-        <ResponsiveLabel
-          full={listening ? "End" : "Start listening"}
-          short={listening ? "End" : "Start"}
-        />
-        {listening && (
-          <span className="font-mono text-[10.5px] font-bold text-rec/80">{elapsed}</span>
-        )}
+        <Icon name="save" size={12} />
+        <ResponsiveLabel full="Save" short="" />
       </button>
 
       <span className="flex-1" aria-hidden />

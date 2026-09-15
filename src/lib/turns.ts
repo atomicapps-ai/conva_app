@@ -9,6 +9,24 @@ export function segmentKey(seg: TranscriptSegment): string {
   return `${seg.side}-${seg.seq}`;
 }
 
+/**
+ * Whether there's anything worth offering to save — at least one archived
+ * (prior) run, or a finalized, non-blank segment in the live run. Shared by
+ * "+ New" (`requestNew`, which still prompts before discarding it) and the
+ * control bar's persistent Save action (owner, 2026-09-15: Stop itself no
+ * longer forces a save/discard decision — it's a plain stop, like a pause;
+ * Save is a separate, always-available action next to End instead).
+ */
+export function hasTranscribedContent(
+  archived: readonly TranscriptSegment[],
+  segments: readonly TranscriptSegment[],
+): boolean {
+  return (
+    archived.length > 0 ||
+    segments.some((s) => s.is_final && s.text.trim().length > 0)
+  );
+}
+
 export interface Turn {
   side: TranscriptSegment["side"];
   key: string;

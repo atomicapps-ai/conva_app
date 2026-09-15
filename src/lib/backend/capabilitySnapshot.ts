@@ -141,6 +141,8 @@ export const ALL_OPERATIONS = [
   "audio.deepgramKeyStatus",
   "session.start",
   "session.stop",
+  "session.pause",
+  "session.resume",
   "capture.enumerateSources",
   "capture.prepare",
   "capture.start",
@@ -440,6 +442,11 @@ export function webOperations(): OperationAvailability {
     "audio.deepgramKeyStatus": unsupported("ASR keys are held server-side on the web."),
     "session.start": unimplemented(M2),
     "session.stop": unimplemented(M2),
+    // Not a milestone gap — the hosted pipeline bills per active WebSocket,
+    // so a paused-but-connected session would burn credit for nothing;
+    // Stop/Start is the only path (see WebBackend.session.pause).
+    "session.pause": unsupported("Pause isn't available on the hosted (web) session."),
+    "session.resume": unsupported("Pause isn't available on the hosted (web) session."),
     "capture.enumerateSources": AVAILABLE,
     "capture.prepare": AVAILABLE,
     "capture.start": unimplemented(M2),

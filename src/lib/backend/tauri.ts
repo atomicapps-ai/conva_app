@@ -142,6 +142,8 @@ export class TauriBackend implements ConvaBackend {
   session = {
     start: cmd.startSession,
     stop: cmd.stopSession,
+    pause: cmd.pauseSession,
+    resume: cmd.resumeSession,
   };
 
   /** Desktop starts mic + system audio together on `session.start()`; there is

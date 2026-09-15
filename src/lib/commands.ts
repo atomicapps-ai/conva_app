@@ -89,6 +89,16 @@ export function stopSession(): Promise<void> {
   return invoke("stop_session");
 }
 
+/** Pause the active session — mic/loopback devices stay open; nothing is
+ *  transcribed or recorded while paused, so resume is instant. */
+export function pauseSession(): Promise<void> {
+  return invoke("pause_session");
+}
+
+export function resumeSession(): Promise<void> {
+  return invoke("resume_session");
+}
+
 /** Start recording the live call to a stereo WAV; resolves to the file path. */
 export function startRecording(): Promise<string> {
   return invoke<string>("start_recording");

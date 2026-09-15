@@ -87,6 +87,13 @@ pub struct SessionManager {
     /// Rehearsal turns bypass the ASR sink, so keep a session-scoped route to
     /// the semantic claim worker for persona and injected turns too.
     semantic_forward: Mutex<Option<Sender<TranscriptSegment>>>,
+    /// Set while the current session is paused (owner report, 2026-09-15 —
+    /// there was no working Pause at all). The frame sink checks this and
+    /// drops every frame past the watchdog clock update — nothing here stops
+    /// or reopens the cpal device streams (§2.4's device callback stays
+    /// untouched), so resume is instant with no re-open latency or click.
+    /// `None` when no session is active.
+    paused: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 /// Which capture topology a session runs.
@@ -134,6 +141,7 @@ impl SessionManager {
             session_log: Mutex::new(None),
             capture_forward: Mutex::new(None),
             semantic_forward: Mutex::new(None),
+            paused: Mutex::new(None),
         }
     }
 
@@ -341,6 +349,8 @@ impl SessionManager {
         let stop_flag = Arc::new(AtomicBool::new(false));
         // last-frame clocks (ms since epoch) per side, shared with watchdog.
         let last_frame = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+        let paused_flag = Arc::new(AtomicBool::new(false));
+        *self.paused.lock().expect("paused lock") = Some(paused_flag.clone());
 
         // Per-session transcript file (U3): meta line, then one JSON
         // segment per line. Shared by both sides' sinks. A rehearsal tags the
@@ -540,6 +550,7 @@ impl SessionManager {
                 last_frame.clone(),
                 frames_tx,
                 self.recording.clone(),
+                paused_flag.clone(),
             )) {
                 // The inbound (other-party) side is WASAPI loopback — capturing
                 // an *output* device as an input stream. That trick is
@@ -602,6 +613,7 @@ impl SessionManager {
         *self.session_log.lock().expect("log lock") = None;
         *self.capture_forward.lock().expect("capture lock") = None;
         *self.semantic_forward.lock().expect("semantic lock") = None;
+        *self.paused.lock().expect("paused lock") = None;
         let session = self.active.lock().expect("session lock").take();
         if let Some(mut session) = session {
             // Signal first so the ASR workers skip their final decode.
@@ -628,6 +640,48 @@ impl SessionManager {
         }
         app.emit(events::SESSION_STATE, SessionStateEvent::Idle)
             .map_err(|e| CoreError::Audio(e.to_string()))
+    }
+
+    /// Pause the active session: mic/loopback devices stay open (§2.4's
+    /// device callback is untouched) but the frame sink stops forwarding
+    /// frames to the meter, recording, and ASR — so nothing is transcribed
+    /// or recorded while paused, and resume is instant (no device re-open).
+    /// A no-op if no session is active or it's already paused.
+    pub fn pause(&self, app: &AppHandle) -> Result<(), CoreError> {
+        let id = match self.active.lock().expect("session lock").as_ref() {
+            Some(session) => session.id.clone(),
+            None => return Ok(()),
+        };
+        if let Some(flag) = self.paused.lock().expect("paused lock").as_ref() {
+            flag.store(true, Ordering::Relaxed);
+        }
+        app.emit(
+            events::SESSION_STATE,
+            SessionStateEvent::Paused { session_id: id },
+        )
+        .map_err(|e| CoreError::Audio(e.to_string()))
+    }
+
+    /// Resume a paused session. `started_at_unix_ms` is the session's
+    /// original start time (not now) so the elapsed-time display in the
+    /// control bar doesn't jump backward on resume. A no-op if no session is
+    /// active or it isn't paused.
+    pub fn resume(&self, app: &AppHandle) -> Result<(), CoreError> {
+        let id = match self.active.lock().expect("session lock").as_ref() {
+            Some(session) => session.id.clone(),
+            None => return Ok(()),
+        };
+        if let Some(flag) = self.paused.lock().expect("paused lock").as_ref() {
+            flag.store(false, Ordering::Relaxed);
+        }
+        app.emit(
+            events::SESSION_STATE,
+            SessionStateEvent::Listening {
+                session_id: id,
+                started_at_unix_ms: self.session_started_ms.load(Ordering::Relaxed),
+            },
+        )
+        .map_err(|e| CoreError::Audio(e.to_string()))
     }
 
     /// Start recording the live conversation to a stereo WAV (you = left,
@@ -667,16 +721,26 @@ fn side_index(side: StreamSide) -> usize {
 }
 
 /// Audio-frame sink: meters ~100 ms windows (VU events), feeds the watchdog
-/// clock, and tees every frame into the side's ASR engine.
+/// clock, and tees every frame into the side's ASR engine. Drops the frame
+/// (past the watchdog clock update) while `paused` is set — see
+/// [`SessionManager::pause`].
 fn make_frame_sink(
     app: AppHandle,
     last_frame: Arc<[AtomicU64; 2]>,
     frames_tx: Sender<AudioFrame>,
     recording: Arc<Mutex<Option<Recorder>>>,
+    paused: Arc<AtomicBool>,
 ) -> Box<dyn FnMut(AudioFrame) + Send> {
     let mut window: Vec<f32> = Vec::with_capacity(METER_WINDOW_SAMPLES * 2);
     Box::new(move |frame: AudioFrame| {
+        // Frames keep arriving from the still-open device while paused —
+        // update the watchdog clock regardless so a deliberate pause never
+        // reads as a stalled/unhealthy stream (A4), then drop the frame
+        // everywhere else.
         last_frame[side_index(frame.side)].store(now_unix_ms(), Ordering::Relaxed);
+        if paused.load(Ordering::Relaxed) {
+            return;
+        }
         // Tee to the call recording when armed (cheap copy + channel send;
         // the writer thread does the encoding). Never blocks capture.
         if let Ok(guard) = recording.lock() {
