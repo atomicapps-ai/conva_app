@@ -38,6 +38,10 @@ interface AppState {
   acknowledgeConsent: () => Promise<void>;
   start: () => Promise<void>;
   stop: () => Promise<void>;
+  /** Mic/loopback devices stay open; nothing is transcribed or recorded
+   *  while paused, so resume is instant. No-op if no session is active. */
+  pause: () => Promise<void>;
+  resume: () => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -155,6 +159,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  // Stop is a plain stop (owner, 2026-09-15) — like a hard pause, not a
+  // decision point. It used to always pop the save/discard dialog when
+  // anything was transcribed; now the transcript just stays on screen,
+  // undecided, and the control bar's persistent Save action (next to End)
+  // is the explicit way to keep it. Nothing is silently lost either way:
+  // the raw run persists on-device in Sessions regardless, and starting a
+  // genuinely NEW conversation ("+ New") still asks what to do with unsaved
+  // content first (`requestNew`) — this only removes the forced prompt on
+  // every Stop.
   stop: async () => {
     set({ busy: true });
     try {
@@ -170,25 +183,33 @@ export const useAppStore = create<AppState>((set, get) => ({
       } catch {
         useGroundingStore.getState().clear();
       }
-      // Offer to save the conversation when anything was transcribed
-      // (owner flow: Stop → "save this conversation?").
-      const [{ useTranscriptStore }, { useConversationStore }] =
-        await Promise.all([
-          import("@/state/transcript"),
-          import("@/state/conversation"),
-        ]);
-      const t = useTranscriptStore.getState();
-      const hasContent =
-        t.archived.length > 0 ||
-        t.segments.some((s) => s.is_final && s.text.trim().length > 0);
-      if (hasContent) {
-        useConversationStore.getState().setSavePromptOpen(true);
-      }
     } catch (e) {
       set({ lastError: String(e) });
     } finally {
       // The session stop finalizes any recording backend-side.
       set({ busy: false, recording: false });
+    }
+  },
+
+  pause: async () => {
+    set({ busy: true });
+    try {
+      await getBackend().session.pause();
+    } catch (e) {
+      set({ lastError: String(e) });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  resume: async () => {
+    set({ busy: true });
+    try {
+      await getBackend().session.resume();
+    } catch (e) {
+      set({ lastError: String(e) });
+    } finally {
+      set({ busy: false });
     }
   },
 }));

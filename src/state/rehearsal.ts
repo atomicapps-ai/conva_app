@@ -11,8 +11,13 @@ interface RehearsalState {
   active: boolean;
   personaTitle: string | null;
   phase: RehearsalPhase;
+  /** False when no Deepgram key is configured (Aura TTS reuses it) — the
+   *  rehearsal still runs, but text-only. Drives the "voice unavailable"
+   *  notice in `RehearsalBar` instead of leaving the user wondering why the
+   *  persona never speaks (owner, 2026-09-15). */
+  voiceEnabled: boolean;
   /** Called when the user launches a rehearsal (before events arrive). */
-  begin: (personaTitle: string) => void;
+  begin: (personaTitle: string, voiceEnabled: boolean) => void;
   /** Called when the user ends it locally. */
   end: () => void;
   applyPhase: (event: RehearsalStateEvent) => void;
@@ -22,8 +27,10 @@ export const useRehearsalStore = create<RehearsalState>((set) => ({
   active: false,
   personaTitle: null,
   phase: "thinking",
+  voiceEnabled: true,
 
-  begin: (personaTitle) => set({ active: true, personaTitle, phase: "thinking" }),
+  begin: (personaTitle, voiceEnabled) =>
+    set({ active: true, personaTitle, phase: "thinking", voiceEnabled }),
   end: () => set({ active: false, phase: "ended" }),
   applyPhase: (event) =>
     set(() =>

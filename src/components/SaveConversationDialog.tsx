@@ -87,16 +87,19 @@ export function SaveConversationDialog() {
           </p>
         )}
         <div className="mt-4 flex items-center justify-end gap-2">
-          {pendingNew && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setOpen(false)}
-              className="mr-auto rounded-md px-3 py-1 text-xs text-fg-faint hover:text-fg disabled:opacity-50"
-            >
-              Cancel
-            </button>
-          )}
+          {/* Closing without deciding is always an option (owner, 2026-09-15
+              — nothing here should force a decision): the "+ New" flow calls
+              it Cancel (it's blocking a fresh start); a manually-opened Save
+              just closes back to the still-undecided, still-on-screen
+              transcript. */}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setOpen(false)}
+            className="mr-auto rounded-md px-3 py-1 text-xs text-fg-faint hover:text-fg disabled:opacity-50"
+          >
+            {pendingNew ? "Cancel" : "Not now"}
+          </button>
           {/* Discard = the pane fully resets (owner, 2026-08-21); the raw
               run itself stays on-device in Sessions either way. */}
           <button

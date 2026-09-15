@@ -36,6 +36,7 @@ import type {
   SecretsStatus,
   SessionSummary,
   SplashProgressEvent,
+  StartRehearsalResult,
   TranscriptSegment,
   UsageSummary,
   WhisperModelInfo,
@@ -86,6 +87,16 @@ export function startSession(): Promise<string> {
 
 export function stopSession(): Promise<void> {
   return invoke("stop_session");
+}
+
+/** Pause the active session — mic/loopback devices stay open; nothing is
+ *  transcribed or recorded while paused, so resume is instant. */
+export function pauseSession(): Promise<void> {
+  return invoke("pause_session");
+}
+
+export function resumeSession(): Promise<void> {
+  return invoke("resume_session");
 }
 
 /** Start recording the live call to a stereo WAV; resolves to the file path. */
@@ -445,6 +456,20 @@ export function contextGeneratePersonas(
   return invoke<ConversationContext>("context_generate_personas", { id });
 }
 
+/** Mark or unmark a persona as a favorite — scoped to this context for now
+ *  (see ContextPersona.favorite). */
+export function contextToggleFavoritePersona(
+  id: string,
+  personaId: string,
+  favorite: boolean,
+): Promise<ConversationContext> {
+  return invoke<ConversationContext>("context_toggle_favorite_persona", {
+    id,
+    personaId,
+    favorite,
+  });
+}
+
 /** Record the chosen persona. */
 export function contextChoosePersona(
   id: string,
@@ -456,9 +481,11 @@ export function contextChoosePersona(
   });
 }
 
-/** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
-export function contextStartRehearsal(id: string): Promise<string> {
-  return invoke<string>("context_start_rehearsal", { id });
+/** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns the session
+ *  id plus whether a TTS key is configured (`voice_enabled`), so the caller
+ *  can flag a text-only rehearsal instead of a silently mute one. */
+export function contextStartRehearsal(id: string): Promise<StartRehearsalResult> {
+  return invoke<StartRehearsalResult>("context_start_rehearsal", { id });
 }
 
 /** End the user's current rehearsal turn now (manual "your turn"). */

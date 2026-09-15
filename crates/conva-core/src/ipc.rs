@@ -200,6 +200,18 @@ pub struct PartnerLockEvent {
     pub locked: bool,
 }
 
+/// Result of starting a live Context rehearsal — the command's return value,
+/// not an event. `voice_enabled` tells the UI up front whether the persona
+/// will actually be spoken (Aura TTS reuses the Deepgram key; with none
+/// configured the rehearsal silently runs text-only) so it can show a
+/// "voice unavailable" notice instead of leaving the user wondering why
+/// nothing is playing (owner, 2026-09-15).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartRehearsalResult {
+    pub session_id: String,
+    pub voice_enabled: bool,
+}
+
 /// Live Context rehearsal phase (Phase E) — drives the "who's talking" UI
 /// (speaking animation + active-speaker indicator).
 #[derive(Debug, Clone, Serialize, Deserialize)]

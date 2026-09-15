@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { AllyFocusItem } from "@/components/transcript/allyFocus";
 import { Icon } from "@/components/ui/Icon";
@@ -36,6 +36,11 @@ export function AllyFocusCanvas({
   canOpen?: (item: AllyFocusItem) => boolean;
   renderAnswer?: (text: string) => ReactNode;
 }) {
+  // Raw/formatted toggle (owner report, 2026-09-15): "still in markup format"
+  // — one switch for the whole canvas rather than per-item state, since it's
+  // read as a viewing preference ("show me the underlying text"), not
+  // per-answer configuration.
+  const [raw, setRaw] = useState(false);
   if (items.length === 0) return null;
   const active = items.find((item) => item.id === activeId) ?? items[0]!;
   const pinned = pinnedIds.has(active.id);
@@ -121,6 +126,16 @@ export function AllyFocusCanvas({
             <span className="font-mono text-[9px] font-bold uppercase tracking-[0.16em] text-ai">
               Answer
             </span>
+            {active.answer && renderAnswer && (
+              <button
+                type="button"
+                onClick={() => setRaw((r) => !r)}
+                title={raw ? "Show formatted" : "Show raw markdown"}
+                className="rounded border border-border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-fg-faint transition hover:text-fg"
+              >
+                {raw ? "Raw" : "Formatted"}
+              </button>
+            )}
             <span
               role="status"
               className={[
@@ -133,9 +148,11 @@ export function AllyFocusCanvas({
           </div>
           <div className="text-[0.9em] leading-relaxed text-fg">
             {active.answer
-              ? renderAnswer?.(active.answer) ?? (
-                  <p className="whitespace-pre-line">{active.answer}</p>
-                )
+              ? raw
+                ? <pre className="whitespace-pre-wrap break-words font-mono text-[0.85em]">{active.answer}</pre>
+                : (renderAnswer?.(active.answer) ?? (
+                    <p className="whitespace-pre-line">{active.answer}</p>
+                  ))
               : "Ally is preparing the response…"}
           </div>
           {active.sourceFiles && active.sourceFiles.length > 0 && (

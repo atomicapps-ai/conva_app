@@ -125,6 +125,14 @@ pub struct ContextPersona {
     /// UI falls back to a neutral avatar in that case rather than guessing.
     #[serde(default)]
     pub gender: Option<PersonaGender>,
+    /// User-marked favorite (owner, 2026-09-15): a favorited persona survives
+    /// "Generate personas" for THIS context instead of being discarded with
+    /// the rest — see [`merge_personas_preserving_favorites`]. Scoped to one
+    /// context for now; reuse across different contexts is a separate,
+    /// larger feature (a persona would need to exist independent of any one
+    /// context's generated material).
+    #[serde(default)]
+    pub favorite: bool,
 }
 
 /// A web-research source folded into a [`KnowledgeProfile`] (Step 2), kept for
@@ -552,8 +560,58 @@ pub fn parse_personas(text: &str) -> Vec<ContextPersona> {
             style_tags: g.style_tags,
             recommended: g.recommended,
             gender: parse_gender(g.gender.as_deref()),
+            favorite: false,
         })
         .collect();
+
+    if !out.is_empty() && !out.iter().any(|p| p.recommended) {
+        out[0].recommended = true;
+    }
+    out
+}
+
+/// Combine a freshly-generated persona batch with any favorited personas from
+/// the previous batch, so favoriting one (owner, 2026-09-15) means it survives
+/// "Generate"/"Regenerate personas" instead of being silently discarded along
+/// with everything else. Pure — the caller (`context_generate_personas`) owns
+/// loading/saving.
+///
+/// - Favorited personas from `existing` are kept, in their original order.
+/// - Freshly `generated` ones fill the remaining slots up to a floor of 3 (so
+///   favoriting fewer than 3 still gives a normal-sized set to choose from);
+///   favoriting all 3 leaves no room for new ones, which is the point — unfavorite
+///   one to make space.
+/// - A freshly generated persona whose id collides with a kept favorite (both
+///   come from the same `p1, p2, p3…` scheme) is renumbered so nothing is
+///   silently overwritten.
+/// - Exactly one persona ends up `recommended`, same invariant as
+///   [`parse_personas`].
+pub fn merge_personas_preserving_favorites(
+    existing: &[ContextPersona],
+    generated: Vec<ContextPersona>,
+) -> Vec<ContextPersona> {
+    let favorited: Vec<ContextPersona> = existing.iter().filter(|p| p.favorite).cloned().collect();
+    let favorited_ids: std::collections::HashSet<&str> =
+        favorited.iter().map(|p| p.id.as_str()).collect();
+
+    let mut next_index = existing.len() + generated.len() + 1;
+    let mut renumbered = Vec::with_capacity(generated.len());
+    for mut g in generated {
+        if favorited_ids.contains(g.id.as_str()) {
+            g.id = format!("p{next_index}");
+            next_index += 1;
+        }
+        renumbered.push(g);
+    }
+
+    let target = favorited.len().max(3);
+    let mut out = favorited;
+    for g in renumbered {
+        if out.len() >= target {
+            break;
+        }
+        out.push(g);
+    }
 
     if !out.is_empty() && !out.iter().any(|p| p.recommended) {
         out[0].recommended = true;
@@ -1358,6 +1416,93 @@ mod tests {
     }
 
     #[test]
+    fn merge_keeps_favorited_and_fills_remaining_slots_with_generated() {
+        let mut favorited = persona();
+        favorited.favorite = true;
+        let existing = vec![favorited.clone(), persona()]; // second one not favorited
+        let generated = vec![
+            ContextPersona {
+                id: "p1".into(),
+                title: "Fresh A".into(),
+                summary: "New.".into(),
+                style_tags: vec![],
+                recommended: true,
+                gender: None,
+                favorite: false,
+            },
+            ContextPersona {
+                id: "p2".into(),
+                title: "Fresh B".into(),
+                summary: "New.".into(),
+                style_tags: vec![],
+                recommended: false,
+                gender: None,
+                favorite: false,
+            },
+            ContextPersona {
+                id: "p3".into(),
+                title: "Fresh C".into(),
+                summary: "New.".into(),
+                style_tags: vec![],
+                recommended: false,
+                gender: None,
+                favorite: false,
+            },
+        ];
+        let merged = merge_personas_preserving_favorites(&existing, generated);
+        assert_eq!(merged.len(), 3, "floor of 3 even with one favorited");
+        assert!(merged[0].favorite, "the favorited persona survives, first");
+        assert_eq!(merged[0].title, "Skeptical CFO");
+        // The un-favorited "Skeptical CFO" from `existing` (second entry) was
+        // discarded, same as a plain regenerate would have discarded it.
+        assert_eq!(
+            merged.iter().filter(|p| p.title == "Skeptical CFO").count(),
+            1
+        );
+        assert!(merged.iter().any(|p| p.title == "Fresh A"));
+        assert!(merged.iter().any(|p| p.title == "Fresh B"));
+        assert!(
+            !merged.iter().any(|p| p.title == "Fresh C"),
+            "only 2 slots left"
+        );
+    }
+
+    #[test]
+    fn merge_renumbers_a_generated_id_that_collides_with_a_favorite() {
+        let mut favorited = persona(); // id "p1"
+        favorited.favorite = true;
+        let existing = vec![favorited];
+        let mut clashing = persona(); // also "p1" — fresh generation always starts at p1
+        clashing.title = "Fresh CFO".into();
+        clashing.favorite = false;
+        let merged = merge_personas_preserving_favorites(&existing, vec![clashing]);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].id, "p1");
+        assert_ne!(
+            merged[1].id, "p1",
+            "the freshly generated persona must not silently overwrite the favorite's id"
+        );
+    }
+
+    #[test]
+    fn merge_with_no_favorites_behaves_like_a_plain_overwrite() {
+        let existing = vec![persona()]; // not favorited
+        let generated = vec![ContextPersona {
+            id: "p1".into(),
+            title: "Fresh A".into(),
+            summary: "New.".into(),
+            style_tags: vec![],
+            recommended: false,
+            gender: None,
+            favorite: false,
+        }];
+        let merged = merge_personas_preserving_favorites(&existing, generated);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].title, "Fresh A");
+        assert!(merged[0].recommended, "one persona is always recommended");
+    }
+
+    #[test]
     fn every_type_has_a_nonempty_template() {
         for cat in [
             ContextCategory::Interview,
@@ -1489,6 +1634,7 @@ mod tests {
             style_tags: vec!["skeptical".into(), "technical".into()],
             recommended: true,
             gender: Some(PersonaGender::Female),
+            favorite: false,
         }
     }
 

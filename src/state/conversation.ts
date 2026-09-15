@@ -7,6 +7,7 @@ import {
   type Conversation,
   type SessionStateEvent,
 } from "@/lib/ipc";
+import { hasTranscribedContent } from "@/lib/turns";
 import { useAllyStore } from "@/state/ally";
 import { useGroundingStore } from "@/state/grounding";
 import { useLiveTermsStore } from "@/state/liveTerms";
@@ -80,10 +81,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
 
   requestNew: () => {
     const t = useTranscriptStore.getState();
-    const hasContent =
-      t.archived.length > 0 ||
-      t.segments.some((s) => s.is_final && s.text.trim().length > 0);
-    if (hasContent) {
+    if (hasTranscribedContent(t.archived, t.segments)) {
       set({ savePromptOpen: true, pendingNew: true });
     } else {
       get().discard();

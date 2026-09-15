@@ -30,6 +30,7 @@ export function RehearsalBar() {
   const active = useRehearsalStore((s) => s.active);
   const persona = useRehearsalStore((s) => s.personaTitle) ?? "The counterparty";
   const phase = useRehearsalStore((s) => s.phase);
+  const voiceEnabled = useRehearsalStore((s) => s.voiceEnabled);
   const end = useRehearsalStore((s) => s.end);
 
   const cards = useAllyStore((s) => s.cards);
@@ -45,9 +46,10 @@ export function RehearsalBar() {
 
   const endRehearsal = async () => {
     try {
-      // Mark the saved conversation as a Context rehearsal so it's identifiable
-      // in the Conversations list, then route through the app store's stop so ending
-      // offers to save the full transcript (both sides) — same as top-bar Stop.
+      // Pre-fill a title identifying this as a Context rehearsal in the
+      // Conversations list, for whenever it's saved — End itself is a plain
+      // stop now (owner, 2026-09-15), same as the top control bar's End; the
+      // persistent Save action there is the explicit way to keep it.
       const { useConversationStore } = await import("@/state/conversation");
       if (!useConversationStore.getState().openId) {
         useConversationStore.getState().setTitle(`Context — ${persona}`);
@@ -82,6 +84,19 @@ export function RehearsalBar() {
             </>
           )}
         </span>
+
+        {!voiceEnabled && (
+          <>
+            <span className="h-5 w-px bg-border-strong" />
+            <span
+              className="flex items-center gap-1 text-[11px] font-semibold text-notice"
+              title="No Deepgram API key configured — Aura TTS is unavailable, so replies are text-only. Add a key in Settings to hear the persona speak."
+            >
+              <Icon name="info" size={13} />
+              Voice unavailable — text only
+            </span>
+          </>
+        )}
 
         <span className="h-5 w-px bg-border-strong" />
 
