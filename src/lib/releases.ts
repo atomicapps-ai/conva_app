@@ -31,6 +31,23 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "0.5.1",
+    date: "2026-09-15",
+    summary:
+      "Fixes from live-testing v0.5.0's Coaching flow and Ally's live grounding.",
+    sections: [
+      {
+        title: "Fixes",
+        items: [
+          "Rehearsing from a Coaching setup (or a Context's own Start button) now correctly shows that Context as attached in the Live cockpit.",
+          "A rehearsal persona's reply now shows a small dismissible notice if text-to-speech fails, instead of silently doing nothing.",
+          "The top-right context picker no longer errors when reselecting the context that's already active, and reopening it now shows the active context checked.",
+          "Ally's live Ask box, term highlighting, and the Question Radar can now find facts from a Context's original attached documents even after that Context's dossier has been generated.",
+        ],
+      },
+    ],
+  },
+  {
     version: "0.5.0",
     date: "2026-09-14",
     summary:
