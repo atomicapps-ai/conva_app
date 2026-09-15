@@ -868,7 +868,7 @@ dependencies = [
 
 [[package]]
 name = "conva-app"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "base64 0.22.1",
  "cocoon",
@@ -893,6 +893,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "thiserror 2.0.18",
  "tungstenite",
  "ureq",
  "urlencoding",
@@ -903,7 +904,7 @@ dependencies = [
 
 [[package]]
 name = "conva-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -911,6 +912,18 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.18",
  "unicode-normalization",
+ "zip 2.4.2",
+]
+
+[[package]]
+name = "conva-core-wasm"
+version = "0.5.0"
+dependencies = [
+ "conva-core",
+ "serde",
+ "serde-wasm-bindgen",
+ "sha2 0.10.9",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -4936,6 +4949,17 @@ dependencies = [
  "serde",
  "serde_core",
  "typeid",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]

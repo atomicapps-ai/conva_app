@@ -4,6 +4,7 @@
 //! transcription → manual Ally streaming through the provider
 //! registry (Claude default), with API keys in the OS credential vault.
 
+mod archive;
 mod asr;
 mod asr_deepgram;
 mod audio;
@@ -34,6 +35,7 @@ mod tts;
 mod vad_silero;
 mod web;
 
+use std::collections::HashSet;
 use std::fs;
 use std::sync::Mutex;
 
@@ -48,7 +50,9 @@ use conva_core::config::AppConfig;
 use conva_core::context::{ContextSummary, ConversationContext, KnowledgeProfile};
 use conva_core::context_snapshot::ContextSnapshot;
 use conva_core::ipc::{
-    events, AllyChunkEvent, AllySource, AllySourcesEvent, ContextGenerateProgressEvent,
+    events, AllyChunkEvent, AllySource, AllySourcesEvent, ArchiveExportEstimate,
+    ArchiveExportOptions, ArchiveExportResult, ArchiveExportScope, ArchiveImportOptions,
+    ArchiveImportResult, ArchiveInspection, ArchiveProgressEvent, ContextGenerateProgressEvent,
     SessionStateEvent, SplashProgressEvent,
 };
 use conva_core::llm::{provider_registry, LlmRequest, ModelInfo, ProviderId, ProviderInfo};
@@ -80,6 +84,10 @@ struct AppState {
     /// worker at Start. `None` means the worker uses an honest General
     /// conversation fallback rather than inventing Context knowledge.
     active_context_snapshot: Mutex<Option<ContextSnapshot>>,
+    /// `.cva` archive operation ids the UI has asked to cancel (checked
+    /// between documents by `archive::export_*`/`import_*`; see
+    /// `archive_cancel`/the `archive_*` commands below).
+    archive_cancelled: Mutex<HashSet<String>>,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -1141,6 +1149,396 @@ fn context_delete(app: AppHandle, id: String) -> Result<(), String> {
         return Err("The default context can't be deleted.".into());
     }
     context::delete(&app, &id).map_err(|e| e.to_string())
+}
+
+// ── `.cva` archive (Checkpoints B/C/D) ──────────────────────────────────
+//
+// Thin `AppHandle`/`State` adapters over `archive.rs`'s `AppHandle`-free
+// functions — see that module's doc comment for why the split exists.
+// Progress streams over `events::ARCHIVE_PROGRESS` (`ArchiveProgressEvent`,
+// scoped by `operation_id`); cancellation is a best-effort flag in
+// `AppState.archive_cancelled`, checked between documents by the underlying
+// `archive::export_*`/`import_*` calls.
+
+fn archive_ledger_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("no app data dir: {e}"))?;
+    Ok(archive::imports_ledger_path(&dir))
+}
+
+fn conversation_export_input(
+    conversation: &conversations::Conversation,
+) -> conva_core::archive_conversation::ConversationExportInput<'_> {
+    conva_core::archive_conversation::ConversationExportInput {
+        id: &conversation.id,
+        title: &conversation.title,
+        created_at_unix_ms: conversation.created_at_unix_ms,
+        updated_at_unix_ms: conversation.updated_at_unix_ms,
+        segments: &conversation.segments,
+        linked_docs: &conversation.linked_docs,
+        linked_context_id: conversation.linked_context_id.as_deref(),
+        source_session_ids: &conversation.source_session_ids,
+        claim_snapshots: &conversation.claim_snapshots,
+    }
+}
+
+fn conversation_from_imported(
+    imported: &conva_core::archive_conversation::ImportedConversation,
+) -> conversations::Conversation {
+    conversations::Conversation {
+        id: imported.id.clone(),
+        title: imported.title.clone(),
+        created_at_unix_ms: imported.created_at_unix_ms,
+        updated_at_unix_ms: imported.updated_at_unix_ms,
+        segments: imported.segments.clone(),
+        linked_docs: imported.linked_docs.clone(),
+        linked_context_id: imported.linked_context_id.clone(),
+        source_session_ids: imported.source_session_ids.clone(),
+        claim_snapshots: imported.claim_snapshots.clone(),
+    }
+}
+
+/// Coarse, content-free pre-export estimate (spec §8.2) — cheap enough (only
+/// already-loaded metadata + in-memory chunk text) to run synchronously.
+#[tauri::command]
+fn archive_estimate_export(
+    app: AppHandle,
+    state: State<AppState>,
+    scope: ArchiveExportScope,
+    options: ArchiveExportOptions,
+) -> Result<ArchiveExportEstimate, String> {
+    match scope {
+        ArchiveExportScope::Context { context_id } => {
+            let context = context::load(&app, &context_id).map_err(|e| e.to_string())?;
+            Ok(archive::estimate_context_export(
+                &context, &state.rag, &options,
+            ))
+        }
+        ArchiveExportScope::Conversation {
+            conversation_id,
+            include_context,
+        } => {
+            let conversation =
+                conversations::load(&app, &conversation_id).map_err(|e| e.to_string())?;
+            let portable = conva_core::archive_conversation::export_conversation(
+                conversation_export_input(&conversation),
+                include_context,
+            )
+            .map_err(|e| e.to_string())?;
+            let linked_context = if include_context {
+                conversation
+                    .linked_context_id
+                    .as_deref()
+                    .and_then(|id| context::load(&app, id).ok())
+            } else {
+                None
+            };
+            let mut doc_ids =
+                conva_core::archive_conversation::conversation_document_ids(&portable);
+            if let Some(linked_context) = &linked_context {
+                doc_ids.extend(archive::source_and_generated_doc_ids(linked_context));
+            }
+            Ok(archive::estimate_conversation_export(
+                &doc_ids, &state.rag, &options,
+            ))
+        }
+    }
+}
+
+/// Write a `.cva` to `dest_path` (a path the UI already obtained from the
+/// native save dialog — desktop never picks its own destination). Real
+/// ZIP I/O and hashing, so this runs off the UI/audio thread.
+#[tauri::command]
+async fn archive_export(
+    app: AppHandle,
+    scope: ArchiveExportScope,
+    options: ArchiveExportOptions,
+    dest_path: String,
+    operation_id: String,
+) -> Result<ArchiveExportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        archive_export_blocking(&app, state, scope, options, dest_path, operation_id)
+    })
+    .await
+    .map_err(|e| format!("archive export worker failed: {e}"))?
+}
+
+fn archive_export_blocking(
+    app: &AppHandle,
+    state: State<'_, AppState>,
+    scope: ArchiveExportScope,
+    options: ArchiveExportOptions,
+    dest_path: String,
+    operation_id: String,
+) -> Result<ArchiveExportResult, String> {
+    let dest = std::path::Path::new(&dest_path);
+    let mut progress = |event: ArchiveProgressEvent| {
+        let _ = app.emit(events::ARCHIVE_PROGRESS, event);
+    };
+    let cancel = || {
+        state
+            .archive_cancelled
+            .lock()
+            .expect("archive cancel lock")
+            .contains(&operation_id)
+    };
+    let result = match scope {
+        ArchiveExportScope::Context { context_id } => {
+            let context = context::load(app, &context_id).map_err(|e| e.to_string())?;
+            let profile = context
+                .knowledge_profile_id
+                .as_deref()
+                .and_then(|id| context::load_profile(app, id).ok());
+            archive::export_context(
+                &context,
+                profile.as_ref(),
+                &state.rag,
+                &options,
+                dest,
+                &operation_id,
+                &mut progress,
+                &cancel,
+            )
+            .map_err(|e| e.to_string())
+        }
+        ArchiveExportScope::Conversation {
+            conversation_id,
+            include_context,
+        } => {
+            let conversation =
+                conversations::load(app, &conversation_id).map_err(|e| e.to_string())?;
+            let context_and_profile = if include_context {
+                match &conversation.linked_context_id {
+                    Some(context_id) => {
+                        let context = context::load(app, context_id).map_err(|e| e.to_string())?;
+                        let profile = context
+                            .knowledge_profile_id
+                            .as_deref()
+                            .and_then(|id| context::load_profile(app, id).ok());
+                        Some((context, profile))
+                    }
+                    None => None,
+                }
+            } else {
+                None
+            };
+            archive::export_conversation(
+                conversation_export_input(&conversation),
+                context_and_profile.as_ref().map(|(c, p)| (c, p.as_ref())),
+                &state.rag,
+                &options,
+                dest,
+                &operation_id,
+                &mut progress,
+                &cancel,
+            )
+            .map_err(|e| e.to_string())
+        }
+    };
+    state
+        .archive_cancelled
+        .lock()
+        .expect("archive cancel lock")
+        .remove(&operation_id);
+    result
+}
+
+/// Side-effect-free preview of a `.cva` at `path` (spec §8.3). Never
+/// persists anything.
+#[tauri::command]
+async fn archive_inspect(app: AppHandle, path: String) -> Result<ArchiveInspection, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ledger = archive_ledger_path(&app)?;
+        let digests = archive::load_imported_digests(&ledger);
+        archive::inspect(std::path::Path::new(&path), &digests).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("archive inspect worker failed: {e}"))?
+}
+
+fn rollback_archive_import(
+    app: &AppHandle,
+    state: &State<AppState>,
+    staged: &[String],
+    context_id: Option<&str>,
+) {
+    for id in staged {
+        let _ = state.rag.delete(id);
+    }
+    if let Some(id) = context_id {
+        let _ = context::delete(app, id);
+    }
+}
+
+/// Re-validates `path` from scratch (never trusts an earlier `archive_inspect`
+/// call), stages any included documents through the normal ingest path, then
+/// commits the Context and/or conversation. Any failure after staging begins
+/// rolls back every staged document (and any already-persisted Context) —
+/// see `archive.rs`'s module doc comment for why this app's file-per-record
+/// persistence makes "rollback" an explicit delete pass rather than a DB
+/// transaction.
+#[tauri::command]
+async fn archive_import(
+    app: AppHandle,
+    path: String,
+    options: ArchiveImportOptions,
+    operation_id: String,
+) -> Result<ArchiveImportResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        archive_import_blocking(&app, state, path, options, operation_id)
+    })
+    .await
+    .map_err(|e| format!("archive import worker failed: {e}"))?
+}
+
+fn archive_import_blocking(
+    app: &AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    options: ArchiveImportOptions,
+    operation_id: String,
+) -> Result<ArchiveImportResult, String> {
+    let path = std::path::Path::new(&path);
+    let ledger = archive_ledger_path(app)?;
+    let digests = archive::load_imported_digests(&ledger);
+    let inspection = archive::inspect(path, &digests).map_err(|e| e.to_string())?;
+
+    let mut progress = |event: ArchiveProgressEvent| {
+        let _ = app.emit(events::ARCHIVE_PROGRESS, event);
+    };
+    let cancel = || {
+        state
+            .archive_cancelled
+            .lock()
+            .expect("archive cancel lock")
+            .contains(&operation_id)
+    };
+
+    let result = if inspection.conversation.is_some() {
+        match archive::import_conversation(
+            path,
+            &state.rag,
+            &options,
+            &operation_id,
+            &mut progress,
+            &cancel,
+        ) {
+            Ok(outcome) => {
+                let mut persisted_context_id: Option<String> = None;
+                if let Some(context) = outcome.context.clone() {
+                    match context::save(app, context) {
+                        Ok(saved) => {
+                            persisted_context_id = Some(saved.id.clone());
+                            if let Some(profile) = &outcome.profile {
+                                if let Err(e) = context::save_profile(app, profile) {
+                                    rollback_archive_import(
+                                        app,
+                                        &state,
+                                        &outcome.staged_document_ids,
+                                        persisted_context_id.as_deref(),
+                                    );
+                                    return Err(e.to_string());
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            rollback_archive_import(
+                                app,
+                                &state,
+                                &outcome.staged_document_ids,
+                                None,
+                            );
+                            return Err(e.to_string());
+                        }
+                    }
+                }
+                match conversations::import(app, conversation_from_imported(&outcome.conversation))
+                {
+                    Ok(saved_conversation) => {
+                        archive::record_imported_digest(&ledger, &outcome.archive_digest);
+                        Ok(ArchiveImportResult {
+                            context_id: persisted_context_id,
+                            conversation_id: Some(saved_conversation.id),
+                            imported_document_ids: outcome.imported_document_ids,
+                            reused_document_ids: Vec::new(),
+                            omitted_documents: outcome.omitted_documents,
+                        })
+                    }
+                    Err(e) => {
+                        rollback_archive_import(
+                            app,
+                            &state,
+                            &outcome.staged_document_ids,
+                            persisted_context_id.as_deref(),
+                        );
+                        Err(e.to_string())
+                    }
+                }
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    } else {
+        match archive::import_context(
+            path,
+            &state.rag,
+            &options,
+            &operation_id,
+            &mut progress,
+            &cancel,
+        ) {
+            Ok(outcome) => match context::save(app, outcome.context) {
+                Ok(saved) => {
+                    if let Some(profile) = &outcome.profile {
+                        if let Err(e) = context::save_profile(app, profile) {
+                            rollback_archive_import(
+                                app,
+                                &state,
+                                &outcome.staged_document_ids,
+                                Some(&saved.id),
+                            );
+                            return Err(e.to_string());
+                        }
+                    }
+                    archive::record_imported_digest(&ledger, &outcome.archive_digest);
+                    Ok(ArchiveImportResult {
+                        context_id: Some(saved.id),
+                        conversation_id: None,
+                        imported_document_ids: outcome.imported_document_ids,
+                        reused_document_ids: Vec::new(),
+                        omitted_documents: outcome.omitted_documents,
+                    })
+                }
+                Err(e) => {
+                    rollback_archive_import(app, &state, &outcome.staged_document_ids, None);
+                    Err(e.to_string())
+                }
+            },
+            Err(e) => Err(e.to_string()),
+        }
+    };
+    state
+        .archive_cancelled
+        .lock()
+        .expect("archive cancel lock")
+        .remove(&operation_id);
+    result
+}
+
+/// Best-effort cooperative cancel: checked between documents by the
+/// underlying export/import loop, never mid-entry. Cleared automatically
+/// once the operation it names finishes (success, failure, or cancellation).
+#[tauri::command]
+fn archive_cancel(state: State<AppState>, operation_id: String) -> Result<(), String> {
+    state
+        .archive_cancelled
+        .lock()
+        .expect("archive cancel lock")
+        .insert(operation_id);
+    Ok(())
 }
 
 /// Clear both halves of the active-context scope (session grounding). Shared
@@ -2433,6 +2831,7 @@ pub fn run() {
                                     active_context_terms: Mutex::new(Vec::new()),
                                     active_context_doc_ids: Mutex::new(Vec::new()),
                                     active_context_snapshot: Mutex::new(None),
+                                    archive_cancelled: Mutex::new(HashSet::new()),
                                 }) {
                                     return Err("application state was already managed".into());
                                 }
@@ -2555,6 +2954,11 @@ pub fn run() {
             context_list,
             context_load,
             context_delete,
+            archive_estimate_export,
+            archive_export,
+            archive_inspect,
+            archive_import,
+            archive_cancel,
             activate_context,
             deactivate_context,
             context_store_docs,

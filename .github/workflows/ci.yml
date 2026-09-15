@@ -75,6 +75,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # `npm run build:web` needs the wasm32 target (Checkpoint E: the .cva
+      # archive WASM module, scripts/build-wasm.mjs) — same toolchain as the
+      # `core` job, plus the extra target.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - run: npm ci
       # The harness drives the pinned web artifact, so build it first (same as a deploy).
       - run: npm run build:web
@@ -117,6 +124,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # `npm run build:web` needs the wasm32 target (Checkpoint E: the .cva
+      # archive WASM module, scripts/build-wasm.mjs) — same toolchain as the
+      # `core` job, plus the extra target.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
       - run: npm ci
       - run: npm run build:web
       - name: Playwright browser cache
@@ -165,3 +179,10 @@ jobs:
       - run: npm run build
       - run: cargo clippy -p conva-app --all-targets -- -D warnings
       - run: cargo test -p conva-app
+      # Core tests run on ubuntu above too, but they MUST also run here: the
+      # .cva fixtures are include_bytes! + sha256-checked against their
+      # manifest, so any line-ending conversion on a Windows checkout changes
+      # the bytes and fails them. That failure was invisible for exactly as
+      # long as Core was ubuntu-only. .gitattributes now pins the bytes; this
+      # is the check that proves it stays pinned on the platform that breaks it.
+      - run: cargo test -p conva-core

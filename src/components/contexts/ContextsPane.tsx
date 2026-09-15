@@ -191,6 +191,7 @@ function ContextRowMenu({
   onEdit,
   onGenerate,
   onDelete,
+  onExport,
 }: {
   s: ContextSummary;
   isDefault: boolean;
@@ -202,6 +203,7 @@ function ContextRowMenu({
   onEdit: () => void;
   onGenerate: () => void;
   onDelete: () => void;
+  onExport: () => void;
 }) {
   const [open, setOpen] = useState<{ x: number; y: number } | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -329,6 +331,17 @@ function ContextRowMenu({
                   </button>
                 </>
               )}
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  onExport();
+                  setOpen(null);
+                }}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[11px] text-fg-muted hover:bg-panel-raised hover:text-fg"
+              >
+                <Icon name="download" size={13} /> Export .cva
+              </button>
               {!isDefault && (
                 <button
                   type="button"
@@ -379,6 +392,8 @@ export function ContextsPane({
   onDelete,
   onGenerate,
   onAttach,
+  onExport,
+  onImport,
   generatingId,
   refreshToken,
   widthPx,
@@ -396,6 +411,12 @@ export function ContextsPane({
   onGenerate: (contextId: string) => void;
   /** Attach `docId` to `contextId` — dropped from the Library pane. */
   onAttach: (contextId: string, docId: string) => void;
+  /** Export this Context as a `.cva` portable archive (spec §8.1). */
+  onExport: (contextId: string) => void;
+  /** Pick a `.cva` and import it as a new Context (spec §8.1) — real on
+   *  both platforms (Checkpoint E's import slice); the caller branches on
+   *  platform internally (native dialog vs. hidden file input). */
+  onImport: () => void;
   generatingId: string | null;
   /** Bump this to re-fetch the child-doc list (e.g. after an attach). */
   refreshToken?: number;
@@ -453,25 +474,47 @@ export function ContextsPane({
         <h3 className="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-fg-muted">
           Contexts
         </h3>
-        {isDesktop && (
-          // Icon-only + tooltip (owner decision, 2026-08-17) — "Brief Ally"
-          // as a label read as jargon; the + is the app's one "create new"
-          // glyph (ConversationsPanel's "New conversation" uses the same
-          // `add` icon), paired with the context glyph so it's unambiguous
-          // which kind of "new" this is. A deliberate exception to the
-          // mockup's own buttons rule (primary = icon + one word) — the
-          // confusing word was the actual bug being fixed here.
+        <div className="flex shrink-0 items-center gap-1">
+          {/* `.cva` portable archive import (spec §8.1 "top-level compact
+           *  Import action near New context"). Real on both platforms as of
+           *  Checkpoint E's import slice — desktop via a native file dialog
+           *  (`tauri.ts`), web via a hidden `<input type="file">` + the
+           *  client-orchestrated, best-effort import pipeline
+           *  (`archiveImport.ts`); `onImport` (from `ContextsView.tsx`)
+           *  already branches on platform, so this button needs no gating
+           *  of its own — same reasoning as the row menu's "Export .cva"
+           *  item never needing one. */}
           <button
             type="button"
-            onClick={onNew}
-            title="Add a New Context"
-            aria-label="Add a New Context"
-            className="btn btn-primary shrink-0 gap-1 px-2 py-1"
+            onClick={onImport}
+            title="Import a .cva archive"
+            aria-label="Import a .cva archive"
+            className="btn shrink-0 gap-1 px-2 py-1"
           >
-            <Icon name="add" size={14} />
-            <Icon name="simicon" size={13} />
+            <Icon name="upload" size={14} />
           </button>
-        )}
+          {isDesktop && (
+            /* Icon-only + tooltip (owner decision, 2026-08-17) — "Brief Ally"
+               as a label read as jargon; the + is the app's one "create new"
+               glyph (ConversationsPanel's "New conversation" uses the same
+               `add` icon), paired with the context glyph so it's unambiguous
+               which kind of "new" this is. A deliberate exception to the
+               mockup's own buttons rule (primary = icon + one word) — the
+               confusing word was the actual bug being fixed here. Desktop
+               only: `PageView`'s own "New context" action (`ContextsView.tsx`)
+               already covers web, this is just desktop's faster shortcut. */
+            <button
+              type="button"
+              onClick={onNew}
+              title="Add a New Context"
+              aria-label="Add a New Context"
+              className="btn btn-primary shrink-0 gap-1 px-2 py-1"
+            >
+              <Icon name="add" size={14} />
+              <Icon name="simicon" size={13} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mb-2 flex items-center gap-1.5">
@@ -655,6 +698,7 @@ export function ContextsPane({
                       onEdit={() => onEdit(s.id)}
                       onGenerate={() => onGenerate(s.id)}
                       onDelete={() => onDelete(s.id)}
+                      onExport={() => onExport(s.id)}
                     />
                   )}
                 </div>

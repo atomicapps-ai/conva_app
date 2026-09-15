@@ -27,6 +27,10 @@ function run(cmd, env) {
 }
 
 const env = { ...process.env, CONVA_WEB_BASE: base };
+// `.cva` archive (Checkpoint E): the browser inspect path needs the
+// `conva-core-wasm` module built into `src/lib/wasm/` before `vite build`
+// bundles it — see scripts/build-wasm.mjs.
+run("node scripts/build-wasm.mjs", env);
 run("npx tsc -b", env);
 run(`npx vite build --outDir ${outDir} --emptyOutDir`, env);
 

@@ -16,10 +16,15 @@ async-trait = { workspace = true }
 # at manifest-validation time (archive.rs) is cross-platform and needs no
 # filesystem access.
 unicode-normalization = "0.1"
-
-[dev-dependencies]
-# Test-only: computing real SHA-256 digests for retained `.cva` golden
-# fixtures (crates/conva-core/tests/cva_v1_fixtures.rs) so their manifests are
-# byte-accurate, matching what a real ZIP writer will produce in Checkpoint B.
-# Never a production dependency of conva-core itself.
+# `.cva` archive checksums (manifest + whole-archive digest). Pure byte
+# hashing, no OS access — safe on every target this crate builds for,
+# including wasm32 (Checkpoint E).
 sha2 = "0.10"
+# `.cva` ZIP container read/write (Checkpoint E: moved here from
+# `src-tauri/src/archive.rs` so the exact same reader/writer serves both the
+# desktop adapter and the wasm32 web adapter — one archive implementation,
+# not a parallel "web dialect"). `deflate` only (matches the desktop
+# adapter's prior feature set exactly): no `aes-crypto`/`bzip2`/`zstd`, and
+# critically no `zlib`/`zlib-ng` C backend — `flate2`'s default Rust
+# (`miniz_oxide`) backend is what keeps this wasm32-unknown-unknown-safe.
+zip = { version = "2", default-features = false, features = ["deflate"] }

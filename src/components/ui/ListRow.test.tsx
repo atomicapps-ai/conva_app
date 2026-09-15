@@ -92,6 +92,17 @@ describe("ListRow", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
+  it("clicking the Export .cva icon fires onExport, not onClick", () => {
+    const onClick = vi.fn();
+    const onExport = vi.fn();
+    render(
+      <ListRow accent="primary" title="Row" date="—" onClick={onClick} onExport={onExport} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Export Row as .cva" }));
+    expect(onExport).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
   it("renders the icon column only when an icon is provided", () => {
     const { container, rerender } = render(
       <ListRow accent="muted" title="Row" date="—" onClick={vi.fn()} />,

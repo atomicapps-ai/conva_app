@@ -53,6 +53,8 @@ const defaultProps = {
   onDelete: noop,
   onGenerate: noop,
   onAttach: noop,
+  onExport: noop,
+  onImport: noop,
   generatingId: null,
   widthPx: 400,
   onResize: noop,
@@ -115,6 +117,19 @@ describe("ContextsPane", () => {
     expect(screen.queryByRole("button", { name: "Add a New Context" })).toBeNull();
   });
 
+  it("the Import .cva button is visible on both platforms and fires onImport (Checkpoint E's import slice)", () => {
+    // jsdom has no __TAURI__ global -> isDesktop is false here, same as the
+    // "hides the New Context button off-desktop" case above — but Import,
+    // unlike New Context, is NOT desktop-gated: the caller (`ContextsView.tsx`)
+    // branches on platform internally (native dialog vs. hidden file input),
+    // so the button itself needs no gating.
+    const onImport = vi.fn();
+    renderPane(<ContextsPane {...defaultProps} items={[]} onImport={onImport} />);
+    const btn = screen.getByRole("button", { name: /import a \.cva archive/i });
+    fireEvent.click(btn);
+    expect(onImport).toHaveBeenCalledTimes(1);
+  });
+
   it("the primary row opens the context; Delete lives in the overflow menu and requires confirmation", () => {
     const onEdit = vi.fn();
     const onDelete = vi.fn();
@@ -148,6 +163,16 @@ describe("ContextsPane", () => {
     expect(screen.getByText(/delete “acme interview”/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /delete context/i }));
     expect(onDelete).toHaveBeenCalledWith("s1");
+  });
+
+  it("Export .cva lives in the overflow menu and fires immediately (no confirmation step)", () => {
+    const onExport = vi.fn();
+    renderPane(
+      <ContextsPane {...defaultProps} items={[summary({ has_key_terms: true })]} onExport={onExport} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /more actions for acme interview/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /export \.cva/i }));
+    expect(onExport).toHaveBeenCalledWith("s1");
   });
 
   it("selecting a context never highlights the row body — only the doc-count icon reflects it", () => {
