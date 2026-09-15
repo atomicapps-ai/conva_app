@@ -31,6 +31,30 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "0.5.0",
+    date: "2026-09-14",
+    summary:
+      "Take a Context or a saved conversation with you — export it as a portable file and import it back in, on any install.",
+    sections: [
+      {
+        title: "Highlights",
+        items: [
+          "Export a Context — its setup, attached documents, and generated briefing/research/Q&A — or a saved conversation, with its reviewed claims and corrections, as a single portable .cva file.",
+          "Import a .cva file back in on any install to recreate it, including on a fresh machine.",
+          "The browser build can now build and download a Context's .cva archive, and bring one back in as a new Context — entirely client-side, no upload required to preview or export what's in an archive before importing it.",
+        ],
+      },
+      {
+        title: "Reliability",
+        items: [
+          "Fixed the draft-release verification step always failing on a fresh release.",
+          "Fixed the local web-preview server silently serving the wrong file for every request.",
+          "Pinned line endings and now run Core's test suite on Windows CI as well.",
+        ],
+      },
+    ],
+  },
+  {
     version: "0.4.0",
     date: "2026-09-08",
     summary:

@@ -41,6 +41,9 @@ import { downloadBlobFile, downloadName, downloadTextFile, transcriptMarkdown } 
 import { deleteContext, listContexts, loadContext, saveContext } from "@/lib/live/contextsClient";
 import { deleteConversation, listConversations, loadConversation, saveConversation } from "@/lib/live/conversationsClient";
 import { attachDocumentContext, deleteDocument, detachDocumentContext, documentText, downloadOriginal, ingestText, listDocuments, setDocumentEnabled, uploadDocument } from "@/lib/live/libraryClient";
+import { getLocalArchiveBytes, inspectLocalArchive, registerLocalArchiveFile, sha256Hex } from "@/lib/live/archiveWasm";
+import { buildContextArchiveForDownload } from "@/lib/live/archiveExport";
+import { importContextArchive } from "@/lib/live/archiveImport";
 import { DEFAULT_CONTEXT_ID } from "@/lib/ipc";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
@@ -50,7 +53,10 @@ import type {
   AllyKind,
   AppConfig,
   ArchiveExportEstimate,
+  ArchiveExportOptions,
   ArchiveExportResult,
+  ArchiveExportScope,
+  ArchiveImportOptions,
   ArchiveImportResult,
   ArchiveInspection,
   AudioDevice,
@@ -693,14 +699,72 @@ export class WebBackend implements ConvaBackend {
     locked: (): Promise<boolean> => Promise.resolve(false),
   };
 
-  // `.cva` archive: checkpoint A defines the contract only — no hosted
-  // endpoint exists yet. `capabilitySnapshot.ts` already reports these
-  // `unimplemented`, so the UI never offers the action in the first place.
+  // `.cva` archive: Checkpoint E. `inspectArchive`, `exportArchive`, and now
+  // `importArchive` (all Context scope only) are real — see
+  // `archiveWasm.ts`/`archiveExport.ts`/`archiveImport.ts` — running the
+  // same Rust logic desktop uses, client-side, plus (import only)
+  // client-orchestrated persistence through the existing hosted endpoints.
+  // Conversation scope (export and import both), estimate, and cancel still
+  // have no hosted endpoint/web implementation and stay `unimplemented`
+  // (`capabilitySnapshot.ts` reports `exportArchive`/`importArchive`
+  // themselves as available since the Context scope works; each one's own
+  // `todo()`/refusal below is what a caller actually hits if it tries the
+  // conversation-scope path today).
   archive = {
     estimateExport: (): Promise<ArchiveExportEstimate> => todo("POST /v1/archives/estimate"),
-    exportArchive: (): Promise<ArchiveExportResult> => todo("POST /v1/archives/export"),
-    inspectArchive: (): Promise<ArchiveInspection> => todo("POST /v1/archives/inspect"),
-    importArchive: (): Promise<ArchiveImportResult> => todo("POST /v1/archives/import"),
+    /** Context scope only today — see `archiveExport.ts`'s doc comment for
+     *  the one disclosed gap (a Context with a research profile refuses,
+     *  since web has no way to fetch the profile yet). Conversation scope
+     *  is still `unimplemented`. Triggers a real browser download; never
+     *  uploads anything — the whole archive is built client-side. */
+    exportArchive: async (
+      scope: ArchiveExportScope,
+      options: ArchiveExportOptions,
+      _operationId: string,
+    ): Promise<ArchiveExportResult> => {
+      if (scope.kind !== "context") return todo("POST /v1/archives/export (conversation scope)");
+      const { bytes, fileName } = await buildContextArchiveForDownload(
+        { fetch: (i, o) => fetch(i, o) },
+        scope.context_id,
+        options.include_source_documents,
+      );
+      const digest = await sha256Hex(bytes);
+      // Cast: same `Uint8Array<ArrayBuffer>` vs. plain `Uint8Array` DOM-type
+      // strictness as `archiveWasm.ts`'s `sha256Hex` — a real heap-allocated
+      // array every time here.
+      downloadBlobFile(fileName, new Blob([bytes as BlobPart], { type: "application/zip" }));
+      return { destination: fileName, archive_digest: digest, bytes: bytes.length };
+    },
+    /** `archiveDigest` must come from {@link registerLocalArchiveFile} (this
+     *  adapter's own extra method, not part of the shared `ConvaBackend`
+     *  contract — getting bytes out of a browser `File` is adapter-specific,
+     *  same reasoning as desktop's native dialog living in `tauri.ts`). */
+    inspectArchive: (archiveDigest: string): Promise<ArchiveInspection> =>
+      inspectLocalArchive(archiveDigest),
+    /** Context scope only, client-orchestrated and best-effort, not
+     *  transactional (owner decision, 2026-09-14) — see `archiveImport.ts`'s
+     *  doc comment for the full pipeline and exactly what is and isn't
+     *  atomic. `archiveDigest` must come from {@link registerLocalArchiveFile}
+     *  like `inspectArchive`'s. */
+    importArchive: (
+      archiveDigest: string,
+      options: ArchiveImportOptions,
+      _operationId: string,
+    ): Promise<ArchiveImportResult> => {
+      const bytes = getLocalArchiveBytes(archiveDigest);
+      if (!bytes) {
+        return Promise.reject(
+          new Error("No locally-selected .cva file matches this digest — select the file again."),
+        );
+      }
+      return importContextArchive({ fetch: (i, o) => fetch(i, o) }, bytes, options);
+    },
     cancel: (): Promise<void> => todo("POST /v1/archives/:operationId/cancel"),
+    /** Web-only: register a browser-selected `.cva` `File`'s bytes for
+     *  {@link inspectArchive} and return the digest to pass as its
+     *  `archiveDigest`. Not part of `ConvaBackend` — callers that need this
+     *  already know they're on the web adapter (they're the ones rendering
+     *  a browser file picker instead of calling a native dialog). */
+    prepareLocalFile: (bytes: Uint8Array): Promise<string> => registerLocalArchiveFile(bytes),
   };
 }

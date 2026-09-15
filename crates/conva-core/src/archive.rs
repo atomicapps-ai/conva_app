@@ -12,9 +12,20 @@
 //! cva-context-conversation-portable-archive.md.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::{Cursor, Read, Write};
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use unicode_normalization::UnicodeNormalization;
+
+use crate::archive_conversation::PortableConversationV1;
+use crate::archive_payload::{PortableContextV1, PortableDocumentV1, PortableGeneratedArtifactV1};
+use crate::error::CoreError;
+use crate::ipc::{
+    ArchiveCompatibilityWarning, ArchiveContextPreview, ArchiveConversationPreview,
+    ArchiveDocumentPreview, ArchiveInspection,
+};
 
 pub const FORMAT: &str = "conva-archive";
 /// Bump only for an incompatible `.cva` wire-format change. A new field in an
@@ -191,6 +202,40 @@ fn is_plausible_utc_timestamp(value: &str) -> bool {
         && second <= 60
 }
 
+/// Format a Unix millisecond timestamp as the UTC RFC 3339 string
+/// [`is_plausible_utc_timestamp`] accepts. No `chrono`/`time` dependency
+/// exists in this workspace for one manifest field — pure integer
+/// civil-calendar math instead (Howard Hinnant's well-known
+/// `civil_from_days` algorithm: <https://howardhinnant.github.io/date_algorithms.html>).
+/// MAINTENANCE: keep the emitted shape in sync with
+/// [`is_plausible_utc_timestamp`]'s accepted shape.
+pub fn format_utc_timestamp(unix_ms: u64) -> String {
+    let secs = unix_ms / 1000;
+    let ms = unix_ms % 1000;
+    let days = (secs / 86_400) as i64;
+    let time_of_day = secs % 86_400;
+    let hour = time_of_day / 3600;
+    let minute = (time_of_day % 3600) / 60;
+    let second = time_of_day % 60;
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{ms:03}Z")
+}
+
+/// Days-since-1970-01-01 -> (year, month, day), proleptic Gregorian.
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
+    let year = if month <= 2 { y + 1 } else { y };
+    (year, month, day)
+}
+
 /// Exact media type required for the archive's own JSON payloads/indexes.
 const CANONICAL_JSON_MEDIA_TYPE: &str = "application/json";
 
@@ -341,6 +386,375 @@ pub fn validate_id_map(
         return Err(ArchiveError::InvalidManifest("invalid import ID mapping"));
     }
     Ok(())
+}
+
+// ── ZIP container I/O (Checkpoint E) ────────────────────────────────────
+//
+// Moved here from `src-tauri/src/archive.rs` (Checkpoints B/C/D): these two
+// functions are the entire ZIP reader/writer, and neither one touches the
+// filesystem — they operate on an in-memory byte buffer in, byte buffer out.
+// That was already true when they lived in `src-tauri`; putting them here
+// instead means the desktop adapter (which reads/writes a real file, then
+// calls through to these) and the wasm32 web adapter (`conva-core-wasm`,
+// which reads/writes a browser `File`/`Blob`, then calls through to these
+// too) share the literal same ZIP implementation — not a parallel "web
+// dialect" of it (spec §9). `src-tauri/src/archive.rs` still owns: the
+// atomic temp-file-then-rename dance, native dialogs, `RagStore` document
+// staging/rollback, and the local import-provenance ledger — none of that
+// is portable to a browser and none of it belongs here.
+
+/// One archive entry to write: its declared canonical path and exact bytes.
+/// `manifest.json` itself is always written first and separately — callers
+/// pass every *other* entry here, already in the same order the manifest
+/// declares them.
+pub type PendingEntry = (String, Vec<u8>);
+
+/// Build a complete `.cva` ZIP in memory: `manifest.json` (from `manifest`)
+/// plus every entry in `entries`, Deflate-compressed. Pure — the caller
+/// decides what to do with the returned bytes (write to a temp file and
+/// rename over the destination on desktop; hand to the browser as a `Blob`
+/// download on web).
+pub fn build_archive_bytes(
+    manifest: &ArchiveManifest,
+    entries: &[PendingEntry],
+) -> Result<Vec<u8>, CoreError> {
+    let manifest_json =
+        serde_json::to_vec_pretty(manifest).map_err(|e| CoreError::Archive(e.to_string()))?;
+    let buf = Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(buf);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    zip.start_file("manifest.json", opts)
+        .map_err(|e| CoreError::Archive(e.to_string()))?;
+    zip.write_all(&manifest_json)
+        .map_err(|e| CoreError::Archive(e.to_string()))?;
+
+    for (path, bytes) in entries {
+        zip.start_file(path, opts)
+            .map_err(|e| CoreError::Archive(e.to_string()))?;
+        zip.write_all(bytes)
+            .map_err(|e| CoreError::Archive(e.to_string()))?;
+    }
+    let cursor = zip
+        .finish()
+        .map_err(|e| CoreError::Archive(e.to_string()))?;
+    Ok(cursor.into_inner())
+}
+
+/// A validated, fully-loaded `.cva` held in memory: the parsed manifest, the
+/// whole-archive SHA-256 digest, and every declared payload's bytes, keyed
+/// by its canonical path. Side-effect-free by construction — building one
+/// never writes anything.
+#[derive(Debug)]
+pub struct LoadedArchive {
+    pub manifest: ArchiveManifest,
+    pub archive_digest: String,
+    pub payloads: BTreeMap<String, Vec<u8>>,
+}
+
+impl LoadedArchive {
+    /// Decode one declared JSON payload, if present. `Ok(None)` means the
+    /// archive simply doesn't declare that path (e.g. no `conversation/
+    /// conversation.json` in a Context-only export) — not an error.
+    pub fn json<T: DeserializeOwned>(&self, path: &str) -> Result<Option<T>, CoreError> {
+        match self.payloads.get(path) {
+            Some(bytes) => Ok(Some(
+                serde_json::from_slice(bytes).map_err(|e| CoreError::Archive(e.to_string()))?,
+            )),
+            None => Ok(None),
+        }
+    }
+}
+
+/// Open, validate, and fully load a `.cva` from `bytes` — the one place
+/// every required-rejection check from spec §6.2 is enforced before any
+/// content is trusted. Side-effect-free: never writes anything, never
+/// touches a Context/conversation/RAG store. `bytes` is the archive's
+/// complete raw content — the desktop adapter reads it from a file, the web
+/// adapter reads it from a `File`/`Blob` already in browser memory (spec
+/// §9's "avoid buffering the entire uncompressed archive in React memory"
+/// is about the *validated/decoded* content, not the still-compressed
+/// upload itself, which the browser already held for the file picker).
+pub fn load_archive_bytes(bytes: &[u8]) -> Result<LoadedArchive, CoreError> {
+    if bytes.len() as u64 > MAX_ARCHIVE_BYTES {
+        return Err(CoreError::Archive(
+            "archive exceeds the file size limit".into(),
+        ));
+    }
+    let archive_digest = Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes))
+        .map_err(|e| CoreError::Archive(format!("not a valid ZIP: {e}")))?;
+    if zip.len() > MAX_ENTRIES + 1 {
+        return Err(CoreError::Archive(
+            "archive exceeds the entry count limit".into(),
+        ));
+    }
+
+    let names: Vec<String> = (0..zip.len())
+        .filter_map(|i| zip.name_for_index(i).map(str::to_string))
+        .collect();
+
+    let manifest_bytes = {
+        let mut entry = zip
+            .by_name("manifest.json")
+            .map_err(|_| CoreError::Archive("missing manifest.json".into()))?;
+        if entry.is_dir() {
+            return Err(CoreError::Archive(
+                "manifest.json is not a regular entry".into(),
+            ));
+        }
+        let mut buf = Vec::new();
+        entry
+            .read_to_end(&mut buf)
+            .map_err(|e| CoreError::Archive(e.to_string()))?;
+        buf
+    };
+    let manifest: ArchiveManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|e| CoreError::Archive(format!("invalid manifest.json: {e}")))?;
+    validate_manifest(&manifest)?;
+    if !is_supported_format_version(manifest.format_version) {
+        return Err(CoreError::Archive("unsupported .cva format version".into()));
+    }
+    validate_payload_names(&manifest, names.iter().map(String::as_str))?;
+
+    let mut payloads = BTreeMap::new();
+    let mut total = 0u64;
+    for declared in &manifest.entries {
+        let mut entry = zip.by_name(&declared.path).map_err(|_| {
+            CoreError::Archive(format!("missing declared entry '{}'", declared.path))
+        })?;
+        if entry.is_dir() {
+            return Err(CoreError::Archive(format!(
+                "'{}' is not a regular file entry",
+                declared.path
+            )));
+        }
+        // Reject symlinks/devices via the stored Unix mode when present
+        // (spec §6.2: "symlink, hard-link, device, or other non-regular
+        // entry"). Archives written on platforms without Unix permission
+        // bits (Windows, and a browser-built archive) carry no such bit, so
+        // absence is not itself a rejection — only an explicit non-regular
+        // mode is.
+        if let Some(mode) = entry.unix_mode() {
+            const S_IFMT: u32 = 0o170000;
+            const S_IFREG: u32 = 0o100000;
+            if mode & S_IFMT != 0 && mode & S_IFMT != S_IFREG {
+                return Err(CoreError::Archive(format!(
+                    "'{}' is not a regular file",
+                    declared.path
+                )));
+            }
+        }
+        let compressed = entry.compressed_size();
+        let uncompressed = entry.size();
+        if uncompressed != declared.bytes {
+            return Err(CoreError::Archive(format!(
+                "'{}' length does not match the manifest",
+                declared.path
+            )));
+        }
+        if uncompressed > MAX_ENTRY_BYTES {
+            return Err(CoreError::Archive(
+                "archive entry exceeds the size limit".into(),
+            ));
+        }
+        if compressed > 0 && uncompressed / compressed.max(1) > MAX_COMPRESSION_RATIO {
+            return Err(CoreError::Archive(
+                "archive entry exceeds the compression ratio limit".into(),
+            ));
+        }
+        total = total
+            .checked_add(uncompressed)
+            .filter(|t| *t <= MAX_UNCOMPRESSED_BYTES)
+            .ok_or_else(|| {
+                CoreError::Archive("archive exceeds the uncompressed size limit".into())
+            })?;
+
+        let mut buf = Vec::with_capacity(uncompressed as usize);
+        entry
+            .read_to_end(&mut buf)
+            .map_err(|e| CoreError::Archive(e.to_string()))?;
+        let digest = Sha256::digest(&buf)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        if digest != declared.sha256 {
+            return Err(CoreError::Archive(format!(
+                "'{}' does not match its declared checksum",
+                declared.path
+            )));
+        }
+        payloads.insert(declared.path.clone(), buf);
+    }
+    let _ = total;
+
+    Ok(LoadedArchive {
+        manifest,
+        archive_digest,
+        payloads,
+    })
+}
+
+fn context_preview(
+    context: &PortableContextV1,
+    has_source_documents: bool,
+) -> ArchiveContextPreview {
+    ArchiveContextPreview {
+        title: context.title.clone(),
+        category: context.category,
+        key_terms_count: context.key_terms.len() as u32,
+        prepared_qa_count: 0, // Q&A lives in generated text, not a countable field here.
+        has_source_documents,
+    }
+}
+
+fn conversation_preview(conversation: &PortableConversationV1) -> ArchiveConversationPreview {
+    let mut speakers = std::collections::HashSet::new();
+    let mut start = u64::MAX;
+    let mut end = 0u64;
+    for seg in &conversation.segments {
+        speakers.insert(seg.side);
+        start = start.min(seg.start_ms);
+        end = end.max(seg.end_ms);
+    }
+    ArchiveConversationPreview {
+        title: conversation.title.clone(),
+        created_at_unix_ms: conversation.created_at_unix_ms,
+        segment_count: conversation.segments.len() as u32,
+        speaker_count: speakers.len() as u32,
+        duration_ms: end.saturating_sub(if start == u64::MAX { 0 } else { start }),
+        has_claim_review: conversation
+            .claim_snapshots
+            .iter()
+            .any(|s| !s.claims.is_empty()),
+    }
+}
+
+/// Side-effect-free preview (spec §8.3/Checkpoint C) of an already-loaded
+/// archive. `previously_imported_digests` is this installation's local
+/// import ledger — pass an empty set when there isn't one (the web adapter
+/// has no local ledger yet; see the Checkpoint E handoff note).
+pub fn inspect_loaded(
+    loaded: &LoadedArchive,
+    previously_imported_digests: &BTreeSet<String>,
+) -> Result<ArchiveInspection, CoreError> {
+    let context: Option<PortableContextV1> = loaded.json("context/context.json")?;
+    let conversation: Option<PortableConversationV1> =
+        loaded.json("conversation/conversation.json")?;
+    let documents: Vec<PortableDocumentV1> =
+        loaded.json("documents/index.json")?.unwrap_or_default();
+    let artifacts: Vec<PortableGeneratedArtifactV1> =
+        loaded.json("generated/index.json")?.unwrap_or_default();
+    if let Some(context) = &context {
+        crate::archive_payload::validate_document_index(context, &documents, &artifacts)?;
+    }
+
+    let artifact_doc_ids: BTreeSet<&str> =
+        artifacts.iter().map(|a| a.document_id.as_str()).collect();
+    let has_source_documents = documents
+        .iter()
+        .any(|d| d.archive_path.is_some() && !artifact_doc_ids.contains(d.id.as_str()));
+
+    let mut warnings = Vec::new();
+    if previously_imported_digests.contains(&loaded.archive_digest) {
+        warnings.push(ArchiveCompatibilityWarning::DuplicateArchiveDigest);
+    }
+    if loaded.manifest.format_version != FORMAT_VERSION {
+        warnings.push(ArchiveCompatibilityWarning::MigratedFromOlderVersion {
+            from_format_version: loaded.manifest.format_version,
+        });
+    }
+    let document_previews: Vec<ArchiveDocumentPreview> = documents
+        .iter()
+        .map(|d| ArchiveDocumentPreview {
+            portable_id: d.id.clone(),
+            file_name: d.file_name.clone(),
+            bytes: d.bytes,
+            included: d.archive_path.is_some() || artifact_doc_ids.contains(d.id.as_str()),
+        })
+        .collect();
+
+    Ok(ArchiveInspection {
+        archive_digest: loaded.archive_digest.clone(),
+        format_version: loaded.manifest.format_version,
+        created_by_app_version: loaded.manifest.created_by.app_version.clone(),
+        created_at: loaded.manifest.created_at.clone(),
+        title: loaded.manifest.title.clone(),
+        context: context.map(|c| context_preview(&c, has_source_documents)),
+        conversation: conversation.as_ref().map(conversation_preview),
+        documents: document_previews,
+        warnings,
+    })
+}
+
+/// Validate + preview a `.cva` from raw bytes in one call — the shape the
+/// wasm32 web adapter (`conva-core-wasm`) uses directly. `previously_
+/// imported_digests` is empty on web today (no local ledger yet).
+pub fn inspect_bytes(
+    bytes: &[u8],
+    previously_imported_digests: &BTreeSet<String>,
+) -> Result<ArchiveInspection, CoreError> {
+    let loaded = load_archive_bytes(bytes)?;
+    inspect_loaded(&loaded, previously_imported_digests)
+}
+
+// ── Context-scope import materials (Checkpoint E, import slice) ───────────
+
+/// Everything a Context-scope import needs from an already-loaded archive:
+/// the raw portable Context DTO (still carrying source-installation IDs,
+/// unlike [`ArchiveContextPreview`]'s sanitized summary), per-document/
+/// per-artifact metadata, and whether the archive also declares a
+/// conversation. Document/artifact *bytes* deliberately stay out of this
+/// struct — a caller fetches one entry's bytes at a time from
+/// [`LoadedArchive::payloads`] (by the document's own `archive_path`, or the
+/// artifact's) as it stages each one, rather than holding every document's
+/// content in memory at once.
+///
+/// This function does not itself decide policy (e.g. "refuse a Context with
+/// a research profile" or "refuse when a conversation is also present") —
+/// that decision lives with the caller, same as how the export slice's own
+/// scope/profile refusals live in `archiveExport.ts`, not in Rust. Desktop's
+/// own Context-only `import_context` (`src-tauri/src/archive.rs`) has no
+/// such restriction and does not use this helper; it is new, web-adapter-
+/// facing code.
+#[derive(Debug)]
+pub struct ContextImportMaterials {
+    pub archive_digest: String,
+    pub context: PortableContextV1,
+    pub documents: Vec<PortableDocumentV1>,
+    pub artifacts: Vec<PortableGeneratedArtifactV1>,
+    pub has_conversation: bool,
+}
+
+pub fn load_context_import_materials(
+    loaded: &LoadedArchive,
+) -> Result<ContextImportMaterials, CoreError> {
+    let context: Option<PortableContextV1> = loaded.json("context/context.json")?;
+    let Some(context) = context else {
+        return Err(CoreError::Archive(
+            "archive has no Context to import".into(),
+        ));
+    };
+    let has_conversation = loaded
+        .json::<PortableConversationV1>("conversation/conversation.json")?
+        .is_some();
+    let documents: Vec<PortableDocumentV1> =
+        loaded.json("documents/index.json")?.unwrap_or_default();
+    let artifacts: Vec<PortableGeneratedArtifactV1> =
+        loaded.json("generated/index.json")?.unwrap_or_default();
+    crate::archive_payload::validate_document_index(&context, &documents, &artifacts)?;
+    Ok(ContextImportMaterials {
+        archive_digest: loaded.archive_digest.clone(),
+        context,
+        documents,
+        artifacts,
+        has_conversation,
+    })
 }
 
 #[cfg(test)]
@@ -505,6 +919,24 @@ mod tests {
     }
 
     #[test]
+    fn format_utc_timestamp_matches_known_instants_and_validates() {
+        assert_eq!(format_utc_timestamp(0), "1970-01-01T00:00:00.000Z");
+        // A leap-day instant, to exercise the civil-calendar math's Feb 29
+        // (verified against `date -u -d @1709251199`).
+        assert_eq!(
+            format_utc_timestamp(1_709_251_199_000),
+            "2024-02-29T23:59:59.000Z"
+        );
+        for unix_ms in [0u64, 1_000, 1_757_448_900_123, 1_709_251_199_000] {
+            let formatted = format_utc_timestamp(unix_ms);
+            assert!(
+                is_plausible_utc_timestamp(&formatted),
+                "{formatted} (from {unix_ms}) should be a plausible UTC timestamp"
+            );
+        }
+    }
+
+    #[test]
     fn import_ids_must_be_complete_new_and_unique() {
         let source = vec!["a".into(), "b".into()];
         let valid = BTreeMap::from([("a".into(), "new-a".into()), ("b".into(), "new-b".into())]);
@@ -520,5 +952,368 @@ mod tests {
             &BTreeMap::from([("a".into(), "a".into()), ("b".into(), "new-b".into())])
         )
         .is_err());
+    }
+
+    // ── ZIP container round trip (Checkpoint E) ─────────────────────────
+    //
+    // `build_archive_bytes`/`load_archive_bytes` used to be desktop-only
+    // (`src-tauri/src/archive.rs`), exercised only by that crate's own
+    // integration tests. Now that they're pure `conva-core` logic shared by
+    // both the desktop adapter and the wasm32 web adapter, they get a
+    // direct unit test here too — moving code to core without a core test
+    // would be exactly the "untested shell code" this repo's CLAUDE.md asks
+    // authors not to leave behind.
+
+    fn entry(path: &str, bytes: &[u8]) -> ArchiveEntry {
+        ArchiveEntry {
+            path: path.to_string(),
+            media_type: "application/json".into(),
+            bytes: bytes.len() as u64,
+            sha256: Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn build_then_load_round_trips_every_declared_entry() {
+        let context_json = br#"{"hello":"world"}"#;
+        let manifest = ArchiveManifest {
+            format: FORMAT.into(),
+            format_version: FORMAT_VERSION,
+            created_at: format_utc_timestamp(0),
+            created_by: ArchiveCreator {
+                app: "conva".into(),
+                app_version: "0.4.0".into(),
+            },
+            title: "Round trip".into(),
+            contents: ArchiveContents {
+                context: true,
+                conversation: false,
+                documents: 0,
+                generated_artifacts: 0,
+            },
+            entries: vec![entry("context/context.json", context_json)],
+        };
+        let bytes = build_archive_bytes(
+            &manifest,
+            &[("context/context.json".into(), context_json.to_vec())],
+        )
+        .unwrap();
+
+        let loaded = load_archive_bytes(&bytes).unwrap();
+        assert_eq!(loaded.manifest, manifest);
+        assert_eq!(
+            loaded.payloads.get("context/context.json").unwrap(),
+            context_json
+        );
+        // The digest is deterministic and content-derived, not incidental.
+        assert_eq!(
+            loaded.archive_digest,
+            Sha256::digest(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        );
+        // Building the identical inputs again produces byte-identical
+        // output — no embedded timestamps/nondeterminism in the writer.
+        let bytes_again = build_archive_bytes(
+            &manifest,
+            &[("context/context.json".into(), context_json.to_vec())],
+        )
+        .unwrap();
+        assert_eq!(bytes, bytes_again);
+    }
+
+    #[test]
+    fn load_rejects_a_tampered_entry() {
+        let context_json = br#"{"hello":"world"}"#;
+        let manifest = ArchiveManifest {
+            format: FORMAT.into(),
+            format_version: FORMAT_VERSION,
+            created_at: format_utc_timestamp(0),
+            created_by: ArchiveCreator {
+                app: "conva".into(),
+                app_version: "0.4.0".into(),
+            },
+            title: "Tampered".into(),
+            contents: ArchiveContents {
+                context: true,
+                conversation: false,
+                documents: 0,
+                generated_artifacts: 0,
+            },
+            entries: vec![entry("context/context.json", context_json)],
+        };
+        let mut bytes = build_archive_bytes(
+            &manifest,
+            &[("context/context.json".into(), context_json.to_vec())],
+        )
+        .unwrap();
+        // Flip one byte well past the local file headers, inside the
+        // compressed entry data itself.
+        let flip_at = bytes.len() - 5;
+        bytes[flip_at] ^= 0xFF;
+
+        let err = load_archive_bytes(&bytes).unwrap_err();
+        assert!(matches!(err, CoreError::Archive(_)));
+    }
+
+    #[test]
+    fn load_rejects_an_oversized_archive() {
+        let huge = vec![0u8; (MAX_ARCHIVE_BYTES + 1) as usize];
+        let err = load_archive_bytes(&huge).unwrap_err();
+        assert!(matches!(err, CoreError::Archive(msg) if msg.contains("file size limit")));
+    }
+
+    // ── load_context_import_materials (Checkpoint E, import slice) ────────
+
+    fn minimal_context(id: &str) -> crate::context::ConversationContext {
+        crate::context::ConversationContext {
+            id: id.into(),
+            title: "Case file".into(),
+            purpose: "Test".into(),
+            job_description: None,
+            category: crate::context::ContextCategory::Other,
+            participation_lens: None,
+            source_policy: None,
+            status: crate::context::ContextStatus::Draft,
+            created_at_unix_ms: 1,
+            updated_at_unix_ms: 2,
+            source_doc_ids: vec![],
+            slot_doc_ids: BTreeMap::new(),
+            auto_generate_context: false,
+            research_enabled: false,
+            key_terms: vec![],
+            glossary: vec![],
+            glossary_definitions: BTreeMap::new(),
+            knowledge_profile_id: None,
+            personas: vec![],
+            chosen_persona_id: None,
+            conversation_id: None,
+            dossier_doc_id: None,
+            research_doc_id: None,
+            deep_qa_enabled: false,
+            qa_doc_id: None,
+            resources_stale: false,
+            resources_generated_at_unix_ms: None,
+            suggestion_decisions: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn load_context_import_materials_extracts_context_documents_and_artifacts() {
+        use crate::archive_payload::{
+            build_context_archive, ArchivePayloadFile, AssembledContextDocuments,
+            GeneratedArtifactKind, PortableDocumentV1, PortableGeneratedArtifactV1,
+        };
+        use crate::rag::DocSource;
+
+        let mut context = minimal_context("ctx-old");
+        context.source_doc_ids = vec!["doc-file".into()];
+        context.dossier_doc_id = Some("doc-dossier".into());
+
+        let bytes = build_context_archive(
+            &context,
+            None,
+            AssembledContextDocuments {
+                documents: vec![
+                    PortableDocumentV1 {
+                        id: "doc-file".into(),
+                        file_name: "notes.txt".into(),
+                        source: DocSource::File,
+                        enabled: true,
+                        searchable: true,
+                        ingested_at_unix_ms: 3,
+                        archive_path: Some("documents/files/doc-file".into()),
+                        bytes: Some(5),
+                        sha256: Some(sha256_hex_for_test(b"hello")),
+                    },
+                    PortableDocumentV1 {
+                        id: "doc-dossier".into(),
+                        file_name: "dossier.md".into(),
+                        source: DocSource::Generated,
+                        enabled: true,
+                        searchable: false,
+                        ingested_at_unix_ms: 4,
+                        archive_path: None,
+                        bytes: None,
+                        sha256: None,
+                    },
+                ],
+                artifacts: vec![PortableGeneratedArtifactV1 {
+                    document_id: "doc-dossier".into(),
+                    kind: GeneratedArtifactKind::Dossier,
+                    archive_path: "generated/files/doc-dossier.md".into(),
+                    created_at_unix_ms: 4,
+                }],
+                files: vec![
+                    ArchivePayloadFile {
+                        path: "documents/files/doc-file".into(),
+                        media_type: "text/plain".into(),
+                        bytes: b"hello".to_vec(),
+                    },
+                    ArchivePayloadFile {
+                        path: "generated/files/doc-dossier.md".into(),
+                        media_type: "text/markdown".into(),
+                        bytes: b"# Dossier".to_vec(),
+                    },
+                ],
+            },
+            0,
+            ArchiveCreator {
+                app: "conva".into(),
+                app_version: "0.4.0".into(),
+            },
+        )
+        .unwrap();
+
+        let loaded = load_archive_bytes(&bytes).unwrap();
+        let materials = load_context_import_materials(&loaded).unwrap();
+        assert_eq!(materials.context.id, "ctx-old");
+        assert!(!materials.has_conversation);
+        assert_eq!(materials.documents.len(), 2);
+        assert_eq!(materials.artifacts.len(), 1);
+        assert_eq!(
+            loaded
+                .payloads
+                .get("documents/files/doc-file")
+                .map(Vec::as_slice),
+            Some(b"hello".as_slice())
+        );
+        assert_eq!(
+            loaded
+                .payloads
+                .get("generated/files/doc-dossier.md")
+                .map(Vec::as_slice),
+            Some(b"# Dossier".as_slice())
+        );
+    }
+
+    /// Test-only helper — production code never hand-computes a digest to
+    /// declare in a manifest entry it also controls the bytes for; real
+    /// callers (`build_context_archive`) do this internally.
+    pub(crate) fn sha256_hex_for_test(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    #[test]
+    fn load_context_import_materials_rejects_a_conversation_only_archive() {
+        // A valid manifest needs at least one of context/conversation
+        // (`validate_manifest`) — so "no Context to import" is reachable
+        // only via a conversation-ONLY archive, not an empty one.
+        let conversation_json = serde_json::to_vec(&serde_json::json!({
+            "id": "conv-old",
+            "title": "Call",
+            "created_at_unix_ms": 1,
+            "updated_at_unix_ms": 2,
+            "segments": [],
+        }))
+        .unwrap();
+        let manifest = ArchiveManifest {
+            format: FORMAT.into(),
+            format_version: FORMAT_VERSION,
+            created_at: format_utc_timestamp(0),
+            created_by: ArchiveCreator {
+                app: "conva".into(),
+                app_version: "0.4.0".into(),
+            },
+            title: "No Context".into(),
+            contents: ArchiveContents {
+                context: false,
+                conversation: true,
+                documents: 0,
+                generated_artifacts: 0,
+            },
+            entries: vec![entry("conversation/conversation.json", &conversation_json)],
+        };
+        let bytes = build_archive_bytes(
+            &manifest,
+            &[("conversation/conversation.json".into(), conversation_json)],
+        )
+        .unwrap();
+        let loaded = load_archive_bytes(&bytes).unwrap();
+        let err = load_context_import_materials(&loaded).unwrap_err();
+        assert!(matches!(err, CoreError::Archive(msg) if msg.contains("no Context")));
+    }
+
+    #[test]
+    fn load_context_import_materials_reports_has_conversation_when_present() {
+        let context_json = serde_json::to_vec(&minimal_portable_context("ctx-old")).unwrap();
+        let conversation_json = serde_json::to_vec(&serde_json::json!({
+            "id": "conv-old",
+            "title": "Call",
+            "created_at_unix_ms": 1,
+            "updated_at_unix_ms": 2,
+            "segments": [],
+        }))
+        .unwrap();
+        let manifest = ArchiveManifest {
+            format: FORMAT.into(),
+            format_version: FORMAT_VERSION,
+            created_at: format_utc_timestamp(0),
+            created_by: ArchiveCreator {
+                app: "conva".into(),
+                app_version: "0.4.0".into(),
+            },
+            title: "Both".into(),
+            contents: ArchiveContents {
+                context: true,
+                conversation: true,
+                documents: 0,
+                generated_artifacts: 0,
+            },
+            entries: vec![
+                entry("context/context.json", &context_json),
+                entry("conversation/conversation.json", &conversation_json),
+            ],
+        };
+        let bytes = build_archive_bytes(
+            &manifest,
+            &[
+                ("context/context.json".into(), context_json),
+                ("conversation/conversation.json".into(), conversation_json),
+            ],
+        )
+        .unwrap();
+        let loaded = load_archive_bytes(&bytes).unwrap();
+        let materials = load_context_import_materials(&loaded).unwrap();
+        assert!(materials.has_conversation);
+    }
+
+    fn minimal_portable_context(id: &str) -> PortableContextV1 {
+        PortableContextV1 {
+            id: id.into(),
+            title: "Case file".into(),
+            purpose: "Test".into(),
+            job_description: None,
+            category: crate::context::ContextCategory::Other,
+            participation_lens: None,
+            source_policy: None,
+            created_at_unix_ms: 1,
+            updated_at_unix_ms: 2,
+            source_doc_ids: vec![],
+            slot_doc_ids: BTreeMap::new(),
+            auto_generate_context: false,
+            research_enabled: false,
+            deep_qa_enabled: false,
+            key_terms: vec![],
+            glossary: vec![],
+            glossary_definitions: BTreeMap::new(),
+            knowledge_profile: None,
+            personas: vec![],
+            chosen_persona_id: None,
+            conversation_id: None,
+            dossier_doc_id: None,
+            research_doc_id: None,
+            qa_doc_id: None,
+            resources_stale: false,
+            resources_generated_at_unix_ms: None,
+            suggestion_decisions: BTreeMap::new(),
+        }
     }
 }

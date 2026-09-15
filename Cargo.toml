@@ -1,12 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["crates/conva-core", "src-tauri"]
+members = ["crates/conva-core", "crates/conva-core-wasm", "src-tauri"]
 # Only the pure-logic core builds everywhere (CI lint/test on any OS).
-# src-tauri needs a desktop GUI toolchain and is built on Windows.
+# src-tauri needs a desktop GUI toolchain and is built on Windows;
+# conva-core-wasm needs the wasm32-unknown-unknown target and is built by
+# the web toolchain (Checkpoint E) — see its own Cargo.toml doc comment.
 default-members = ["crates/conva-core"]
 
 [workspace.package]
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 license = "UNLICENSED"
 publish = false

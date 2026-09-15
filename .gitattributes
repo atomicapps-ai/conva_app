@@ -1,0 +1,35 @@
+# Line endings are pinned HERE, not left to each machine's `core.autocrlf`.
+#
+# Without this file the working-tree bytes depend on whoever cloned the repo,
+# which cost us twice:
+#
+#   1. Phantom dirty files. Git for Windows defaults to core.autocrlf=true, so
+#      a file stored LF checks out CRLF; the moment any tool writes LF back,
+#      `git status` reports it modified while `git diff` shows nothing. That
+#      has repeatedly blocked releases with a change that does not exist.
+#
+#   2. A real, Windows-only test failure. The .cva fixtures below are compiled
+#      in with include_bytes! and sha256-checked against their manifest.json
+#      (crates/conva-core/tests/cva_v1_fixtures.rs). CRLF conversion changes
+#      those bytes, so the hashes stop matching and `cargo test -p conva-core`
+#      fails on Windows — invisible in CI, which runs Core on ubuntu only.
+#
+# Default: normalise to LF in the repo AND check out LF everywhere. There are
+# no .bat/.cmd/.ps1 files here, so nothing needs CRLF in the working tree.
+* text=auto eol=lf
+
+# Binary — never inspected or converted.
+*.png  binary
+*.ico  binary
+*.icns binary
+*.webp binary
+*.woff2 binary
+
+# Byte-exact by contract. `-text` is stronger than `eol=lf`: it tells git to
+# leave these bytes completely alone rather than to convert them to LF.
+#
+# .cva fixtures — hashed byte-for-byte, see note 2 above.
+crates/conva-core/tests/fixtures/** -text
+# patch-package input (postinstall) — mixed EOL by nature; normalising it
+# would silently break the html2canvas patch.
+patches/** -text

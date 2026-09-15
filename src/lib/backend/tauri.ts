@@ -22,7 +22,15 @@ import {
   type CapabilitySnapshot,
   type RuntimeProbe,
 } from "@/lib/backend/capabilitySnapshot";
-import type { IngestReport } from "@/lib/ipc";
+import type {
+  ArchiveExportOptions,
+  ArchiveExportResult,
+  ArchiveExportScope,
+  ArchiveImportOptions,
+  ArchiveImportResult,
+  ArchiveInspection,
+  IngestReport,
+} from "@/lib/ipc";
 import type { ConvaBackend } from "@/lib/backend/ConvaBackend";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
@@ -294,20 +302,48 @@ export class TauriBackend implements ConvaBackend {
     locked: cmd.getPartnerLocked,
   };
 
-  // `.cva` archive: checkpoint A defines the contract only — no Tauri
-  // command exists yet (no ZIP reader/writer, no persistence). Every method
-  // honestly rejects; `capabilitySnapshot.ts` already reports these
-  // `unimplemented`, so the UI never offers the action in the first place.
+  // `.cva` archive (Checkpoints B/C/D): real ZIP I/O + persistence behind
+  // `archive_*` Tauri commands (`src-tauri/src/archive.rs`). Desktop picks
+  // its own destination/source path via the native dialog — `exportArchive`
+  // and `inspectArchive`/`importArchive`'s `archiveDigest` parameter carries
+  // that local path on this adapter (see `ConvaBackend.ts`'s doc comment).
+  // Web portability (Checkpoint E) is not implemented — `web.ts` still
+  // rejects, and `capabilitySnapshot.ts` reports that honestly.
   archive = {
-    estimateExport: (): Promise<never> =>
-      Promise.reject(new UnimplementedOnDesktopError("archive.estimateExport")),
-    exportArchive: (): Promise<never> =>
-      Promise.reject(new UnimplementedOnDesktopError("archive.exportArchive")),
-    inspectArchive: (): Promise<never> =>
-      Promise.reject(new UnimplementedOnDesktopError("archive.inspectArchive")),
-    importArchive: (): Promise<never> =>
-      Promise.reject(new UnimplementedOnDesktopError("archive.importArchive")),
-    cancel: (): Promise<never> =>
-      Promise.reject(new UnimplementedOnDesktopError("archive.cancel")),
+    estimateExport: cmd.archiveEstimateExport,
+    exportArchive: async (
+      scope: ArchiveExportScope,
+      options: ArchiveExportOptions,
+      operationId: string,
+    ): Promise<ArchiveExportResult> => {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const suggested =
+        scope.kind === "context"
+          ? `${scope.context_id}.cva`
+          : `${scope.conversation_id}.cva`;
+      const destPath = await save({ defaultPath: suggested, filters: [{ name: "conva archive", extensions: ["cva"] }] });
+      if (!destPath) {
+        throw new ArchiveExportCancelledError();
+      }
+      return cmd.archiveExport(scope, options, destPath, operationId);
+    },
+    inspectArchive: (archiveDigest: string): Promise<ArchiveInspection> =>
+      cmd.archiveInspect(archiveDigest),
+    importArchive: (
+      archiveDigest: string,
+      options: ArchiveImportOptions,
+      operationId: string,
+    ): Promise<ArchiveImportResult> => cmd.archiveImport(archiveDigest, options, operationId),
+    cancel: (operationId: string): Promise<void> => cmd.archiveCancel(operationId),
   };
+}
+
+/** The user closed the native save dialog without picking a destination —
+ *  not a failure, just "nothing to do". Callers should treat this as a
+ *  silent cancel, not an error toast. */
+export class ArchiveExportCancelledError extends Error {
+  constructor() {
+    super("Export cancelled: no destination file was chosen.");
+    this.name = "ArchiveExportCancelledError";
+  }
 }

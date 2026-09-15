@@ -8,6 +8,13 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
   AllyKind,
+  ArchiveExportScope,
+  ArchiveExportOptions,
+  ArchiveExportEstimate,
+  ArchiveExportResult,
+  ArchiveInspection,
+  ArchiveImportOptions,
+  ArchiveImportResult,
   AudioDevice,
   AuthStatus,
   AvatarBytes,
@@ -650,4 +657,49 @@ export function setPartnerLocked(locked: boolean): Promise<void> {
 /** Whether the partner window is currently locked to the main window. */
 export function getPartnerLocked(): Promise<boolean> {
   return invoke<boolean>("get_partner_locked");
+}
+
+/* ── `.cva` portable archive (Checkpoints B/C/D) ── */
+
+export function archiveEstimateExport(
+  scope: ArchiveExportScope,
+  options: ArchiveExportOptions,
+): Promise<ArchiveExportEstimate> {
+  return invoke<ArchiveExportEstimate>("archive_estimate_export", { scope, options });
+}
+
+/** `destPath` is a path the caller already obtained from the native save
+ *  dialog (`@tauri-apps/plugin-dialog`'s `save()`) — this wrapper never
+ *  picks its own destination. */
+export function archiveExport(
+  scope: ArchiveExportScope,
+  options: ArchiveExportOptions,
+  destPath: string,
+  operationId: string,
+): Promise<ArchiveExportResult> {
+  return invoke<ArchiveExportResult>("archive_export", {
+    scope,
+    options,
+    destPath,
+    operationId,
+  });
+}
+
+/** Side-effect-free preview of a `.cva` file at `path` (a path the caller
+ *  already obtained from the native open dialog). */
+export function archiveInspect(path: string): Promise<ArchiveInspection> {
+  return invoke<ArchiveInspection>("archive_inspect", { path });
+}
+
+export function archiveImport(
+  path: string,
+  options: ArchiveImportOptions,
+  operationId: string,
+): Promise<ArchiveImportResult> {
+  return invoke<ArchiveImportResult>("archive_import", { path, options, operationId });
+}
+
+/** Best-effort cooperative cancel — checked between documents, not mid-entry. */
+export function archiveCancel(operationId: string): Promise<void> {
+  return invoke("archive_cancel", { operationId });
 }

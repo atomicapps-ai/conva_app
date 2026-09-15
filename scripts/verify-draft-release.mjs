@@ -24,7 +24,22 @@ async function github(path, accept = headers.Accept) {
   return response;
 }
 
-const release = await (await github(`/repos/${repository}/releases/tags/${tag}`)).json();
+// GET /repos/{repo}/releases/tags/{tag} does not return draft releases —
+// GitHub's docs note this explicitly, and a freshly-published-draft tag isn't
+// even a real ref yet. That 404'd here on every release (v0.4.0 included)
+// right after tauri-action had already uploaded the artifacts successfully.
+// List releases instead (drafts included there) and match by tag_name.
+async function findReleaseByTag(repo, tagName) {
+  for (let page = 1; page <= 10; page++) {
+    const releases = await (await github(`/repos/${repo}/releases?per_page=100&page=${page}`)).json();
+    const match = releases.find((release) => release.tag_name === tagName);
+    if (match) return match;
+    if (releases.length < 100) break;
+  }
+  throw new Error(`No release with tag ${tagName} found in ${repo} (checked draft + published).`);
+}
+
+const release = await findReleaseByTag(repository, tag);
 if (!release.draft) throw new Error(`${tag} must remain a draft until owner review.`);
 validateReleaseNotes(release.body);
 

@@ -16,6 +16,11 @@ type Listener = (e: { payload: unknown }) => void;
 const listeners = new Map<string, Set<Listener>>();
 const unlistenCalls: string[] = [];
 
+const savedDialogPaths: Array<string | null> = [];
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  save: vi.fn(async () => savedDialogPaths.shift() ?? null),
+}));
+
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async (channel: string, cb: Listener) => {
     const set = listeners.get(channel) ?? new Set<Listener>();
@@ -52,6 +57,12 @@ vi.mock("@/lib/commands", () => {
       ],
     })),
     startSession: vi.fn(async () => "sess-1"),
+    archiveExport: vi.fn(async (_scope, _options, destPath: string) => ({
+      destination: destPath,
+      archive_digest: "a".repeat(64),
+      bytes: 42,
+    })),
+    archiveCancel: vi.fn(async () => undefined),
   };
   // `then` must stay undefined or the module namespace becomes a thenable
   // and `await import()` never resolves; symbols/default likewise.
@@ -76,7 +87,7 @@ vi.mock("@/lib/commands", () => {
 
 import { DESKTOP_CAPABILITIES } from "@/lib/backend/capabilities";
 import { sourceOfKind, type RuntimeProbe } from "@/lib/backend/capabilitySnapshot";
-import { DESKTOP_UNKNOWN_SESSION, TauriBackend, UnimplementedOnDesktopError } from "@/lib/backend/tauri";
+import { DESKTOP_UNKNOWN_SESSION, TauriBackend } from "@/lib/backend/tauri";
 import { conversationToEvents } from "@/lib/capture/legacy";
 
 const windows: RuntimeProbe = {
@@ -202,15 +213,31 @@ describe("TauriBackend — M0 additions", () => {
     expect(unlistenCalls.sort()).toEqual(["conva://session-state", "conva://transcript-segment"]);
   });
 
-  it(".cva archive operations honestly reject — no Tauri command exists yet (checkpoint A)", async () => {
+  it(".cva archive export picks a destination via the native save dialog, then delegates to the Tauri command", async () => {
+    savedDialogPaths.push("/home/user/Desktop/my-context.cva");
+    const b = new TauriBackend(windows);
+    const result = await b.archive.exportArchive(
+      { kind: "context", context_id: "ctx-1" },
+      { include_source_documents: false },
+      "op-1",
+    );
+    expect(result.destination).toBe("/home/user/Desktop/my-context.cva");
+  });
+
+  it(".cva archive export throws a distinct cancellation error when the save dialog is dismissed", async () => {
+    savedDialogPaths.push(null);
     const b = new TauriBackend(windows);
     await expect(
       b.archive.exportArchive(
-        { kind: "context", context_id: "ctx-1" },
+        { kind: "conversation", conversation_id: "conv-1", include_context: false },
         { include_source_documents: false },
         "op-1",
       ),
-    ).rejects.toThrow(/archive.exportArchive/);
-    await expect(b.archive.cancel("op-1")).rejects.toBeInstanceOf(UnimplementedOnDesktopError);
+    ).rejects.toThrow(/no destination file was chosen/);
+  });
+
+  it(".cva archive cancel delegates to the real Tauri command (Checkpoints B/C/D)", async () => {
+    const b = new TauriBackend(windows);
+    await expect(b.archive.cancel("op-1")).resolves.toBeUndefined();
   });
 });
