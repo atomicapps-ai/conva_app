@@ -618,6 +618,8 @@ export class WebBackend implements ConvaBackend {
       todo("POST /v1/contexts/:id/personas"),
     choosePersona: (): Promise<ConversationContext> =>
       todo("PATCH /v1/contexts/:id/persona"),
+    toggleFavoritePersona: (): Promise<ConversationContext> =>
+      todo("PATCH /v1/contexts/:id/persona/favorite"),
     startRehearsal: (): Promise<string> =>
       unsupported("context.startRehearsal (desktop audio)"),
     rehearsalYourTurn: (): Promise<void> =>

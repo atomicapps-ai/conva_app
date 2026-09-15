@@ -601,6 +601,11 @@ export interface ContextPersona {
   style_tags: string[];
   recommended: boolean;
   gender?: PersonaGender | null;
+  /** User-marked favorite (owner, 2026-09-15) — survives "Generate personas"
+   *  for this same context instead of being discarded with the rest. Scoped
+   *  to one context for now; reuse across different contexts is a separate,
+   *  larger feature. */
+  favorite: boolean;
 }
 
 /** A web-research source folded into a knowledge profile. */

@@ -36,6 +36,7 @@ function persona(overrides: Partial<ContextPersona> = {}): ContextPersona {
     summary: "Direct, numbers-first.",
     style_tags: ["skeptical"],
     recommended: false,
+    favorite: false,
     ...overrides,
   };
 }
@@ -90,7 +91,7 @@ describe("ContextDetail", () => {
       capabilities: vi.fn().mockResolvedValue(null),
     } as Partial<ConvaBackend>);
 
-    await screen.findByText("Counterparty");
+    await screen.findByText("Guest"); // live_stream's role label, not the default "interview"
     fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
     await screen.findByText("Context Intelligence Pack");
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
@@ -124,7 +125,7 @@ describe("ContextDetail", () => {
       subscribe,
     } as unknown as Partial<ConvaBackend>);
 
-    await screen.findByText("Counterparty");
+    await screen.findByText("Interviewer");
     fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
     await screen.findByText("Context Intelligence Pack");
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
@@ -162,7 +163,7 @@ describe("ContextDetail", () => {
       rag: { list: vi.fn().mockResolvedValue([]) },
       capabilities: vi.fn().mockResolvedValue(null),
     });
-    await screen.findByText("Counterparty");
+    await screen.findByText("Interviewer");
     // Collapsed — the always-visible description prose from the old
     // Section component is gone; nothing but the summary line shows.
     expect(screen.queryByText(/choose who you'll rehearse against/i)).toBeNull();
@@ -175,12 +176,12 @@ describe("ContextDetail", () => {
       rag: { list: vi.fn().mockResolvedValue([]) },
       capabilities: vi.fn().mockResolvedValue(null),
     });
-    await screen.findByText("Counterparty");
+    await screen.findByText("Interviewer");
 
-    fireEvent.click(screen.getByRole("button", { name: /counterparty/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^interviewer/i }));
     expect(screen.getByText(/generate the personas/i)).toBeInTheDocument();
 
-    // Opening Rehearse closes Counterparty (exclusive accordion).
+    // Opening Rehearse closes Interviewer (exclusive accordion).
     fireEvent.click(screen.getByRole("button", { name: /rehearse/i }));
     expect(screen.queryByText(/generate the personas/i)).toBeNull();
     expect(screen.getByRole("button", { name: /start rehearsal/i })).toBeInTheDocument();
@@ -192,20 +193,30 @@ describe("ContextDetail", () => {
       rag: { list: vi.fn().mockResolvedValue([]) },
       capabilities: vi.fn().mockResolvedValue(null),
     });
-    await screen.findByText("Counterparty");
-    const toggle = screen.getByRole("button", { name: /counterparty/i });
+    await screen.findByText("Interviewer");
+    const toggle = screen.getByRole("button", { name: /^interviewer/i });
     fireEvent.click(toggle);
     expect(screen.getByText(/generate the personas/i)).toBeInTheDocument();
     fireEvent.click(toggle);
     expect(screen.queryByText(/generate the personas/i)).toBeNull();
   });
 
-  it("viewing a card's bio never changes which persona is chosen; the star does", async () => {
+  it("viewing a card's bio never chooses it; the checkbox chooses, the star favorites — independently", async () => {
     const choosePersona = vi.fn().mockImplementation((_id: string, personaId: string) =>
       Promise.resolve(
         session({
           personas: [persona({ id: "p1", title: "Skeptical CFO" }), persona({ id: "p2", title: "Warm VP", gender: "female" })],
           chosen_persona_id: personaId,
+        }),
+      ),
+    );
+    const toggleFavoritePersona = vi.fn().mockImplementation((_id: string, personaId: string, favorite: boolean) =>
+      Promise.resolve(
+        session({
+          personas: [
+            persona({ id: "p1", title: "Skeptical CFO", favorite: personaId === "p1" ? favorite : false }),
+            persona({ id: "p2", title: "Warm VP", gender: "female", favorite: personaId === "p2" ? favorite : false }),
+          ],
         }),
       ),
     );
@@ -221,26 +232,31 @@ describe("ContextDetail", () => {
         ),
         loadProfile: vi.fn().mockResolvedValue(profile()),
         choosePersona,
+        toggleFavoritePersona,
       },
       rag: { list: vi.fn().mockResolvedValue([]) },
       capabilities: vi.fn().mockResolvedValue(null),
     });
-    await screen.findByText("Counterparty");
-    fireEvent.click(screen.getByRole("button", { name: /counterparty/i }));
+    await screen.findByText("Interviewer");
+    fireEvent.click(screen.getByRole("button", { name: /^interviewer/i }));
 
-    // Defaults to viewing the first persona's bio — no persona chosen yet.
+    // Defaults to viewing the first persona's bio — no persona chosen yet,
+    // and the required-selection instruction is showing.
     expect(await screen.findByText("Direct, numbers-first.")).toBeInTheDocument();
     expect(screen.queryByText("Chosen ✓")).toBeNull();
+    expect(screen.getByText("Required")).toBeInTheDocument();
 
-    // Viewing the second card's bio is just browsing — still nothing chosen.
-    fireEvent.click(screen.getByRole("button", { name: /view warm vp/i }));
-    expect(screen.getByText("Direct, numbers-first.")).toBeInTheDocument();
-    expect(screen.queryByText("Chosen ✓")).toBeNull();
+    // Viewing the second card's bio is just browsing — nothing is chosen.
+    fireEvent.click(screen.getByRole("button", { name: /view warm vp's bio/i }));
     expect(choosePersona).not.toHaveBeenCalled();
 
-    // The star is the actual "choose" control.
-    fireEvent.click(screen.getByRole("button", { name: /choose skeptical cfo for rehearsal/i }));
-    expect(choosePersona).toHaveBeenCalledWith("s1", "p1");
+    // The checkbox is the actual "choose for rehearsal" control.
+    fireEvent.click(screen.getByRole("checkbox", { name: /select warm vp for rehearsal/i }));
+    expect(choosePersona).toHaveBeenCalledWith("s1", "p2");
+
+    // The star is a separate, independent "favorite" control.
+    fireEvent.click(screen.getByRole("button", { name: /favorite skeptical cfo/i }));
+    expect(toggleFavoritePersona).toHaveBeenCalledWith("s1", "p1", true);
   });
 
   it("Ally research renders one line per source, with a viewer-load icon only when the partner window is supported", async () => {
@@ -265,7 +281,7 @@ describe("ContextDetail", () => {
       capabilities: vi.fn().mockResolvedValue({ system: { partnerWindow: true } }),
       partner: { open: partnerOpen },
     });
-    await screen.findByText("Counterparty");
+    await screen.findByText("Interviewer");
     fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
 
     expect(await screen.findByText("GAAP overview")).toBeInTheDocument();
@@ -315,7 +331,7 @@ describe("ContextDetail", () => {
       rag: { list: vi.fn().mockResolvedValue([resumeDoc, otherDoc]) },
       capabilities: vi.fn().mockResolvedValue(null),
     });
-    await screen.findByText("Counterparty");
+    await screen.findByText("Interviewer");
     fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
 
     expect(await screen.findByText("Résumé / CV (1)")).toBeInTheDocument();
@@ -347,7 +363,7 @@ describe("ContextDetail", () => {
       rag: { list: vi.fn().mockResolvedValue([resumeDoc]) },
       capabilities: vi.fn().mockResolvedValue(null),
     });
-    await screen.findByText("Counterparty");
+    await screen.findByText("Interviewer");
     fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
 
     expect(await screen.findByText("Other documents (1)")).toBeInTheDocument();

@@ -243,6 +243,7 @@ export class TauriBackend implements ConvaBackend {
     generateDossier: cmd.contextGenerateDossier,
     generatePersonas: cmd.contextGeneratePersonas,
     choosePersona: cmd.contextChoosePersona,
+    toggleFavoritePersona: cmd.contextToggleFavoritePersona,
     startRehearsal: cmd.contextStartRehearsal,
     rehearsalYourTurn: cmd.contextRehearsalYourTurn,
     rehearsalSay: cmd.contextRehearsalSay,

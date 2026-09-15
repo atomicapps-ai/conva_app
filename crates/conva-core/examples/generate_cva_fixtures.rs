@@ -254,6 +254,7 @@ fn generate_full() {
             style_tags: vec!["skeptical".into(), "detail-oriented".into()],
             recommended: true,
             gender: Some(PersonaGender::Female),
+            favorite: false,
         }],
         chosen_persona_id: Some("persona-1".into()),
         conversation_id: Some("conv-nolan-wells".into()),

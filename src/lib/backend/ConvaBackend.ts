@@ -297,6 +297,14 @@ export interface ConvaBackend {
     generatePersonas(id: string): Promise<ConversationContext>;
     /** Record the persona the user will rehearse against. */
     choosePersona(id: string, personaId: string): Promise<ConversationContext>;
+    /** Mark/unmark a persona as a favorite — scoped to this context for now,
+     *  so it survives a "Generate personas" regenerate instead of being
+     *  discarded with the rest. */
+    toggleFavoritePersona(
+      id: string,
+      personaId: string,
+      favorite: boolean,
+    ): Promise<ConversationContext>;
     /** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
     startRehearsal(id: string): Promise<string>;
     /** End the user's current rehearsal turn now (manual "your turn"). */

@@ -425,6 +425,7 @@ export class FakeBackend implements ConvaBackend {
     generateDossier: nc("context.generateDossier"),
     generatePersonas: nc("context.generatePersonas"),
     choosePersona: nc("context.choosePersona"),
+    toggleFavoritePersona: nc("context.toggleFavoritePersona"),
     startRehearsal: nc("context.startRehearsal"),
     rehearsalYourTurn: nc("context.rehearsalYourTurn"),
     rehearsalSay: nc("context.rehearsalSay"),

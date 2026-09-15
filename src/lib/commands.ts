@@ -438,6 +438,20 @@ export function contextGeneratePersonas(
   return invoke<ConversationContext>("context_generate_personas", { id });
 }
 
+/** Mark or unmark a persona as a favorite — scoped to this context for now
+ *  (see ContextPersona.favorite). */
+export function contextToggleFavoritePersona(
+  id: string,
+  personaId: string,
+  favorite: boolean,
+): Promise<ConversationContext> {
+  return invoke<ConversationContext>("context_toggle_favorite_persona", {
+    id,
+    personaId,
+    favorite,
+  });
+}
+
 /** Record the chosen persona. */
 export function contextChoosePersona(
   id: string,

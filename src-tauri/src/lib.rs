@@ -1670,8 +1670,10 @@ fn rag_document_text(state: State<AppState>, id: String) -> Option<String> {
 }
 
 /// Generate 3 counterparty personas (Step 3) with the configured LLM, grounded
-/// in the Context's goal / type / job description. Overwrites any existing
-/// personas and clears the current choice.
+/// in the Context's goal / type / job description. A favorited persona
+/// (owner, 2026-09-15) survives regeneration instead of being discarded with
+/// the rest — see `merge_personas_preserving_favorites`. The current choice is
+/// only cleared if it doesn't survive the merge.
 #[tauri::command]
 fn context_generate_personas(
     app: AppHandle,
@@ -1702,8 +1704,16 @@ fn context_generate_personas(
         &mut |t| buf.push_str(t),
     )
     .map_err(|e| e.to_string())?;
-    session.personas = conva_core::context::parse_personas(&buf);
-    session.chosen_persona_id = None;
+    let generated = conva_core::context::parse_personas(&buf);
+    session.personas =
+        conva_core::context::merge_personas_preserving_favorites(&session.personas, generated);
+    if !session
+        .chosen_persona_id
+        .as_ref()
+        .is_some_and(|chosen| session.personas.iter().any(|p| &p.id == chosen))
+    {
+        session.chosen_persona_id = None;
+    }
     context::save(&app, session).map_err(|e| e.to_string())
 }
 
@@ -1716,6 +1726,26 @@ fn context_choose_persona(
 ) -> Result<ConversationContext, String> {
     let mut session = context::load(&app, &id).map_err(|e| e.to_string())?;
     session.chosen_persona_id = Some(persona_id);
+    context::save(&app, session).map_err(|e| e.to_string())
+}
+
+/// Mark (or unmark) a persona as a favorite (owner, 2026-09-15) — scoped to
+/// this context for now: a favorited persona survives "Generate personas" for
+/// this same context instead of being discarded (see
+/// `merge_personas_preserving_favorites`). Reuse across different contexts is
+/// a separate, larger feature, not this.
+#[tauri::command]
+fn context_toggle_favorite_persona(
+    app: AppHandle,
+    id: String,
+    persona_id: String,
+    favorite: bool,
+) -> Result<ConversationContext, String> {
+    let mut session = context::load(&app, &id).map_err(|e| e.to_string())?;
+    match session.personas.iter_mut().find(|p| p.id == persona_id) {
+        Some(p) => p.favorite = favorite,
+        None => return Err("No such persona on this context.".to_string()),
+    }
     context::save(&app, session).map_err(|e| e.to_string())
 }
 
@@ -2564,6 +2594,7 @@ pub fn run() {
             rag_document_text,
             context_generate_personas,
             context_choose_persona,
+            context_toggle_favorite_persona,
             context_start_rehearsal,
             context_rehearsal_your_turn,
             context_rehearsal_say,
