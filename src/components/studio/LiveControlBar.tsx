@@ -248,6 +248,12 @@ export function LiveControlBar({
         type="button"
         disabled={!canSave}
         onClick={() => requestSave(true)}
+        // Explicit aria-label (not left to ResponsiveLabel's text) — with
+        // short="" this button is icon-only below the `lg` breakpoint, and
+        // an accessible name that changed with viewport width would be a
+        // trap for anything (a test, a screen reader) that looks it up by
+        // name.
+        aria-label="Save this conversation"
         title={canSave ? "Save this conversation" : "Nothing to save yet"}
         className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[6px] border border-border-strong px-2 text-xs font-bold text-fg-muted transition hover:text-fg disabled:opacity-40"
       >
