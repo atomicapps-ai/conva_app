@@ -286,7 +286,15 @@ fn respond(
             emit_phase(app, RehearsalStateEvent::Speaking);
             match crate::tts::speak(tts_key, &reply) {
                 Ok(()) => crate::metering::record_tts_characters(app, reply.chars().count() as u64),
-                Err(e) => eprintln!("[rehearsal] tts failed: {e}"),
+                Err(e) => {
+                    eprintln!("[rehearsal] tts failed: {e}");
+                    emit_phase(
+                        app,
+                        RehearsalStateEvent::SpeechFailed {
+                            error: e.to_string(),
+                        },
+                    );
+                }
             }
         }
     }

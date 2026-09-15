@@ -140,6 +140,56 @@ describe("GroundPicker", () => {
     expect(await screen.findByText("Acme interview", {}, { timeout: 2000 })).toBeInTheDocument();
   });
 
+  it("reopening the picker shows the active context pre-checked", async () => {
+    render(
+      <BackendProvider backend={fakeBackend()}>
+        <GroundPicker />
+      </BackendProvider>,
+    );
+    const trigger = await screen.findByText("General conversation");
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /include acme interview/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^select$/i }));
+    await screen.findByText("Acme interview", {}, { timeout: 2000 });
+
+    // Reopen (the dialog closed itself on select) — the checkbox should
+    // reflect the now-active context instead of opening empty.
+    fireEvent.click(screen.getByTitle("Change what Ally is grounded on"));
+    const checkbox = await screen.findByRole("checkbox", { name: /include acme interview/i });
+    await waitFor(() => expect(checkbox).toBeChecked());
+  });
+
+  it("reselecting the already-active context is a no-op (no re-activate call)", async () => {
+    const activateContext = vi
+      .fn()
+      .mockImplementation((id: string) =>
+        Promise.resolve(id === DEFAULT_CONTEXT_ID ? defaultSession() : session()),
+      );
+    render(
+      <BackendProvider backend={fakeBackend({ activateContext })}>
+        <GroundPicker />
+      </BackendProvider>,
+    );
+    const trigger = await screen.findByText("General conversation");
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /include acme interview/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^select$/i }));
+    await screen.findByText("Acme interview", {}, { timeout: 2000 });
+    // One call from mount's default auto-activation, one from selecting Acme.
+    expect(activateContext).toHaveBeenCalledTimes(2);
+
+    // Reopen and re-select the same (now active) context without changing
+    // anything — this must not throw or re-run prepare/activate.
+    fireEvent.click(screen.getByTitle("Change what Ally is grounded on"));
+    const checkbox = await screen.findByRole("checkbox", { name: /include acme interview/i });
+    await waitFor(() => expect(checkbox).toBeChecked());
+    fireEvent.click(screen.getByRole("button", { name: /^select$/i }));
+    await waitFor(() => {});
+
+    expect(activateContext).toHaveBeenCalledTimes(2); // no re-activation
+    expect(screen.queryByText(/couldn't ground ally/i)).toBeNull();
+  });
+
   it("hides Reset when the default is already active, shows it otherwise", async () => {
     render(
       <BackendProvider backend={fakeBackend()}>
