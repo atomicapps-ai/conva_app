@@ -211,6 +211,13 @@ pub enum RehearsalStateEvent {
     Thinking,
     /// The counterparty is speaking (TTS playing).
     Speaking,
+    /// The reply was generated (and shown as text) but Aura TTS failed to
+    /// speak it — a transient notice, not a persistent phase; the very next
+    /// event is always `Listening`. Without this, a synthesis failure (bad
+    /// key, no TTS scope, rate limit) was silent — logged to stderr only —
+    /// and looked to the user like "the coach doesn't respond" even though
+    /// the reply was right there in the transcript.
+    SpeechFailed { error: String },
     /// The rehearsal has ended.
     Ended,
 }

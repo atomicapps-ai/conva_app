@@ -1476,6 +1476,71 @@ mod tests {
     }
 
     #[test]
+    fn grounding_scope_recovers_a_fact_the_compiled_pack_dropped() {
+        // End-to-end reproduction of the reported bug (2026-09-15): "when did
+        // I use Terraform" answered "no data" even though the resume was
+        // attached, prepared, and never removed. A dossier's LLM-synthesized
+        // digest doesn't carry every source fact verbatim — this exercises
+        // the real RagStore + BM25 search to prove the fix actually recovers
+        // a term the compiled pack didn't happen to include, not just that
+        // the pure union helper computes the right id list.
+        let dir = std::env::temp_dir().join(format!("conva-rag-grounding-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let store = RagStore::open(&dir).unwrap();
+        let resume = store
+            .ingest_text(
+                "resume.pdf",
+                "Built the payments API gateway. Used Terraform to provision \
+                 the staging environment in 2024.",
+            )
+            .unwrap()
+            .document;
+        // The compiled Context Intelligence Pack: a plausible LLM digest that
+        // covers the API gateway work but never mentions Terraform — exactly
+        // the kind of omission a real synthesis pass can make.
+        let dossier = store
+            .ingest_text(
+                "Context Intelligence Pack",
+                "## Overview\nExperienced backend engineer.\n\n## Facts & figures\n\
+                 - **API Gateway** — built the payments API gateway.",
+            )
+            .unwrap()
+            .document;
+        store.set_enabled(&resume.id, true).unwrap();
+        store.set_enabled(&dossier.id, true).unwrap();
+
+        // Old behavior: scope narrowed to just the compiled pack (what
+        // `profile.doc_ids` becomes after dossier generation) finds nothing.
+        let dossier_only = store.retrieve_scoped(
+            "when did I use Terraform",
+            8,
+            std::slice::from_ref(&dossier.id),
+        );
+        assert!(
+            dossier_only.iter().all(|c| c.document_id != resume.id),
+            "sanity check: the narrow scope must not already see the resume"
+        );
+
+        // Fixed behavior: the unioned scope (source docs + compiled pack)
+        // still finds the fact in the original document.
+        let scope = conva_core::context::grounding_scope(
+            std::slice::from_ref(&resume.id),
+            std::slice::from_ref(&dossier.id),
+        );
+        let widened = store.retrieve_scoped("when did I use Terraform", 8, &scope);
+        assert!(
+            widened
+                .iter()
+                .any(|c| c.document_id == resume.id && c.text.contains("Terraform")),
+            "widened scope must recover the resume's Terraform mention: {widened:?}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn prepared_qa_snapshot_only_reads_the_active_scope() {
         let dir = std::env::temp_dir().join(format!("conva-rag-qa-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
