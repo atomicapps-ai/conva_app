@@ -30,6 +30,7 @@ export function RehearsalBar() {
   const active = useRehearsalStore((s) => s.active);
   const persona = useRehearsalStore((s) => s.personaTitle) ?? "The counterparty";
   const phase = useRehearsalStore((s) => s.phase);
+  const voiceEnabled = useRehearsalStore((s) => s.voiceEnabled);
   const end = useRehearsalStore((s) => s.end);
 
   const cards = useAllyStore((s) => s.cards);
@@ -82,6 +83,19 @@ export function RehearsalBar() {
             </>
           )}
         </span>
+
+        {!voiceEnabled && (
+          <>
+            <span className="h-5 w-px bg-border-strong" />
+            <span
+              className="flex items-center gap-1 text-[11px] font-semibold text-notice"
+              title="No Deepgram API key configured — Aura TTS is unavailable, so replies are text-only. Add a key in Settings to hear the persona speak."
+            >
+              <Icon name="info" size={13} />
+              Voice unavailable — text only
+            </span>
+          </>
+        )}
 
         <span className="h-5 w-px bg-border-strong" />
 

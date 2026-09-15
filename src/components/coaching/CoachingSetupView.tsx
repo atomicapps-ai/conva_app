@@ -154,9 +154,10 @@ export function CoachingSetupView({
     setBusy("start");
     setError(null);
     try {
-      await backend.context.startRehearsal(chosenId);
+      const { voice_enabled } = await backend.context.startRehearsal(chosenId);
       beginRehearsal(
         full?.personas.find((p) => p.id === full.chosen_persona_id)?.title ?? "Counterparty",
+        voice_enabled,
       );
       setView("live");
     } catch (e) {

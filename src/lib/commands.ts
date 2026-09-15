@@ -36,6 +36,7 @@ import type {
   SecretsStatus,
   SessionSummary,
   SplashProgressEvent,
+  StartRehearsalResult,
   TranscriptSegment,
   UsageSummary,
   WhisperModelInfo,
@@ -470,9 +471,11 @@ export function contextChoosePersona(
   });
 }
 
-/** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
-export function contextStartRehearsal(id: string): Promise<string> {
-  return invoke<string>("context_start_rehearsal", { id });
+/** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns the session
+ *  id plus whether a TTS key is configured (`voice_enabled`), so the caller
+ *  can flag a text-only rehearsal instead of a silently mute one. */
+export function contextStartRehearsal(id: string): Promise<StartRehearsalResult> {
+  return invoke<StartRehearsalResult>("context_start_rehearsal", { id });
 }
 
 /** End the user's current rehearsal turn now (manual "your turn"). */

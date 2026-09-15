@@ -2150,13 +2150,15 @@ fn context_toggle_favorite_persona(
 /// Start a live rehearsal (Step 4): mic-only capture, and a worker that plays
 /// the chosen persona — STT → in-character LLM reply (grounded in the knowledge
 /// base) → Aura TTS. Requires a chosen persona and a prepared knowledge profile.
-/// Stop it with the normal `stop_session`. Returns the session id.
+/// Stop it with the normal `stop_session`. Returns the session id plus whether
+/// a TTS key is configured, so the UI can flag a text-only rehearsal instead
+/// of leaving the user wondering why the persona never speaks.
 #[tauri::command]
 async fn context_start_rehearsal(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
-) -> Result<String, String> {
+) -> Result<conva_core::ipc::StartRehearsalResult, String> {
     let session = context::load(&app, &id).map_err(|e| e.to_string())?;
 
     // Preconditions: a chosen persona and a prepared knowledge profile.
@@ -2180,6 +2182,7 @@ async fn context_start_rehearsal(
     let llm_key = resolve_key(selection.provider)?;
     // Aura reuses the Deepgram key; without one the rehearsal is text-only.
     let tts_key = asr_deepgram::load_api_key();
+    let voice_enabled = tts_key.is_some();
 
     // Activate this context's highlight terms for the rehearsal (Phase 3c):
     // user-declared key terms + the digest glossary. Cleared on stop_session.
@@ -2210,7 +2213,10 @@ async fn context_start_rehearsal(
         session_start_ms: state.session.session_started_ms(),
     };
     rehearsal::spawn(app.clone(), rag, reh_rx, stop_flag, force_end, ctx);
-    Ok(session_id)
+    Ok(conva_core::ipc::StartRehearsalResult {
+        session_id,
+        voice_enabled,
+    })
 }
 
 /// End the user's current rehearsal turn immediately (manual "your turn"); the

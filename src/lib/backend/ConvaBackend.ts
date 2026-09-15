@@ -47,6 +47,7 @@ import type {
   RagDocument,
   SecretsStatus,
   SessionSummary,
+  StartRehearsalResult,
   TranscriptSegment,
   UsageSummary,
   WhisperModelInfo,
@@ -305,8 +306,9 @@ export interface ConvaBackend {
       personaId: string,
       favorite: boolean,
     ): Promise<ConversationContext>;
-    /** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
-    startRehearsal(id: string): Promise<string>;
+    /** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns the
+     *  session id plus whether a TTS key is configured (`voice_enabled`). */
+    startRehearsal(id: string): Promise<StartRehearsalResult>;
     /** End the user's current rehearsal turn now (manual "your turn"). */
     rehearsalYourTurn(): Promise<void>;
     /** Inject a typed turn (e.g. an Ally-suggested answer) as the user's turn. */

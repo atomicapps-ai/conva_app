@@ -74,6 +74,7 @@ import type {
   RagDocument,
   SecretsStatus,
   SessionSummary,
+  StartRehearsalResult,
   TranscriptSegment,
   UsageSummary,
   WhisperModelInfo,
@@ -626,7 +627,7 @@ export class WebBackend implements ConvaBackend {
       todo("PATCH /v1/contexts/:id/persona"),
     toggleFavoritePersona: (): Promise<ConversationContext> =>
       todo("PATCH /v1/contexts/:id/persona/favorite"),
-    startRehearsal: (): Promise<string> =>
+    startRehearsal: (): Promise<StartRehearsalResult> =>
       unsupported("context.startRehearsal (desktop audio)"),
     rehearsalYourTurn: (): Promise<void> =>
       unsupported("context.rehearsalYourTurn (desktop audio)"),

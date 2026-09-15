@@ -334,8 +334,8 @@ export function ContextDetail({
     setStarting(true);
     setRehearsalError(null);
     try {
-      await backend.context.startRehearsal(id);
-      beginRehearsal(chosenPersona?.title ?? roleLabel);
+      const { voice_enabled } = await backend.context.startRehearsal(id);
+      beginRehearsal(chosenPersona?.title ?? roleLabel, voice_enabled);
       setView("live");
     } catch (e) {
       setRehearsalError(String(e).replace(/^Error:\s*/, ""));

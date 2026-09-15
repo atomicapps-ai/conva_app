@@ -57,6 +57,15 @@ export type SessionStateEvent =
   | { state: "paused"; session_id: string }
   | { state: "error"; message: string };
 
+/** Result of starting a live Context rehearsal. `voice_enabled` is false when
+ *  no Deepgram key is configured (Aura TTS reuses it) — the rehearsal still
+ *  runs, but text-only, so the UI should flag that instead of leaving the
+ *  user wondering why the persona never speaks. */
+export interface StartRehearsalResult {
+  session_id: string;
+  voice_enabled: boolean;
+}
+
 /** Live Context rehearsal phase — drives the speaking/active-speaker UI. */
 export type RehearsalStateEvent =
   | { phase: "listening" }
