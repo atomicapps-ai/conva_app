@@ -1368,6 +1368,31 @@ pub fn orphaned_generated_doc_ids(
         .collect()
 }
 
+/// The live retrieval scope for a grounded Context: its own attached source
+/// documents PLUS whatever the prepared `KnowledgeProfile` adds. Union, never
+/// a replacement — once a dossier compiles, `profile.doc_ids` narrows to just
+/// the one synthesized Context Intelligence Pack (fast, dense), but that pack
+/// is an LLM's *selection* of what seemed worth compiling, not a verbatim copy
+/// of every source document. A specific fact the LLM didn't pull in (a tool
+/// named once in a long resume, say) is still sitting in the raw, already-
+/// indexed source document — retrieval must still be able to reach it, or a
+/// perfectly good, attached document silently stops answering questions about
+/// itself. (Owner-reported, 2026-09-15: "when did I use Terraform" answered
+/// "no data" even though the resume — attached, prepared, never removed —
+/// mentioned it; the compiled pack's LLM-picked vocabulary list just hadn't
+/// happened to include that one term.) Retrieval itself pays no cost for the
+/// wider scope — it's still a top-k search over the whole index, filtered by
+/// an id set, so a bigger set is not a bigger search.
+pub fn grounding_scope(source_doc_ids: &[String], profile_doc_ids: &[String]) -> Vec<String> {
+    let mut scope = source_doc_ids.to_vec();
+    for id in profile_doc_ids {
+        if !scope.contains(id) {
+            scope.push(id.clone());
+        }
+    }
+    scope
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1924,6 +1949,40 @@ mod tests {
         ctx.dossier_doc_id = Some("doc-1".into());
         let docs = vec![generated_doc("doc-1", vec!["s1".into()])];
         assert!(orphaned_generated_doc_ids(&[ctx], &docs).is_empty());
+    }
+
+    #[test]
+    fn grounding_scope_unions_source_docs_with_the_compiled_pack() {
+        // A prepared-then-generated profile narrows to one dossier doc — the
+        // original resume/research docs must still be reachable for a
+        // specific fact the pack's synthesis didn't happen to pull in.
+        let sources = vec!["resume.pdf".to_string(), "research.pdf".to_string()];
+        let profile = vec!["dossier-1".to_string()];
+        let scope = grounding_scope(&sources, &profile);
+        assert_eq!(scope, vec!["resume.pdf", "research.pdf", "dossier-1"]);
+    }
+
+    #[test]
+    fn grounding_scope_never_duplicates_an_id_present_in_both() {
+        // A never-prepared context (profile.doc_ids == source_doc_ids, no
+        // dossier compiled yet) must not double up its own documents.
+        let sources = vec!["a".to_string(), "b".to_string()];
+        let profile = vec!["b".to_string(), "c".to_string()];
+        let scope = grounding_scope(&sources, &profile);
+        assert_eq!(scope, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn grounding_scope_handles_empty_sides() {
+        assert_eq!(
+            grounding_scope(&[], &["only".to_string()]),
+            vec!["only".to_string()]
+        );
+        assert_eq!(
+            grounding_scope(&["only".to_string()], &[]),
+            vec!["only".to_string()]
+        );
+        assert!(grounding_scope(&[], &[]).is_empty());
     }
 
     #[test]

@@ -27,6 +27,7 @@ import { formatBytes } from "@/lib/formatBytes";
 import { formatRelativeTime } from "@/lib/relativeTime";
 import { DEFAULT_CONTEXT_ID, type KnowledgeProfile, type RagDocument, type ConversationContext } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
+import { useGroundingStore } from "@/state/grounding";
 import { useNavStore } from "@/state/nav";
 import { useRehearsalStore } from "@/state/rehearsal";
 
@@ -335,6 +336,11 @@ export function ContextDetail({
     setRehearsalError(null);
     try {
       const { voice_enabled } = await backend.context.startRehearsal(id);
+      // The rehearsal is grounded on `id` backend-side (Rust activates its
+      // terms/snapshot), but the Live cockpit reads attachment from this
+      // UI-side mirror — without setting it, this context doesn't appear
+      // as attached when the cockpit opens.
+      useGroundingStore.getState().setActive(id, session?.title ?? "Context");
       beginRehearsal(chosenPersona?.title ?? roleLabel, voice_enabled);
       setView("live");
     } catch (e) {

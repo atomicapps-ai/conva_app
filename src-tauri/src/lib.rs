@@ -1727,6 +1727,10 @@ fn activate_context(
         .and_then(|pid| context::load_profile(&app, pid).ok())
         .map(|p| p.doc_ids)
         .unwrap_or_default();
+    // Union with the Context's own source documents (not just the compiled
+    // pack) — see `conva_core::context::grounding_scope` doc comment.
+    let grounding_doc_ids =
+        conva_core::context::grounding_scope(&session.source_doc_ids, &profile_doc_ids);
 
     {
         let mut terms = state.active_context_terms.lock().expect("ctx lock");
@@ -1746,7 +1750,7 @@ fn activate_context(
             );
         }
     }
-    *state.active_context_doc_ids.lock().expect("ctx lock") = profile_doc_ids;
+    *state.active_context_doc_ids.lock().expect("ctx lock") = grounding_doc_ids;
     *state.active_context_snapshot.lock().expect("ctx lock") =
         Some(semantic_snapshot_for_context(&session, &state.rag));
 
@@ -2044,10 +2048,15 @@ fn context_generate_dossier_blocking(
 
     // If this Context is already active, switch its live scope atomically to
     // the new pack instead of leaving the session pointed at the deleted one.
+    // Compare/replace using the same source-docs union the scope is actually
+    // built from (`grounding_scope`) — not the bare profile doc ids — or this
+    // would never match and the live scope would silently stay stale.
+    let previous_scope =
+        conva_core::context::grounding_scope(&saved.source_doc_ids, &previous_profile_doc_ids);
     let active_was_this_context = {
         let mut active = state.active_context_doc_ids.lock().expect("ctx lock");
-        if !active.is_empty() && *active == previous_profile_doc_ids {
-            *active = profile.doc_ids.clone();
+        if !active.is_empty() && *active == previous_scope {
+            *active = conva_core::context::grounding_scope(&saved.source_doc_ids, &profile.doc_ids);
             true
         } else {
             false

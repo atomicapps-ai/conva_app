@@ -11,6 +11,28 @@ entries, only the `[Unreleased]` section between releases.
 
 No user-facing changes recorded yet.
 
+## [0.5.1] — 2026-09-15
+
+### Fixes
+
+- Rehearsing from a Coaching setup (or a Context's own Start button) now
+  correctly shows that Context as attached in the Live cockpit, instead of
+  leaving the cockpit pointed at nothing or the wrong Context.
+- A rehearsal persona's reply now shows a small dismissible notice if
+  text-to-speech fails, instead of silently doing nothing — the reply text
+  always reached the transcript, but a voice failure gave no indication why
+  nothing was heard.
+- The top-right context picker no longer errors when reselecting the
+  context that's already active, and reopening it now shows the active
+  context checked instead of appearing empty.
+- Ally's live "Ask" box, term highlighting, and the Question Radar can now
+  find facts from a Context's original attached documents even after that
+  Context's dossier has been generated — previously, once a dossier
+  compiled, retrieval narrowed to only the AI-compiled summary, so a
+  specific fact the summary didn't happen to include (e.g. a tool named
+  once in a resume) became silently unanswerable even though the original
+  document was still attached and indexed.
+
 ## [0.5.0] — 2026-09-14
 
 ### Highlights

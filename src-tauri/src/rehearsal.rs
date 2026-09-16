@@ -171,8 +171,16 @@ fn respond(
     let chunks = if query.trim().is_empty() {
         Vec::new()
     } else {
-        // Ground the persona on this Context's own knowledge base.
-        rag.retrieve_scoped(&query, 6, &ctx.profile.doc_ids)
+        // Ground the persona on this Context's own knowledge base — the
+        // compiled pack AND the original source documents (a specific fact
+        // the pack's synthesis didn't pull in is still in the raw doc; see
+        // `conva_core::context::grounding_scope`). NOTE: only the retrieval
+        // scope is widened here — `ctx.profile.doc_ids` itself is left alone
+        // below, which still needs its original "exactly the compiled pack"
+        // shape to detect a new-style vs. legacy profile.
+        let scope =
+            conva_core::context::grounding_scope(&ctx.session.source_doc_ids, &ctx.profile.doc_ids);
+        rag.retrieve_scoped(&query, 6, &scope)
     };
 
     // New profiles compile web findings into their one-document intelligence
@@ -293,7 +301,15 @@ fn respond(
             emit_phase(app, RehearsalStateEvent::Speaking);
             match crate::tts::speak(tts_key, &reply, stop) {
                 Ok(()) => crate::metering::record_tts_characters(app, reply.chars().count() as u64),
-                Err(e) => eprintln!("[rehearsal] tts failed: {e}"),
+                Err(e) => {
+                    eprintln!("[rehearsal] tts failed: {e}");
+                    emit_phase(
+                        app,
+                        RehearsalStateEvent::SpeechFailed {
+                            error: e.to_string(),
+                        },
+                    );
+                }
             }
         }
     }

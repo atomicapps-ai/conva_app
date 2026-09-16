@@ -71,6 +71,10 @@ export type RehearsalStateEvent =
   | { phase: "listening" }
   | { phase: "thinking" }
   | { phase: "speaking" }
+  /** The reply was generated (and shown as text) but Aura TTS failed to
+   *  speak it — a transient notice, always immediately followed by
+   *  "listening". Surface it, don't drop it silently. */
+  | { phase: "speech_failed"; error: string }
   | { phase: "ended" };
 
 export interface AllyChunkEvent {

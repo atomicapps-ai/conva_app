@@ -26,6 +26,7 @@ import {
   type ContextSummary,
   type ConversationContext,
 } from "@/lib/ipc";
+import { useGroundingStore } from "@/state/grounding";
 import { useNavStore } from "@/state/nav";
 import { useRehearsalStore } from "@/state/rehearsal";
 
@@ -155,6 +156,11 @@ export function CoachingSetupView({
     setError(null);
     try {
       const { voice_enabled } = await backend.context.startRehearsal(chosenId);
+      // The rehearsal is grounded on `chosenId` backend-side (Rust activates
+      // its terms/snapshot), but the Live cockpit reads attachment from this
+      // UI-side mirror — without setting it, the coaching setup's own
+      // context doesn't appear as attached when the cockpit opens.
+      useGroundingStore.getState().setActive(chosenId, summary?.title ?? full?.title ?? "Context");
       beginRehearsal(
         full?.personas.find((p) => p.id === full.chosen_persona_id)?.title ?? "Counterparty",
         voice_enabled,

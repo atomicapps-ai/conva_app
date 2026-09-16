@@ -32,6 +32,8 @@ export function RehearsalBar() {
   const phase = useRehearsalStore((s) => s.phase);
   const voiceEnabled = useRehearsalStore((s) => s.voiceEnabled);
   const end = useRehearsalStore((s) => s.end);
+  const speechError = useRehearsalStore((s) => s.speechError);
+  const dismissSpeechError = useRehearsalStore((s) => s.dismissSpeechError);
 
   const cards = useAllyStore((s) => s.cards);
   const busy = useAllyStore((s) => s.busy);
@@ -61,7 +63,23 @@ export function RehearsalBar() {
   };
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-3 z-40 flex justify-center px-3">
+    <div className="pointer-events-none fixed inset-x-0 bottom-3 z-40 flex flex-col items-center gap-2 px-3">
+      {speechError && (
+        <div className="glass-raised pointer-events-auto flex max-w-full items-center gap-2 rounded-full border border-rec/40 px-3 py-1 text-[11px] text-rec shadow-[var(--shadow-lg)]">
+          <Icon name="close" size={12} />
+          <span className="truncate" title={speechError}>
+            {persona} replied, but couldn't be spoken aloud: {speechError}
+          </span>
+          <button
+            type="button"
+            onClick={dismissSpeechError}
+            title="Dismiss"
+            className="ml-1 shrink-0 text-rec/70 hover:text-rec"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="glass-raised pointer-events-auto flex max-w-full items-center gap-3 rounded-full border border-border-strong px-3 py-1.5 shadow-[var(--shadow-lg)]">
         {/* Phase indicator */}
         <span className="flex items-center gap-2 pl-1 text-[12px] font-semibold">
