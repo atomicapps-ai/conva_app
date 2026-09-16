@@ -47,7 +47,7 @@ function full(over: Partial<ConversationContext> = {}): ConversationContext {
     auto_generate_context: false,
     knowledge_profile_id: null,
     personas: [
-      { id: "p1", title: "Hiring Manager", summary: "", style_tags: [], recommended: true },
+      { id: "p1", title: "Hiring Manager", summary: "", style_tags: [], recommended: true, favorite: false },
     ],
     chosen_persona_id: "p1",
     conversation_id: null,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { TranscriptSegment } from "@/lib/ipc";
-import { groupTurns, segmentKey } from "@/lib/turns";
+import { groupTurns, hasTranscribedContent, segmentKey } from "@/lib/turns";
 
 function seg(
   over: Partial<TranscriptSegment> & { side: TranscriptSegment["side"]; seq: number },
@@ -83,5 +83,28 @@ describe("groupTurns — speaker-aware boundaries (doc §15 Phase B: side + voic
   it("every turn carries a speakerId, defaulting to the side when unresolved", () => {
     const turns = groupTurns([seg({ side: "outbound", seq: 1 })]);
     expect(turns[0]?.speakerId).toBe("outbound");
+  });
+});
+
+describe("hasTranscribedContent", () => {
+  it("is false with nothing archived and nothing finalized live", () => {
+    expect(hasTranscribedContent([], [])).toBe(false);
+    expect(hasTranscribedContent([], [seg({ side: "outbound", seq: 1, is_final: false })])).toBe(
+      false,
+    );
+  });
+
+  it("is false when the only final segment is blank", () => {
+    expect(
+      hasTranscribedContent([], [seg({ side: "outbound", seq: 1, text: "   " })]),
+    ).toBe(false);
+  });
+
+  it("is true with any prior archived run, regardless of the live segments", () => {
+    expect(hasTranscribedContent([seg({ side: "outbound", seq: 1 })], [])).toBe(true);
+  });
+
+  it("is true with a finalized, non-blank live segment", () => {
+    expect(hasTranscribedContent([], [seg({ side: "outbound", seq: 1 })])).toBe(true);
   });
 });

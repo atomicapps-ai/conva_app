@@ -14,6 +14,7 @@ import {
   type SuggestionSection,
 } from "@/components/contexts/suggestionReview";
 import { GenerationProgressBar } from "@/components/context/ResourceGenerationStatus";
+import { PERSONA_ROLE_LABEL } from "@/components/coaching/coachingModel";
 import { useGenerationProgress } from "@/components/context/useGenerationProgress";
 import {
   EmptyState,
@@ -445,6 +446,7 @@ function Overview({
   const vocabulary = full?.glossary ?? [];
   const keyTerms = full?.key_terms ?? [];
   const persona = full?.personas.find((p) => p.id === full.chosen_persona_id) ?? null;
+  const roleLabel = PERSONA_ROLE_LABEL[summary.category];
 
   return (
     <>
@@ -527,7 +529,7 @@ function Overview({
       )}
 
       <div>
-        <Eyebrow className="mb-2.5">Counterparty</Eyebrow>
+        <Eyebrow className="mb-2.5">{roleLabel}</Eyebrow>
         {persona ? (
           <div className="flex flex-wrap items-center gap-3 rounded-[var(--radius)] border border-border bg-panel p-3.5">
             <Icon
@@ -545,9 +547,13 @@ function Overview({
           </div>
         ) : (
           <EmptyState
-            title="No counterparty chosen"
-            description="Ally builds three counterparty options from this context's material, then plays the one you pick during a coaching session."
-            action={<PrimaryButton onClick={onOpenDetail}>Choose a counterparty</PrimaryButton>}
+            title={`No ${roleLabel.toLowerCase()} chosen`}
+            description={`Ally builds three ${roleLabel.toLowerCase()} options from this context's material, then plays the one you pick during a coaching session.`}
+            action={
+              <PrimaryButton onClick={onOpenDetail}>
+                Choose {/^[aeiou]/i.test(roleLabel) ? "an" : "a"} {roleLabel.toLowerCase()}
+              </PrimaryButton>
+            }
           />
         )}
       </div>

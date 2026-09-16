@@ -104,6 +104,18 @@ export const CATEGORY_LABEL: Record<ContextCategory, string> = {
   other: "General / custom",
 };
 
+/** What to call the AI counterparty persona in THIS category's own words
+ *  (owner, 2026-09-15 — "Counterparty" reads generic; each context type has
+ *  a real name for who's on the other side). "Counterparty" survives only as
+ *  the fallback for `other`, where no single role fits. */
+export const PERSONA_ROLE_LABEL: Record<ContextCategory, string> = {
+  interview: "Interviewer",
+  company_meeting: "Executive",
+  sales_call: "Prospect",
+  live_stream: "Guest",
+  other: "Counterparty",
+};
+
 export type SetupState = "prepared" | "draft";
 
 export interface CoachingSetup {

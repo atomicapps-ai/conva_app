@@ -13,6 +13,7 @@ import {
 } from "@/components/partner/partnerTabs";
 import { Icon } from "@/components/ui/Icon";
 import { MarkdownDocument } from "@/components/ui/MarkdownDocument";
+import { AnswerBody } from "@/lib/allyMarkdown";
 import { useBackend } from "@/lib/backend";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAllyStore } from "@/state/ally";
@@ -35,6 +36,11 @@ export function PartnerWindow() {
   const backend = useBackend();
   const [tabs, setTabs] = useState<PartnerTab[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  // Raw/formatted toggle (owner report, 2026-09-15: "still in markup format,
+  // offer raw and formatted in all cases"). One toggle for the visible tab's
+  // answer, same as the Focus canvas — a viewing preference, not per-tab
+  // configuration.
+  const [rawAnswer, setRawAnswer] = useState(false);
   const cards = useAllyStore((s) => s.cards);
   const busy = useAllyStore((s) => s.busy);
   const claimSnapshot = useAllyStore((s) => s.claimSnapshot);
@@ -437,14 +443,36 @@ export function PartnerWindow() {
             )}
 
             <div className="rounded-[var(--radius)] border border-border bg-bg-2 p-3">
-              <h4 className="mb-1.5 font-mono text-[0.72em] font-bold tracking-[0.14em] text-fg-muted">
-                {answerHeading}
-              </h4>
+              <div className="mb-1.5 flex items-center gap-2">
+                <h4 className="font-mono text-[0.72em] font-bold tracking-[0.14em] text-fg-muted">
+                  {answerHeading}
+                </h4>
+                {!answerError && answerText && (
+                  <button
+                    type="button"
+                    onClick={() => setRawAnswer((r) => !r)}
+                    title={rawAnswer ? "Show formatted" : "Show raw markdown"}
+                    className="ml-auto rounded border border-border px-1.5 py-0.5 font-mono text-[0.62em] uppercase tracking-wide text-fg-faint transition hover:text-fg"
+                  >
+                    {rawAnswer ? "Raw" : "Formatted"}
+                  </button>
+                )}
+              </div>
               {answerError ? (
                 <p className="text-[0.9em] text-rec">{answerError}</p>
+              ) : answerText ? (
+                rawAnswer ? (
+                  <pre className="whitespace-pre-wrap break-words font-mono text-[0.85em] text-fg-muted">
+                    {answerText}
+                  </pre>
+                ) : (
+                  <div className="text-[0.9em] leading-relaxed text-fg-muted">
+                    <AnswerBody text={answerText} />
+                  </div>
+                )
               ) : (
-                <p className="whitespace-pre-line text-[0.9em] leading-relaxed text-fg-muted">
-                  {answerText || (busy ? "Researching…" : "…")}
+                <p className="text-[0.9em] leading-relaxed text-fg-muted">
+                  {busy ? "Researching…" : "…"}
                 </p>
               )}
             </div>

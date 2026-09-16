@@ -21,6 +21,7 @@ import type {
 } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { fanerPrompt } from "@/lib/faner";
+import { AnswerBody } from "@/lib/allyMarkdown";
 import { useAppStore } from "@/state/app";
 import {
   groupSourcesByFile,
@@ -139,67 +140,6 @@ function Bars({
 
 function researchPrompt(text: string): string {
   return `On a live call — give me what I need to respond in seconds to: "${text}". Lead with the key facts/answer as short bold-highlighted bullets; put any deeper background below a --- line.`;
-}
-
-/** Inline **bold** → <strong>; everything else passes through. Keeps Ally's
- *  call-ready answers scannable without a full markdown dependency. */
-function inlineMd(text: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  const re = /\*\*(.+?)\*\*/g;
-  let last = 0;
-  let k = 0;
-  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(
-      <strong key={`b${k++}`} className="font-semibold text-fg">
-        {m[1]}
-      </strong>,
-    );
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}
-
-/** Minimal markdown for Ally answers: bullet lists, ### headings, **bold**,
- *  paragraphs — enough for fast, scannable, call-ready output. */
-function AnswerBody({ text }: { text: string }) {
-  const blocks: ReactNode[] = [];
-  let bullets: string[] = [];
-  let key = 0;
-  const flushBullets = () => {
-    if (bullets.length === 0) return;
-    const items = bullets;
-    bullets = [];
-    blocks.push(
-      <ul key={`u${key++}`} className="ml-4 list-disc space-y-1">
-        {items.map((b, i) => (
-          <li key={i}>{inlineMd(b)}</li>
-        ))}
-      </ul>,
-    );
-  };
-  for (const raw of text.split("\n")) {
-    const line = raw.trimEnd();
-    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
-    const heading = line.match(/^#{1,4}\s+(.*)$/);
-    if (bullet) {
-      bullets.push(bullet[1] ?? "");
-      continue;
-    }
-    flushBullets();
-    if (heading) {
-      blocks.push(
-        <p key={`h${key++}`} className="font-bold text-fg">
-          {inlineMd(heading[1] ?? "")}
-        </p>,
-      );
-    } else if (line.trim() !== "") {
-      blocks.push(<p key={`p${key++}`}>{inlineMd(line)}</p>);
-    }
-  }
-  flushBullets();
-  return <div className="flex flex-col gap-1.5">{blocks}</div>;
 }
 
 /** Split an Ally answer into the at-a-glance part and the optional context that
@@ -833,7 +773,13 @@ function Bubble({
           // Contour (V4.0 §10): squared at the speaker's corner, rounded
           // away elsewhere — them bottom-left, you bottom-right. Width,
           // padding, and every other bubble dimension are unchanged.
-          "relative min-w-0 rounded-tl-[var(--radius-bubble)] rounded-tr-[var(--radius-bubble)] border border-border py-1.5 pl-2.5 pr-2 selection:bg-primary/30 selection:text-fg transition-shadow",
+          // `break-words` (owner report, 2026-09-15): a long unbroken run —
+          // a run-on ASR segment with no space, a URL, a serial number — has
+          // no whitespace to wrap at under the default `overflow-wrap:
+          // normal`, so it overflowed the bubble horizontally instead of
+          // wrapping. `min-w-0` alone only lets the flex child shrink; it
+          // doesn't break a word that has nowhere else to go.
+          "relative min-w-0 break-words rounded-tl-[var(--radius-bubble)] rounded-tr-[var(--radius-bubble)] border border-border py-1.5 pl-2.5 pr-2 selection:bg-primary/30 selection:text-fg transition-shadow",
           inbound
             ? "rounded-br-[var(--radius-bubble)] rounded-bl-[4px]"
             : "rounded-bl-[var(--radius-bubble)] rounded-br-[4px]",
@@ -1180,6 +1126,10 @@ function AllyAnswerCard({
     .map((g) => `${g.file} — ${g.locations.join(", ")}`)
     .join("\n");
   const [summaryOpen, setSummaryOpen] = useState(true);
+  // Raw/formatted toggle (owner report, 2026-09-15: "still in markup format,
+  // offer raw and formatted"). Per-card — unlike the Focus canvas above,
+  // each Answers-archive card is its own independent thing to read.
+  const [raw, setRaw] = useState(false);
   const rephrase = () =>
     onRequest(
       "question",
@@ -1250,6 +1200,19 @@ function AllyAnswerCard({
             {card.text}
           </span>
         )}
+        {!collapsed && !card.error && card.text && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setRaw((r) => !r);
+            }}
+            title={raw ? "Show formatted" : "Show raw markdown"}
+            className="ml-auto shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-fg-faint transition hover:text-fg"
+          >
+            {raw ? "Raw" : "Formatted"}
+          </button>
+        )}
         <button
           type="button"
           onClick={(e) => {
@@ -1258,7 +1221,7 @@ function AllyAnswerCard({
           }}
           title="Open in viewer"
           aria-label={`Open A${card.seq} in the viewer`}
-          className="ml-auto shrink-0 rounded p-0.5 text-fg-faint transition-colors hover:text-ai"
+          className={`${collapsed || card.error || !card.text ? "ml-auto" : ""} shrink-0 rounded p-0.5 text-fg-faint transition-colors hover:text-ai`}
         >
           <Icon name="expand" size={13} />
         </button>
@@ -1288,21 +1251,32 @@ function AllyAnswerCard({
                   className={`ml-auto text-fg-faint transition-transform ${summaryOpen ? "rotate-90" : ""}`}
                 />
               </button>
-              {summaryOpen && (
-                <p className="whitespace-pre-line px-2 pb-1.5 text-[0.92em] leading-relaxed text-fg">
-                  {card.summary || "Summarizing…"}
-                </p>
-              )}
+              {summaryOpen &&
+                (card.summary ? (
+                  <div className="px-2 pb-1.5 text-[0.92em] leading-relaxed text-fg">
+                    <AnswerBody text={card.summary} />
+                  </div>
+                ) : (
+                  <p className="px-2 pb-1.5 text-[0.92em] leading-relaxed text-fg">
+                    Summarizing…
+                  </p>
+                ))}
             </div>
           )}
 
           {card.error ? (
             <p className="text-[13px] text-rec">{card.error}</p>
           ) : card.text ? (
-            <>
-              <AnswerBody text={sayText} />
-              <ReasoningBlock text={context} />
-            </>
+            raw ? (
+              <pre className="whitespace-pre-wrap break-words font-mono text-[0.85em]">
+                {card.text}
+              </pre>
+            ) : (
+              <>
+                <AnswerBody text={sayText} />
+                <ReasoningBlock text={context} />
+              </>
+            )
           ) : (
             <p className="text-[13px] text-fg-muted">…</p>
           )}
@@ -2376,15 +2350,33 @@ export function TranscriptView({
     [answerCards, viewEntries],
   );
 
+  // Auto-select a freshly-created item so it's what the user sees — not just
+  // for asks made through this component's own `requestVisible` (which
+  // pre-sets the id before the card exists), but for ANY new Ally card,
+  // including RehearsalBar's "Suggest my answer" (a sibling component with
+  // no access to this local state). Before this, only the FIRST suggestion
+  // of a rehearsal ever became visible — every one after landed as a
+  // background tab because `focusItemId` still pointed at a still-valid
+  // earlier item (owner report, 2026-09-15).
+  const prevFocusIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    const currentIds = new Set(focusItems.map((item) => item.id));
+    const newlyAdded = focusItems.find((item) => !prevFocusIdsRef.current.has(item.id));
+    prevFocusIdsRef.current = currentIds;
+
     if (focusItems.length === 0) {
       setFocusItemId(null);
+      return;
+    }
+    if (newlyAdded) {
+      setFocusItemId(newlyAdded.id);
+      ensureAllyVisible();
       return;
     }
     if (!focusItems.some((item) => item.id === focusItemId)) {
       setFocusItemId(focusItems[0]!.id);
     }
-  }, [focusItemId, focusItems]);
+  }, [focusItemId, focusItems, ensureAllyVisible]);
 
   const termPeekModel = useMemo<TermPeekModel | null>(() => {
     if (!termPeek) return null;

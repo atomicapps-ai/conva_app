@@ -57,6 +57,15 @@ export type SessionStateEvent =
   | { state: "paused"; session_id: string }
   | { state: "error"; message: string };
 
+/** Result of starting a live Context rehearsal. `voice_enabled` is false when
+ *  no Deepgram key is configured (Aura TTS reuses it) — the rehearsal still
+ *  runs, but text-only, so the UI should flag that instead of leaving the
+ *  user wondering why the persona never speaks. */
+export interface StartRehearsalResult {
+  session_id: string;
+  voice_enabled: boolean;
+}
+
 /** Live Context rehearsal phase — drives the speaking/active-speaker UI. */
 export type RehearsalStateEvent =
   | { phase: "listening" }
@@ -605,6 +614,11 @@ export interface ContextPersona {
   style_tags: string[];
   recommended: boolean;
   gender?: PersonaGender | null;
+  /** User-marked favorite (owner, 2026-09-15) — survives "Generate personas"
+   *  for this same context instead of being discarded with the rest. Scoped
+   *  to one context for now; reuse across different contexts is a separate,
+   *  larger feature. */
+  favorite: boolean;
 }
 
 /** A web-research source folded into a knowledge profile. */

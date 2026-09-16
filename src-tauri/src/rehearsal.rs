@@ -88,7 +88,7 @@ fn run(
 
     // The counterparty opens the conversation so the user isn't met with
     // silence (an interviewer greets first, etc.).
-    respond(&app, &rag, &ctx, &mut transcript, &mut inbound_seq);
+    respond(&app, &rag, &ctx, &mut transcript, &mut inbound_seq, &stop);
 
     while !stop.load(Ordering::Relaxed) {
         emit_phase(&app, RehearsalStateEvent::Listening);
@@ -99,7 +99,7 @@ fn run(
             continue;
         }
         transcript.extend(turn);
-        respond(&app, &rag, &ctx, &mut transcript, &mut inbound_seq);
+        respond(&app, &rag, &ctx, &mut transcript, &mut inbound_seq, &stop);
         // Drop anything captured while the AI was speaking (echo guard).
         while rx.try_recv().is_ok() {}
     }
@@ -148,12 +148,16 @@ fn gather_turn(
 }
 
 /// Generate + stream + speak one persona turn, appending it to `transcript`.
+/// `stop` doubles as the TTS cancel flag — the same signal End sets, so a
+/// stop that lands mid-reply cuts the persona's speech short instead of
+/// waiting for the current line to finish (owner report, 2026-09-15).
 fn respond(
     app: &AppHandle,
     rag: &RagStore,
     ctx: &RehearsalContext,
     transcript: &mut Vec<TranscriptSegment>,
     inbound_seq: &mut u64,
+    stop: &Arc<AtomicBool>,
 ) {
     // Ground on the user's latest turn (fall back to the Context's purpose so
     // the opening line still has context).
@@ -288,11 +292,14 @@ fn respond(
         .forward_to_semantic(&final_seg);
     transcript.push(final_seg);
 
-    // Speak it (best-effort; text still shows if TTS is unavailable).
+    // Speak it (best-effort; text still shows if TTS is unavailable). Skip
+    // starting playback at all if a stop already landed while the LLM was
+    // generating — `speak` also re-checks `stop` throughout so a stop that
+    // lands mid-speech cuts it short.
     if let Some(tts_key) = &ctx.tts_key {
-        if !reply.trim().is_empty() {
+        if !reply.trim().is_empty() && !stop.load(Ordering::Relaxed) {
             emit_phase(app, RehearsalStateEvent::Speaking);
-            match crate::tts::speak(tts_key, &reply) {
+            match crate::tts::speak(tts_key, &reply, stop) {
                 Ok(()) => crate::metering::record_tts_characters(app, reply.chars().count() as u64),
                 Err(e) => {
                     eprintln!("[rehearsal] tts failed: {e}");

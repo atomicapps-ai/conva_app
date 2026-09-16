@@ -47,6 +47,7 @@ import type {
   RagDocument,
   SecretsStatus,
   SessionSummary,
+  StartRehearsalResult,
   TranscriptSegment,
   UsageSummary,
   WhisperModelInfo,
@@ -141,6 +142,10 @@ export interface ConvaBackend {
     /** Resolves to the session id. */
     start(): Promise<string>;
     stop(): Promise<void>;
+    /** Mic/loopback devices stay open; nothing is transcribed or recorded
+     *  while paused, so resume is instant. No-op if no session is active. */
+    pause(): Promise<void>;
+    resume(): Promise<void>;
   };
 
   /**
@@ -297,8 +302,17 @@ export interface ConvaBackend {
     generatePersonas(id: string): Promise<ConversationContext>;
     /** Record the persona the user will rehearse against. */
     choosePersona(id: string, personaId: string): Promise<ConversationContext>;
-    /** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
-    startRehearsal(id: string): Promise<string>;
+    /** Mark/unmark a persona as a favorite — scoped to this context for now,
+     *  so it survives a "Generate personas" regenerate instead of being
+     *  discarded with the rest. */
+    toggleFavoritePersona(
+      id: string,
+      personaId: string,
+      favorite: boolean,
+    ): Promise<ConversationContext>;
+    /** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns the
+     *  session id plus whether a TTS key is configured (`voice_enabled`). */
+    startRehearsal(id: string): Promise<StartRehearsalResult>;
     /** End the user's current rehearsal turn now (manual "your turn"). */
     rehearsalYourTurn(): Promise<void>;
     /** Inject a typed turn (e.g. an Ally-suggested answer) as the user's turn. */
