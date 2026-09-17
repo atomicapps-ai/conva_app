@@ -392,8 +392,9 @@ export function DashboardView() {
   );
 }
 
-/** Current Windows installers (roadmap 1.7 formalizes distribution). */
-const DOWNLOAD_URL = "https://github.com/atomicapps-ai/conva_app/releases";
+/** Public releases repo — `conva_app` itself stays private (see CLAUDE.md's
+ *  Releases section), so installers are always published there. */
+const DOWNLOAD_URL = "https://github.com/atomicapps-ai/conva_releases/releases/latest";
 
 /** A Layer-4 capability this surface doesn't have — shown honestly, not
  *  hidden (web only; see the conva-Lite framing in CONVA_ARCHITECTURE.md). */

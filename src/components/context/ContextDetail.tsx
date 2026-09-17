@@ -16,6 +16,7 @@ import {
   type GenerationStage,
 } from "@/components/context/generationStatus";
 import { useGenerationProgress } from "@/components/context/useGenerationProgress";
+import { PERSONA_ROLE_LABEL } from "@/components/coaching/coachingModel";
 import { CATEGORY_ICON } from "@/components/contexts/ContextsPane";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon } from "@/components/ui/Icon";
@@ -285,12 +286,23 @@ export function ContextDetail({
     }
   };
 
+  const toggleFavorite = async (pid: string, favorite: boolean) => {
+    try {
+      setSession(await backend.context.toggleFavoritePersona(id, pid, favorite));
+    } catch {
+      /* best-effort */
+    }
+  };
+
   const personas = session?.personas ?? [];
   const chosen = session?.chosen_persona_id ?? null;
   const chosenPersona = personas.find((p) => p.id === chosen) ?? null;
   const claimPolicy = session
     ? normalizeSourcePolicy(session.category, session.source_policy)
     : null;
+  // What to call the AI side in this context's own words — "Interviewer" for
+  // an interview, "Prospect" for a sales call, etc. (owner, 2026-09-15).
+  const roleLabel = session ? PERSONA_ROLE_LABEL[session.category] : "Counterparty";
 
   // Which card's bio/details show below the scroll row (owner, 2026-08-30:
   // "select a card and put the bio and details below") — distinct from
@@ -323,13 +335,13 @@ export function ContextDetail({
     setStarting(true);
     setRehearsalError(null);
     try {
-      await backend.context.startRehearsal(id);
+      const { voice_enabled } = await backend.context.startRehearsal(id);
       // The rehearsal is grounded on `id` backend-side (Rust activates its
       // terms/snapshot), but the Live cockpit reads attachment from this
       // UI-side mirror — without setting it, this context doesn't appear
       // as attached when the cockpit opens.
       useGroundingStore.getState().setActive(id, session?.title ?? "Context");
-      beginRehearsal(chosenPersona?.title ?? "Counterparty");
+      beginRehearsal(chosenPersona?.title ?? roleLabel, voice_enabled);
       setView("live");
     } catch (e) {
       setRehearsalError(String(e).replace(/^Error:\s*/, ""));
@@ -372,13 +384,13 @@ export function ContextDetail({
         id="counterparty"
         open={openSection === "counterparty"}
         onToggle={(id) => setOpenSection((cur) => toggleDetailSection(cur, id))}
-        title="Counterparty"
+        title={roleLabel}
         summary={
           personas.length === 0
             ? "No personas generated yet"
             : chosenPersona
               ? `${personas.length} persona${personas.length === 1 ? "" : "s"} — ${chosenPersona.title} chosen`
-              : `${personas.length} persona${personas.length === 1 ? "" : "s"} — none chosen`
+              : `${personas.length} persona${personas.length === 1 ? "" : "s"} — required, none chosen`
         }
       >
         {personas.length === 0 ? (
@@ -400,10 +412,37 @@ export function ContextDetail({
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            {/* Horizontally-scrolling avatar cards (owner, 2026-08-30) — a
-                card selects itself into the bio panel below on click; the
-                star is the separate "choose this one for rehearsal"
-                control, so browsing other cards never changes `chosen`. */}
+            {/* The instruction, stated plainly instead of left implicit —
+                this step is REQUIRED to start rehearsal (owner, 2026-09-15).
+                Click a card to read its bio; check it to select it. */}
+            <p className="flex items-center gap-1.5 text-[12px] font-semibold text-fg">
+              {chosen ? (
+                <>
+                  <Icon name="check" size={13} className="text-ok" />
+                  <span className="text-fg-muted">
+                    {chosenPersona?.title} selected — click a card to read another bio.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="rounded-sm bg-rec/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rec">
+                    Required
+                  </span>
+                  <span>
+                    Check one {roleLabel.toLowerCase()} below to enable Start rehearsal.
+                  </span>
+                </>
+              )}
+            </p>
+
+            {/* Horizontally-scrolling avatar cards. Clicking a card shows its
+                bio below (view only); the checkbox is what actually selects
+                a persona for rehearsal — a plain click never silently
+                changes what Start runs against. The star favorites a
+                persona so it survives "Generate personas" for this same
+                context (owner, 2026-09-15) instead of being discarded with
+                the rest; reuse across DIFFERENT contexts is a separate,
+                larger feature, not this. */}
             <ul className="flex gap-2 overflow-x-auto pb-1">
               {personas.map((p) => {
                 const isChosen = chosen === p.id;
@@ -420,36 +459,55 @@ export function ContextDetail({
                       role="button"
                       tabIndex={0}
                       onClick={() => setViewedPersonaId(p.id)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault();
+                        setViewedPersonaId(p.id);
+                      }}
                       aria-pressed={isViewed}
-                      aria-label={`View ${p.title}`}
+                      aria-label={`View ${p.title}'s bio`}
                       className={`relative flex w-28 flex-col items-center gap-1.5 rounded border p-2.5 text-center transition ${
-                        isViewed
-                          ? "border-primary/60 bg-primary/[0.08]"
-                          : "border-border hover:border-border/80 hover:bg-panel-raised/40"
+                        isChosen
+                          ? "border-primary bg-primary/[0.08]"
+                          : isViewed
+                            ? "border-primary/60 bg-primary/[0.08]"
+                            : "border-border hover:border-border/80 hover:bg-panel-raised/40"
                       }`}
                     >
+                      <input
+                        type="checkbox"
+                        checked={isChosen}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          void choose(p.id);
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        title={isChosen ? `${p.title} is selected for rehearsal` : `Select ${p.title} for rehearsal`}
+                        aria-label={
+                          isChosen
+                            ? `${p.title} is selected for rehearsal`
+                            : `Select ${p.title} for rehearsal`
+                        }
+                        className="absolute left-1.5 top-1.5 h-3.5 w-3.5 accent-primary"
+                      />
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          void choose(p.id);
+                          void toggleFavorite(p.id, !p.favorite);
                         }}
-                        title={isChosen ? "Chosen for rehearsal" : "Choose for rehearsal"}
-                        aria-label={
-                          isChosen
-                            ? `${p.title} is chosen for rehearsal`
-                            : `Choose ${p.title} for rehearsal`
-                        }
+                        title={p.favorite ? "Favorited — reuse on next Generate" : "Favorite this persona"}
+                        aria-label={p.favorite ? `${p.title} is favorited` : `Favorite ${p.title}`}
                         className={`absolute right-1 top-1 rounded-sm p-0.5 transition hover:bg-white/[0.06] ${
-                          isChosen ? "text-ai" : "text-fg-faint"
+                          p.favorite ? "text-ai" : "text-fg-faint"
                         }`}
                       >
-                        <Icon name={isChosen ? "starFilled" : "star"} size={13} />
+                        <Icon name={p.favorite ? "starFilled" : "star"} size={13} />
                       </button>
                       <Icon
                         name={avatarIcon}
                         size={30}
-                        className={isViewed ? "text-primary" : "text-fg-faint"}
+                        className={`mt-1.5 ${isViewed || isChosen ? "text-primary" : "text-fg-faint"}`}
                       />
                       <span className="line-clamp-2 text-[11px] font-semibold leading-tight text-fg">
                         {p.title}
@@ -888,7 +946,7 @@ export function ContextDetail({
         open={openSection === "rehearse"}
         onToggle={(id) => setOpenSection((cur) => toggleDetailSection(cur, id))}
         title="Rehearse"
-        summary={chosen ? "Ready to start" : "Choose a persona first"}
+        summary={chosen ? "Ready to start" : `${roleLabel} required`}
       >
         <div className="flex flex-col gap-2">
           <button
@@ -896,13 +954,21 @@ export function ContextDetail({
             className="btn btn-primary self-start"
             disabled={!chosen || starting}
             onClick={() => void startRehearsal()}
+            title={chosen ? undefined : `Select ${roleLabel.toLowerCase()} first`}
           >
             {starting ? "Starting…" : "Start rehearsal"}
           </button>
           {!chosen && (
-            <p className="text-[11px] text-fg-faint">
-              Choose a persona above to rehearse against.
-            </p>
+            // An actionable instruction, not a passive hint buried in a
+            // collapsed section (owner, 2026-09-15) — jumps straight to the
+            // required step instead of just naming it.
+            <button
+              type="button"
+              onClick={() => setOpenSection("counterparty")}
+              className="self-start text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
+            >
+              Select {roleLabel.toLowerCase()} above to enable this →
+            </button>
           )}
           {rehearsalError && (
             <p className="text-[12px] text-rec" role="alert">

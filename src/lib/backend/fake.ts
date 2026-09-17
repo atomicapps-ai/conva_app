@@ -222,6 +222,18 @@ export class FakeBackend implements ConvaBackend {
       this.publishCapture();
       this.emit("sessionState", { state: "idle" });
     },
+    pause: async (): Promise<void> => {
+      if (!this.liveSession) return;
+      this.emit("sessionState", { state: "paused", session_id: this.liveSession });
+    },
+    resume: async (): Promise<void> => {
+      if (!this.liveSession) return;
+      this.emit("sessionState", {
+        state: "listening",
+        session_id: this.liveSession,
+        started_at_unix_ms: this.now(),
+      });
+    },
   };
 
   /** The session id `session.start()` last returned, or null after stop. */
@@ -425,6 +437,7 @@ export class FakeBackend implements ConvaBackend {
     generateDossier: nc("context.generateDossier"),
     generatePersonas: nc("context.generatePersonas"),
     choosePersona: nc("context.choosePersona"),
+    toggleFavoritePersona: nc("context.toggleFavoritePersona"),
     startRehearsal: nc("context.startRehearsal"),
     rehearsalYourTurn: nc("context.rehearsalYourTurn"),
     rehearsalSay: nc("context.rehearsalSay"),

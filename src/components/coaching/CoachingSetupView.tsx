@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   CATEGORY_LABEL,
+  PERSONA_ROLE_LABEL,
   missingForSetup,
   type PracticeTemplate,
 } from "@/components/coaching/coachingModel";
@@ -154,7 +155,7 @@ export function CoachingSetupView({
     setBusy("start");
     setError(null);
     try {
-      await backend.context.startRehearsal(chosenId);
+      const { voice_enabled } = await backend.context.startRehearsal(chosenId);
       // The rehearsal is grounded on `chosenId` backend-side (Rust activates
       // its terms/snapshot), but the Live cockpit reads attachment from this
       // UI-side mirror — without setting it, the coaching setup's own
@@ -162,6 +163,7 @@ export function CoachingSetupView({
       useGroundingStore.getState().setActive(chosenId, summary?.title ?? full?.title ?? "Context");
       beginRehearsal(
         full?.personas.find((p) => p.id === full.chosen_persona_id)?.title ?? "Counterparty",
+        voice_enabled,
       );
       setView("live");
     } catch (e) {
@@ -321,14 +323,14 @@ export function CoachingSetupView({
               <span className="font-semibold text-fg">
                 {summary ? CATEGORY_LABEL[summary.category] : "—"}
               </span>
-              . Pick the counterparty Ally should play.
+              . Pick the {summary ? PERSONA_ROLE_LABEL[summary.category].toLowerCase() : "counterparty"} Ally should play.
             </p>
             {!full ? (
               <Skeleton rows={3} />
             ) : full.personas.length === 0 ? (
               <EmptyState
                 title="No personas generated yet"
-                description="Ally builds three counterparty options from this Context's material."
+                description={`Ally builds three ${summary ? PERSONA_ROLE_LABEL[summary.category].toLowerCase() : "counterparty"} options from this Context's material.`}
                 action={
                   <PrimaryButton onClick={() => void generatePersonas()} disabled={busy !== null}>
                     {busy === "personas" && (

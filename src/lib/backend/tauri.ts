@@ -142,6 +142,8 @@ export class TauriBackend implements ConvaBackend {
   session = {
     start: cmd.startSession,
     stop: cmd.stopSession,
+    pause: cmd.pauseSession,
+    resume: cmd.resumeSession,
   };
 
   /** Desktop starts mic + system audio together on `session.start()`; there is
@@ -251,6 +253,7 @@ export class TauriBackend implements ConvaBackend {
     generateDossier: cmd.contextGenerateDossier,
     generatePersonas: cmd.contextGeneratePersonas,
     choosePersona: cmd.contextChoosePersona,
+    toggleFavoritePersona: cmd.contextToggleFavoritePersona,
     startRehearsal: cmd.contextStartRehearsal,
     rehearsalYourTurn: cmd.contextRehearsalYourTurn,
     rehearsalSay: cmd.contextRehearsalSay,
