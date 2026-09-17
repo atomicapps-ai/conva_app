@@ -29,6 +29,7 @@ mod secrets;
 mod semantic;
 mod session;
 mod splash;
+mod telemetry_events;
 mod trace;
 mod tracker;
 mod tts;
@@ -70,6 +71,10 @@ struct AppState {
     rag: Arc<RagStore>,
     /// Usage ledger (LLM tokens + research-provider searches), mirrored to usage.json.
     usage: Mutex<UsageLedger>,
+    /// The local telemetry queue's bookkeeping (next seq, device id) — see
+    /// telemetry_events.rs. Behind its own lock so concurrent metering call
+    /// sites (LLM streams, research, TTS) never race on the sequence number.
+    telemetry: Mutex<telemetry_events::QueueState>,
     /// Terms of the active conversation context (a rehearsal's key terms +
     /// digest glossary) — the strongest highlight signal. Empty when no context
     /// is active; set on rehearsal start, cleared on stop (Phase 3c).
@@ -2322,6 +2327,56 @@ fn usage_reset(app: AppHandle) -> UsageSummary {
     metering::reset(&app)
 }
 
+/// This device's persisted telemetry id (docs/platform/15-events-implementation.md §6).
+#[tauri::command]
+async fn telemetry_device_id(app: AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || telemetry_events::device_id(&app))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Append one taxonomy event from the UI (future call sites — `ally_answer_action`,
+/// `radar_question_tapped`, etc.; the metering-derived events already flow in
+/// through the Rust call sites in metering.rs). Best-effort: a malformed or
+/// unknown event is logged and dropped, never surfaced as an error, matching
+/// the queue's own philosophy that telemetry must never break a feature.
+#[tauri::command]
+async fn telemetry_append_event(
+    app: AppHandle,
+    ev: String,
+    fields: serde_json::Value,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        telemetry_events::append(&app, &ev, fields, session_id);
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The next up-to-`limit` unflushed events, oldest first — a future flush
+/// loop's read side.
+#[tauri::command]
+async fn telemetry_read_batch(
+    app: AppHandle,
+    limit: u32,
+) -> Result<Vec<conva_core::telemetry_events::TelemetryEvent>, String> {
+    tauri::async_runtime::spawn_blocking(move || telemetry_events::read_batch(&app, limit as usize))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Mark everything through `through_seq` as durably flushed — call only
+/// after the server has confirmed the batch.
+#[tauri::command]
+async fn telemetry_advance_cursor(app: AppHandle, through_seq: u64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        telemetry_events::advance_cursor(&app, through_seq);
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Copy every library document's original into the repo `library/` folder so
 /// committing it carries the library to other machines (git-synced library).
 #[tauri::command]
@@ -2697,6 +2752,7 @@ fn ally(
                 &selection.model,
                 usage,
                 result.is_ok(),
+                t0.elapsed().as_millis() as u64,
             );
             match result {
                 Ok(()) => {
@@ -2878,6 +2934,7 @@ pub fn run() {
                                 secrets::seed_on_startup();
                                 let _ = models::ensure_silero(&handle);
                                 let usage = metering::load(&handle);
+                                let telemetry_state = telemetry_events::load_state(&handle);
 
                                 // AppState becomes visible atomically only after all
                                 // of its prerequisites have completed successfully.
@@ -2886,6 +2943,7 @@ pub fn run() {
                                     session: SessionManager::new(),
                                     rag: rag.clone(),
                                     usage: Mutex::new(usage),
+                                    telemetry: Mutex::new(telemetry_state),
                                     active_context_terms: Mutex::new(Vec::new()),
                                     active_context_doc_ids: Mutex::new(Vec::new()),
                                     active_context_snapshot: Mutex::new(None),
@@ -3038,6 +3096,10 @@ pub fn run() {
             firecrawl_key_status,
             usage_summary,
             usage_reset,
+            telemetry_device_id,
+            telemetry_append_event,
+            telemetry_read_batch,
+            telemetry_advance_cursor,
             rag_sync_library,
             open_hud,
             close_hud,
