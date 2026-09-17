@@ -40,6 +40,7 @@ pub mod research;
 pub mod screenshot;
 pub mod semantic_extraction;
 pub mod source_policy;
+pub mod telemetry_events;
 pub mod tracker;
 pub mod vad;
 pub mod verification;

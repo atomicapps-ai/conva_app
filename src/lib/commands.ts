@@ -37,6 +37,7 @@ import type {
   SessionSummary,
   SplashProgressEvent,
   StartRehearsalResult,
+  TelemetryEvent,
   TranscriptSegment,
   UsageSummary,
   WhisperModelInfo,
@@ -524,6 +525,29 @@ export function usageSummary(): Promise<UsageSummary> {
 /** Clear all usage counters; returns the emptied snapshot. */
 export function usageReset(): Promise<UsageSummary> {
   return invoke<UsageSummary>("usage_reset");
+}
+
+/** This device's persisted telemetry id (docs/platform/15-events-implementation.md §6). */
+export function telemetryDeviceId(): Promise<string> {
+  return invoke<string>("telemetry_device_id");
+}
+
+/** Append one taxonomy event to the local durable queue. Best-effort on the
+ *  shell side — a malformed/unknown event is logged and dropped there, never
+ *  rejected back to the caller. Prefer `telemetry/queue.ts`'s `appendEvent`,
+ *  which validates client-side first (see `telemetry/events.ts`). */
+export function telemetryAppendEvent(ev: string, fields: Record<string, unknown>, sessionId?: string | null): Promise<void> {
+  return invoke("telemetry_append_event", { ev, fields, sessionId: sessionId ?? null });
+}
+
+/** The next up-to-`limit` unflushed events, oldest first. */
+export function telemetryReadBatch(limit: number): Promise<TelemetryEvent[]> {
+  return invoke<TelemetryEvent[]>("telemetry_read_batch", { limit });
+}
+
+/** Mark everything through `throughSeq` as durably flushed. */
+export function telemetryAdvanceCursor(throughSeq: number): Promise<void> {
+  return invoke("telemetry_advance_cursor", { throughSeq });
 }
 
 /** Copy library originals into the repo `library/` folder for git commit. */

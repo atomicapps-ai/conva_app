@@ -833,6 +833,29 @@ export interface UsageSummary {
   updated_at_unix_ms: number;
 }
 
+/* ── Local telemetry queue (mirror of conva_core::telemetry_events) ─────────
+   docs/platform/15-events-implementation.md §6, §9. The wire shape only —
+   the taxonomy + per-event field validation this mirrors is in
+   src/lib/telemetry/events.ts, hand-kept in lockstep with
+   crates/conva-core/src/telemetry_events.rs the same way ipc.ts mirrors the
+   rest of the Rust↔TS contract. */
+
+/** One taxonomy event, exactly as stored in `<app-data>/telemetry/events.jsonl`
+ *  and as `/api/events`/`/api/live/events` expect it. Counts, timings, enums
+ *  and booleans only — no free text, no identifiers of user content. */
+export interface TelemetryEvent {
+  ev: string;
+  seq: number;
+  /** Unix ms — when the event occurred (client clock). */
+  t: number;
+  schema_v: number;
+  session_id: string | null;
+  app_version: string;
+  /** `"desktop"` | `"web"`. */
+  platform: string;
+  fields: Record<string, unknown>;
+}
+
 export interface AppConfig {
   asr_engine: "whisper_local" | "deepgram_cloud";
   whisper_model: string;
