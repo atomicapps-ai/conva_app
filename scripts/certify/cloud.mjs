@@ -24,6 +24,8 @@ export const REHEARSAL_FACT = "six weeks from purchase order";
 export const REHEARSAL_QUESTION = "What is the delivery lead time?";
 export const REHEARSAL_CONTEXT = { title: "Vendor call", purpose: "Lock the revised quote and confirm the delivery terms.", key_terms: ["lead time", "warranty"] };
 export const REHEARSAL_ANSWER = `Per the vendor brief, delivery lead time is ${REHEARSAL_FACT}, and the warranty runs twenty-four months.`;
+/** The second document (checklist step 3: a file upload, distinct from step 2's pasted text). */
+export const REHEARSAL_UPLOAD = { name: "onboarding-steps.md", text: "# Onboarding steps\n\n1. Sign the agreement.\n2. Schedule the kickoff call.\n3. Share the vendor contact list.\n" };
 
 /** Port of the Worker's deriveTitle (conversations.rs derive_title): first spoken words, else a marker. */
 export function deriveTitle(segments) {
@@ -236,7 +238,14 @@ export function createCloudStub({ now = () => Date.now(), seed = true } = {}) {
       const d = id ? documents.get(id) : null;
       if (!d || d.deleted) return finish(refuse(404, "not_found", "That document no longer exists."));
       if (method === "GET" && sub === "text") return finish(ok({ text: d.text }));
-      if (method === "GET" && sub === "original") return finish(ok({ text: d.text }));
+      // The real route streams the stored bytes back as an attachment (cp10) —
+      // not a JSON envelope. The gateway (`gateway.mjs`) special-cases this
+      // shape (`raw` present) and writes it with a Content-Disposition header,
+      // the way `downloadOriginal()` (`libraryClient.ts`) expects to read it.
+      if (method === "GET" && sub === "original") {
+        op(`${noun}.get.${sub}`, 200);
+        return { status: 200, raw: d.text, fileName: d.record.file_name };
+      }
       if (method === "PATCH" && !sub) {
         if (!body || typeof body !== "object") return finish(refuse(400, "invalid_json"));
         if (typeof body.enabled === "boolean") d.record.enabled = body.enabled;

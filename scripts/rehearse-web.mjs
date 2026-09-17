@@ -1,15 +1,19 @@
 #!/usr/bin/env node
-/* conva — first-run rehearsal (M2 checkpoint 19).
+/* conva — first-run rehearsal (M2 checkpoints 19–20).
  *
  * The owner's first end-to-end run on dev follows
  * `conva_core/docs/technical/2026-09-beta-first-run-checklist.md`. This script
  * rehearses its app-side steps in the REAL web build (dist-web/, served at
  * /app/) in a real browser before anyone sits down: the certification
  * gateway carries capture (fake microphone, fixture transcripts) and an
- * in-memory stub of the cloud slice (`scripts/certify/cloud.mjs`) carries the
- * rest — a seeded Context with one document, a streamed cited Ally answer,
- * conversations. Steps rehearsed, numbered as in the checklist:
+ * in-memory stub of the cloud slice (`scripts/certify/cloud.mjs`, unseeded —
+ * the material below is created through the real UI, the way the owner will)
+ * carries the rest. Steps rehearsed, numbered as in the checklist:
  *
+ *   2  Library → paste text → appears, ingested, no error
+ *   3  Library → upload a file → appears with its name; download returns the original
+ *   4  Contexts → create a Context, attach both documents → saved; reopening
+ *      shows the same fields and attachments
  *   5  activate the Context, Start → hosted-processing notice → microphone
  *   6  finals appear in YOUR column
  *   7  Share call audio → scope notice → chooser (only with --share)
@@ -18,9 +22,9 @@
  *   11 Save conversation → listed in History, reopens with its transcript
  *   12 delete it → gone
  *
- * Steps 1–4, 9, 13–15 need the real deployment (sign-in, uploads through the
- * Worker, /ops, the provider console) and stay the owner's. The result is one
- * content-free row (JSON + a markdown line): step verdicts, timings, counts.
+ * Steps 1, 9, 13–15 need the real deployment (sign-in, /ops, the provider
+ * console) and stay the owner's. The result is one content-free row (JSON +
+ * a markdown line): step verdicts, timings, counts.
  *
  *   npm run build:web
  *   npm run rehearse:web                      # pre-installed Chromium (Linux/CI)
@@ -29,13 +33,18 @@
  *
  * Needs `playwright-core` (devDependency; it never downloads a browser). */
 import { createRequire } from "node:module";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import os from "node:os";
 import { startGateway } from "./certify/gateway.mjs";
 import { synthWav, EXPECTED_FINALS } from "./certify/lib.mjs";
-import { REHEARSAL_CONTEXT, REHEARSAL_DOC, REHEARSAL_FACT, REHEARSAL_QUESTION, createCloudStub } from "./certify/cloud.mjs";
+import { REHEARSAL_CONTEXT, REHEARSAL_DOC, REHEARSAL_FACT, REHEARSAL_QUESTION, REHEARSAL_UPLOAD, createCloudStub } from "./certify/cloud.mjs";
 import { DEFAULT_CHROMIUM, acknowledgeNotice, attachListeners, cliOptions, launchOptions, probeEnvironment, summarizeTelemetry, waitFor } from "./certify/driver.mjs";
+
+/** The "Other documents" attach checkbox — exact, so it doesn't also match
+ *  the same file's per-slot "Attach <name> to <slot>" checkboxes (a category
+ *  with slots, e.g. "interview", shows one of those per slot in addition). */
+const attachCheckbox = (scope, name) => scope.getByRole("checkbox", { name: `Attach ${name}`, exact: true });
 
 const require = createRequire(import.meta.url);
 const { opt, flag } = cliOptions(process.argv.slice(2));
@@ -60,7 +69,10 @@ mkdirSync(outDir, { recursive: true });
 const wavPath = join(outDir, ".rehearse-mic.wav");
 writeFileSync(wavPath, synthWav({ sampleRate: 48_000, seconds: duration + 2 }));
 
-const cloud = createCloudStub();
+// Unseeded (M2 cp20): steps 2-4 create the Context and its documents through
+// the real UI, the way the owner's run will — the same material cp19's
+// rehearsal used to get for free from the stub.
+const cloud = createCloudStub({ seed: false });
 const gw = await startGateway({ distDir, cloud, sessionId: "live_rehearsal" });
 const startedAt = new Date();
 const steps = [];
@@ -84,7 +96,88 @@ try {
   await page.goto(`${gw.origin}/app/`, { waitUntil: "load" });
   const env = await probeEnvironment(page);
 
-  // ── 5a: activate the seeded Context from the Live view's grounding picker.
+  const appNav = page.getByRole("navigation", { name: /^app$/i });
+
+  // ── 2: Library → paste text → appears, ingested, no error.
+  const libraryRail = appNav.getByRole("button", { name: /^library$/i }).first();
+  const libraryOpened = await libraryRail.waitFor({ state: "visible", timeout: 10_000 }).then(() => true).catch(() => false);
+  if (libraryOpened) await libraryRail.click();
+  const pasteTrigger = page.getByRole("button", { name: /^add a pasted note$/i }).first();
+  let pasted = false;
+  let pasteError = null;
+  if (await pasteTrigger.waitFor({ state: "visible", timeout: 8000 }).then(() => true).catch(() => false)) {
+    await pasteTrigger.click();
+    await page.getByPlaceholder(/paste notes, a snippet/i).fill(REHEARSAL_DOC.text);
+    await page.getByLabel(/^note title$/i).fill(REHEARSAL_DOC.name);
+    await page.getByRole("button", { name: /^save$/i }).click();
+    pasted = (await waitFor(page, async () => (await bodyText(page)).includes(REHEARSAL_DOC.name), 6000)) !== null;
+    const notice = await page.getByRole("status").innerText().catch(() => "");
+    if (/couldn't|error|failed/i.test(notice)) pasteError = notice;
+  }
+  record(2, "Library → paste text → ingested", libraryOpened && pasted && !pasteError, { library_opened: libraryOpened, ingested: pasted, error: pasteError, documents: cloud.snapshot().documents });
+
+  // ── 3: Library → upload a file → appears with its name.
+  const fileInput = page.locator('input[type="file"]');
+  let uploaded = false;
+  const uploadVisible = await fileInput.count().then((n) => n > 0).catch(() => false);
+  if (uploadVisible) {
+    await fileInput.setInputFiles({ name: REHEARSAL_UPLOAD.name, mimeType: "text/markdown", buffer: Buffer.from(REHEARSAL_UPLOAD.text, "utf8") });
+    uploaded = (await waitFor(page, async () => (await bodyText(page)).includes(REHEARSAL_UPLOAD.name), 6000)) !== null;
+  }
+  // Download returns the original: the row's "…" menu → Download, captured as a real browser download.
+  let downloadIntact = false;
+  if (uploaded) {
+    await page.getByRole("button", { name: `More actions for ${REHEARSAL_UPLOAD.name}` }).first().click();
+    const [download] = await Promise.all([
+      page.waitForEvent("download", { timeout: 6000 }).catch(() => null),
+      page.getByRole("menuitem", { name: /^download$/i }).click(),
+    ]);
+    if (download) {
+      const savedPath = join(outDir, ".rehearse-download");
+      await download.saveAs(savedPath);
+      downloadIntact = readFileSync(savedPath, "utf8") === REHEARSAL_UPLOAD.text;
+    }
+  }
+  record(3, "Library → upload a file → appears; download returns the original", uploadVisible && uploaded && downloadIntact, { upload_input: uploadVisible, appeared: uploaded, download_intact: downloadIntact, documents: cloud.snapshot().documents });
+
+  // ── 4: Contexts → create a Context, attach both documents → saved; reopening shows the same fields and attachments.
+  const contextsRail = appNav.getByRole("button", { name: /^contexts$/i }).first();
+  const contextsOpened = await contextsRail.waitFor({ state: "visible", timeout: 8000 }).then(() => true).catch(() => false);
+  if (contextsOpened) await contextsRail.click();
+  const newContext = page.getByRole("button", { name: /^new context$/i }).first();
+  let contextSaved = false;
+  let attachedBoth = false;
+  let reopenedSame = false;
+  if (await newContext.waitFor({ state: "visible", timeout: 6000 }).then(() => true).catch(() => false)) {
+    await newContext.click();
+    await page.getByLabel(/^name$/i).fill(REHEARSAL_CONTEXT.title);
+    await page.getByLabel(/^goal/i).fill(REHEARSAL_CONTEXT.purpose);
+    await page.getByRole("button", { name: /^next$/i }).click();
+    // Step 2: attach the two documents just created above, and the key terms.
+    await attachCheckbox(page, REHEARSAL_DOC.name).check();
+    await attachCheckbox(page, REHEARSAL_UPLOAD.name).check();
+    attachedBoth = (await attachCheckbox(page, REHEARSAL_DOC.name).isChecked()) && (await attachCheckbox(page, REHEARSAL_UPLOAD.name).isChecked());
+    await page.getByPlaceholder(/pensive theory/).fill(REHEARSAL_CONTEXT.key_terms.join("\n"));
+    await page.getByRole("button", { name: /^next$/i }).click();
+    // Step 3: Finish. On web this awaits `context.prepare` (M2 cp20 — a
+    // no-op that marks the record ready; before this checkpoint it always
+    // rejected and no Context could ever be created through the web wizard).
+    await page.getByRole("button", { name: /^finish$/i }).click();
+    contextSaved = (await waitFor(page, async () => (await bodyText(page)).includes(REHEARSAL_CONTEXT.title), 8000)) !== null;
+    if (contextSaved) {
+      // Reopen: the same fields and attachments come back.
+      await page.getByRole("button", { name: `Edit setup for ${REHEARSAL_CONTEXT.title}` }).first().click();
+      const nameBack = await page.getByLabel(/^name$/i).inputValue();
+      const goalBack = await page.getByLabel(/^goal/i).inputValue();
+      await page.getByRole("button", { name: /^next$/i }).click();
+      const docsAttached = (await attachCheckbox(page, REHEARSAL_DOC.name).isChecked()) && (await attachCheckbox(page, REHEARSAL_UPLOAD.name).isChecked());
+      reopenedSame = nameBack === REHEARSAL_CONTEXT.title && goalBack === REHEARSAL_CONTEXT.purpose && docsAttached;
+      await page.getByRole("button", { name: /^back$/i }).first().click().catch(() => page.keyboard.press("Escape"));
+    }
+  }
+  record(4, "Contexts → create + attach both documents → saved; reopens the same", contextsOpened && attachedBoth && contextSaved && reopenedSame, { attached_both: attachedBoth, saved: contextSaved, reopened_same: reopenedSame, contexts: cloud.snapshot().contexts });
+
+  // ── 5a: activate the Context just created, from the Live view's grounding picker.
   // The picker's trigger is the active-Context chip ("General" on a fresh web
   // session, titled "Change what Ally is grounded on") or, with nothing
   // active, the "Select context" button — the title attribute names both.

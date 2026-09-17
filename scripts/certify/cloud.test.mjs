@@ -98,6 +98,11 @@ describe("rehearsal cloud stub — routes", () => {
     expect(doc).toMatchObject({ file_name: "notes.txt", chunk_count: 2, context_ids: [ctx.id], source: "pasted", size_bytes: 8 });
     expect(s.records.contexts()[0].source_doc_ids).toContain(doc.id);
     expect(s.handle({ method: "GET", path: `/library/${doc.id}/text` }).body.text).toBe("one\n\ntwo");
+    // The download route is raw bytes + a file name (gateway.mjs writes the
+    // Content-Disposition header), never a JSON envelope — downloadOriginal()
+    // reads the response as a Blob.
+    const original = s.handle({ method: "GET", path: `/library/${doc.id}/original` });
+    expect(original).toEqual({ status: 200, raw: "one\n\ntwo", fileName: "notes.txt" });
     expect(s.handle({ method: "PATCH", path: `/library/${doc.id}`, body: { detach_context: ctx.id } }).body.document.context_ids).toEqual([]);
     expect(s.records.contexts()[0].source_doc_ids).not.toContain(doc.id);
     expect(s.handle({ method: "PATCH", path: `/library/${doc.id}`, body: { enabled: false } }).body.document.enabled).toBe(false);
