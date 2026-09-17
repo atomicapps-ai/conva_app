@@ -2,10 +2,11 @@
 //! (conva_core docs/platform/15-events-implementation.md §6, §9).
 //!
 //! Each metering call site (crates/conva-core via metering.rs) also appends
-//! one taxonomy event here after recording locally. A future flush loop
-//! drains it (cursor-based, oldest-unflushed-first) and POSTs batches to
-//! `/api/events` with the signed-in user's bearer token — not wired yet;
-//! this module is the durable, inspectable local half only.
+//! one taxonomy event here after recording locally. `events_flush.rs` drains
+//! it (cursor-based, oldest-unflushed-first) on its own timer and POSTs
+//! batches to `/api/events` with the signed-in user's bearer token; this
+//! module is the durable, inspectable local half only — it knows nothing
+//! about the network.
 //!
 //! `<app-data>/telemetry/events.jsonl` is a deliberately plaintext,
 //! append-only log — the user's own honest, inspectable copy of exactly
@@ -182,9 +183,9 @@ fn load_cursor(app: &AppHandle) -> Cursor {
 }
 
 /// The next up-to-`limit` events strictly after the last flushed cursor,
-/// oldest first. A future flush loop posts these to `/api/events`, then
-/// calls [`advance_cursor`] only once the server has confirmed them —
-/// the cursor is the client's own durability boundary, not the seq counter.
+/// oldest first. `events_flush.rs` posts these to `/api/events`, then calls
+/// [`advance_cursor`] only once the server has confirmed them — the cursor
+/// is the client's own durability boundary, not the seq counter.
 pub fn read_batch(app: &AppHandle, limit: usize) -> Vec<TelemetryEvent> {
     let cursor = load_cursor(app);
     let Some(path) = events_path(app) else {

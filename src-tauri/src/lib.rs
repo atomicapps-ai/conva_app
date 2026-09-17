@@ -14,6 +14,7 @@ mod capture;
 mod context;
 mod conversations;
 mod embed;
+mod events_flush;
 mod feedback;
 mod hud;
 mod llm;
@@ -2960,6 +2961,12 @@ pub fn run() {
                                         rag.seed_from_repo_library();
                                         rag.backfill_embeddings();
                                     });
+
+                                // Drains the local telemetry queue to
+                                // `/api/events` on its own timer (15
+                                // §6/§8) — a no-op whenever signed out or
+                                // offline, so it's safe to always start.
+                                events_flush::spawn(handle.clone());
 
                                 splash::progress(
                                     &handle,
