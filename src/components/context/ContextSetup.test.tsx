@@ -562,7 +562,11 @@ describe("ContextSetup wizard", () => {
     // classes don't apply in jsdom, so it renders too and lists the same file.
     expect(await within(zone).findByText("resume.pdf")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove resume.pdf from Résumé / CV" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Remove resume.pdf from Résumé / CV — stays in your Library",
+      }),
+    );
     await waitFor(() => expect(within(zone).queryByText("resume.pdf")).not.toBeInTheDocument());
   });
 

@@ -178,7 +178,8 @@ function ResourceIntake({
                     event.stopPropagation();
                     onRemove(doc.id);
                   }}
-                  aria-label={`Remove ${doc.file_name} from ${label}`}
+                  aria-label={`Remove ${doc.file_name} from ${label} — stays in your Library`}
+                  title="Remove from this Context (stays in your Library)"
                   className="rounded-sm p-1 text-fg-faint hover:bg-rec/10 hover:text-rec"
                 >
                   <Icon name="close" size={12} />
@@ -435,6 +436,9 @@ export function ContextSetup({
     });
   };
 
+  /** Detaches a document from this Context's slot/Other list only — it stays
+   *  in the Library. Non-destructive is the safer default; the remove
+   *  control's label/tooltip say so explicitly so it never reads as delete. */
   const removeDocument = (target: string, docId: string) => {
     if (target === OTHER_RESOURCE_TARGET) {
       setSelected((current) => current.filter((id) => id !== docId));
