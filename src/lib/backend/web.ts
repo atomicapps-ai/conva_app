@@ -622,6 +622,9 @@ export class WebBackend implements ConvaBackend {
     },
     storeDocs: (): Promise<string[]> =>
       unsupported("context.storeDocs (local file paths)"),
+    // No local Context folder on web — dropped/pasted files go to the cloud
+    // library through `rag.upload` instead.
+    storeDocFile: (): Promise<string> => unsupported("context.storeDocFile (local file paths)"),
     prepare: (): Promise<ConversationContext> => todo("POST /v1/contexts/:id/prepare"),
     loadProfile: (): Promise<KnowledgeProfile> =>
       todo("GET /v1/contexts/profiles/:id"),

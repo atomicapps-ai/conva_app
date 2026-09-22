@@ -166,6 +166,19 @@ export function ragIngest(paths: string[]): Promise<IngestReport[]> {
   return invoke<IngestReport[]>("rag_ingest", { paths });
 }
 
+/** Store a document that arrived as bytes (dropped onto a Context slot, or
+ *  pasted) into the Context's folder and return its path — the caller then
+ *  ingests it with {@link ragIngest}, exactly like the file-picker flow. The
+ *  webview hands us `File` contents, not a path, because the window runs with
+ *  `dragDropEnabled: false` (CLAUDE.md rule 8). */
+export function contextStoreDocBytes(
+  title: string,
+  name: string,
+  bytesBase64: string,
+): Promise<string> {
+  return invoke<string>("context_store_doc_bytes", { title, name, bytesBase64 });
+}
+
 /** Ingest clipboard/pasted text as a `.txt` document in the library. */
 export function ragIngestText(
   name: string,

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ContextSetup } from "@/components/context/ContextSetup";
@@ -20,12 +20,41 @@ function fakeBackend(): ConvaBackend {
   } as unknown as ConvaBackend;
 }
 
-function renderSetup() {
+function renderSetup(overrides?: Partial<ConvaBackend>) {
   render(
-    <BackendProvider backend={fakeBackend()}>
+    <BackendProvider backend={{ ...fakeBackend(), ...overrides } as ConvaBackend}>
       <ContextSetup onDone={() => undefined} onCancel={() => undefined} />
     </BackendProvider>,
   );
+}
+
+function pastedDoc(id: string, fileName: string) {
+  return { ...ragDoc(id, fileName), source: "pasted" as const };
+}
+
+function ragDoc(id: string, fileName: string) {
+  return {
+    id,
+    file_name: fileName,
+    enabled: true,
+    chunk_count: 1,
+    ingested_at_unix_ms: 0,
+    source: "file" as const,
+    context_ids: [],
+    size_bytes: 10,
+  };
+}
+
+/** Walk the wizard to step 2 (the document slots). */
+async function gotoStepTwo() {
+  const name = await screen.findByPlaceholderText(/Senior Accountant interview/i);
+  fireEvent.change(name, { target: { value: "New one" } });
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+}
+
+/** The minimum of a DataTransfer these handlers read. */
+function transfer({ files = [], docId = "" }: { files?: File[]; docId?: string }) {
+  return { files, getData: () => docId, dropEffect: "", types: [] };
 }
 
 describe("ContextSetup wizard", () => {
@@ -412,6 +441,131 @@ describe("ContextSetup wizard", () => {
     expect(screen.queryByRole("button", { name: /^View /i })).toBeNull();
   });
 
+  // The bug: these zones read ONLY the in-app DOC_DRAG_MIME payload, so a file
+  // dragged from Explorer/Finder hit `onDrop`, found no doc id, and returned —
+  // no ingest, no error, nothing. `dragDropEnabled: false` (CLAUDE.md rule 8)
+  // means Tauri's onDragDropEvent never fires either, so nothing caught it.
+  it("ingests an OS file dropped on a slot and assigns it to that slot", async () => {
+    const upload = vi.fn().mockResolvedValue([{ document: ragDoc("n1", "spec.pdf"), warnings: [] }]);
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([ragDoc("n1", "spec.pdf")]);
+    renderSetup({ rag: { list, upload } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    const zone = screen.getByRole("heading", { name: /résumé \/ cv/i }).closest("div[tabindex]");
+    expect(zone).not.toBeNull();
+    const file = new File(["contents"], "spec.pdf", { type: "application/pdf" });
+    fireEvent.drop(zone as Element, { dataTransfer: transfer({ files: [file] }) });
+
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    expect(upload.mock.calls[0][0][0].name).toBe("spec.pdf");
+    expect(await screen.findByText("spec.pdf")).toBeInTheDocument();
+  });
+
+  it("still assigns an in-app Library drag, which carries a doc id and no files", async () => {
+    const upload = vi.fn();
+    const list = vi.fn().mockResolvedValue([ragDoc("d1", "resume.pdf")]);
+    renderSetup({ rag: { list, upload } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    const zone = screen.getByRole("heading", { name: /résumé \/ cv/i }).closest("div[tabindex]");
+    fireEvent.drop(zone as Element, { dataTransfer: transfer({ docId: "d1" }) });
+
+    expect(await screen.findByText("resume.pdf")).toBeInTheDocument();
+    // An in-app drag must not be re-ingested as a new upload.
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("ingests clipboard text pasted onto a slot", async () => {
+    const ingestText = vi
+      .fn()
+      .mockResolvedValue({ document: ragDoc("p1", "Résumé / CV"), warnings: [] });
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([ragDoc("p1", "Résumé / CV")]);
+    renderSetup({ rag: { list, ingestText } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    const zone = screen.getByRole("heading", { name: /résumé \/ cv/i }).closest("div[tabindex]");
+    fireEvent.paste(zone as Element, {
+      clipboardData: { files: [], getData: () => "  pasted résumé text  " },
+    });
+
+    await waitFor(() => expect(ingestText).toHaveBeenCalledTimes(1));
+    // Trimmed, and labelled with the slot it was pasted into.
+    expect(ingestText.mock.calls[0][1]).toBe("pasted résumé text");
+  });
+
+  it("Paste saves the clipboard as a file and marks it as coming from the clipboard", async () => {
+    const ingestText = vi
+      .fn()
+      .mockResolvedValue({ document: pastedDoc("p1", "Résumé / CV (clipboard)"), warnings: [] });
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([pastedDoc("p1", "Résumé / CV (clipboard)")]);
+    // No async read() — exercises the readText fallback the button relies on
+    // when the clipboard holds plain text.
+    Object.assign(navigator, {
+      clipboard: { readText: vi.fn().mockResolvedValue("  pasted from the button  ") },
+    });
+    renderSetup({ rag: { list, ingestText } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    fireEvent.click(screen.getByRole("button", { name: "Paste clipboard into Résumé / CV" }));
+
+    await waitFor(() => expect(ingestText).toHaveBeenCalledTimes(1));
+    expect(ingestText.mock.calls[0][1]).toBe("pasted from the button");
+    // rag.ingest_text stores DocSource::Pasted, which is what the badge reads —
+    // so the saved file is visibly "from clipboard", not just named like it.
+    expect(await screen.findByText("From clipboard")).toBeInTheDocument();
+  });
+
+  it("saves a clipboard IMAGE as an image file rather than falling back to text", async () => {
+    const upload = vi
+      .fn()
+      .mockResolvedValue([{ document: ragDoc("i1", "clipboard.png"), warnings: [] }]);
+    const list = vi.fn().mockResolvedValueOnce([]).mockResolvedValue([ragDoc("i1", "clipboard.png")]);
+    const readText = vi.fn().mockResolvedValue("should not be used");
+    Object.assign(navigator, {
+      clipboard: {
+        readText,
+        read: vi.fn().mockResolvedValue([
+          { types: ["image/png"], getType: vi.fn().mockResolvedValue(new Blob(["x"], { type: "image/png" })) },
+        ]),
+      },
+    });
+    renderSetup({ rag: { list, upload } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    fireEvent.click(screen.getByRole("button", { name: "Paste clipboard into Résumé / CV" }));
+
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    expect(upload.mock.calls[0][0][0].type).toBe("image/png");
+    // A screenshot has no useful text form, so the text path must not run.
+    expect(readText).not.toHaveBeenCalled();
+  });
+
+  it("offers a delete control on every attached file", async () => {
+    const list = vi.fn().mockResolvedValue([ragDoc("d1", "resume.pdf")]);
+    renderSetup({ rag: { list } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    const zone = screen
+      .getByRole("heading", { name: /résumé \/ cv/i })
+      .closest("div[tabindex]") as HTMLElement;
+    fireEvent.drop(zone, { dataTransfer: transfer({ docId: "d1" }) });
+    // Scope to the slot: the Library column is `hidden xl:block`, but Tailwind
+    // classes don't apply in jsdom, so it renders too and lists the same file.
+    expect(await within(zone).findByText("resume.pdf")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove resume.pdf from Résumé / CV" }));
+    await waitFor(() => expect(within(zone).queryByText("resume.pdf")).not.toBeInTheDocument());
+  });
+
   it("shows the selected category's slot section labels, and switches them on category change", async () => {
     renderSetup();
     const name = await screen.findByPlaceholderText(/Senior Accountant interview/i);
@@ -419,7 +573,6 @@ describe("ContextSetup wizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     // Interview is the default type.
     expect(screen.getByRole("heading", { name: /résumé \/ cv/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /job description/i })).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: /take-home \/ test \(multiple\)/i }),
     ).toBeInTheDocument();
@@ -560,7 +713,6 @@ describe("ContextSetup wizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(screen.getByRole("button", { name: "Upload files to Résumé / CV" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Upload files to Job description" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload files to Take-home / test" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload files to Other documents" })).toBeInTheDocument();
   });

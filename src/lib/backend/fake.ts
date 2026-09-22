@@ -432,6 +432,7 @@ export class FakeBackend implements ConvaBackend {
     activateContext: nc("context.activateContext"),
     deactivateContext: nc("context.deactivateContext"),
     storeDocs: nc("context.storeDocs"),
+    storeDocFile: nc("context.storeDocFile"),
     prepare: nc("context.prepare"),
     loadProfile: nc("context.loadProfile"),
     generateDossier: nc("context.generateDossier"),
