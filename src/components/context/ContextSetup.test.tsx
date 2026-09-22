@@ -20,12 +20,37 @@ function fakeBackend(): ConvaBackend {
   } as unknown as ConvaBackend;
 }
 
-function renderSetup() {
+function renderSetup(overrides?: Partial<ConvaBackend>) {
   render(
-    <BackendProvider backend={fakeBackend()}>
+    <BackendProvider backend={{ ...fakeBackend(), ...overrides } as ConvaBackend}>
       <ContextSetup onDone={() => undefined} onCancel={() => undefined} />
     </BackendProvider>,
   );
+}
+
+function ragDoc(id: string, fileName: string) {
+  return {
+    id,
+    file_name: fileName,
+    enabled: true,
+    chunk_count: 1,
+    ingested_at_unix_ms: 0,
+    source: "file" as const,
+    context_ids: [],
+    size_bytes: 10,
+  };
+}
+
+/** Walk the wizard to step 2 (the document slots). */
+async function gotoStepTwo() {
+  const name = await screen.findByPlaceholderText(/Senior Accountant interview/i);
+  fireEvent.change(name, { target: { value: "New one" } });
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+}
+
+/** The minimum of a DataTransfer these handlers read. */
+function transfer({ files = [], docId = "" }: { files?: File[]; docId?: string }) {
+  return { files, getData: () => docId, dropEffect: "", types: [] };
 }
 
 describe("ContextSetup wizard", () => {
@@ -412,6 +437,64 @@ describe("ContextSetup wizard", () => {
     expect(screen.queryByRole("button", { name: /^View /i })).toBeNull();
   });
 
+  // The bug: these zones read ONLY the in-app DOC_DRAG_MIME payload, so a file
+  // dragged from Explorer/Finder hit `onDrop`, found no doc id, and returned —
+  // no ingest, no error, nothing. `dragDropEnabled: false` (CLAUDE.md rule 8)
+  // means Tauri's onDragDropEvent never fires either, so nothing caught it.
+  it("ingests an OS file dropped on a slot and assigns it to that slot", async () => {
+    const upload = vi.fn().mockResolvedValue([{ document: ragDoc("n1", "spec.pdf"), warnings: [] }]);
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([ragDoc("n1", "spec.pdf")]);
+    renderSetup({ rag: { list, upload } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    const zone = screen.getByRole("heading", { name: /résumé \/ cv/i }).closest("div[tabindex]");
+    expect(zone).not.toBeNull();
+    const file = new File(["contents"], "spec.pdf", { type: "application/pdf" });
+    fireEvent.drop(zone as Element, { dataTransfer: transfer({ files: [file] }) });
+
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    expect(upload.mock.calls[0][0][0].name).toBe("spec.pdf");
+    expect(await screen.findByText("spec.pdf")).toBeInTheDocument();
+  });
+
+  it("still assigns an in-app Library drag, which carries a doc id and no files", async () => {
+    const upload = vi.fn();
+    const list = vi.fn().mockResolvedValue([ragDoc("d1", "resume.pdf")]);
+    renderSetup({ rag: { list, upload } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    const zone = screen.getByRole("heading", { name: /résumé \/ cv/i }).closest("div[tabindex]");
+    fireEvent.drop(zone as Element, { dataTransfer: transfer({ docId: "d1" }) });
+
+    expect(await screen.findByText("resume.pdf")).toBeInTheDocument();
+    // An in-app drag must not be re-ingested as a new upload.
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it("ingests clipboard text pasted onto a slot", async () => {
+    const ingestText = vi
+      .fn()
+      .mockResolvedValue({ document: ragDoc("p1", "Résumé / CV"), warnings: [] });
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([ragDoc("p1", "Résumé / CV")]);
+    renderSetup({ rag: { list, ingestText } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    const zone = screen.getByRole("heading", { name: /résumé \/ cv/i }).closest("div[tabindex]");
+    fireEvent.paste(zone as Element, {
+      clipboardData: { files: [], getData: () => "  pasted résumé text  " },
+    });
+
+    await waitFor(() => expect(ingestText).toHaveBeenCalledTimes(1));
+    // Trimmed, and labelled with the slot it was pasted into.
+    expect(ingestText.mock.calls[0][1]).toBe("pasted résumé text");
+  });
+
   it("shows the selected category's slot section labels, and switches them on category change", async () => {
     renderSetup();
     const name = await screen.findByPlaceholderText(/Senior Accountant interview/i);
@@ -419,7 +502,6 @@ describe("ContextSetup wizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     // Interview is the default type.
     expect(screen.getByRole("heading", { name: /résumé \/ cv/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /job description/i })).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: /take-home \/ test \(multiple\)/i }),
     ).toBeInTheDocument();
@@ -560,7 +642,6 @@ describe("ContextSetup wizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
     expect(screen.getByRole("button", { name: "Upload files to Résumé / CV" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Upload files to Job description" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload files to Take-home / test" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Upload files to Other documents" })).toBeInTheDocument();
   });

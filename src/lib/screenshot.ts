@@ -83,25 +83,9 @@ export async function captureScreenshot(trace: (msg: string) => void = noopTrace
   return blob;
 }
 
-/** `Blob` -> base64 (no `data:` prefix) — what `backend.screenshot.save`
- *  expects, since the Tauri command receives a plain base64 string. */
-export function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("failed to read blob"));
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result !== "string") {
-        reject(new Error("unexpected FileReader result type"));
-        return;
-      }
-      // "data:image/png;base64,AAAA..." -> "AAAA..."
-      const comma = result.indexOf(",");
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
-    };
-    reader.readAsDataURL(blob);
-  });
-}
+// `blobToBase64` now lives with its decode counterpart in `@/lib/base64`;
+// re-exported here so existing `@/lib/screenshot` importers are unaffected.
+export { blobToBase64 } from "@/lib/base64";
 
 // ------------------------------------------------------------ color fixup
 

@@ -26,7 +26,6 @@ export const CATEGORIES: CategoryTemplate[] = [
     research: true,
     fileSlots: [
       { key: "resume", label: "Résumé / CV", multiple: false },
-      { key: "job_description", label: "Job description", multiple: false },
       { key: "interview_test", label: "Take-home / test", multiple: true },
     ],
     digestSections: [

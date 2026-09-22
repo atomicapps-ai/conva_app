@@ -44,6 +44,94 @@ import type {
 import { isDesktop } from "@/lib/platform";
 import { useAppStore } from "@/state/app";
 
+/**
+ * A Context resource slot that accepts documents three ways: an in-app
+ * Library-row drag (`DOC_DRAG_MIME`), an OS file drop from Explorer/Finder, and
+ * a clipboard paste (Ctrl/Cmd+V) of either text or files.
+ *
+ * The OS-file and paste paths exist because the window runs with
+ * `dragDropEnabled: false` (CLAUDE.md rule 8) so in-page HTML5 drag-drop works
+ * at all. That setting also means Tauri's `onDragDropEvent` never fires, so a
+ * dropped file arrives as a `File` with no filesystem path — handled by
+ * `context.storeDocFile` on desktop and `rag.upload` on web. Before this,
+ * these zones read only `DOC_DRAG_MIME`, so an Explorer drop silently did
+ * nothing at all.
+ */
+function ResourceDropZone({
+  active,
+  onSelect,
+  onDropDoc,
+  onDropFiles,
+  onPasteText,
+  children,
+}: {
+  active: boolean;
+  onSelect: () => void;
+  onDropDoc: (docId: string) => void;
+  onDropFiles: (files: File[]) => void;
+  onPasteText: (text: string) => void;
+  children: React.ReactNode;
+}) {
+  const [over, setOver] = useState(false);
+  return (
+    <div
+      onClick={onSelect}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        setOver(true);
+      }}
+      onDragOver={(event) => {
+        // Both are required for a drop to fire at all, and `dropEffect` is what
+        // gives the cursor its copy affordance over the zone.
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(event) => {
+        // Ignore bubbling leaves from children, or the highlight flickers as
+        // the pointer crosses the rows inside the zone.
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOver(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setOver(false);
+        const docId = event.dataTransfer.getData(DOC_DRAG_MIME);
+        if (docId) {
+          onDropDoc(docId);
+          return;
+        }
+        const files = Array.from(event.dataTransfer.files ?? []);
+        if (files.length > 0) onDropFiles(files);
+      }}
+      onPaste={(event) => {
+        const files = Array.from(event.clipboardData?.files ?? []);
+        if (files.length > 0) {
+          event.preventDefault();
+          onDropFiles(files);
+          return;
+        }
+        const text = event.clipboardData?.getData("text/plain")?.trim();
+        if (text) {
+          event.preventDefault();
+          onPasteText(text);
+        }
+      }}
+      // Focusable so a paste has somewhere to land: `onPaste` only fires for
+      // the focused element (or its ancestors), and a plain <div> never is.
+      tabIndex={0}
+      className={[
+        "rounded-xl outline-none transition",
+        active ? "ring-1 ring-primary/50" : "",
+        over ? "ring-2 ring-primary bg-primary/5" : "",
+        "focus-visible:ring-2 focus-visible:ring-primary/60",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {children}
+    </div>
+  );
+}
+
 const DOC_EXTENSIONS = [
   "pdf", "docx", "md", "txt", "html",
   "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tif", "tiff", "heic",
@@ -349,6 +437,35 @@ export function ContextSetup({
     }
   };
 
+  /** Ingest `File`s that arrived without a filesystem path — an OS drop onto a
+   *  slot, or a clipboard paste. Desktop stores each into the Context folder
+   *  and ingests it by path (same two steps as the file picker); web uploads to
+   *  the cloud library. Either way the new docs land in `target`. */
+  const ingestFiles = async (files: readonly File[], target: string) => {
+    if (files.length === 0) return;
+    setAdding(true);
+    setError(null);
+    try {
+      const contextTitle = title.trim() || "untitled";
+      let reports;
+      if (isDesktop) {
+        const stored: string[] = [];
+        for (const file of files) stored.push(await backend.context.storeDocFile(contextTitle, file));
+        reports = await backend.rag.ingest(stored);
+      } else {
+        reports = await backend.rag.upload(files);
+      }
+      const newIds = reports.map((r) => r.document.id);
+      setDocs(await backend.rag.list());
+      setSelected((current) => Array.from(new Set([...current, ...newIds])));
+      newIds.forEach((id) => assignDocument(target, id));
+    } catch {
+      setError(files.length === 1 ? "Couldn't add that file." : "Couldn't add those files.");
+    } finally {
+      setAdding(false);
+    }
+  };
+
   const pasteResource = async (name: string, text: string, target: string) => {
     setError(null);
     try {
@@ -563,16 +680,13 @@ export function ContextSetup({
             <span className="rounded-full bg-primary-ink/15 px-1.5 text-[10px]">{selected.length}</span>
           </button>
           {slotGroups.map(({ slot, docs: assignedDocs }) => (
-            <div
+            <ResourceDropZone
               key={slot.key}
-              onClick={() => setLibraryTarget(slot.key)}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                const docId = event.dataTransfer.getData(DOC_DRAG_MIME);
-                if (docId) assignDocument(slot.key, docId);
-              }}
-              className={libraryTarget === slot.key ? "rounded-xl ring-1 ring-primary/50" : ""}
+              active={libraryTarget === slot.key}
+              onSelect={() => setLibraryTarget(slot.key)}
+              onDropDoc={(docId) => assignDocument(slot.key, docId)}
+              onDropFiles={(files) => void ingestFiles(files, slot.key)}
+              onPasteText={(text) => void pasteResource(slot.label, text, slot.key).catch(() => {})}
             >
               <Section
                 title={slot.label + (slot.multiple ? " (multiple)" : "")}
@@ -620,17 +734,16 @@ export function ContextSetup({
                   </ul>
                 )}
               </Section>
-            </div>
+            </ResourceDropZone>
           ))}
-          <div
-            onClick={() => setLibraryTarget(OTHER_RESOURCE_TARGET)}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              const docId = event.dataTransfer.getData(DOC_DRAG_MIME);
-              if (docId) assignDocument(OTHER_RESOURCE_TARGET, docId);
-            }}
-            className={libraryTarget === OTHER_RESOURCE_TARGET ? "rounded-xl ring-1 ring-primary/50" : ""}
+          <ResourceDropZone
+            active={libraryTarget === OTHER_RESOURCE_TARGET}
+            onSelect={() => setLibraryTarget(OTHER_RESOURCE_TARGET)}
+            onDropDoc={(docId) => assignDocument(OTHER_RESOURCE_TARGET, docId)}
+            onDropFiles={(files) => void ingestFiles(files, OTHER_RESOURCE_TARGET)}
+            onPasteText={(text) =>
+              void pasteResource("Pasted note", text, OTHER_RESOURCE_TARGET).catch(() => {})
+            }
           >
             <Section
               title="Other documents"
@@ -678,7 +791,7 @@ export function ContextSetup({
                 </ul>
               )}
             </Section>
-          </div>
+          </ResourceDropZone>
           {initial && (
             <Section
               title="Generate Context resources"

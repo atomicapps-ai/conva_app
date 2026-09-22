@@ -340,8 +340,43 @@ describe("ContextDetail", () => {
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
     // Every slot renders even with zero docs — the "what's still missing"
     // signal the spec is for.
-    expect(screen.getByText("Job description (0)")).toBeInTheDocument();
     expect(screen.getByText("Take-home / test (0)")).toBeInTheDocument();
+    // The Job description SLOT was removed (step 1 already captures the job
+    // description as text); it must not come back as an empty section.
+    expect(screen.queryByText(/^Job description \(/)).not.toBeInTheDocument();
+  });
+
+  it("surfaces a doc still assigned to the retired job_description slot under Other documents", async () => {
+    // Contexts created before that slot was removed still carry
+    // `slot_doc_ids.job_description`. groupBySlot only claims docs for slots the
+    // template still lists, so the rest fall through to Other — the doc must
+    // stay visible rather than silently disappearing from the Context.
+    const jdDoc = {
+      id: "d9",
+      file_name: "job-description.pdf",
+      enabled: true,
+      chunk_count: 3,
+      ingested_at_unix_ms: 0,
+      source: "file" as const,
+      context_ids: ["s1"],
+      size_bytes: 2048,
+    };
+    renderDetail({
+      context: {
+        load: vi.fn().mockResolvedValue(session({
+          source_doc_ids: ["d9"],
+          slot_doc_ids: { job_description: ["d9"] },
+        })),
+        loadProfile: vi.fn().mockResolvedValue(profile({ doc_ids: ["d9"] })),
+      },
+      rag: { list: vi.fn().mockResolvedValue([jdDoc]) },
+      capabilities: vi.fn().mockResolvedValue(null),
+    });
+    await screen.findByText("Interviewer");
+    fireEvent.click(screen.getByRole("button", { name: /knowledge base/i }));
+
+    expect(await screen.findByText("Other documents (1)")).toBeInTheDocument();
+    expect(screen.getByText("job-description.pdf")).toBeInTheDocument();
   });
 
   it("falls back to Other documents for every attached doc when slot_doc_ids is empty (pre-migration contexts)", async () => {

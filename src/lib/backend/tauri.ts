@@ -9,9 +9,8 @@
 
 import { listen } from "@tauri-apps/api/event";
 
-import { base64ToBlob } from "@/lib/base64";
+import { base64ToBlob, blobToBase64 } from "@/lib/base64";
 import * as cmd from "@/lib/commands";
-import { blobToBase64 } from "@/lib/screenshot";
 import {
   DESKTOP_CAPABILITIES,
   type Capabilities,
@@ -248,6 +247,8 @@ export class TauriBackend implements ConvaBackend {
     activateContext: cmd.activateContext,
     deactivateContext: cmd.deactivateContext,
     storeDocs: cmd.contextStoreDocs,
+    storeDocFile: async (title: string, file: File) =>
+      cmd.contextStoreDocBytes(title, file.name, await blobToBase64(file)),
     prepare: cmd.contextPrepare,
     loadProfile: cmd.contextLoadProfile,
     generateDossier: cmd.contextGenerateDossier,
