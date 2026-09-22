@@ -14,6 +14,7 @@ mod capture;
 mod context;
 mod conversations;
 mod embed;
+mod events_flush;
 mod feedback;
 mod hud;
 mod llm;
@@ -29,6 +30,7 @@ mod secrets;
 mod semantic;
 mod session;
 mod splash;
+mod telemetry_events;
 mod trace;
 mod tracker;
 mod tts;
@@ -70,6 +72,10 @@ struct AppState {
     rag: Arc<RagStore>,
     /// Usage ledger (LLM tokens + research-provider searches), mirrored to usage.json.
     usage: Mutex<UsageLedger>,
+    /// The local telemetry queue's bookkeeping (next seq, device id) — see
+    /// telemetry_events.rs. Behind its own lock so concurrent metering call
+    /// sites (LLM streams, research, TTS) never race on the sequence number.
+    telemetry: Mutex<telemetry_events::QueueState>,
     /// Terms of the active conversation context (a rehearsal's key terms +
     /// digest glossary) — the strongest highlight signal. Empty when no context
     /// is active; set on rehearsal start, cleared on stop (Phase 3c).
@@ -360,6 +366,19 @@ async fn stop_session(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
         metering::record_listening_ms(&app, elapsed);
     }
     state.session.stop(&app).map_err(|e| e.to_string())
+}
+
+/// Pause the active session (mic/loopback keep the device open; nothing is
+/// transcribed or recorded while paused). No-op if no session is active.
+#[tauri::command]
+fn pause_session(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    state.session.pause(&app).map_err(|e| e.to_string())
+}
+
+/// Resume a paused session.
+#[tauri::command]
+fn resume_session(app: AppHandle, state: State<AppState>) -> Result<(), String> {
+    state.session.resume(&app).map_err(|e| e.to_string())
 }
 
 /// Start recording the live call to a stereo WAV; returns the file path.
@@ -2077,8 +2096,10 @@ fn rag_document_text(state: State<AppState>, id: String) -> Option<String> {
 }
 
 /// Generate 3 counterparty personas (Step 3) with the configured LLM, grounded
-/// in the Context's goal / type / job description. Overwrites any existing
-/// personas and clears the current choice.
+/// in the Context's goal / type / job description. A favorited persona
+/// (owner, 2026-09-15) survives regeneration instead of being discarded with
+/// the rest — see `merge_personas_preserving_favorites`. The current choice is
+/// only cleared if it doesn't survive the merge.
 #[tauri::command]
 fn context_generate_personas(
     app: AppHandle,
@@ -2109,8 +2130,16 @@ fn context_generate_personas(
         &mut |t| buf.push_str(t),
     )
     .map_err(|e| e.to_string())?;
-    session.personas = conva_core::context::parse_personas(&buf);
-    session.chosen_persona_id = None;
+    let generated = conva_core::context::parse_personas(&buf);
+    session.personas =
+        conva_core::context::merge_personas_preserving_favorites(&session.personas, generated);
+    if !session
+        .chosen_persona_id
+        .as_ref()
+        .is_some_and(|chosen| session.personas.iter().any(|p| &p.id == chosen))
+    {
+        session.chosen_persona_id = None;
+    }
     context::save(&app, session).map_err(|e| e.to_string())
 }
 
@@ -2126,16 +2155,38 @@ fn context_choose_persona(
     context::save(&app, session).map_err(|e| e.to_string())
 }
 
+/// Mark (or unmark) a persona as a favorite (owner, 2026-09-15) — scoped to
+/// this context for now: a favorited persona survives "Generate personas" for
+/// this same context instead of being discarded (see
+/// `merge_personas_preserving_favorites`). Reuse across different contexts is
+/// a separate, larger feature, not this.
+#[tauri::command]
+fn context_toggle_favorite_persona(
+    app: AppHandle,
+    id: String,
+    persona_id: String,
+    favorite: bool,
+) -> Result<ConversationContext, String> {
+    let mut session = context::load(&app, &id).map_err(|e| e.to_string())?;
+    match session.personas.iter_mut().find(|p| p.id == persona_id) {
+        Some(p) => p.favorite = favorite,
+        None => return Err("No such persona on this context.".to_string()),
+    }
+    context::save(&app, session).map_err(|e| e.to_string())
+}
+
 /// Start a live rehearsal (Step 4): mic-only capture, and a worker that plays
 /// the chosen persona — STT → in-character LLM reply (grounded in the knowledge
 /// base) → Aura TTS. Requires a chosen persona and a prepared knowledge profile.
-/// Stop it with the normal `stop_session`. Returns the session id.
+/// Stop it with the normal `stop_session`. Returns the session id plus whether
+/// a TTS key is configured, so the UI can flag a text-only rehearsal instead
+/// of leaving the user wondering why the persona never speaks.
 #[tauri::command]
 async fn context_start_rehearsal(
     app: AppHandle,
     state: State<'_, AppState>,
     id: String,
-) -> Result<String, String> {
+) -> Result<conva_core::ipc::StartRehearsalResult, String> {
     let session = context::load(&app, &id).map_err(|e| e.to_string())?;
 
     // Preconditions: a chosen persona and a prepared knowledge profile.
@@ -2159,6 +2210,7 @@ async fn context_start_rehearsal(
     let llm_key = resolve_key(selection.provider)?;
     // Aura reuses the Deepgram key; without one the rehearsal is text-only.
     let tts_key = asr_deepgram::load_api_key();
+    let voice_enabled = tts_key.is_some();
 
     // Activate this context's highlight terms for the rehearsal (Phase 3c):
     // user-declared key terms + the digest glossary. Cleared on stop_session.
@@ -2189,7 +2241,10 @@ async fn context_start_rehearsal(
         session_start_ms: state.session.session_started_ms(),
     };
     rehearsal::spawn(app.clone(), rag, reh_rx, stop_flag, force_end, ctx);
-    Ok(session_id)
+    Ok(conva_core::ipc::StartRehearsalResult {
+        session_id,
+        voice_enabled,
+    })
 }
 
 /// End the user's current rehearsal turn immediately (manual "your turn"); the
@@ -2271,6 +2326,56 @@ fn usage_summary(app: AppHandle) -> UsageSummary {
 #[tauri::command]
 fn usage_reset(app: AppHandle) -> UsageSummary {
     metering::reset(&app)
+}
+
+/// This device's persisted telemetry id (docs/platform/15-events-implementation.md §6).
+#[tauri::command]
+async fn telemetry_device_id(app: AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || telemetry_events::device_id(&app))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Append one taxonomy event from the UI (future call sites — `ally_answer_action`,
+/// `radar_question_tapped`, etc.; the metering-derived events already flow in
+/// through the Rust call sites in metering.rs). Best-effort: a malformed or
+/// unknown event is logged and dropped, never surfaced as an error, matching
+/// the queue's own philosophy that telemetry must never break a feature.
+#[tauri::command]
+async fn telemetry_append_event(
+    app: AppHandle,
+    ev: String,
+    fields: serde_json::Value,
+    session_id: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        telemetry_events::append(&app, &ev, fields, session_id);
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The next up-to-`limit` unflushed events, oldest first — a future flush
+/// loop's read side.
+#[tauri::command]
+async fn telemetry_read_batch(
+    app: AppHandle,
+    limit: u32,
+) -> Result<Vec<conva_core::telemetry_events::TelemetryEvent>, String> {
+    tauri::async_runtime::spawn_blocking(move || telemetry_events::read_batch(&app, limit as usize))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Mark everything through `through_seq` as durably flushed — call only
+/// after the server has confirmed the batch.
+#[tauri::command]
+async fn telemetry_advance_cursor(app: AppHandle, through_seq: u64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        telemetry_events::advance_cursor(&app, through_seq);
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Copy every library document's original into the repo `library/` folder so
@@ -2648,6 +2753,7 @@ fn ally(
                 &selection.model,
                 usage,
                 result.is_ok(),
+                t0.elapsed().as_millis() as u64,
             );
             match result {
                 Ok(()) => {
@@ -2829,6 +2935,7 @@ pub fn run() {
                                 secrets::seed_on_startup();
                                 let _ = models::ensure_silero(&handle);
                                 let usage = metering::load(&handle);
+                                let telemetry_state = telemetry_events::load_state(&handle);
 
                                 // AppState becomes visible atomically only after all
                                 // of its prerequisites have completed successfully.
@@ -2837,6 +2944,7 @@ pub fn run() {
                                     session: SessionManager::new(),
                                     rag: rag.clone(),
                                     usage: Mutex::new(usage),
+                                    telemetry: Mutex::new(telemetry_state),
                                     active_context_terms: Mutex::new(Vec::new()),
                                     active_context_doc_ids: Mutex::new(Vec::new()),
                                     active_context_snapshot: Mutex::new(None),
@@ -2853,6 +2961,12 @@ pub fn run() {
                                         rag.seed_from_repo_library();
                                         rag.backfill_embeddings();
                                     });
+
+                                // Drains the local telemetry queue to
+                                // `/api/events` on its own timer (15
+                                // §6/§8) — a no-op whenever signed out or
+                                // offline, so it's safe to always start.
+                                events_flush::spawn(handle.clone());
 
                                 splash::progress(
                                     &handle,
@@ -2910,6 +3024,8 @@ pub fn run() {
             deepgram_key_status,
             start_session,
             stop_session,
+            pause_session,
+            resume_session,
             start_recording,
             stop_recording,
             recording_status,
@@ -2977,6 +3093,7 @@ pub fn run() {
             rag_document_text,
             context_generate_personas,
             context_choose_persona,
+            context_toggle_favorite_persona,
             context_start_rehearsal,
             context_rehearsal_your_turn,
             context_rehearsal_say,
@@ -2986,6 +3103,10 @@ pub fn run() {
             firecrawl_key_status,
             usage_summary,
             usage_reset,
+            telemetry_device_id,
+            telemetry_append_event,
+            telemetry_read_batch,
+            telemetry_advance_cursor,
             rag_sync_library,
             open_hud,
             close_hud,

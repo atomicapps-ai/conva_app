@@ -36,6 +36,8 @@ import type {
   SecretsStatus,
   SessionSummary,
   SplashProgressEvent,
+  StartRehearsalResult,
+  TelemetryEvent,
   TranscriptSegment,
   UsageSummary,
   WhisperModelInfo,
@@ -86,6 +88,16 @@ export function startSession(): Promise<string> {
 
 export function stopSession(): Promise<void> {
   return invoke("stop_session");
+}
+
+/** Pause the active session — mic/loopback devices stay open; nothing is
+ *  transcribed or recorded while paused, so resume is instant. */
+export function pauseSession(): Promise<void> {
+  return invoke("pause_session");
+}
+
+export function resumeSession(): Promise<void> {
+  return invoke("resume_session");
 }
 
 /** Start recording the live call to a stereo WAV; resolves to the file path. */
@@ -445,6 +457,20 @@ export function contextGeneratePersonas(
   return invoke<ConversationContext>("context_generate_personas", { id });
 }
 
+/** Mark or unmark a persona as a favorite — scoped to this context for now
+ *  (see ContextPersona.favorite). */
+export function contextToggleFavoritePersona(
+  id: string,
+  personaId: string,
+  favorite: boolean,
+): Promise<ConversationContext> {
+  return invoke<ConversationContext>("context_toggle_favorite_persona", {
+    id,
+    personaId,
+    favorite,
+  });
+}
+
 /** Record the chosen persona. */
 export function contextChoosePersona(
   id: string,
@@ -456,9 +482,11 @@ export function contextChoosePersona(
   });
 }
 
-/** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns session id. */
-export function contextStartRehearsal(id: string): Promise<string> {
-  return invoke<string>("context_start_rehearsal", { id });
+/** Start a live rehearsal (mic → persona LLM → Aura TTS). Returns the session
+ *  id plus whether a TTS key is configured (`voice_enabled`), so the caller
+ *  can flag a text-only rehearsal instead of a silently mute one. */
+export function contextStartRehearsal(id: string): Promise<StartRehearsalResult> {
+  return invoke<StartRehearsalResult>("context_start_rehearsal", { id });
 }
 
 /** End the user's current rehearsal turn now (manual "your turn"). */
@@ -497,6 +525,29 @@ export function usageSummary(): Promise<UsageSummary> {
 /** Clear all usage counters; returns the emptied snapshot. */
 export function usageReset(): Promise<UsageSummary> {
   return invoke<UsageSummary>("usage_reset");
+}
+
+/** This device's persisted telemetry id (docs/platform/15-events-implementation.md §6). */
+export function telemetryDeviceId(): Promise<string> {
+  return invoke<string>("telemetry_device_id");
+}
+
+/** Append one taxonomy event to the local durable queue. Best-effort on the
+ *  shell side — a malformed/unknown event is logged and dropped there, never
+ *  rejected back to the caller. Prefer `telemetry/queue.ts`'s `appendEvent`,
+ *  which validates client-side first (see `telemetry/events.ts`). */
+export function telemetryAppendEvent(ev: string, fields: Record<string, unknown>, sessionId?: string | null): Promise<void> {
+  return invoke("telemetry_append_event", { ev, fields, sessionId: sessionId ?? null });
+}
+
+/** The next up-to-`limit` unflushed events, oldest first. */
+export function telemetryReadBatch(limit: number): Promise<TelemetryEvent[]> {
+  return invoke<TelemetryEvent[]>("telemetry_read_batch", { limit });
+}
+
+/** Mark everything through `throughSeq` as durably flushed. */
+export function telemetryAdvanceCursor(throughSeq: number): Promise<void> {
+  return invoke("telemetry_advance_cursor", { throughSeq });
 }
 
 /** Copy library originals into the repo `library/` folder for git commit. */

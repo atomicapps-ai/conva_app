@@ -169,6 +169,10 @@ try {
   record(10, "End → bye + telemetry", stopVisible && ended !== null, { end_control: stopVisible, settle_ms: ended, telemetry_posts: gw.stats.telemetry.length });
 
   // ── 11: Save conversation → listed in History → reopens with its transcript.
+  // End is a plain stop now (owner, 2026-09-15) — it no longer opens this
+  // dialog on its own; the persistent Save action in the control bar does.
+  const saveButton = page.getByRole("button", { name: /^save this conversation$/i });
+  if (await saveButton.isVisible().catch(() => false)) await saveButton.click().catch(() => {});
   const saveHeading = page.getByRole("heading", { name: /save this conversation\?/i });
   const saveOffered = await saveHeading.waitFor({ state: "visible", timeout: 6000 }).then(() => true).catch(() => false);
   let saved = false;

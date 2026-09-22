@@ -127,6 +127,7 @@ pub fn metered_stream(
     on_token: &mut dyn FnMut(&str),
 ) -> Result<TokenUsage, CoreError> {
     let mut usage = TokenUsage::default();
+    let t0 = std::time::Instant::now();
     let result = crate::llm::stream_completion(
         selection.provider,
         api_key,
@@ -142,6 +143,7 @@ pub fn metered_stream(
         &selection.model,
         usage,
         result.is_ok(),
+        t0.elapsed().as_millis() as u64,
     );
     result.map(|()| usage)
 }
@@ -149,7 +151,10 @@ pub fn metered_stream(
 /// Attribute one completion attempt's tokens to `provider` and its
 /// `feature` × `model` bucket, append the raw event row, then persist.
 /// `ok = false` marks a failed attempt whose partial tokens were still
-/// billed. Best-effort.
+/// billed. Also pushes an `ally_asked` event into the local telemetry queue
+/// (docs/platform/15-events-implementation.md §9: this is the local
+/// usage/metering ledger's own precursor of that taxonomy event — the SAME
+/// call site, two sinks, not two instrumentation systems). Best-effort.
 pub fn record_llm(
     app: &AppHandle,
     feature: &str,
@@ -157,28 +162,68 @@ pub fn record_llm(
     model: &str,
     usage: TokenUsage,
     ok: bool,
+    latency_ms: u64,
 ) {
     append_event(app, feature, provider, model, &usage, ok);
     let state = app.state::<AppState>();
     let mut ledger = state.usage.lock().expect("usage lock");
     ledger.record_llm(feature, provider, model, usage, ok, now_unix_ms());
     persist(app, &ledger);
+    drop(ledger);
+    crate::telemetry_events::append(
+        app,
+        "ally_asked",
+        serde_json::json!({
+            "feature": feature,
+            "provider": crate::trace::provider_label(provider),
+            "model": model,
+            "in_tokens": usage.input_tokens,
+            "out_tokens": usage.output_tokens,
+            "latency_ms": latency_ms,
+            "ok": ok,
+        }),
+        None,
+    );
 }
 
-/// Count `count` research-provider searches, then persist. Best-effort.
+/// Count `count` research-provider searches, then persist. Also pushes a
+/// `research_search` event (15 §9). Best-effort.
 pub fn record_research_search(app: &AppHandle, count: u64) {
+    if count == 0 {
+        return;
+    }
     let state = app.state::<AppState>();
     let mut ledger = state.usage.lock().expect("usage lock");
     ledger.record_research_search(count, now_unix_ms());
     persist(app, &ledger);
+    drop(ledger);
+    crate::telemetry_events::append(
+        app,
+        "research_search",
+        serde_json::json!({ "count": count }),
+        None,
+    );
 }
 
 /// Count `chars` synthesized by TTS (Aura bills per character), then persist.
+/// Also pushes a `tts_synthesized` event, bucketed rather than the raw
+/// character count (15 §9: keep cardinality/privacy sane, same pattern as
+/// `doc_ingested`'s `size_bucket`). Best-effort.
 pub fn record_tts_characters(app: &AppHandle, chars: u64) {
+    if chars == 0 {
+        return;
+    }
     let state = app.state::<AppState>();
     let mut ledger = state.usage.lock().expect("usage lock");
     ledger.record_tts_characters(chars, now_unix_ms());
     persist(app, &ledger);
+    drop(ledger);
+    crate::telemetry_events::append(
+        app,
+        "tts_synthesized",
+        serde_json::json!({ "chars_bucket": conva_core::telemetry_events::chars_bucket(chars) }),
+        None,
+    );
 }
 
 /// Add `ms` of listening time (Live or rehearsal), then persist. Best-effort.

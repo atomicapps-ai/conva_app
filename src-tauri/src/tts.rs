@@ -23,10 +23,16 @@ const AURA_MODEL: &str = "aura-asteria-en";
 const AURA_RATE: u32 = 24_000;
 
 /// Synthesize `text` with Aura and play it on the default output device,
-/// blocking until playback finishes. Returns `Ok(())` once spoken.
-pub fn speak(api_key: &str, text: &str) -> Result<(), CoreError> {
+/// blocking until playback finishes (or `cancel` is set — owner report,
+/// 2026-09-15: ending a rehearsal used to let the current line finish
+/// speaking in full, because nothing here could be interrupted mid-flight).
+/// Checked before the network fetch, again before playback starts, and
+/// inside the output callback each buffer — so End during "speaking" cuts
+/// the persona off within roughly one poll interval instead of waiting out
+/// the whole reply. Returns `Ok(())` either way (spoken, or cancelled).
+pub fn speak(api_key: &str, text: &str, cancel: &Arc<AtomicBool>) -> Result<(), CoreError> {
     let text = text.trim();
-    if text.is_empty() {
+    if text.is_empty() || cancel.load(Ordering::Relaxed) {
         return Ok(());
     }
 
@@ -55,6 +61,12 @@ pub fn speak(api_key: &str, text: &str) -> Result<(), CoreError> {
         .iter()
         .map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0)
         .collect();
+
+    // Cancelled while Aura was synthesizing (the network fetch above isn't
+    // itself interruptible) — never start playback.
+    if cancel.load(Ordering::Relaxed) {
+        return Ok(());
+    }
 
     // 2. Resolve the output device + its native format.
     let host = cpal::default_host();
@@ -89,6 +101,7 @@ pub fn speak(api_key: &str, text: &str) -> Result<(), CoreError> {
             samples,
             pos,
             done.clone(),
+            cancel.clone(),
             channels,
             err_fn,
         )?,
@@ -98,6 +111,7 @@ pub fn speak(api_key: &str, text: &str) -> Result<(), CoreError> {
             samples,
             pos,
             done.clone(),
+            cancel.clone(),
             channels,
             err_fn,
         )?,
@@ -107,6 +121,7 @@ pub fn speak(api_key: &str, text: &str) -> Result<(), CoreError> {
             samples,
             pos,
             done.clone(),
+            cancel.clone(),
             channels,
             err_fn,
         )?,
@@ -118,11 +133,15 @@ pub fn speak(api_key: &str, text: &str) -> Result<(), CoreError> {
     };
     stream.play().map_err(|e| CoreError::Audio(e.to_string()))?;
 
-    // 5. Block until the buffer drains (with a safety cap), then let the last
-    //    device buffer flush before dropping the stream.
+    // 5. Block until the buffer drains (with a safety cap) or cancellation
+    //    fires, then let the last device buffer flush before dropping the
+    //    stream.
     let max = Duration::from_secs_f32(total_frames as f32 / out_rate.max(1) as f32 + 2.0);
     let started = Instant::now();
-    while !done.load(Ordering::Relaxed) && started.elapsed() < max {
+    while !done.load(Ordering::Relaxed)
+        && !cancel.load(Ordering::Relaxed)
+        && started.elapsed() < max
+    {
         std::thread::sleep(Duration::from_millis(20));
     }
     std::thread::sleep(Duration::from_millis(80));
@@ -147,6 +166,7 @@ fn build_stream<T>(
     samples: Arc<Vec<f32>>,
     pos: Arc<AtomicUsize>,
     done: Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
     channels: usize,
     err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
 ) -> Result<cpal::Stream, CoreError>
@@ -159,7 +179,10 @@ where
             move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
                 for frame in data.chunks_mut(channels) {
                     let i = pos.fetch_add(1, Ordering::Relaxed);
-                    let sample = if i < samples.len() {
+                    let sample = if cancel.load(Ordering::Relaxed) {
+                        done.store(true, Ordering::Relaxed);
+                        0.0
+                    } else if i < samples.len() {
                         samples[i]
                     } else {
                         done.store(true, Ordering::Relaxed);

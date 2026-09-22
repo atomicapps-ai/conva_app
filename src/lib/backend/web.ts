@@ -74,6 +74,7 @@ import type {
   RagDocument,
   SecretsStatus,
   SessionSummary,
+  StartRehearsalResult,
   TranscriptSegment,
   UsageSummary,
   WhisperModelInfo,
@@ -443,6 +444,12 @@ export class WebBackend implements ConvaBackend {
       if (this.runner) await this.runner.stop();
       useHostedConsentStore.getState().reset();
     },
+    // No pause/resume in the hosted pipeline yet — a paused hosted session
+    // would still be charged credit for an idle WebSocket with nothing to
+    // show for it, unlike desktop's local mic (free, and the device stays
+    // open at zero marginal cost). Stop/Start is the only path today.
+    pause: (): Promise<void> => unsupported("session.pause"),
+    resume: (): Promise<void> => unsupported("session.resume"),
   };
 
   capture = {
@@ -624,7 +631,9 @@ export class WebBackend implements ConvaBackend {
       todo("POST /v1/contexts/:id/personas"),
     choosePersona: (): Promise<ConversationContext> =>
       todo("PATCH /v1/contexts/:id/persona"),
-    startRehearsal: (): Promise<string> =>
+    toggleFavoritePersona: (): Promise<ConversationContext> =>
+      todo("PATCH /v1/contexts/:id/persona/favorite"),
+    startRehearsal: (): Promise<StartRehearsalResult> =>
       unsupported("context.startRehearsal (desktop audio)"),
     rehearsalYourTurn: (): Promise<void> =>
       unsupported("context.rehearsalYourTurn (desktop audio)"),

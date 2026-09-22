@@ -57,6 +57,15 @@ export type SessionStateEvent =
   | { state: "paused"; session_id: string }
   | { state: "error"; message: string };
 
+/** Result of starting a live Context rehearsal. `voice_enabled` is false when
+ *  no Deepgram key is configured (Aura TTS reuses it) — the rehearsal still
+ *  runs, but text-only, so the UI should flag that instead of leaving the
+ *  user wondering why the persona never speaks. */
+export interface StartRehearsalResult {
+  session_id: string;
+  voice_enabled: boolean;
+}
+
 /** Live Context rehearsal phase — drives the speaking/active-speaker UI. */
 export type RehearsalStateEvent =
   | { phase: "listening" }
@@ -605,6 +614,11 @@ export interface ContextPersona {
   style_tags: string[];
   recommended: boolean;
   gender?: PersonaGender | null;
+  /** User-marked favorite (owner, 2026-09-15) — survives "Generate personas"
+   *  for this same context instead of being discarded with the rest. Scoped
+   *  to one context for now; reuse across different contexts is a separate,
+   *  larger feature. */
+  favorite: boolean;
 }
 
 /** A web-research source folded into a knowledge profile. */
@@ -817,6 +831,29 @@ export interface UsageSummary {
   /** When the current window opened (first record / last reset); 0 = never. */
   since_unix_ms: number;
   updated_at_unix_ms: number;
+}
+
+/* ── Local telemetry queue (mirror of conva_core::telemetry_events) ─────────
+   docs/platform/15-events-implementation.md §6, §9. The wire shape only —
+   the taxonomy + per-event field validation this mirrors is in
+   src/lib/telemetry/events.ts, hand-kept in lockstep with
+   crates/conva-core/src/telemetry_events.rs the same way ipc.ts mirrors the
+   rest of the Rust↔TS contract. */
+
+/** One taxonomy event, exactly as stored in `<app-data>/telemetry/events.jsonl`
+ *  and as `/api/events`/`/api/live/events` expect it. Counts, timings, enums
+ *  and booleans only — no free text, no identifiers of user content. */
+export interface TelemetryEvent {
+  ev: string;
+  seq: number;
+  /** Unix ms — when the event occurred (client clock). */
+  t: number;
+  schema_v: number;
+  session_id: string | null;
+  app_version: string;
+  /** `"desktop"` | `"web"`. */
+  platform: string;
+  fields: Record<string, unknown>;
 }
 
 export interface AppConfig {
