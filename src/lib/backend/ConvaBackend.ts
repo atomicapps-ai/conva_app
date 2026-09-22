@@ -292,6 +292,11 @@ export interface ConvaBackend {
     deactivateContext(): Promise<void>;
     /** Copy documents into this Context's folder; returns paths to ingest. */
     storeDocs(title: string, paths: string[]): Promise<string[]>;
+    /** Desktop: store a document that arrived as BYTES (dropped onto a slot or
+     *  pasted) in the Context's folder and return its path, to be ingested with
+     *  `rag.ingest`. A dropped `File` has no filesystem path, so `storeDocs`
+     *  cannot be used for it. Web uses `rag.upload` instead (`unsupported` here). */
+    storeDocFile(title: string, file: File): Promise<string>;
     /** Build the reusable knowledge profile (docs + research) and mark ready. */
     prepare(id: string): Promise<ConversationContext>;
     /** Load a knowledge profile (attached docs + researched sources) by id. */
