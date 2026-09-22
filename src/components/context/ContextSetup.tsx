@@ -57,20 +57,53 @@ import { useAppStore } from "@/state/app";
  * these zones read only `DOC_DRAG_MIME`, so an Explorer drop silently did
  * nothing at all.
  */
-function ResourceDropZone({
+/**
+ * One component for every way a document gets into a Context slot: the Upload
+ * picker, an OS file drop, an in-app Library-row drag, and the clipboard
+ * (Paste button or Ctrl/Cmd+V). Owner, 2026-09-22 — the Upload and Paste
+ * buttons sit in the CENTRE of the drop rectangle so the whole affordance is
+ * one thing to look at, which supersedes the earlier "compact Upload control in
+ * the section header" placement (CLAUDE.md rule 9, updated alongside this).
+ *
+ * The OS-file and paste paths exist because the window runs with
+ * `dragDropEnabled: false` (rule 8) so in-page HTML5 drag-drop works at all.
+ * That also means Tauri's `onDragDropEvent` never fires, so a dropped file
+ * arrives as a `File` with no filesystem path — handled by
+ * `context.storeDocFile` on desktop and `rag.upload` on web.
+ */
+function ResourceIntake({
+  title,
+  label,
+  description,
+  docs,
   active,
+  busy,
+  canUpload,
   onSelect,
+  onUpload,
+  onPasteClipboard,
   onDropDoc,
   onDropFiles,
   onPasteText,
-  children,
+  onRemove,
 }: {
+  /** Heading shown to the user (may carry a "(multiple)" suffix). */
+  title: string;
+  /** Plain slot name used in aria-labels — stable even when the heading gains
+   *  a suffix, so assistive tech and tests name the same thing. */
+  label: string;
+  description: string;
+  docs: readonly RagDocument[];
   active: boolean;
+  busy: boolean;
+  canUpload: boolean;
   onSelect: () => void;
+  onUpload: () => void;
+  onPasteClipboard: () => void;
   onDropDoc: (docId: string) => void;
   onDropFiles: (files: File[]) => void;
   onPasteText: (text: string) => void;
-  children: React.ReactNode;
+  onRemove: (docId: string) => void;
 }) {
   const [over, setOver] = useState(false);
   return (
@@ -115,7 +148,7 @@ function ResourceDropZone({
           onPasteText(text);
         }
       }}
-      // Focusable so a paste has somewhere to land: `onPaste` only fires for
+      // Focusable so a Ctrl+V has somewhere to land: `onPaste` only fires for
       // the focused element (or its ancestors), and a plain <div> never is.
       tabIndex={0}
       className={[
@@ -127,7 +160,69 @@ function ResourceDropZone({
         .filter(Boolean)
         .join(" ")}
     >
-      {children}
+      <Section title={title} description={description}>
+        {docs.length > 0 && (
+          <ul className="mb-3 divide-y divide-border">
+            {docs.map((doc) => (
+              <li key={doc.id} className="flex items-center gap-2 py-2">
+                <DocumentTypeIcon doc={doc} size={15} />
+                <span className="min-w-0 flex-1 truncate text-sm text-fg">{doc.file_name}</span>
+                {doc.source === "pasted" && (
+                  <span className="shrink-0 rounded-full bg-panel-raised px-1.5 py-0.5 text-[10px] text-fg-faint">
+                    From clipboard
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRemove(doc.id);
+                  }}
+                  aria-label={`Remove ${doc.file_name} from ${label}`}
+                  className="rounded-sm p-1 text-fg-faint hover:bg-rec/10 hover:text-rec"
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border px-3 py-4 text-center">
+          <p className="text-[11px] text-fg-faint">
+            Drop files here, paste with Ctrl+V, or drag a row from the Library
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              className="btn h-7 px-2 py-1 text-[10px]"
+              disabled={busy || !canUpload}
+              aria-label={`Upload files to ${label}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelect();
+                onUpload();
+              }}
+            >
+              <Icon name="upload" size={12} />
+              Upload
+            </button>
+            <button
+              type="button"
+              className="btn h-7 px-2 py-1 text-[10px]"
+              disabled={busy}
+              aria-label={`Paste clipboard into ${label}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelect();
+                onPasteClipboard();
+              }}
+            >
+              <Icon name="clipboard" size={12} />
+              Paste
+            </button>
+          </div>
+        </div>
+      </Section>
     </div>
   );
 }
@@ -466,6 +561,45 @@ export function ContextSetup({
     }
   };
 
+  /** Read the clipboard on demand (the Paste button) and save it as a file in
+   *  `target`. An image lands as a real image file; otherwise the text is
+   *  stored as a `.txt`, which `rag.ingest_text` marks `DocSource::Pasted` so
+   *  the row shows a "From clipboard" badge. Ctrl+V still works separately via
+   *  the zone's own onPaste — this is the button path, which needs the async
+   *  Clipboard API because there is no paste event to read from. */
+  const pasteFromClipboard = async (target: string, label: string) => {
+    const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "-");
+    try {
+      // Images first: a screenshot has no useful text form.
+      if (navigator.clipboard?.read) {
+        const items = await navigator.clipboard.read();
+        const files: File[] = [];
+        for (const item of items) {
+          const type = item.types.find((t) => t.startsWith("image/"));
+          if (!type) continue;
+          const blob = await item.getType(type);
+          files.push(new File([blob], `clipboard ${stamp}.${type.split("/")[1] || "png"}`, { type }));
+        }
+        if (files.length > 0) {
+          await ingestFiles(files, target);
+          return;
+        }
+      }
+    } catch {
+      // read() is unavailable or permission was refused — fall through to text.
+    }
+    try {
+      const text = (await navigator.clipboard.readText())?.trim();
+      if (!text) {
+        setError("The clipboard is empty.");
+        return;
+      }
+      await pasteResource(`${label} (clipboard ${stamp})`, text, target);
+    } catch {
+      setError("Couldn't read the clipboard — click the section and press Ctrl+V instead.");
+    }
+  };
+
   const pasteResource = async (name: string, text: string, target: string) => {
     setError(null);
     try {
@@ -680,118 +814,42 @@ export function ContextSetup({
             <span className="rounded-full bg-primary-ink/15 px-1.5 text-[10px]">{selected.length}</span>
           </button>
           {slotGroups.map(({ slot, docs: assignedDocs }) => (
-            <ResourceDropZone
+            <ResourceIntake
               key={slot.key}
+              title={slot.label + (slot.multiple ? " (multiple)" : "")}
+              label={slot.label}
+              description="Select this section, then upload, drop, or paste a resource — or drag one from the Library column."
+              docs={assignedDocs}
               active={libraryTarget === slot.key}
+              busy={adding}
+              canUpload={isDesktop}
               onSelect={() => setLibraryTarget(slot.key)}
+              onUpload={() => void addDocuments(slot.key)}
+              onPasteClipboard={() => void pasteFromClipboard(slot.key, slot.label)}
               onDropDoc={(docId) => assignDocument(slot.key, docId)}
               onDropFiles={(files) => void ingestFiles(files, slot.key)}
               onPasteText={(text) => void pasteResource(slot.label, text, slot.key).catch(() => {})}
-            >
-              <Section
-                title={slot.label + (slot.multiple ? " (multiple)" : "")}
-                description="Select this section, add from the Library column, or drop a resource here."
-                actions={
-                  <button
-                    type="button"
-                    className="btn h-7 px-2 py-1 text-[10px]"
-                    disabled={adding || !isDesktop}
-                    aria-label={`Upload files to ${slot.label}`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setLibraryTarget(slot.key);
-                      void addDocuments(slot.key);
-                    }}
-                  >
-                    <Icon name="upload" size={12} />
-                    Upload
-                  </button>
-                }
-              >
-                {assignedDocs.length === 0 ? (
-                  <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] text-fg-faint">
-                    Drop resources here
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-border">
-                    {assignedDocs.map((doc) => (
-                      <li key={doc.id} className="flex items-center gap-2 py-2">
-                        <DocumentTypeIcon doc={doc} size={15} />
-                        <span className="min-w-0 flex-1 truncate text-sm text-fg">{doc.file_name}</span>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            removeDocument(slot.key, doc.id);
-                          }}
-                          aria-label={`Remove ${doc.file_name} from ${slot.label}`}
-                          className="rounded-sm p-1 text-fg-faint hover:bg-rec/10 hover:text-rec"
-                        >
-                          <Icon name="close" size={12} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Section>
-            </ResourceDropZone>
+              onRemove={(docId) => removeDocument(slot.key, docId)}
+            />
           ))}
-          <ResourceDropZone
+          <ResourceIntake
+            title="Other documents"
+            label="Other documents"
+            description="Anything that does not fit a section above still grounds this Context."
+            docs={assignedOtherDocs}
             active={libraryTarget === OTHER_RESOURCE_TARGET}
+            busy={adding}
+            canUpload={isDesktop}
             onSelect={() => setLibraryTarget(OTHER_RESOURCE_TARGET)}
+            onUpload={() => void addDocuments(OTHER_RESOURCE_TARGET)}
+            onPasteClipboard={() => void pasteFromClipboard(OTHER_RESOURCE_TARGET, "Other documents")}
             onDropDoc={(docId) => assignDocument(OTHER_RESOURCE_TARGET, docId)}
             onDropFiles={(files) => void ingestFiles(files, OTHER_RESOURCE_TARGET)}
             onPasteText={(text) =>
               void pasteResource("Pasted note", text, OTHER_RESOURCE_TARGET).catch(() => {})
             }
-          >
-            <Section
-              title="Other documents"
-              description="Anything that does not fit a section above still grounds this Context."
-              actions={
-                <button
-                  type="button"
-                  className="btn h-7 px-2 py-1 text-[10px]"
-                  disabled={adding || !isDesktop}
-                  aria-label="Upload files to Other documents"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setLibraryTarget(OTHER_RESOURCE_TARGET);
-                    void addDocuments(OTHER_RESOURCE_TARGET);
-                  }}
-                >
-                  <Icon name="upload" size={12} />
-                  Upload
-                </button>
-              }
-            >
-              {assignedOtherDocs.length === 0 ? (
-                <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-[11px] text-fg-faint">
-                  Drop other supporting resources here
-                </p>
-              ) : (
-                <ul className="divide-y divide-border">
-                  {assignedOtherDocs.map((doc) => (
-                    <li key={doc.id} className="flex items-center gap-2 py-2">
-                      <DocumentTypeIcon doc={doc} size={15} />
-                      <span className="min-w-0 flex-1 truncate text-sm text-fg">{doc.file_name}</span>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          removeDocument(OTHER_RESOURCE_TARGET, doc.id);
-                        }}
-                        aria-label={`Remove ${doc.file_name} from Other documents`}
-                        className="rounded-sm p-1 text-fg-faint hover:bg-rec/10 hover:text-rec"
-                      >
-                        <Icon name="close" size={12} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Section>
-          </ResourceDropZone>
+            onRemove={(docId) => removeDocument(OTHER_RESOURCE_TARGET, docId)}
+          />
           {initial && (
             <Section
               title="Generate Context resources"

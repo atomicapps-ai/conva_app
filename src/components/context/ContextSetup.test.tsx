@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ContextSetup } from "@/components/context/ContextSetup";
@@ -26,6 +26,10 @@ function renderSetup(overrides?: Partial<ConvaBackend>) {
       <ContextSetup onDone={() => undefined} onCancel={() => undefined} />
     </BackendProvider>,
   );
+}
+
+function pastedDoc(id: string, fileName: string) {
+  return { ...ragDoc(id, fileName), source: "pasted" as const };
 }
 
 function ragDoc(id: string, fileName: string) {
@@ -493,6 +497,73 @@ describe("ContextSetup wizard", () => {
     await waitFor(() => expect(ingestText).toHaveBeenCalledTimes(1));
     // Trimmed, and labelled with the slot it was pasted into.
     expect(ingestText.mock.calls[0][1]).toBe("pasted résumé text");
+  });
+
+  it("Paste saves the clipboard as a file and marks it as coming from the clipboard", async () => {
+    const ingestText = vi
+      .fn()
+      .mockResolvedValue({ document: pastedDoc("p1", "Résumé / CV (clipboard)"), warnings: [] });
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([pastedDoc("p1", "Résumé / CV (clipboard)")]);
+    // No async read() — exercises the readText fallback the button relies on
+    // when the clipboard holds plain text.
+    Object.assign(navigator, {
+      clipboard: { readText: vi.fn().mockResolvedValue("  pasted from the button  ") },
+    });
+    renderSetup({ rag: { list, ingestText } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    fireEvent.click(screen.getByRole("button", { name: "Paste clipboard into Résumé / CV" }));
+
+    await waitFor(() => expect(ingestText).toHaveBeenCalledTimes(1));
+    expect(ingestText.mock.calls[0][1]).toBe("pasted from the button");
+    // rag.ingest_text stores DocSource::Pasted, which is what the badge reads —
+    // so the saved file is visibly "from clipboard", not just named like it.
+    expect(await screen.findByText("From clipboard")).toBeInTheDocument();
+  });
+
+  it("saves a clipboard IMAGE as an image file rather than falling back to text", async () => {
+    const upload = vi
+      .fn()
+      .mockResolvedValue([{ document: ragDoc("i1", "clipboard.png"), warnings: [] }]);
+    const list = vi.fn().mockResolvedValueOnce([]).mockResolvedValue([ragDoc("i1", "clipboard.png")]);
+    const readText = vi.fn().mockResolvedValue("should not be used");
+    Object.assign(navigator, {
+      clipboard: {
+        readText,
+        read: vi.fn().mockResolvedValue([
+          { types: ["image/png"], getType: vi.fn().mockResolvedValue(new Blob(["x"], { type: "image/png" })) },
+        ]),
+      },
+    });
+    renderSetup({ rag: { list, upload } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    fireEvent.click(screen.getByRole("button", { name: "Paste clipboard into Résumé / CV" }));
+
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    expect(upload.mock.calls[0][0][0].type).toBe("image/png");
+    // A screenshot has no useful text form, so the text path must not run.
+    expect(readText).not.toHaveBeenCalled();
+  });
+
+  it("offers a delete control on every attached file", async () => {
+    const list = vi.fn().mockResolvedValue([ragDoc("d1", "resume.pdf")]);
+    renderSetup({ rag: { list } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    const zone = screen
+      .getByRole("heading", { name: /résumé \/ cv/i })
+      .closest("div[tabindex]") as HTMLElement;
+    fireEvent.drop(zone, { dataTransfer: transfer({ docId: "d1" }) });
+    // Scope to the slot: the Library column is `hidden xl:block`, but Tailwind
+    // classes don't apply in jsdom, so it renders too and lists the same file.
+    expect(await within(zone).findByText("resume.pdf")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove resume.pdf from Résumé / CV" }));
+    await waitFor(() => expect(within(zone).queryByText("resume.pdf")).not.toBeInTheDocument());
   });
 
   it("shows the selected category's slot section labels, and switches them on category change", async () => {
