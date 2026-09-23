@@ -102,6 +102,9 @@ export function friendlyAllyError(raw: string): string {
   if (/overloaded_error/i.test(raw)) {
     return "The LLM provider is temporarily overloaded. Wait a moment and try again.";
   }
+  if (/^api_key_missing$/i.test(raw.trim())) {
+    return "No API key is set for your LLM provider. Add one in Settings → LLM, then try again.";
+  }
   return raw;
 }
 

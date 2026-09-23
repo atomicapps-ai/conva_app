@@ -111,6 +111,16 @@ describe("friendlyAllyError", () => {
     );
   });
 
+  it("turns the raw api_key_missing string into an actionable message (owner, #340 follow-up)", () => {
+    // CoachingSetupView's "Generate resources"/"Regenerate" button threw this
+    // literal string (src-tauri/src/llm.rs's resolve_key) straight to the UI
+    // before this case existed — the same bug #340 fixed for "Generate
+    // personas" but missed here.
+    expect(friendlyAllyError("api_key_missing")).toBe(
+      "No API key is set for your LLM provider. Add one in Settings → LLM, then try again.",
+    );
+  });
+
   it("passes unrecognized errors through unchanged", () => {
     expect(friendlyAllyError("stream read: connection reset")).toBe(
       "stream read: connection reset",
