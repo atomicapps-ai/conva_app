@@ -23,9 +23,12 @@ import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
 import {
   DEFAULT_CONTEXT_ID,
+  isTauri,
   type ContextSummary,
   type ConversationContext,
 } from "@/lib/ipc";
+import { friendlyAllyError } from "@/state/ally";
+import { useAppStore } from "@/state/app";
 import { useGroundingStore } from "@/state/grounding";
 import { useNavStore } from "@/state/nav";
 import { useRehearsalStore } from "@/state/rehearsal";
@@ -69,6 +72,19 @@ export function CoachingSetupView({
   const caps = useCapabilities();
   const setView = useNavStore((s) => s.setView);
   const beginRehearsal = useRehearsalStore((s) => s.begin);
+  const keyStatus = useAppStore((s) => s.keyStatus);
+  const registry = useAppStore((s) => s.registry);
+  const llmQuality = useAppStore((s) => s.config?.llm_quality);
+  // Proactive "no key" advisory for persona generation (owner: "why is
+  // generating a person[a] giving an error?" — it was the raw
+  // `api_key_missing` string from a missing LLM key). `keyStatus` is only
+  // populated on desktop (`useAppStore.init()` no-ops on web), so this stays
+  // `null` (unknown → don't block) there and the raw-but-now-friendlier error
+  // from `generatePersonas`'s catch is the fallback.
+  const personaKeyReady =
+    isTauri() && llmQuality ? (keyStatus[llmQuality.provider] ?? false) : null;
+  const personaProviderName =
+    registry.find((p) => p.id === llmQuality?.provider)?.name ?? llmQuality?.provider ?? "your LLM provider";
 
   const [stage, setStage] = useState<"choose" | "create" | "configure">(
     // A template goes straight into the Context wizard, prefilled.
@@ -119,7 +135,7 @@ export function CoachingSetupView({
       setFull(await backend.context.generatePersonas(chosenId));
       setError(null);
     } catch (e) {
-      setError(String(e).replace(/^Error:\s*/, ""));
+      setError(friendlyAllyError(String(e).replace(/^Error:\s*/, "")));
     } finally {
       setBusy(null);
     }
@@ -130,7 +146,7 @@ export function CoachingSetupView({
     try {
       setFull(await backend.context.choosePersona(chosenId, personaId));
     } catch (e) {
-      setError(String(e).replace(/^Error:\s*/, ""));
+      setError(friendlyAllyError(String(e).replace(/^Error:\s*/, "")));
     }
   };
 
@@ -144,7 +160,7 @@ export function CoachingSetupView({
       loadList();
       loadFull(chosenId);
     } catch (e) {
-      setError(String(e).replace(/^Error:\s*/, ""));
+      setError(friendlyAllyError(String(e).replace(/^Error:\s*/, "")));
     } finally {
       setBusy(null);
     }
@@ -167,7 +183,7 @@ export function CoachingSetupView({
       );
       setView("live");
     } catch (e) {
-      setError(String(e).replace(/^Error:\s*/, ""));
+      setError(friendlyAllyError(String(e).replace(/^Error:\s*/, "")));
     } finally {
       setBusy(null);
     }
@@ -330,9 +346,16 @@ export function CoachingSetupView({
             ) : full.personas.length === 0 ? (
               <EmptyState
                 title="No personas generated yet"
-                description={`Ally builds three ${summary ? PERSONA_ROLE_LABEL[summary.category].toLowerCase() : "counterparty"} options from this Context's material.`}
+                description={
+                  personaKeyReady === false
+                    ? `No API key set for ${personaProviderName} — add one in Settings → LLM, then come back and generate personas.`
+                    : `Ally builds three ${summary ? PERSONA_ROLE_LABEL[summary.category].toLowerCase() : "counterparty"} options from this Context's material.`
+                }
                 action={
-                  <PrimaryButton onClick={() => void generatePersonas()} disabled={busy !== null}>
+                  <PrimaryButton
+                    onClick={() => void generatePersonas()}
+                    disabled={busy !== null || personaKeyReady === false}
+                  >
                     {busy === "personas" && (
                       <span className="h-3 w-3 animate-spin rounded-full border-2 border-ai/30 border-t-ai" />
                     )}
