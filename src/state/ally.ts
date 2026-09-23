@@ -79,6 +79,32 @@ export function groupSourcesByFile(
  *  answer text (the Summarize action). */
 const SUMMARY_PREFIX = "sum:";
 
+/** Turns a raw LLM-provider failure into a short, actionable message instead
+ *  of the provider's raw JSON body. `map_ureq` in `src-tauri/src/llm.rs`
+ *  passes non-2xx responses through verbatim (desktop: `CoreError::Llm`'s
+ *  Display, e.g. `LLM provider error: HTTP 400: {"type":"error",...}`; web:
+ *  `allyClient.ts`'s `"<message> (<code>)"`) — this is the one place both
+ *  paths land before a card's `error` reaches the UI. Anything unrecognized
+ *  passes through unchanged rather than risk hiding real debugging info. */
+export function friendlyAllyError(raw: string): string {
+  const usageLimit = raw.match(
+    /reached your specified API usage limits\.?\s*(?:You will regain access on ([^".]+))?/i,
+  );
+  if (usageLimit) {
+    const resumes = usageLimit[1]?.trim();
+    return resumes
+      ? `LLM usage limit reached — access resumes ${resumes}. Switch providers in Settings → LLM, or wait for the reset.`
+      : "LLM usage limit reached. Switch providers in Settings → LLM, or wait for the limit to reset.";
+  }
+  if (/rate_limit_error/i.test(raw) || /\bHTTP 429\b/.test(raw)) {
+    return "The LLM provider is rate-limiting requests right now. Wait a moment and try again, or switch providers in Settings → LLM.";
+  }
+  if (/overloaded_error/i.test(raw)) {
+    return "The LLM provider is temporarily overloaded. Wait a moment and try again.";
+  }
+  return raw;
+}
+
 /** Keep independent UI retention budgets so lightweight term peeks cannot
  * evict question/answer history. Order remains newest-first. */
 export function retainPresentationCards(cards: readonly AllyCard[]): AllyCard[] {
@@ -183,7 +209,9 @@ export const useAllyStore = create<AllyState>((set, get) => ({
       set((s) => ({
         busy: false,
         cards: s.cards.map((c) =>
-          c.id === id ? { ...c, done: true, error: String(e) } : c,
+          c.id === id
+            ? { ...c, done: true, error: friendlyAllyError(String(e)) }
+            : c,
         ),
       }));
     }
@@ -210,7 +238,9 @@ export const useAllyStore = create<AllyState>((set, get) => ({
       set((s) => ({
         busy: false,
         cards: s.cards.map((c) =>
-          c.id === cardId ? { ...c, summary: `Summary failed: ${String(e)}` } : c,
+          c.id === cardId
+            ? { ...c, summary: `Summary failed: ${friendlyAllyError(String(e))}` }
+            : c,
         ),
       }));
     }
@@ -228,7 +258,7 @@ export const useAllyStore = create<AllyState>((set, get) => ({
                 ...c,
                 summary:
                   chunk.error != null
-                    ? `Summary failed: ${chunk.error}`
+                    ? `Summary failed: ${friendlyAllyError(chunk.error)}`
                     : (c.summary ?? "") + chunk.token,
               }
             : c,
@@ -244,7 +274,7 @@ export const useAllyStore = create<AllyState>((set, get) => ({
               ...c,
               text: c.text + chunk.token,
               done: chunk.done,
-              error: chunk.error,
+              error: chunk.error != null ? friendlyAllyError(chunk.error) : chunk.error,
             }
           : c,
       ),

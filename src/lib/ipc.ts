@@ -882,6 +882,11 @@ export interface AppConfig {
    *  default; switchable to Anthropic web search or Tavily so the three can
    *  be compared without a rebuild. */
   research_provider: "firecrawl" | "anthropic_web_search" | "tavily";
+  /** Auto-stop a listening session after this many minutes with no new
+   *  transcribed speech on either side — releases the mic/loopback devices
+   *  and finalizes any recording instead of burning resources unattended.
+   *  `null` disables it. Settings → Devices offers presets + a custom value. */
+  idle_stop_minutes: number | null;
 }
 
 /** Mirror of conva-core audio::AudioDevice. */

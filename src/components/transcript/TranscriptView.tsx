@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { LiveControlBar } from "@/components/studio/LiveControlBar";
 import { LiveTopBar } from "@/components/studio/LiveTopBar";
@@ -2076,11 +2077,39 @@ export function TranscriptView({
 
   const convo = useAutoScroll(merged[merged.length - 1]);
 
+  // Turns render through a windowed virtualizer (fix for the multi-hour
+  // WebView "Out of Memory" crash, 2026-09-23): a long-running or loaded
+  // transcript can reach thousands of turns, and mounting every one as real
+  // DOM forever — with no eviction — was the actual crash cause. Off-screen
+  // turns simply aren't mounted; `measureElement` (ResizeObserver-backed)
+  // corrects each turn's real height once it does mount, so collapse/expand
+  // and multi-segment turns still size correctly. `convo`'s own pin-to-
+  // bottom / onScroll (`useAutoScroll` above) needs no changes for this —
+  // it already drives the real scrollTop of `convo.ref.current`, and this
+  // container's total scroll height still reflects the true content height
+  // via the spacer div below, so both keep working unmodified.
+  const turnVirtualizer = useVirtualizer({
+    count: turns.length,
+    getScrollElement: () => convo.ref.current,
+    // A collapsed ("you") turn is much shorter than an expanded one — a
+    // closer guess means less scroll-position correction once the real,
+    // measured height lands. Only affects the INITIAL estimate.
+    estimateSize: (index) => (collapsed.has(turns[index]?.key ?? "") ? 32 : 80),
+    overscan: 8,
+    getItemKey: (index) => turns[index]?.key ?? index,
+  });
+
   // Perform the queued search-result jump once turns have rendered (their
   // refs land in bubbleEls via registerEl — double rAF gives the DOM a
   // paint cycle after the segments this component was just mounted with).
+  // The target turn may not be in the window the view mounts with (e.g.
+  // jumping to an early turn while pinned to the bottom), so scrollToIndex
+  // mounts it first; centerInScroller then does the exact pixel centering
+  // once it has real, measured bounds.
   useEffect(() => {
     if (!jumpRequest) return;
+    const idx = turns.findIndex((t) => t.key === jumpRequest.key);
+    if (idx >= 0) turnVirtualizer.scrollToIndex(idx, { align: "center" });
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
@@ -3019,95 +3048,124 @@ export function TranscriptView({
                 message to ask Ally — answers open in the Ally column.
               </p>
             ) : (
-              turns.map((turn) => {
-                const key = turn.key;
-                const linked = cardsBySource.get(key) ?? [];
-                const newest = linked[linked.length - 1];
-                // A representative segment for the whole turn: first segment's
-                // identity (so segmentKey === turn.key) with the combined final
-                // text — lets research()/bubbleMenu() work unchanged.
-                const finalText = turn.segments
-                  .filter((s) => s.is_final)
-                  .map((s) => s.text)
-                  .join(" ");
-                const repSeg = {
-                  ...turn.segments[0]!,
-                  text: finalText,
-                  is_final: turn.segments.some((s) => s.is_final),
-                };
-                // Resolve this turn's voice profile + assignment status from
-                // its first segment (every segment in the turn already
-                // shares the same resolved speakerId by construction).
-                const status = voiceStatusFor(turn.segments[0]!);
-                const profile = speakers[turn.speakerId];
-                const speaker: SpeakerHeaderInfo = profile
-                  ? {
-                      id: profile.id,
-                      kind: profile.kind,
-                      // Doc §1: overlap/insufficient speech shows no
-                      // confident identity claim, never a guessed name.
-                      label:
-                        status === "uncertain"
-                          ? "Unclear speaker"
-                          : profile.label,
-                    }
-                  : {
-                      id: turn.speakerId,
-                      kind: turn.side === "outbound" ? "you" : "anonymous",
-                      label: "…",
-                    };
-                const otherSpeakers: SpeakerHeaderInfo[] = Object.values(
-                  speakers,
-                )
-                  .filter((s) => s.id !== speaker.id && s.kind !== "you")
-                  .map((s) => ({ id: s.id, label: s.label, kind: s.kind }));
-                return (
-                  <Bubble
-                    key={key}
-                    segments={turn.segments}
-                    turnKey={key}
-                    registerEl={registerBubble}
-                    flashToken={flash?.key === key ? flash.token : null}
-                    collapsed={collapsed.has(key)}
-                    onToggleCollapse={() => toggleCollapse(key)}
-                    onResearch={() => research(repSeg)}
-                    onAskText={askText}
-                    onSendToAsk={sendToAsk}
-                    onAskTerm={askTerm}
-                    onContextMenu={(e) => bubbleMenu(e, repSeg)}
-                    threadCount={linked.length}
-                    onOpenThreads={() => newest && openThread(newest)}
-                    busy={busy}
-                    fontPx={transcriptFontPx}
-                    sessionStartMs={sessionStartMs}
-                    searchHighlight={searchHighlight}
-                    speaker={speaker}
-                    speakerStatus={status}
-                    otherSpeakers={otherSpeakers}
-                    onRenameSpeaker={(label) =>
-                      renameSpeaker(speaker.id, label)
-                    }
-                    // A true merge (doc UC5): every turn ever resolved to
-                    // this voice — not just this one — folds into the
-                    // target, via the merge table rather than a one-off
-                    // per-segment override.
-                    onMergeSpeaker={(targetId) =>
-                      mergeSpeakerInto(speaker.id, targetId)
-                    }
-                    onSplitSpeaker={() => {
-                      const fresh = createSpeaker();
-                      turn.segments.forEach((s) =>
-                        reassignSpeakerSegment(
-                          segmentKey(s),
-                          fresh.id,
-                          "confirmed",
-                        ),
-                      );
-                    }}
-                    onForgetSpeaker={() => forgetSpeaker(speaker.id)}
-                  />
-                );
-              })
+              // Windowed rendering (see turnVirtualizer above) — a spacer
+              // div carries the true total scroll height, absolutely
+              // positioned items are placed at their measured offsets. Only
+              // turns actually near the viewport are ever mounted.
+              <div
+                style={{
+                  position: "relative",
+                  width: "100%",
+                  height: turnVirtualizer.getTotalSize(),
+                }}
+              >
+                {turnVirtualizer.getVirtualItems().map((virtualItem) => {
+                  const turn = turns[virtualItem.index]!;
+                  const key = turn.key;
+                  const linked = cardsBySource.get(key) ?? [];
+                  const newest = linked[linked.length - 1];
+                  // A representative segment for the whole turn: first segment's
+                  // identity (so segmentKey === turn.key) with the combined final
+                  // text — lets research()/bubbleMenu() work unchanged.
+                  const finalText = turn.segments
+                    .filter((s) => s.is_final)
+                    .map((s) => s.text)
+                    .join(" ");
+                  const repSeg = {
+                    ...turn.segments[0]!,
+                    text: finalText,
+                    is_final: turn.segments.some((s) => s.is_final),
+                  };
+                  // Resolve this turn's voice profile + assignment status from
+                  // its first segment (every segment in the turn already
+                  // shares the same resolved speakerId by construction).
+                  const status = voiceStatusFor(turn.segments[0]!);
+                  const profile = speakers[turn.speakerId];
+                  const speaker: SpeakerHeaderInfo = profile
+                    ? {
+                        id: profile.id,
+                        kind: profile.kind,
+                        // Doc §1: overlap/insufficient speech shows no
+                        // confident identity claim, never a guessed name.
+                        label:
+                          status === "uncertain"
+                            ? "Unclear speaker"
+                            : profile.label,
+                      }
+                    : {
+                        id: turn.speakerId,
+                        kind: turn.side === "outbound" ? "you" : "anonymous",
+                        label: "…",
+                      };
+                  const otherSpeakers: SpeakerHeaderInfo[] = Object.values(
+                    speakers,
+                  )
+                    .filter((s) => s.id !== speaker.id && s.kind !== "you")
+                    .map((s) => ({ id: s.id, label: s.label, kind: s.kind }));
+                  return (
+                    <div
+                      key={key}
+                      ref={turnVirtualizer.measureElement}
+                      data-index={virtualItem.index}
+                      // Replaces the old flex `gap-2.5` between bubbles — that
+                      // gap only applies between in-flow flex children, and
+                      // these items are absolutely positioned.
+                      className="pb-2.5"
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                    >
+                      <Bubble
+                        segments={turn.segments}
+                        turnKey={key}
+                        registerEl={registerBubble}
+                        flashToken={flash?.key === key ? flash.token : null}
+                        collapsed={collapsed.has(key)}
+                        onToggleCollapse={() => toggleCollapse(key)}
+                        onResearch={() => research(repSeg)}
+                        onAskText={askText}
+                        onSendToAsk={sendToAsk}
+                        onAskTerm={askTerm}
+                        onContextMenu={(e) => bubbleMenu(e, repSeg)}
+                        threadCount={linked.length}
+                        onOpenThreads={() => newest && openThread(newest)}
+                        busy={busy}
+                        fontPx={transcriptFontPx}
+                        sessionStartMs={sessionStartMs}
+                        searchHighlight={searchHighlight}
+                        speaker={speaker}
+                        speakerStatus={status}
+                        otherSpeakers={otherSpeakers}
+                        onRenameSpeaker={(label) =>
+                          renameSpeaker(speaker.id, label)
+                        }
+                        // A true merge (doc UC5): every turn ever resolved to
+                        // this voice — not just this one — folds into the
+                        // target, via the merge table rather than a one-off
+                        // per-segment override.
+                        onMergeSpeaker={(targetId) =>
+                          mergeSpeakerInto(speaker.id, targetId)
+                        }
+                        onSplitSpeaker={() => {
+                          const fresh = createSpeaker();
+                          turn.segments.forEach((s) =>
+                            reassignSpeakerSegment(
+                              segmentKey(s),
+                              fresh.id,
+                              "confirmed",
+                            ),
+                          );
+                        }}
+                        onForgetSpeaker={() => forgetSpeaker(speaker.id)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
           {!convo.pinned && (

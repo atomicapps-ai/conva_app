@@ -1,0 +1,188 @@
+{
+  "kind": "first-run-rehearsal",
+  "ran_at": "2026-09-23T17:39:18.903Z",
+  "browser": {
+    "requested": "chromium",
+    "version": "141.0.7390.37",
+    "executable": "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
+    "channel": null,
+    "headless": true,
+    "ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.0.0 Safari/537.36"
+  },
+  "os": {
+    "platform": "linux",
+    "release": "6.18.44-fc-v37",
+    "arch": "x64"
+  },
+  "capabilities": {
+    "secureContext": true,
+    "getUserMedia": true,
+    "getDisplayMedia": true,
+    "audioWorklet": true,
+    "webSocket": true
+  },
+  "capture_mode": "mic",
+  "steps": [
+    {
+      "step": "5a",
+      "name": "Context activated (grounding picker)",
+      "ok": true,
+      "chip_shown": true,
+      "include_shown": true,
+      "picker_closed": true,
+      "title_shown": true
+    },
+    {
+      "step": 5,
+      "name": "Start → notice → microphone",
+      "ok": true,
+      "notice": {
+        "title": "Before you start listening"
+      },
+      "first_audio_ms": 302
+    },
+    {
+      "step": 6,
+      "name": "Finals shown per attached channel",
+      "ok": true,
+      "expected": 2,
+      "shown": 2,
+      "channels": [
+        "self"
+      ]
+    },
+    {
+      "step": 8,
+      "name": "Ask → streamed, cited answer",
+      "ok": true,
+      "ask_box": true,
+      "answer_ms": 318,
+      "citation_shown": true,
+      "card_error": false,
+      "request": {
+        "kind": "question",
+        "question_chars": 31,
+        "segments": 3,
+        "finals": 2,
+        "context_id": true,
+        "context_known": true,
+        "sources": 1,
+        "tokens": 19
+      }
+    },
+    {
+      "step": 10,
+      "name": "End → bye + telemetry",
+      "ok": true,
+      "end_control": true,
+      "settle_ms": 0,
+      "telemetry_posts": 1
+    },
+    {
+      "step": 11,
+      "name": "Save conversation → in History → reopens",
+      "ok": true,
+      "save_offered": true,
+      "saved": true,
+      "listed": true,
+      "reopened": true
+    },
+    {
+      "step": 12,
+      "name": "Delete conversation → gone",
+      "ok": true,
+      "deleted": true
+    }
+  ],
+  "hello": {
+    "protocol": 1,
+    "contract_schema_version": 1,
+    "client_build": "2cb416d"
+  },
+  "consent": {
+    "notice": "hosted-v1",
+    "scope": [
+      "mic"
+    ],
+    "age_ms": 70
+  },
+  "sources": [
+    {
+      "id": "mic-self",
+      "kind": "mic",
+      "channel": "self",
+      "frames": 74,
+      "samples": 234243,
+      "audio_seconds": 14.64,
+      "mean_frame_ms": 198,
+      "rms_dbfs": -23,
+      "peak": 32768,
+      "seq_gaps": 0,
+      "voiced_frames": 24
+    }
+  ],
+  "ally": [
+    {
+      "kind": "question",
+      "question_chars": 31,
+      "segments": 3,
+      "finals": 2,
+      "context_id": true,
+      "context_known": true,
+      "sources": 1,
+      "tokens": 19
+    }
+  ],
+  "cloud": {
+    "documents": 1,
+    "contexts": 1,
+    "conversations": 0,
+    "ally_requests": 1,
+    "ops": 19
+  },
+  "telemetry": {
+    "final_latency_ms": {
+      "self": {
+        "p50": 182,
+        "p95": 183,
+        "count": 2
+      }
+    },
+    "partial_latency_ms": {
+      "self": {
+        "p50": 183,
+        "p95": 184,
+        "count": 3
+      }
+    },
+    "source": {
+      "degraded_by_channel": {},
+      "degraded_by_code": {},
+      "recovered_by_channel": {},
+      "gaps_by_channel": {},
+      "reconnect": {
+        "attempts": 0,
+        "ok": 0,
+        "failed": 0,
+        "exhausted": 0
+      }
+    },
+    "ally": {
+      "by_outcome": {},
+      "by_code": {},
+      "first_token_ms": null
+    }
+  },
+  "bye_sent": true,
+  "console_errors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "page_errors": [],
+  "failed_requests": [],
+  "failed_requests_informational": [
+    "POST /api/live/ally net::ERR_ABORTED"
+  ],
+  "verdict": "pass",
+  "reasons": []
+}
