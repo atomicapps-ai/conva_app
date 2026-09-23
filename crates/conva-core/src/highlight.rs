@@ -379,6 +379,12 @@ fn proper_noun_phrases(message: &str) -> Vec<String> {
         if matches!(c, '.' | '!' | '?' | '…') {
             flush(&mut phrase, &mut out);
             sentence_start = true;
+        } else if matches!(c, ',' | ';' | ':') {
+            // A clause break, not a sentence end: the next capital is still
+            // mid-sentence (so still entity-eligible), but it must start a
+            // new phrase rather than glue onto the one before the comma —
+            // "IBM Watson, Claude, and ChatGPT" is three entities, not one.
+            flush(&mut phrase, &mut out);
         }
     }
     if !token.is_empty() && is_entity_token(&token, sentence_start) {
@@ -624,6 +630,34 @@ mod tests {
         // Sentence-initial word + pronoun must NOT be flagged.
         assert!(!hits.iter().any(|h| h.eq_ignore_ascii_case("before")));
         assert!(!hits.iter().any(|h| h.eq_ignore_ascii_case("i")));
+    }
+
+    #[test]
+    fn comma_separated_entities_stay_distinct() {
+        // Real transcript bug: "IBM Watson, Claude, and ChatGPT" was merging
+        // into one bogus phrase "IBM Watson Claude" because only '.', '!',
+        // '?', '…' broke a run of capitalized words — a comma-separated list
+        // (spoken enumeration is extremely common) didn't. A comma is a
+        // clause break, not a sentence end, so it must flush the phrase
+        // without making the next word "sentence-initial" (still eligible).
+        let hits = terms("I have worked with IBM Watson, Claude, and ChatGPT.", "");
+        assert!(hits.iter().any(|h| h == "IBM Watson"), "{hits:?}");
+        assert!(hits.iter().any(|h| h == "Claude"), "{hits:?}");
+        assert!(hits.iter().any(|h| h == "ChatGPT"), "{hits:?}");
+        assert!(!hits.iter().any(|h| h == "IBM Watson Claude"), "{hits:?}");
+
+        // Same bug, three-way list: "REST APIs, Python, Oracle,"
+        let hits2 = terms(
+            "Strong hands on experience with REST APIs, Python, Oracle.",
+            "",
+        );
+        assert!(hits2.iter().any(|h| h == "REST APIs"), "{hits2:?}");
+        assert!(hits2.iter().any(|h| h == "Python"), "{hits2:?}");
+        assert!(hits2.iter().any(|h| h == "Oracle"), "{hits2:?}");
+        assert!(
+            !hits2.iter().any(|h| h == "REST APIs Python Oracle"),
+            "{hits2:?}"
+        );
     }
 
     #[test]
