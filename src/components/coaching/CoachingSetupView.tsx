@@ -414,13 +414,15 @@ export function CoachingSetupView({
                 <StatusPill tone="idle">Not prepared</StatusPill>
               )}
               <span className="text-sm text-fg-muted">
-                {summary?.has_generated_resources
-                  ? "Briefing, glossary and prepared Q&A are built from this Context's sources."
-                  : "Build the briefing, glossary and prepared Q&A before the first session."}
+                {personaKeyReady === false
+                  ? `No API key set for ${personaProviderName} — add one in Settings → LLM, then come back to build resources.`
+                  : summary?.has_generated_resources
+                    ? "Briefing, glossary and prepared Q&A are built from this Context's sources."
+                    : "Build the briefing, glossary and prepared Q&A before the first session."}
               </span>
               <SecondaryButton
                 onClick={() => void generateResources()}
-                disabled={busy !== null}
+                disabled={busy !== null || personaKeyReady === false}
                 className={`ml-auto ${busy === "resources" ? "border-ai/40 bg-ai/10 text-ai" : ""}`}
               >
                 {busy === "resources" && (
