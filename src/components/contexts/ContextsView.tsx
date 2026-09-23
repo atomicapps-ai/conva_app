@@ -306,11 +306,29 @@ export function ContextsView() {
     }
   };
 
+  const detach = async (docId: string, contextId: string) => {
+    try {
+      await backend.rag.detachContext(docId, contextId);
+      setNotice(`Removed from "${contextTitles[contextId] ?? "context"}".`);
+      bumpDocs();
+    } catch (e) {
+      setNotice(String(e));
+    }
+  };
+
   if (mode.k === "setup") {
     return (
       <ContextSetup
         initial={mode.initial ?? undefined}
-        onDone={backToList}
+        onDone={(id) => {
+          // Auto-activate a freshly CREATED context (owner: "if I create a
+          // context and go to live session, automatically select it as the
+          // default context for the next live session") — editing an
+          // existing context leaves the current grounding choice alone.
+          const wasCreating = mode.initial == null;
+          backToList();
+          if (wasCreating) void activate(id);
+        }}
         onCancel={() => setMode({ k: "list" })}
       />
     );
@@ -449,6 +467,7 @@ export function ContextsView() {
               <LibraryPane
                 contextTitles={contextTitles}
                 onAttach={(docId, contextId) => void attach(docId, contextId)}
+                onDetach={(docId, contextId) => void detach(docId, contextId)}
                 refreshToken={libraryRefreshToken}
                 quickAction={quickAction === "upload" || quickAction === "paste" ? quickAction : null}
                 focusContextId={focusId}
@@ -471,6 +490,7 @@ export function ContextsView() {
                 <LibraryPane
                   contextTitles={contextTitles}
                   onAttach={(docId, contextId) => void attach(docId, contextId)}
+                  onDetach={(docId, contextId) => void detach(docId, contextId)}
                   refreshToken={libraryRefreshToken}
                   quickAction={
                     quickAction === "upload" || quickAction === "paste" ? quickAction : null
