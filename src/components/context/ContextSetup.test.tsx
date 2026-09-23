@@ -636,6 +636,9 @@ describe("ContextSetup wizard", () => {
     fireEvent.change(name, { target: { value: "New one" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
+    const openPicker = await screen.findByRole("button", { name: "Add from library…" });
+    await waitFor(() => expect(openPicker).not.toBeDisabled());
+    fireEvent.click(openPicker);
     await screen.findAllByText("resume.pdf");
     fireEvent.click(screen.getByRole("button", { name: "Add resume.pdf to Résumé / CV" }));
 
@@ -677,6 +680,9 @@ describe("ContextSetup wizard", () => {
     fireEvent.change(name, { target: { value: "New one" } });
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
 
+    const openPicker = await screen.findByRole("button", { name: "Add from library…" });
+    await waitFor(() => expect(openPicker).not.toBeDisabled());
+    fireEvent.click(openPicker);
     await screen.findAllByText("misc.txt");
     fireEvent.change(screen.getByRole("combobox", { name: "Resource destination" }), {
       target: { value: "__other__" },

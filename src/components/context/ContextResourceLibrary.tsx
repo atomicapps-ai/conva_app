@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { ContextFileSlot } from "@/components/context/categoryTemplates";
 import { isImageDocument } from "@/components/contexts/documentVisual";
@@ -75,11 +75,32 @@ export function ContextResourceLibrary({
   onViewGenerated: (doc: RagDocument) => void;
 }) {
   const [usedOpen, setUsedOpen] = useState(false);
-  const [search, setSearch] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [pasting, setPasting] = useState(false);
+  // The full Library list used to sit here permanently, showing every
+  // unattached document for every section (owner, 2026-09-23: "the document
+  // uploader is annoying showing all documents for every section to be
+  // selected. Remove that entirely."). It's now an on-demand popover, scoped
+  // to the section currently selected via `target` — nothing browsable until
+  // asked for.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerPos, setPickerPos] = useState<{ x: number; y: number } | null>(null);
+  const [pickerSearch, setPickerSearch] = useState("");
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const close = () => setPickerOpen(false);
+    window.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [pickerOpen]);
 
   const used = useMemo(
     () => [
@@ -89,11 +110,11 @@ export function ContextResourceLibrary({
     [attachable, generated, selectedIds],
   );
   const available = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const query = pickerSearch.trim().toLowerCase();
     return attachable.filter(
       (doc) => !selectedIds.includes(doc.id) && (!query || doc.file_name.toLowerCase().includes(query)),
     );
-  }, [attachable, search, selectedIds]);
+  }, [attachable, pickerSearch, selectedIds]);
   const targetLabel =
     slots.find((slot) => slot.key === target)?.label ?? "Other documents";
 
@@ -204,6 +225,74 @@ export function ContextResourceLibrary({
         </button>
       </div>
 
+      {/* Existing Library documents — a button-triggered popover, scoped to
+          `target`, rather than a permanent wall of every unattached document
+          (owner, 2026-09-23). */}
+      <button
+        type="button"
+        className="btn mt-1.5 w-full px-2 py-1.5 text-[10px]"
+        disabled={available.length === 0 && pickerSearch.trim().length === 0}
+        onClick={(event) => {
+          event.stopPropagation();
+          const r = event.currentTarget.getBoundingClientRect();
+          setPickerPos({ x: r.left, y: r.bottom + 4 });
+          setPickerOpen((open) => !open);
+        }}
+      >
+        <Icon name="library" size={12} />
+        Add from library…
+      </button>
+
+      {pickerOpen && pickerPos && (
+        <div
+          role="dialog"
+          aria-label={`Add an existing document to ${targetLabel}`}
+          onClick={(event) => event.stopPropagation()}
+          style={{ position: "fixed", left: pickerPos.x, top: pickerPos.y, zIndex: 60 }}
+          className="glass-raised flex max-h-[320px] w-[260px] flex-col overflow-hidden rounded-lg border border-border shadow-[var(--shadow-lg)]"
+        >
+          <input
+            value={pickerSearch}
+            onChange={(event) => setPickerSearch(event.target.value)}
+            // eslint-disable-next-line jsx-a11y/no-autofocus
+            autoFocus
+            className="input m-1.5 h-7 text-[11px]"
+            aria-label="Search Library"
+            placeholder={`Search Library to add to ${targetLabel}`}
+          />
+          <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
+            {available.length ? (
+              <ul>
+                {available.map((doc) => (
+                  <ResourceRow
+                    key={doc.id}
+                    doc={doc}
+                    draggable
+                    action={
+                      <button
+                        type="button"
+                        onClick={() => onAssign(target, doc.id)}
+                        aria-label={`Add ${doc.file_name} to ${targetLabel}`}
+                        title={`Add to ${targetLabel}`}
+                        className="shrink-0 rounded-sm p-1 text-primary transition hover:bg-primary/10"
+                      >
+                        <Icon name="add" size={14} />
+                      </button>
+                    }
+                  />
+                ))}
+              </ul>
+            ) : (
+              <p className="px-1 py-4 text-center text-[10px] text-fg-faint">
+                {attachable.length === selectedIds.length
+                  ? "All Library resources are in this Context."
+                  : "No resources match."}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {pasteOpen && (
         <div className="mt-2 rounded-md border border-border p-2">
           <div className="mb-1 flex items-center gap-1">
@@ -237,41 +326,6 @@ export function ContextResourceLibrary({
         </div>
       )}
 
-      <input
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-        className="input mt-3 h-8 text-[11px]"
-        aria-label="Search Context Library"
-        placeholder="Search Library"
-      />
-      <div className="mt-1 min-h-0 flex-1 overflow-y-auto">
-        {available.length ? (
-          <ul>
-            {available.map((doc) => (
-              <ResourceRow
-                key={doc.id}
-                doc={doc}
-                draggable
-                action={
-                  <button
-                    type="button"
-                    onClick={() => onAssign(target, doc.id)}
-                    aria-label={`Add ${doc.file_name} to ${targetLabel}`}
-                    title={`Add to ${targetLabel}`}
-                    className="shrink-0 rounded-sm p-1 text-primary transition hover:bg-primary/10"
-                  >
-                    <Icon name="add" size={14} />
-                  </button>
-                }
-              />
-            ))}
-          </ul>
-        ) : (
-          <p className="px-1 py-4 text-center text-[10px] text-fg-faint">
-            {attachable.length === selectedIds.length ? "All Library resources are in this Context." : "No resources match."}
-          </p>
-        )}
-      </div>
     </aside>
   );
 }

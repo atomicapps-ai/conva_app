@@ -5,6 +5,7 @@ import {
   filterDocuments,
   LIBRARY_FILTERS,
   matchesFilter,
+  sortPinnedFirst,
 } from "@/components/contexts/libraryFilter";
 import type { RagDocument } from "@/lib/ipc";
 
@@ -71,18 +72,29 @@ describe("filterDocuments", () => {
     expect(filterDocuments(docs, { search: "e", filter: "pasted" }).map((d) => d.id)).toEqual(["b"]);
   });
 
-  it("applies the context scope on top of the chip", () => {
-    expect(filterDocuments(docs, { filter: "all", focusContextId: "c1" }).map((d) => d.id)).toEqual([
-      "a",
-      "c",
-    ]);
-    expect(filterDocuments(docs, { filter: "generated", focusContextId: "c1" }).map((d) => d.id)).toEqual(
-      ["c"],
-    );
-  });
-
   it("returns an empty list rather than throwing when nothing matches", () => {
     expect(filterDocuments(docs, { search: "zzz" })).toEqual([]);
+  });
+});
+
+describe("sortPinnedFirst", () => {
+  const docs = [
+    doc({ id: "a", context_ids: [] }),
+    doc({ id: "b", context_ids: ["c1"] }),
+    doc({ id: "c", context_ids: [] }),
+    doc({ id: "d", context_ids: ["c1"] }),
+  ];
+
+  it("floats the pinned context's documents to the top, order otherwise preserved", () => {
+    expect(sortPinnedFirst(docs, "c1").map((d) => d.id)).toEqual(["b", "d", "a", "c"]);
+  });
+
+  it("is a no-op with nothing pinned", () => {
+    expect(sortPinnedFirst(docs, null)).toBe(docs);
+  });
+
+  it("is a no-op when no document matches the pinned context", () => {
+    expect(sortPinnedFirst(docs, "unknown")).toBe(docs);
   });
 });
 

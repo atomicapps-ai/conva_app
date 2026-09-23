@@ -247,7 +247,11 @@ export function ContextSetup({
   onCancel,
 }: {
   initial?: ConversationContext;
-  onDone: () => void;
+  /** Called with the saved Context's id + title so a fresh creation can be
+   *  auto-activated as the grounding context (owner: "if I create a context
+   *  and go to live session, automatically select it as the default context
+   *  for the next live session"). */
+  onDone: (id: string, title: string) => void;
   onCancel: () => void;
 }) {
   const backend = useBackend();
@@ -708,7 +712,7 @@ export function ContextSetup({
       const saved = await backend.context.save(buildSavePayload());
       // Build the knowledge base (attached docs + research) and mark it ready.
       await backend.context.prepare(saved.id);
-      onDone();
+      onDone(saved.id, saved.title);
     } catch {
       setError("Couldn't save — Context runs on the desktop app.");
       setSaving(false);
@@ -1054,14 +1058,6 @@ export function ContextSetup({
             <dd className="text-fg">
               {participationLensLabel(category, participationLens)}
             </dd>
-            {category === "interview" && (
-              <>
-                <dt className="text-fg-faint">Job description</dt>
-                <dd className="text-fg-muted">
-                  {jobDescription.trim() ? "Provided" : "—"}
-                </dd>
-              </>
-            )}
             <dt className="text-fg-faint">Documents</dt>
             <dd className="text-fg">{selected.length} attached</dd>
             <dt className="text-fg-faint">Web research</dt>
