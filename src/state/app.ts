@@ -42,6 +42,11 @@ interface AppState {
    *  while paused, so resume is instant. No-op if no session is active. */
   pause: () => Promise<void>;
   resume: () => Promise<void>;
+
+  /** Set by `lib/idleAutoStop.ts` right before it calls `stop()` after
+   *  `config.idle_stop_minutes` of silence — the minutes value
+   *  `LiveControlBar`'s status line reports. Cleared by `start()`/`resume()`. */
+  idleStoppedMinutes: number | null;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -149,7 +154,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   start: async () => {
-    set({ busy: true, lastError: null });
+    set({ busy: true, lastError: null, idleStoppedMinutes: null });
     try {
       await getBackend().session.start();
     } catch (e) {
@@ -203,7 +208,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   resume: async () => {
-    set({ busy: true });
+    set({ busy: true, idleStoppedMinutes: null });
     try {
       await getBackend().session.resume();
     } catch (e) {
@@ -212,4 +217,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ busy: false });
     }
   },
+
+  idleStoppedMinutes: null,
 }));

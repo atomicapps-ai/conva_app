@@ -13,7 +13,7 @@
  * | Group         | Sections it owns                                          |
  * | ------------- | --------------------------------------------------------- |
  * | Account       | sign-in, display name + role                              |
- * | Devices       | microphone + system-audio device pickers                  |
+ * | Devices       | microphone + system-audio device pickers, idle auto-stop  |
  * | Transcription | engine, whisper model, noise filter                       |
  * | Ally          | providers & models, web research key                      |
  * | Usage         | usage counters (LLM tokens, searches, time listening)      |
