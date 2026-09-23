@@ -135,9 +135,19 @@ swap a layer without asking the owner.**
      Dialogs keep one always-visible footer action instead of duplicating it.
      Multi-pane workflow content owns pane scrolling (`bodyScrollable={false}`)
      so a Library or inspector can never cover the workflow footer.
-   - **Every visible document drop target also has a compact Upload control in
-     its section header.** Drag-and-drop is an accelerator, not the only path;
-     do not spend the drop-zone body on a second large upload button.
+   - **Every visible document drop target offers all three intake paths in ONE
+     component, with the buttons centred in the drop rectangle.** (Owner,
+     2026-09-22 — this SUPERSEDES the earlier "compact Upload control in its
+     section header / do not spend the drop-zone body on a second large upload
+     button" placement.) `ResourceIntake` in `ContextSetup.tsx` is that
+     component: the rectangle is the drop and paste target, and Upload +
+     Paste sit in its centre so the whole affordance reads as one thing.
+     Drag-and-drop stays an accelerator, never the only path — that part of
+     the original rule still holds, it is only the button *placement* that
+     changed. Paste saves the clipboard as a real file (an image as an image,
+     otherwise `.txt` via `rag.ingest_text`, which marks it `DocSource::Pasted`
+     so the row carries a "From clipboard" badge), and every attached file has
+     a remove control.
 10. **Live cockpit: conversation column is conversation text ONLY; everything
     Ally lives in the right Ally panel — a SPINE-ICON ACCORDION.** (Owner,
     2026-08-26 — supersedes the 2026-08-22 Found/View split + control-bar

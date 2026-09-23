@@ -1,7 +1,7 @@
 {
   "name": "conva",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "postinstall": "patch-package",
@@ -43,6 +43,7 @@
     "rehearse:web": "node scripts/rehearse-web.mjs"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.14.13",
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-process": "^2.3.1",

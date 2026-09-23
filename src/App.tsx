@@ -9,6 +9,7 @@ import * as webAuth from "@/lib/backend/webAuth";
 import { finishSplash, waitForStartup } from "@/lib/commands";
 import { isTauri } from "@/lib/ipc";
 import { isWeb } from "@/lib/platform";
+import { useIdleAutoStop } from "@/lib/idleAutoStop";
 import { runStartup } from "@/lib/startup";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAppStore } from "@/state/app";
@@ -28,6 +29,7 @@ function AuthResolving() {
 
 export default function App() {
   useIpcBridge();
+  useIdleAutoStop();
   const init = useAppStore((s) => s.init);
   const debugChromeVisible = useDevMode((s) => s.debugChromeVisible);
   const [startupReady, setStartupReady] = useState(!isTauri());

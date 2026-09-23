@@ -1781,6 +1781,32 @@ fn context_store_docs(
     context::store_docs(&app, &title, paths).map_err(|e| e.to_string())
 }
 
+/// Store a document dropped onto a Context slot or pasted from the clipboard.
+/// The webview hands us bytes, not a path — the window runs with
+/// `dragDropEnabled: false` so in-page HTML5 drag-drop works at all (CLAUDE.md
+/// rule 8), which means a dropped `File` has no filesystem path for
+/// `context_store_docs` to copy from. Returns the stored path; the caller then
+/// ingests it with `rag_ingest`, exactly as the file-picker flow does.
+///
+/// `bytes_base64` follows the same convention as `avatar_upload`/`save_screenshot`.
+#[tauri::command]
+async fn context_store_doc_bytes(
+    app: AppHandle,
+    title: String,
+    name: String,
+    bytes_base64: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(bytes_base64)
+            .map_err(|e| format!("invalid document data: {e}"))?;
+        context::store_doc_bytes(&app, &title, &name, &bytes).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Build the reusable KnowledgeProfile (attached docs + web research) and mark
 /// the Context ready.
 #[tauri::command]
@@ -3087,6 +3113,7 @@ pub fn run() {
             activate_context,
             deactivate_context,
             context_store_docs,
+            context_store_doc_bytes,
             context_prepare,
             context_load_profile,
             context_generate_dossier,

@@ -306,6 +306,84 @@ function NoiseFilterControls() {
   );
 }
 
+const IDLE_STOP_PRESETS = [5, 10, 15, 30] as const;
+
+/** Auto-stop a listening session after this long with no new transcribed
+ *  speech on either side (`lib/idleAutoStop.ts`) — releases the mic/system-
+ *  audio devices and finalizes any recording, same as clicking End, instead
+ *  of burning resources unattended. `null` (the "Off" option) disables it. */
+function IdleStopControls() {
+  const config = useAppStore((s) => s.config);
+  const updateConfig = useAppStore((s) => s.updateConfig);
+  const minutes = config?.idle_stop_minutes ?? null;
+  const isPreset =
+    minutes != null && (IDLE_STOP_PRESETS as readonly number[]).includes(minutes);
+  // Tracked separately from the value so picking "Custom…" for a number that
+  // happens to equal a preset (e.g. 5) doesn't silently snap back to that
+  // preset option on the next render.
+  const [showCustom, setShowCustom] = useState(minutes != null && !isPreset);
+  useEffect(() => {
+    if (minutes == null || isPreset) setShowCustom(false);
+  }, [minutes, isPreset]);
+
+  if (!config) return null;
+  const selectValue = minutes == null ? "off" : showCustom ? "custom" : String(minutes);
+
+  return (
+    <div className="flex items-end gap-3">
+      <label className="field">
+        Auto-stop after inactivity
+        <select
+          className="select"
+          value={selectValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "off") {
+              setShowCustom(false);
+              void updateConfig({ idle_stop_minutes: null });
+            } else if (v === "custom") {
+              setShowCustom(true);
+              if (minutes == null) void updateConfig({ idle_stop_minutes: 5 });
+            } else {
+              setShowCustom(false);
+              void updateConfig({ idle_stop_minutes: Number(v) });
+            }
+          }}
+        >
+          <option value="off">Off</option>
+          {IDLE_STOP_PRESETS.map((m) => (
+            <option key={m} value={m}>
+              {m} minutes
+            </option>
+          ))}
+          <option value="custom">Custom…</option>
+        </select>
+      </label>
+      {showCustom && (
+        <label className="field">
+          Minutes
+          <input
+            type="number"
+            min={1}
+            max={720}
+            className="input w-20"
+            value={minutes ?? 5}
+            onChange={(e) => {
+              const n = Math.max(1, Math.round(Number(e.target.value) || 1));
+              void updateConfig({ idle_stop_minutes: n });
+            }}
+          />
+        </label>
+      )}
+      <p className="min-w-0 flex-1 pb-1 text-[11px] text-fg-faint">
+        {minutes == null
+          ? "Off — a session never stops itself."
+          : "Releases the mic/system-audio devices after this long with no new transcribed speech, same as End."}
+      </p>
+    </div>
+  );
+}
+
 /** Config file sync: settings live in `conva.config.json`, committed to
  *  the repo — a fresh machine seeds from it automatically; these buttons
  *  push/pull your current settings to/from that file. Keys are NOT in this
@@ -1257,6 +1335,15 @@ export function SettingsPanel() {
             ? `Rescanned — ${deviceCount} device(s) found.`
             : "Just plugged something in? Hit Refresh devices."}
         </p>
+      </Section>
+      )}
+
+      {group === "devices" && (
+      <Section
+        title="Live session"
+        description="Stop listening automatically if the app is left running unattended."
+      >
+        <IdleStopControls />
       </Section>
       )}
 

@@ -75,3 +75,9 @@ the same core will eventually serve a mobile companion.
   `conva_core/docs/technical/CONVA_SDLC_RELEASE_STRATEGY.md` §2.1.
 - When asking the owner a question, lead with a recommended option and the
   reasoning — never bare choices.
+
+## Workspace hygiene
+
+- Clean up temporary files, folders, worktrees, clones, downloads, preview output, and helper processes created for the task before finishing. Verify the exact absolute target before recursive deletion.
+- Preserve requested deliverables, pre-existing files, user changes, unrelated untracked files, and unmerged worktrees.
+- Check Git status in repositories touched. If any task-created item must remain, report its exact path and purpose in the final response.

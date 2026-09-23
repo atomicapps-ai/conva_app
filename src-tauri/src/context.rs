@@ -319,6 +319,37 @@ pub fn store_docs(
     Ok(out)
 }
 
+/// Store a document that arrived as BYTES rather than a path — a file dropped
+/// onto a Context slot, or pasted from the clipboard. The webview hands us
+/// `File` contents, not a filesystem path (the window runs with
+/// `dragDropEnabled: false` so HTML5 drag-drop works at all — see CLAUDE.md
+/// rule 8), so `store_docs`' `fs::copy` has nothing to copy from.
+///
+/// `name` is attacker-influenced: it is whatever the OS reported for the
+/// dropped file. Only its final component is used, so a crafted
+/// `../../evil.exe` cannot escape the Context folder.
+pub fn store_doc_bytes(
+    app: &AppHandle,
+    title: &str,
+    name: &str,
+    bytes: &[u8],
+) -> Result<String, CoreError> {
+    let folder = doc_folder(app, title)?;
+    let leaf = Path::new(name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|n| !n.is_empty() && *n != "." && *n != "..")
+        .unwrap_or("document");
+    let dest = folder.join(leaf);
+    // Belt and braces: even after taking the final component, refuse anything
+    // that did not land directly inside the Context folder.
+    if dest.parent() != Some(folder.as_path()) {
+        return Err(CoreError::Audio(format!("unsafe document name: {name}")));
+    }
+    fs::write(&dest, bytes).map_err(|e| CoreError::Audio(e.to_string()))?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
 // ── KnowledgeProfile — the reusable indexed knowledge base ──────────────────
 
 fn profiles_dir(app: &AppHandle) -> Result<PathBuf, CoreError> {

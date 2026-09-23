@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import type { AllySource } from "@/lib/ipc";
 import {
+  friendlyAllyError,
   groupSourcesByFile,
   retainPresentationCards,
   uniqueSourceFiles,
@@ -81,6 +82,55 @@ describe("card Summary streaming (sum:-prefixed chunks)", () => {
     });
     expect(useAllyStore.getState().cards[0]!.summary).toBe(
       "Summary failed: provider down",
+    );
+  });
+});
+
+describe("friendlyAllyError", () => {
+  it("turns a raw Anthropic usage-limit body into an actionable message", () => {
+    const raw =
+      'LLM provider error: HTTP 400: {"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC.","request_id":"req_011CfLesW4sjgwmFwGX4Dxwv"}}';
+    expect(friendlyAllyError(raw)).toBe(
+      "LLM usage limit reached — access resumes 2026-10-01 at 00:00 UTC. Switch providers in Settings → LLM, or wait for the reset.",
+    );
+  });
+
+  it("recognizes a usage-limit message with no reset date", () => {
+    const raw = "You have reached your specified API usage limits.";
+    expect(friendlyAllyError(raw)).toBe(
+      "LLM usage limit reached. Switch providers in Settings → LLM, or wait for the limit to reset.",
+    );
+  });
+
+  it("recognizes rate-limit and overload errors from either provider shape", () => {
+    expect(friendlyAllyError('HTTP 429: {"type":"rate_limit_error"}')).toBe(
+      "The LLM provider is rate-limiting requests right now. Wait a moment and try again, or switch providers in Settings → LLM.",
+    );
+    expect(friendlyAllyError('HTTP 529: {"type":"overloaded_error"}')).toBe(
+      "The LLM provider is temporarily overloaded. Wait a moment and try again.",
+    );
+  });
+
+  it("passes unrecognized errors through unchanged", () => {
+    expect(friendlyAllyError("stream read: connection reset")).toBe(
+      "stream read: connection reset",
+    );
+  });
+
+  it("applyChunk stores the friendly message on the card, not the raw body", () => {
+    useAllyStore.setState({
+      busy: true,
+      cards: [{ id: "q1", text: "", done: false, error: null } as unknown as AllyCard],
+    });
+    useAllyStore.getState().applyChunk({
+      request_id: "q1",
+      token: "",
+      done: true,
+      error:
+        'LLM provider error: HTTP 400: {"message":"You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC."}',
+    });
+    expect(useAllyStore.getState().cards[0]!.error).toBe(
+      "LLM usage limit reached — access resumes 2026-10-01 at 00:00 UTC. Switch providers in Settings → LLM, or wait for the reset.",
     );
   });
 });

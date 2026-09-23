@@ -25,6 +25,12 @@ const POLL: Duration = Duration::from_secs(5);
 const MIN_BATCH: usize = 5;
 const IDLE_BATCH: usize = 2;
 const IDLE_AFTER: Duration = Duration::from_secs(45);
+/// Safety net for a multi-hour session: real calls surface at most a few
+/// dozen entities/commitments an hour, so this ceiling is never expected to
+/// bind — it just bounds worst-case memory the way `capture.rs`'s
+/// `MAX_CONTEXT_SEGMENTS` and `conversations.rs`'s `MAX_SOURCE_SESSIONS` do
+/// for their own unbounded-in-theory Vecs. Evicts oldest first.
+const MAX_TRACKED_ITEMS: usize = 500;
 
 /// Spawn the worker; returns the sender for finalized segments. Dropping
 /// every sender (session stop) triggers one last pass and shuts it down.
@@ -63,6 +69,9 @@ impl TrackerState {
                 continue;
             }
             self.entities.push(entity);
+            if self.entities.len() > MAX_TRACKED_ITEMS {
+                self.entities.remove(0);
+            }
             changed = true;
         }
         for commitment in extraction.commitments {
@@ -75,6 +84,9 @@ impl TrackerState {
                 continue;
             }
             self.commitments.push(commitment);
+            if self.commitments.len() > MAX_TRACKED_ITEMS {
+                self.commitments.remove(0);
+            }
             changed = true;
         }
         changed
@@ -166,5 +178,44 @@ fn run_extraction(
                 commitments: state.commitments.clone(),
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use conva_core::tracker::TrackerExtraction;
+
+    fn extraction_with_entity(label: &str) -> TrackerExtraction {
+        TrackerExtraction {
+            entities: vec![TrackedEntity {
+                label: label.to_string(),
+                detail: String::new(),
+            }],
+            commitments: vec![],
+        }
+    }
+
+    #[test]
+    fn entities_are_capped_with_oldest_evicted_first() {
+        let mut state = TrackerState::new();
+        for i in 0..MAX_TRACKED_ITEMS + 10 {
+            state.merge(extraction_with_entity(&format!("entity-{i}")));
+        }
+        assert_eq!(state.entities.len(), MAX_TRACKED_ITEMS);
+        assert_eq!(state.entities.first().unwrap().label, "entity-10");
+        assert_eq!(
+            state.entities.last().unwrap().label,
+            format!("entity-{}", MAX_TRACKED_ITEMS + 9)
+        );
+    }
+
+    #[test]
+    fn duplicate_entities_still_dedupe_under_the_cap() {
+        let mut state = TrackerState::new();
+        state.merge(extraction_with_entity("Acme Corp"));
+        let changed = state.merge(extraction_with_entity("Acme Corp"));
+        assert!(!changed);
+        assert_eq!(state.entities.len(), 1);
     }
 }
