@@ -15,6 +15,10 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::phrase::{
+    self, CandidateTrace, HighlightEvaluation, ResolveInput, SignalTrace, Span, SpanTrace,
+};
+
 /// Very common words that carry no topical weight — never highlight these.
 ///
 /// This is deliberately broader than a classic grammatical stopword list
@@ -231,7 +235,7 @@ const STOPWORDS: &[&str] = &[
 ];
 
 const MIN_LEN: usize = 4;
-const MAX_TERMS: usize = 12;
+pub const MAX_TERMS: usize = 12;
 
 // ── Signal weights (see docs/technical/highlighting-relevance.md) ────────────
 // Signals compose additively per phrase, so a term that is both an entity and a
@@ -285,43 +289,66 @@ fn significant_terms(context: &str, rarity: Option<&dyn Fn(&str) -> f32>) -> Has
         .collect()
 }
 
-/// Phrases in `message` that also appear as significant terms in `context`
-/// (the RAG-grounded signal). Consecutive matching words merge into one phrase.
-fn doc_overlap_phrases(
-    message: &str,
-    context: &str,
-    rarity: Option<&dyn Fn(&str) -> f32>,
-) -> Vec<String> {
-    let terms = significant_terms(context, rarity);
+/// Byte spans of the words in `text` under the highlighter's word-char rule.
+fn word_spans(text: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut start: Option<usize> = None;
+    for (i, c) in text.char_indices() {
+        match (is_word_char(c), start) {
+            (true, None) => start = Some(i),
+            (false, Some(s)) => {
+                out.push((s, i));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(s) = start {
+        out.push((s, text.len()));
+    }
+    out
+}
+
+/// Phrases in `message` made only of significant document words (the
+/// RAG-grounded signal). Consecutive matching words merge into one phrase —
+/// but only across a plain space: a comma, period, line break, or bracket
+/// between two matching words ends the phrase (`crate::phrase` gap policy), so
+/// "Python, Kafka" is two terms rather than one invented "Python Kafka".
+fn doc_overlap_phrases(message: &str, terms: &HashSet<String>) -> Vec<String> {
     if terms.is_empty() {
         return Vec::new();
     }
     let mut out: Vec<String> = Vec::new();
-    let mut phrase: Vec<&str> = Vec::new();
+    // (start, end) byte span of the phrase being built.
+    let mut run: Option<(usize, usize)> = None;
 
-    let flush = |phrase: &mut Vec<&str>, out: &mut Vec<String>| {
-        if !phrase.is_empty() {
-            out.push(phrase.join(" "));
-            phrase.clear();
+    let flush = |run: &mut Option<(usize, usize)>, out: &mut Vec<String>| {
+        if let Some((s, e)) = run.take() {
+            out.push(message[s..e].to_string());
         }
     };
 
-    for word in message
-        .split(|c: char| !is_word_char(c))
-        .filter(|w| !w.is_empty())
-    {
-        if terms.contains(&word.to_lowercase()) {
-            phrase.push(word);
+    for (start, end) in word_spans(message) {
+        if terms.contains(&message[start..end].to_lowercase()) {
+            match run {
+                Some((s, e)) if phrase::classify_gap(&message[e..start]) == phrase::Gap::Join => {
+                    run = Some((s, end));
+                }
+                _ => {
+                    flush(&mut run, &mut out);
+                    run = Some((start, end));
+                }
+            }
         } else {
-            flush(&mut phrase, &mut out);
+            flush(&mut run, &mut out);
         }
     }
-    flush(&mut phrase, &mut out);
+    flush(&mut run, &mut out);
     out
 }
 
 /// Capitalized/entity-ish tokens that never warrant a research chip.
-fn is_noise_token(lower: &str) -> bool {
+pub(crate) fn is_noise_token(lower: &str) -> bool {
     matches!(
         lower,
         "i" | "i'm" | "i've" | "i'll" | "i'd" | "ok" | "okay" | "yeah" | "yep" | "yes" | "no"
@@ -348,49 +375,69 @@ fn is_entity_token(token: &str, sentence_start: bool) -> bool {
 
 /// Proper nouns + acronyms in `message` — names, places, brands, products
 /// worth researching mid-conversation. Consecutive proper nouns merge
-/// ("Kansas City"); sentence boundaries reset the "first word" rule.
+/// ("Kansas City") across a plain space only; sentence boundaries reset the
+/// "first word" rule, and any hard gap (quote, bracket, line break, spaced
+/// dash) also ends the phrase (`crate::phrase` gap policy).
 fn proper_noun_phrases(message: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    let mut phrase: Vec<String> = Vec::new();
+    // (start, end) byte span of the phrase being built.
+    let mut run: Option<(usize, usize)> = None;
     let mut token = String::new();
+    let mut token_start = 0usize;
     let mut sentence_start = true;
 
-    let flush = |phrase: &mut Vec<String>, out: &mut Vec<String>| {
-        if !phrase.is_empty() {
-            out.push(phrase.join(" "));
-            phrase.clear();
+    let flush = |run: &mut Option<(usize, usize)>, out: &mut Vec<String>| {
+        if let Some((s, e)) = run.take() {
+            out.push(message[s..e].to_string());
         }
     };
+    // Extend the phrase with the entity token at `start..end`, or start a
+    // new phrase when the gap since the last token is not a plain join.
+    let push =
+        |run: &mut Option<(usize, usize)>, out: &mut Vec<String>, start: usize, end: usize| {
+            match *run {
+                Some((s, e)) if phrase::classify_gap(&message[e..start]) == phrase::Gap::Join => {
+                    *run = Some((s, end));
+                }
+                _ => {
+                    flush(run, out);
+                    *run = Some((start, end));
+                }
+            }
+        };
 
-    for c in message.chars() {
+    for (i, c) in message.char_indices() {
         if is_word_char(c) {
+            if token.is_empty() {
+                token_start = i;
+            }
             token.push(c);
             continue;
         }
         if !token.is_empty() {
             if is_entity_token(&token, sentence_start) {
-                phrase.push(std::mem::take(&mut token));
+                push(&mut run, &mut out, token_start, i);
             } else {
-                token.clear();
-                flush(&mut phrase, &mut out);
+                flush(&mut run, &mut out);
             }
+            token.clear();
             sentence_start = false;
         }
         if matches!(c, '.' | '!' | '?' | '…') {
-            flush(&mut phrase, &mut out);
+            flush(&mut run, &mut out);
             sentence_start = true;
         } else if matches!(c, ',' | ';' | ':') {
             // A clause break, not a sentence end: the next capital is still
             // mid-sentence (so still entity-eligible), but it must start a
             // new phrase rather than glue onto the one before the comma —
             // "IBM Watson, Claude, and ChatGPT" is three entities, not one.
-            flush(&mut phrase, &mut out);
+            flush(&mut run, &mut out);
         }
     }
     if !token.is_empty() && is_entity_token(&token, sentence_start) {
-        phrase.push(token);
+        push(&mut run, &mut out, token_start, message.len());
     }
-    flush(&mut phrase, &mut out);
+    flush(&mut run, &mut out);
     out
 }
 
@@ -429,12 +476,41 @@ impl<'a> HighlightContext<'a> {
     }
 }
 
-/// A scored highlight candidate, keyed (deduped) by lowercased phrase.
+/// What nominated a candidate. `Context`, `Boost`, and `DocPhrase` are
+/// *canonical* — prepared/document terminology that beats a contained
+/// fragment regardless of score.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    Context,
+    Boost,
+    DocPhrase,
+    DocOverlap,
+    Entity,
+    Rarity,
+}
+
+impl Source {
+    fn label(self) -> &'static str {
+        match self {
+            Source::Context => "context term",
+            Source::Boost => "boost",
+            Source::DocPhrase => "document phrase",
+            Source::DocOverlap => "document overlap",
+            Source::Entity => "entity/acronym",
+            Source::Rarity => "rarity",
+        }
+    }
+    fn canonical(self) -> bool {
+        matches!(self, Source::Context | Source::Boost | Source::DocPhrase)
+    }
+}
+
+/// A scored highlight candidate, keyed (deduped) by normalized phrase key
+/// (`phrase::normalize_key`: case-, hyphen- and spacing-insensitive).
 struct Candidate {
-    display: String,
+    key: String,
     score: f32,
-    /// Byte offset of the phrase's first appearance — the ordering tiebreak.
-    first: usize,
+    signals: Vec<(Source, f32)>,
 }
 
 /// Lowercased word tokens of `s` (same tokenizer the signals use).
@@ -453,7 +529,7 @@ fn tokens(s: &str) -> Vec<String> {
 ///
 /// Phrases containing connector words remain valid when they also contain a
 /// content word (for example, "state of the art").
-fn has_content_bearing_token(phrase: &str) -> bool {
+pub(crate) fn has_content_bearing_token(phrase: &str) -> bool {
     tokens(phrase).iter().any(|token| {
         !is_noise_token(token)
             && token
@@ -463,7 +539,7 @@ fn has_content_bearing_token(phrase: &str) -> bool {
 }
 
 /// Does the token sequence `needle` appear consecutively (word-bounded) in
-/// `hay`? Used for phrase-level context/boost matching.
+/// `hay`? Used by the document-mining survival gates.
 fn contains_phrase(hay: &[String], needle: &[String]) -> bool {
     if needle.is_empty() || needle.len() > hay.len() {
         return false;
@@ -479,29 +555,32 @@ fn is_rarity_candidate(lower: &str) -> bool {
         && !is_noise_token(lower)
 }
 
-/// Accumulate `weight` onto the candidate for `phrase`, merging case-insensitive
-/// duplicates (scores add).
+/// Accumulate `weight` onto the candidate for `phrase`. Each source counts
+/// once per phrase (a term listed twice in the context is still one signal);
+/// distinct sources add.
 fn add_candidate(
     cands: &mut Vec<Candidate>,
     index: &mut HashMap<String, usize>,
-    lower_msg: &str,
-    phrase: &str,
+    phrase_text: &str,
+    source: Source,
     weight: f32,
 ) {
-    let key = phrase.to_lowercase();
-    if key.trim().is_empty() {
+    let key = phrase::normalize_key(phrase_text);
+    if key.is_empty() {
         return;
     }
     if let Some(&i) = index.get(&key) {
-        cands[i].score += weight;
+        if !cands[i].signals.iter().any(|(s, _)| *s == source) {
+            cands[i].score += weight;
+            cands[i].signals.push((source, weight));
+        }
         return;
     }
-    let first = lower_msg.find(&key).unwrap_or(usize::MAX);
-    index.insert(key, cands.len());
+    index.insert(key.clone(), cands.len());
     cands.push(Candidate {
-        display: phrase.to_string(),
+        key,
         score: weight,
-        first,
+        signals: vec![(source, weight)],
     });
 }
 
@@ -509,8 +588,11 @@ fn add_candidate(
 /// **context-first** model: declared context terms (strongest), then
 /// RAG-grounded doc overlap, then proper nouns / acronyms, then rare words
 /// (weakest — fills only the slots the others leave). Feedback overrides apply
-/// (👍 boost / 👎 suppress). Deduped case-insensitively, highest score first
-/// (ties by first appearance), capped at [`MAX_TERMS`].
+/// (👍 boost / 👎 suppress). Phrase resolution is longest-match-first and
+/// occurrence-aware (`crate::phrase`): a fragment is dropped only where a
+/// longer, stronger phrase contains it. Deduped case-insensitively, highest
+/// score first (ties by first appearance), capped at [`MAX_TERMS`]. Each term
+/// is the transcript's own text (original casing).
 pub fn relevant_terms(message: &str, ctx: &HighlightContext) -> Vec<String> {
     relevant_terms_capped(message, ctx, MAX_TERMS)
 }
@@ -519,84 +601,234 @@ pub fn relevant_terms(message: &str, ctx: &HighlightContext) -> Vec<String> {
 /// keeps [`MAX_TERMS`] via the wrapper; document/JD mining passes larger
 /// caps (spec 2026-08-26: the silent 12-term ceiling starved JD mining).
 pub fn relevant_terms_capped(message: &str, ctx: &HighlightContext, cap: usize) -> Vec<String> {
-    let lower_msg = message.to_lowercase();
-    let msg_tokens = tokens(message);
+    evaluate_terms(message, ctx, cap).terms
+}
+
+/// [`relevant_terms_capped`] plus a per-candidate trace explaining every
+/// selection and rejection — the dev/debug evaluation
+/// (`faner_debug_highlight`). `terms` is exactly what the production path
+/// returns; the trace is never built into production payloads.
+pub fn evaluate_terms(message: &str, ctx: &HighlightContext, cap: usize) -> HighlightEvaluation {
+    let msg_tokens = phrase::tokenize(message);
     let mut cands: Vec<Candidate> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
+    let occurs = |term: &str| !phrase::find_occurrences(&msg_tokens, term).is_empty();
 
     // Context terms declared/derived for this conversation (strongest).
     for term in ctx.context_terms {
-        if contains_phrase(&msg_tokens, &tokens(term)) {
-            add_candidate(&mut cands, &mut index, &lower_msg, term.trim(), W_CONTEXT);
+        if occurs(term) {
+            add_candidate(
+                &mut cands,
+                &mut index,
+                term.trim(),
+                Source::Context,
+                W_CONTEXT,
+            );
         }
     }
     // RAG-grounded overlap with the retrieved library chunks.
-    for phrase in doc_overlap_phrases(message, ctx.doc_text, ctx.rarity) {
-        add_candidate(&mut cands, &mut index, &lower_msg, &phrase, W_DOC);
+    let significant = significant_terms(ctx.doc_text, ctx.rarity);
+    for phrase_text in
+        phrase::document_acronym_phrases(message, &msg_tokens, ctx.doc_text, &significant)
+    {
+        add_candidate(
+            &mut cands,
+            &mut index,
+            &phrase_text,
+            Source::DocPhrase,
+            W_DOC,
+        );
+    }
+    for phrase_text in doc_overlap_phrases(message, &significant) {
+        add_candidate(
+            &mut cands,
+            &mut index,
+            &phrase_text,
+            Source::DocOverlap,
+            W_DOC,
+        );
     }
     // Proper nouns / acronyms — researchable regardless of the library.
-    for phrase in proper_noun_phrases(message) {
-        add_candidate(&mut cands, &mut index, &lower_msg, &phrase, W_ENTITY);
+    for phrase_text in proper_noun_phrases(message) {
+        add_candidate(
+            &mut cands,
+            &mut index,
+            &phrase_text,
+            Source::Entity,
+            W_ENTITY,
+        );
     }
     // Rare words (corpus IDF via the shell oracle) — the no-context fallback.
     if let Some(idf) = ctx.rarity {
-        for token in message
-            .split(|c: char| !is_word_char(c))
-            .filter(|w| !w.is_empty())
-        {
+        for (start, end) in word_spans(message) {
+            let token = &message[start..end];
             let lower = token.to_lowercase();
             if is_rarity_candidate(&lower) && idf(&lower) >= RARITY_MIN_IDF {
-                add_candidate(&mut cands, &mut index, &lower_msg, token, W_RARITY);
+                add_candidate(&mut cands, &mut index, token, Source::Rarity, W_RARITY);
             }
         }
     }
     // Explicit 👍 (Phase 4): surface even if the heuristics missed it.
     if let Some(boost) = ctx.boost {
         for term in boost {
-            if contains_phrase(&msg_tokens, &tokens(term)) {
-                add_candidate(&mut cands, &mut index, &lower_msg, term.trim(), W_BOOST);
+            if occurs(term) {
+                add_candidate(&mut cands, &mut index, term.trim(), Source::Boost, W_BOOST);
             }
         }
     }
 
-    // Drop 👎 terms outright (case-insensitive), whatever they scored.
-    if let Some(suppress) = ctx.suppress {
-        cands.retain(|c| !suppress.iter().any(|s| s.eq_ignore_ascii_case(&c.display)));
-    }
-
-    // Defense in depth: explicit Context terms and feedback are valuable
-    // signals, not permission to surface semantically empty words.
-    cands.retain(|candidate| has_content_bearing_token(&candidate.display));
-
     // Strongest first; ties by earliest appearance. Score ordering makes rarity
     // (0.3) fall behind every grounded/context/entity signal automatically.
-    cands.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
+    let mut work: Vec<Work> = cands
+        .into_iter()
+        .map(|c| {
+            let spans = phrase::find_occurrences(&msg_tokens, &c.key);
+            Work {
+                cand: c,
+                spans,
+                rejected: None,
+            }
+        })
+        .collect();
+    work.sort_by(|a, b| {
+        b.cand
+            .score
+            .partial_cmp(&a.cand.score)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.first.cmp(&b.first))
+            .then_with(|| {
+                let first = |w: &Work| w.spans.first().map_or(usize::MAX, |s| s.start);
+                first(a).cmp(&first(b))
+            })
     });
 
-    let mut out: Vec<String> = Vec::new();
-    let mut admitted: Vec<Vec<String>> = Vec::new();
-    for cand in cands {
-        let cand_tokens = tokens(&cand.display);
-        // Skip a single word already contained in a stronger admitted phrase
-        // (e.g. "lambda" when "AWS Lambda" is already in).
-        if cand_tokens.len() == 1
-            && admitted
-                .iter()
-                .any(|a| a.len() > 1 && a.contains(&cand_tokens[0]))
-        {
-            continue;
-        }
-        out.push(cand.display);
-        admitted.push(cand_tokens);
-        if out.len() >= cap {
-            break;
+    // Drop 👎 terms outright (case-insensitive), whatever they scored.
+    if let Some(suppress) = ctx.suppress {
+        let keys: HashSet<String> = suppress.iter().map(|s| phrase::normalize_key(s)).collect();
+        for w in work.iter_mut().filter(|w| keys.contains(&w.cand.key)) {
+            w.rejected = Some("suppressed by 👎 feedback".into());
         }
     }
-    out
+    // Defense in depth: explicit Context terms and feedback are valuable
+    // signals, not permission to surface semantically empty words.
+    for w in work
+        .iter_mut()
+        .filter(|w| w.rejected.is_none() && !has_content_bearing_token(&w.cand.key))
+    {
+        w.rejected = Some("no content-bearing token (stopword/noise only)".into());
+    }
+
+    // Occurrence-aware longest-match-first containment among survivors.
+    let live: Vec<usize> = (0..work.len())
+        .filter(|&i| work[i].rejected.is_none())
+        .collect();
+    let inputs: Vec<ResolveInput> = live
+        .iter()
+        .map(|&i| ResolveInput {
+            key: work[i].cand.key.clone(),
+            score: work[i].cand.score,
+            canonical: work[i].cand.signals.iter().any(|(s, _)| s.canonical()),
+            spans: work[i].spans.clone(),
+        })
+        .collect();
+    let resolved = phrase::resolve_containment(&inputs);
+    let mut contained_all: Vec<Vec<(Span, String)>> = vec![Vec::new(); work.len()];
+    for (slot, &i) in live.iter().enumerate() {
+        let r = &resolved[slot];
+        contained_all[i] = r.contained.clone();
+        if r.kept.is_empty() && !work[i].spans.is_empty() {
+            let container = r.contained.first().map(|(_, k)| k.as_str()).unwrap_or("?");
+            work[i].rejected = Some(format!("contained in longer phrase \"{container}\""));
+        }
+        work[i].spans = r.kept.clone();
+    }
+    // Re-rank on the first *surviving* occurrence so ties follow the text.
+    let mut order: Vec<usize> = (0..work.len()).collect();
+    order.sort_by(|&a, &b| {
+        let (wa, wb) = (&work[a], &work[b]);
+        (wa.rejected.is_some())
+            .cmp(&wb.rejected.is_some())
+            .then(
+                wb.cand
+                    .score
+                    .partial_cmp(&wa.cand.score)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+            .then_with(|| {
+                let first = |w: &Work| w.spans.first().map_or(usize::MAX, |s| s.start);
+                first(wa).cmp(&first(wb))
+            })
+    });
+
+    let char_at = |byte: usize| message[..byte].chars().count();
+    let mut terms: Vec<String> = Vec::new();
+    let mut trace: Vec<CandidateTrace> = Vec::new();
+    for &i in &order {
+        let w = &work[i];
+        let first_span = w.spans.first().copied();
+        let display = first_span
+            .map(|s| message[s.start..s.end].to_string())
+            .unwrap_or_else(|| w.cand.key.clone());
+        let mut rejected = w.rejected.clone();
+        if rejected.is_none() && terms.len() >= cap {
+            rejected = Some(format!("below the result cap of {cap}"));
+        }
+        let selected = rejected.is_none();
+        if selected {
+            terms.push(display.clone());
+        }
+        let mut spans: Vec<SpanTrace> = w
+            .spans
+            .iter()
+            .map(|s| SpanTrace {
+                start: char_at(s.start),
+                end: char_at(s.end),
+                text: message[s.start..s.end].to_string(),
+                status: "selected".into(),
+                container: None,
+            })
+            .collect();
+        for (s, container) in &contained_all[i] {
+            spans.push(SpanTrace {
+                start: char_at(s.start),
+                end: char_at(s.end),
+                text: message[s.start..s.end].to_string(),
+                status: "contained".into(),
+                container: Some(container.clone()),
+            });
+        }
+        spans.sort_by_key(|s| s.start);
+        let reason = match (&rejected, contained_all[i].len()) {
+            (Some(r), _) => r.clone(),
+            (None, 0) => "selected".into(),
+            (None, n) => format!("selected; {n} nested occurrence(s) contained in a longer phrase"),
+        };
+        trace.push(CandidateTrace {
+            term: display,
+            key: w.cand.key.clone(),
+            score: w.cand.score,
+            signals: w
+                .cand
+                .signals
+                .iter()
+                .map(|(s, weight)| SignalTrace {
+                    source: s.label().into(),
+                    weight: *weight,
+                })
+                .collect(),
+            spans,
+            decision: if selected { "selected" } else { "rejected" }.into(),
+            reason,
+        });
+    }
+    HighlightEvaluation { terms, trace }
+}
+
+/// A candidate mid-resolution: its located occurrences and, once decided,
+/// why it was rejected.
+struct Work {
+    cand: Candidate,
+    spans: Vec<Span>,
+    rejected: Option<String>,
 }
 
 #[cfg(test)]

@@ -32,6 +32,8 @@ pub mod ipc;
 pub mod llm;
 pub mod meaning_frame;
 pub mod metering;
+pub mod phrase;
+pub mod phrase_eval;
 pub mod prepared_qa;
 pub mod prompt;
 pub mod radar;
