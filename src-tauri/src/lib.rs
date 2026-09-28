@@ -498,7 +498,8 @@ fn rag_list(state: State<AppState>) -> Vec<RagDocument> {
 /// RAG-grounded term detection for transcript highlighting: retrieve the
 /// library context for `text`, then return the phrases in `text` that overlap
 /// it — the words worth offering an Ally action (definition / how-to /
-/// elaborate) on. Empty when the library is empty or nothing overlaps.
+/// elaborate) on. Context, entity, rarity, and feedback signals remain active
+/// when retrieval finds no chunks; only the document-overlap signal is empty.
 #[tauri::command]
 fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<String> {
     // With a context active, its own documents are the relevance prior — an
@@ -517,9 +518,6 @@ fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<St
     } else {
         state.rag.retrieve_scoped(&text, 4, &scope)
     };
-    if chunks.is_empty() {
-        return Vec::new();
-    }
     let context = chunks
         .iter()
         .map(|c| c.text.as_str())
