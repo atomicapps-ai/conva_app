@@ -11,9 +11,7 @@ function setup(state: PanelState, onState = vi.fn()) {
     <AllyAccordion
       state={state}
       onState={onState}
-      counts={{ questions: 2, tracking: 1, terms: 3, answers: 1 }}
-      splitRatio={0.5}
-      onSplitRatio={() => {}}
+      counts={{ questions: 2, tracking: 1, terms: 3 }}
       renderSection={(id) => <div data-testid={`content-${id}`} />}
     />,
   );
@@ -21,11 +19,9 @@ function setup(state: PanelState, onState = vi.fn()) {
 }
 
 describe("AllyAccordion", () => {
-  it("renders all four spine icons by section label and marks the open one", () => {
-    // Unpinned: all four sections stack in the accordion, each with a real
-    // spine button. (Pinned mode's dock chip is decorative — see below.)
-    setup({ open: "terms", answersPinned: false });
-    for (const label of ["Questions", "Tracking", "Terms", "Answers"]) {
+  it("renders all three spine icons by section label and marks the open one", () => {
+    setup({ open: "terms" });
+    for (const label of ["Questions", "Tracking", "Terms"]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
     expect(screen.getByTestId("content-terms")).toBeInTheDocument();
@@ -33,54 +29,27 @@ describe("AllyAccordion", () => {
   });
 
   it("selecting a collapsed section reports the accordion swap", () => {
-    const onState = setup({ open: "terms", answersPinned: true });
+    const onState = setup({ open: "terms" });
     fireEvent.click(screen.getByRole("button", { name: "Questions" }));
-    expect(onState).toHaveBeenCalledWith({
-      open: "questions",
-      answersPinned: true,
-    });
+    expect(onState).toHaveBeenCalledWith({ open: "questions" });
   });
 
-  it("pinned: answers dock is always visible with a pressed pin toggle", () => {
-    setup({ open: "terms", answersPinned: true });
-    // Dock content sits alongside the open content section.
-    expect(screen.getByTestId("content-answers")).toBeInTheDocument();
-    expect(screen.getByTestId("content-terms")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /pin answers/i })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-  });
-
-  it("unpinned: no answers content while another section is open", () => {
-    setup({ open: "questions", answersPinned: false });
-    expect(screen.queryByTestId("content-answers")).toBeNull();
-    expect(screen.getByRole("button", { name: /pin answers/i })).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-  });
-
-  it("unpinned: answers content renders when answers is the open section", () => {
-    setup({ open: "answers", answersPinned: false });
-    expect(screen.getByTestId("content-answers")).toBeInTheDocument();
-  });
-
-  it("focus mode turns Answers into an archive section and removes the legacy pin", () => {
+  it("shows a NEW badge on a section with unseen items, none when there are none", () => {
     render(
       <AllyAccordion
-        state={{ open: "terms", answersPinned: true }}
+        state={{ open: "terms" }}
         onState={() => {}}
-        counts={{ questions: 2, tracking: 1, terms: 3, answers: 1 }}
-        splitRatio={0.5}
-        onSplitRatio={() => {}}
-        answersDockEnabled={false}
+        counts={{ questions: 2, tracking: 1, terms: 3 }}
+        newCounts={{ terms: 2 }}
         renderSection={(id) => <div data-testid={`content-${id}`} />}
       />,
     );
-    expect(screen.getByRole("button", { name: "Answers" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /pin answers/i })).toBeNull();
-    expect(screen.queryByTestId("content-answers")).toBeNull();
+    expect(screen.getByLabelText("New")).toBeInTheDocument();
+  });
+
+  it("no NEW badge when newCounts is omitted or a section has zero", () => {
+    setup({ open: "terms" });
+    expect(screen.queryByLabelText("New")).toBeNull();
   });
 });
 
@@ -93,15 +62,13 @@ describe("AllyAccordion — Questions mode chips (split-source spec 2026-08-27)"
   } = {}) {
     render(
       <AllyAccordion
-        state={{ open: "terms", answersPinned: true }}
+        state={{ open: "terms" }}
         onState={over.onState ?? (() => {})}
-        counts={{ questions: 2, tracking: 1, terms: 3, answers: 1 }}
+        counts={{ questions: 2, tracking: 1, terms: 3 }}
         questionsMode={over.questionsMode ?? "live"}
         onQuestionsMode={over.onQuestionsMode ?? (() => {})}
         prepCount={24}
         liveUnseen={over.liveUnseen ?? false}
-        splitRatio={0.5}
-        onSplitRatio={() => {}}
         renderSection={(id) => <div data-testid={`content-${id}`} />}
       />,
     );
@@ -121,7 +88,7 @@ describe("AllyAccordion — Questions mode chips (split-source spec 2026-08-27)"
     setupChips({ onQuestionsMode, onState });
     fireEvent.click(screen.getByRole("button", { name: "Prepared Q&A (24)" }));
     expect(onQuestionsMode).toHaveBeenCalledWith("prep");
-    expect(onState).toHaveBeenCalledWith({ open: "questions", answersPinned: true });
+    expect(onState).toHaveBeenCalledWith({ open: "questions" });
   });
 
   it("no chips on other sections' headers", () => {

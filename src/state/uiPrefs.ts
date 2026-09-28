@@ -15,9 +15,8 @@ const TRANSCRIPT_FONT_KEY = "conva.transcript.fontPx";
 const REASONING_KEY = "conva.ally.reasoningOpen";
 const COLLAPSE_YOU_KEY = "conva.transcript.collapseYou";
 const PARTNER_FONT_KEY = "conva.partner.fontPx";
-const PANEL_SPLIT_KEY = "conva.panel.splitRatio";
+const ACTIVE_VIEW_SPLIT_KEY = "conva.panel.activeViewSplitRatio";
 const PANEL_WIDTH_KEY = "conva.panel.widthPx";
-const ANSWERS_PINNED_KEY = "conva.panel.answersPinned";
 const PANEL_OPEN_SECTION_KEY = "conva.panel.openSection";
 const QUESTIONS_MODE_KEY = "conva.panel.questionsMode";
 const AUTO_INSTALL_UPDATES_KEY = "conva.updates.autoInstall";
@@ -72,15 +71,12 @@ interface UiPrefs {
   /** Partner-window content text size, in px — its own setting (spec §4.2):
    *  the detached window often sits farther away than the in-app panel. */
   partnerFontPx: number;
-  /** Found/View split ratio (Found's share of the panel height), 0.25–0.75. */
-  panelSplitRatio: number;
-  setPanelSplitRatio: (r: number) => void;
-  /** Whether the Answers dock is pinned at the panel's bottom (spine
-   *  accordion, spec 2026-08-26). Default on. */
-  answersPinned: boolean;
-  setAnswersPinned: (pinned: boolean) => void;
-  /** The accordion's open section. While Answers is pinned this names one
-   *  of the three content sections (load coerces a stored "answers"). */
+  /** Active/View split ratio — Active's share of the combined panel width,
+   *  0.25–0.75 (owner, 2026-09-28; was the Found/View vertical split before
+   *  Active and View became two side-by-side panels). */
+  activeViewSplitRatio: number;
+  setActiveViewSplitRatio: (r: number) => void;
+  /** The Active accordion's open section. */
   panelOpenSection: PanelSectionId;
   setPanelOpenSection: (id: PanelSectionId) => void;
   /** Questions section's sub-mode (split-source spec 2026-08-27): "live" =
@@ -113,8 +109,8 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
   // Default on — the user rarely re-reads their own words.
   collapseYou: localStorage.getItem(COLLAPSE_YOU_KEY) !== "0",
   partnerFontPx: loadFont(PARTNER_FONT_KEY, FONT_DEFAULT),
-  panelSplitRatio: (() => {
-    const v = Number(localStorage.getItem(PANEL_SPLIT_KEY));
+  activeViewSplitRatio: (() => {
+    const v = Number(localStorage.getItem(ACTIVE_VIEW_SPLIT_KEY));
     return v >= 0.25 && v <= 0.75 ? v : 0.45;
   })(),
   panelWidthPx: (() => {
@@ -135,15 +131,11 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
       ? v
       : LIBRARY_DOCK_WIDTH_DEFAULT;
   })(),
-  // Default pinned — the Answers dock stays visible unless turned off.
-  answersPinned: localStorage.getItem(ANSWERS_PINNED_KEY) !== "false",
   panelOpenSection: (() => {
     const v = localStorage.getItem(PANEL_OPEN_SECTION_KEY) as PanelSectionId;
-    if (!SECTION_ORDER.includes(v)) return "terms";
-    // While Answers is pinned, "answers" can't be the open section — the
-    // dock is already on screen; fall back to Terms.
-    const pinned = localStorage.getItem(ANSWERS_PINNED_KEY) !== "false";
-    return pinned && v === "answers" ? "terms" : v;
+    // Also self-heals a stored "answers" from before the dock's retirement —
+    // it's no longer in SECTION_ORDER, so it falls through to the default.
+    return SECTION_ORDER.includes(v) ? v : "terms";
   })(),
   questionsMode: localStorage.getItem(QUESTIONS_MODE_KEY) === "prep" ? "prep" : "live",
 
@@ -152,14 +144,10 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
     set({ autoInstallUpdates: enabled });
   },
 
-  setPanelSplitRatio: (r) => {
+  setActiveViewSplitRatio: (r) => {
     const clamped = Math.max(0.25, Math.min(0.75, r));
-    localStorage.setItem(PANEL_SPLIT_KEY, String(clamped));
-    set({ panelSplitRatio: clamped });
-  },
-  setAnswersPinned: (pinned) => {
-    localStorage.setItem(ANSWERS_PINNED_KEY, pinned ? "true" : "false");
-    set({ answersPinned: pinned });
+    localStorage.setItem(ACTIVE_VIEW_SPLIT_KEY, String(clamped));
+    set({ activeViewSplitRatio: clamped });
   },
   setPanelOpenSection: (id) => {
     if (!SECTION_ORDER.includes(id)) return; // invalid → keep current
