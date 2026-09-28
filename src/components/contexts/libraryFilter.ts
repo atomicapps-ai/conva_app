@@ -11,9 +11,7 @@ import { documentExtension, isImageDocument } from "@/components/contexts/docume
  *
  * "Generated" is documents Conva wrote (briefings, research, Q&A);
  * "Unattached" is documents no Context is using — the ones most likely to be
- * dead weight. `focusContextId` is separate from the chips: it is the
- * Contexts dock's "In this Context" scope, applied on top of whatever chip is
- * selected.
+ * dead weight.
  */
 
 export type LibraryFilter = "all" | "files" | "pasted" | "generated" | "unattached";
@@ -44,18 +42,34 @@ export function matchesFilter(doc: RagDocument, filter: LibraryFilter): boolean 
 
 export function filterDocuments(
   documents: RagDocument[],
-  {
-    search = "",
-    filter = "all",
-    focusContextId = null,
-  }: { search?: string; filter?: LibraryFilter; focusContextId?: string | null } = {},
+  { search = "", filter = "all" }: { search?: string; filter?: LibraryFilter } = {},
 ): RagDocument[] {
   const q = search.trim().toLowerCase();
   return documents.filter((d) => {
-    if (focusContextId && !d.context_ids.includes(focusContextId)) return false;
     if (q && !d.file_name.toLowerCase().includes(q)) return false;
     return matchesFilter(d, filter);
   });
+}
+
+/**
+ * Pins documents attached to `pinnedContextId` to the top, otherwise
+ * preserving order (a stable partition, not a re-sort) — the Contexts dock's
+ * "selected a context, its documents float to the top" behaviour (owner,
+ * 2026-09-23: "each time I click I want to see the document rearrange
+ * properly"). `null` (nothing selected) is a no-op, so the Library's default
+ * state pins nothing.
+ */
+export function sortPinnedFirst(
+  documents: RagDocument[],
+  pinnedContextId: string | null,
+): RagDocument[] {
+  if (!pinnedContextId) return documents;
+  const pinned: RagDocument[] = [];
+  const rest: RagDocument[] = [];
+  for (const d of documents) {
+    (d.context_ids.includes(pinnedContextId) ? pinned : rest).push(d);
+  }
+  return pinned.length === 0 ? documents : [...pinned, ...rest];
 }
 
 /** Human label for a document's type column — shape + label, never colour

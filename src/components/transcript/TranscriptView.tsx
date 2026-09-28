@@ -515,12 +515,16 @@ function CollapsedPreview({
 }
 
 /** The expanded content: sentences flow on one continuous line, separated by a
- *  coloured `|`. Hovering a sentence highlights it and reveals a lightbulb to
- *  ask Ally about just that sentence; RAG terms stay clickable within. */
+ *  coloured `|`. RAG terms stay clickable within (TermMenu already covers
+ *  "ask Ally about this" per-term — owner, 2026-09-28: the per-sentence
+ *  hover lightbulb this used to also show was redundant with that menu, and
+ *  toggling it into/out of the layout on hover reshaped the surrounding text
+ *  (`hidden` → `inline-flex` inserts an inline box), so it's gone; the
+ *  sentence-hover highlight itself is a pure background-colour change and
+ *  never affects layout. */
 function FlowText({
   units,
   terms,
-  onAskText,
   onAskTerm,
 }: {
   /** Stability-aware units (F13) — one per finalized segment in this turn,
@@ -528,7 +532,6 @@ function FlowText({
    *  case where the true final text corrected what was last shown. */
   units: StabilityUnit[];
   terms: string[];
-  onAskText: (t: string) => void;
   onAskTerm: (action: TermAction, term: string) => void;
 }) {
   return (
@@ -536,33 +539,13 @@ function FlowText({
       {units.map((unit) => (
         <span
           key={unit.key}
-          className="group/u rounded-[3px] px-0.5 transition-colors hover:bg-ai/10"
+          className="rounded-[3px] px-0.5 transition-colors hover:bg-ai/10"
         >
           {unit.diff ? (
             <ScrambleText words={unit.diff} />
           ) : (
             <HighlightedText text={unit.text} terms={terms} onAsk={onAskTerm} />
           )}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAskText(unit.text);
-            }}
-            title="Ask Ally about this"
-            aria-label="Ask Ally about this sentence"
-            // `hidden` (not `display: none` via opacity) — a turn commonly
-            // holds many `units` (one per ASR-finalized segment, which
-            // finalizes every ~1-3s of speech, not per sentence), so an
-            // `opacity-0` icon here still reserved ~14px of inline layout
-            // space at EVERY segment boundary, scattered through the
-            // flowing paragraph — the "messy text, large gaps" bug (owner
-            // screenshot report). `hidden`/`group-hover/u:inline-flex`
-            // removes it from layout entirely until its unit is hovered.
-            className="ml-0.5 hidden align-middle text-ai/70 hover:text-ai group-hover/u:inline-flex"
-          >
-            <Icon name="lightbulb" size={12} />
-          </button>
         </span>
       ))}
     </span>
@@ -834,7 +817,6 @@ function Bubble({
               <FlowText
                 units={finalUnits}
                 terms={highlightTerms}
-                onAskText={onAskText}
                 onAskTerm={onAskTerm}
               />
             )}

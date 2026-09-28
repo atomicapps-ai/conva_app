@@ -147,7 +147,13 @@ swap a layer without asking the owner.**
      changed. Paste saves the clipboard as a real file (an image as an image,
      otherwise `.txt` via `rag.ingest_text`, which marks it `DocSource::Pasted`
      so the row carries a "From clipboard" badge), and every attached file has
-     a remove control.
+     a remove control. **Remove detaches from the Context only — it does not
+     delete from the Library** (non-destructive is the safer default; flagged
+     for the owner when this landed, 2026-09-22, now resolved by making the
+     scope explicit rather than changing the behavior). The remove button's
+     `aria-label`/`title` say "stays in your Library" so this is never
+     ambiguous; don't quietly turn remove into a hard delete without an
+     explicit owner decision.
 10. **Live cockpit: conversation column is conversation text ONLY; everything
     Ally lives in the right Ally panel — a SPINE-ICON ACCORDION.** (Owner,
     2026-08-26 — supersedes the 2026-08-22 Found/View split + control-bar
