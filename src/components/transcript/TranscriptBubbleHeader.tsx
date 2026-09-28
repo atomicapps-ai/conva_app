@@ -11,6 +11,11 @@ export interface SpeakerHeaderInfo {
   id: string;
   label: string;
   kind: SpeakerKind;
+  /** This voice's accent color (`state/speakers.ts`'s `colorForOrdinal`) —
+   *  optional so a caller not yet passing per-voice color (or the
+   *  placeholder "…" stand-in before a real profile resolves) still renders
+   *  with the previous tone-based fallback. */
+  color?: string;
 }
 
 interface TranscriptBubbleHeaderProps {
@@ -274,6 +279,13 @@ export function TranscriptBubbleHeader({
   const uncertain = status === "uncertain";
   const speakerClass =
     speakerTone === "inbound" ? "text-inbound" : "text-[var(--voice-you-text)]";
+  // Per-voice color (owner: each new voice defaults to its own color) —
+  // falls back to the plain inbound/outbound class above when no speaker
+  // object (or no color on it yet) is supplied, so nothing regresses for a
+  // caller that isn't speaker-aware. An "uncertain" turn still shows no
+  // confident color, matching doc §1's "no identity claim" rule.
+  const speakerStyle =
+    speaker?.color && !uncertain ? { color: speaker.color } : undefined;
 
   const accessibleName = speaker
     ? `${speaker.label}${speaker.kind === "anonymous" ? ", unnamed" : ""} — name or correct speaker`
@@ -292,6 +304,7 @@ export function TranscriptBubbleHeader({
           aria-expanded={editing}
           aria-label={accessibleName}
           title={speakerLabel}
+          style={speakerStyle}
           className={[
             "min-w-0 truncate rounded font-mono text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors hover:bg-inbound/10",
             uncertain
@@ -309,6 +322,7 @@ export function TranscriptBubbleHeader({
           className={`min-w-0 truncate font-mono text-[9px] font-semibold uppercase tracking-[0.12em] ${
             uncertain ? "italic text-fg-faint" : speakerClass
           }`}
+          style={speakerStyle}
           title={speakerLabel}
         >
           {speakerLabel}

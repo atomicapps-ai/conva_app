@@ -147,69 +147,84 @@ swap a layer without asking the owner.**
      changed. Paste saves the clipboard as a real file (an image as an image,
      otherwise `.txt` via `rag.ingest_text`, which marks it `DocSource::Pasted`
      so the row carries a "From clipboard" badge), and every attached file has
-     a remove control.
+     a remove control. **Remove detaches from the Context only — it does not
+     delete from the Library** (non-destructive is the safer default; flagged
+     for the owner when this landed, 2026-09-22, now resolved by making the
+     scope explicit rather than changing the behavior). The remove button's
+     `aria-label`/`title` say "stays in your Library" so this is never
+     ambiguous; don't quietly turn remove into a hard delete without an
+     explicit owner decision.
 10. **Live cockpit: conversation column is conversation text ONLY; everything
-    Ally lives in the right Ally panel — a SPINE-ICON ACCORDION.** (Owner,
-    2026-08-26 — supersedes the 2026-08-22 Found/View split + control-bar
-    Details/Terms tabs model, which itself superseded the 2026-08-17 dock.)
-    Ally answers never render in the transcript stream (V4.0's inline-cards
-    layout was explicitly reversed). The right `AllyPanel`
-    (`TranscriptView.tsx`) stacks FOUR sections in a FIXED order —
-    **Questions** (`question` icon; TWO SOURCES behind in-header mode chips,
-    owner 2026-08-27: ◉ Live = the radar feed, azure — exactly the old
-    behavior; ◈ Prep = the prepared Q&A bank, gold — pairs parsed by
-    `qaPairs.ts` from the context's generated Q&A doc + any attached doc
-    with Q/A lines + the setup wizard's "Import Q&A" paste (`question|answer`
-    per line, stored as an attached doc). The chips are an in-header control,
-    NOT a panel switching pattern; a live question while
-    in Prep lights a dot, never auto-switches. Tapping a prep pair shows its
-    written answer in the Question–Answer Focus canvas instantly — Elaborate
-    is the deeper dig.) ·
-    **Tracking** (`target`; commitments + mentions) · **Terms** (`book`; live
-    + doc term chips, azure dot = detected live, gold = doc) · **Answers**
-    (`ally`, gold; the archive of prior selected items and Ally cards). Each
-    section's icon chip overlays the CENTER DIVIDER at that
-    section's top edge and slides with it as sections expand/collapse —
-    stacking order never changes. Exactly ONE content section is open
-    (exclusive accordion; `panelSections.ts` is the pure model). **Owner
-    update 2026-09-07:** the old pinned bottom Answers dock is retired in the
-    live cockpit. A Question–Answer **Focus canvas** sits above the accordion,
-    keeps the active question and untruncated streaming answer together, and
-    uses question-labeled tabs when several threads are active. Answers stays
-    the fourth accordion section as history/archive. Clicking a term opens a
-    local **Term Peek** (cached Context definition or a dedicated definition
-    stream); definition requests never enter Focus or Answers. Ask-more/how-to
-    actions may create a normal Focus answer. The control bar has NO tabs — in
-    drawer mode (<640px) it shows one right-edge Ally button that opens
-    the panel as an overlay drawer (same accordion inside). The **Ask
-    box** lives at the conversation column's foot (compact: h-8,
-    12px text) at EVERY width — never in the panel. Live summary is the
-    3-dot "Summarize the call" (lands in Focus and the Answers archive);
-    Grounding is a 3-dot
-    line; TrackerRail/AllyDock stay retired. The A−/A+ pref (3-dot menu)
-    scales ALL panel content, not just answer cards. **FANER inline
-    transcript marks are retired** (owner, 2026-08-26 — "keep FANER's
-    Highlighter, retire the inline live-transcript marks"):
-    `HighlightedText`'s clickable term underlines REMAIN, capture chips
-    remain in Terms, but no `FanerMark`-style inline capture underlines/
-    popovers in bubbles — don't reintroduce them. The **partner window**
-    (`src-tauri/src/partner.rs` + `PartnerWindow.tsx`, `?partner=1`) is a
-    real, ordinary OS window for one term's deep-dive — draggable custom
-    title bar, resizable, defaults docked flush to the app's right edge, ⇥
-    re-docks; gated on `capabilities().system.partnerWindow`. **It IS the
-    viewer** (owner, 2026-08-22 — an earlier round left "Open in viewer" on
-    answer cards pointing at an internal drawer left over from before the
-    partner-window spec; every "open in viewer" affordance — the card's
-    expand icon, its right-click menu, the meta panel's thread rows — must
-    route to `openThread` in `TranscriptView.tsx`, which opens the partner
-    window on desktop (`PartnerPayload.answer`/`source_lines` carry the
-    already-answered card so it's shown directly, no re-research) and falls
-    back to the internal drawer ONLY when `partnerWindow` is unsupported
-    (web). Don't reintroduce a second internal "viewer" surface on desktop.
-    Don't invent a second switching pattern for the panel either — the
-    spine-icon accordion IS the sanctioned pattern here, the way the rail
-    is for navigation; "section" in owner feedback means this exclusive
-    accordion, never on/off toggles or a tab strip.
+    Ally lives in two side-by-side panels — Active (3) and View (4).**
+    (Owner, 2026-09-28 — a 4-panel model naming the whole cockpit: **1**
+    the left nav rail, **2** the transcript/conversation column, **3**
+    Active, **4** View. Supersedes the 2026-08-26 single-panel
+    Focus-canvas-above-accordion model, which itself superseded the
+    2026-08-22 Found/View split and the 2026-08-17 dock.) Ally answers
+    never render in the transcript stream (V4.0's inline-cards layout was
+    explicitly reversed).
+    - **Active (3)** is the spine-icon accordion (`AllyAccordion.tsx`,
+      `panelSections.ts` the pure model) — UNCHANGED in mechanic from
+      2026-08-26: three sections in a fixed order, **Questions** (`question`
+      icon; ◉ Live/◈ Prep mode chips, owner 2026-08-27, exactly as before) ·
+      **Tracking** (`target`; commitments + mentions) · **Terms** (`book`;
+      live + doc term chips, azure dot = detected live, gold = doc).
+      Exactly ONE section open at a time; each spine icon overlays the
+      panel's left border at that section's top edge and slides with it.
+      Answers is retired as a fourth section — its content now lives
+      entirely in View. A header shows a **NEW** badge the moment FANER
+      finds something unseen in it (`unseenItems.ts`); opening the section,
+      or selecting one of its rows, clears that badge. This is "what's here
+      right now, pick one."
+    - **View (4)** is `AllyFocusCanvas` — content-first: the selected
+      item's answer/definition/detail is the dominant element on the panel;
+      the source item (the question/term/phrase itself) shrinks to ONE
+      hover/focus-tooltip icon, never a heading — Active already showed it
+      in context, so View doesn't repeat it. Pin and Elaborate are a fixed
+      top row, always one click, never buried in a menu. An outer type-tab
+      strip (Questions/Tracking/Terms, mirrors Active's sections) lets
+      several types stay open at once — selecting a new Term doesn't
+      discard an open Question — and within a type, several asks can be
+      open as their own tabs (pinned ones float first), reusing the
+      original Focus canvas's per-item tab strip unchanged. Nothing
+      selected yet → the most recent item, across any type.
+    - **The 2 → 3 → 4 relationship**: selecting anything — a row in Active,
+      or a highlighted term in the transcript (TermMenu's "Explain the
+      term") — rings it in Active, loads it in View, and marks it seen, all
+      in one action (`selectItem`/`askTerm` in `TranscriptView.tsx`). The
+      separate local "Term Peek" popover this used to route through is
+      retired (owner, 2026-09-28: "route into the Viewer") — View is the
+      one destination for everything selected, term or otherwise.
+    - Definitions used to be excluded from the Ally-card stream shown here;
+      that separation is also retired — a term-definition ask now appears
+      in View like any other.
+    - The control bar has NO tabs — in drawer mode (<640px) it shows one
+      right-edge Ally button that opens Active+View together as an overlay
+      drawer (same two panels inside, same behavior). The **Ask box** lives
+      at the conversation column's foot (compact: h-8, 12px text) at EVERY
+      width — never in the panel. Live summary is the 3-dot "Summarize the
+      call"; Grounding is a 3-dot line; TrackerRail/AllyDock/the old
+      ViewHistory archive stay retired — View shows the current item per
+      type, not a growing history. The A−/A+ pref (3-dot menu) scales ALL
+      panel content.
+    - **FANER inline transcript marks are retired** (owner, 2026-08-26 —
+      "keep FANER's Highlighter, retire the inline live-transcript marks"):
+      `HighlightedText`'s clickable term underlines REMAIN, capture chips
+      remain in Terms, but no `FanerMark`-style inline capture underlines/
+      popovers in bubbles — don't reintroduce them.
+    - The **partner window** (`src-tauri/src/partner.rs` +
+      `PartnerWindow.tsx`, `?partner=1`) is a real, ordinary OS window for
+      one item's deep-dive — draggable custom title bar, resizable,
+      defaults docked flush to the app's right edge, ⇥ re-docks; gated on
+      `capabilities().system.partnerWindow`. **It IS the viewer** (owner,
+      2026-08-22 — every "open in viewer"/Expand affordance must route to
+      `openThread`/View's own Expand button in `TranscriptView.tsx`, which
+      opens the partner window on desktop and falls back to the internal
+      drawer ONLY when `partnerWindow` is unsupported (web)). Don't
+      reintroduce a second internal "viewer" surface on desktop. Don't
+      invent a third switching pattern for the panels either — Active's
+      exclusive accordion and View's type/item tabs ARE the sanctioned
+      patterns here, the way the rail is for navigation.
 
 ## Build & run
 

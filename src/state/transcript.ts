@@ -67,6 +67,14 @@ interface TranscriptState {
   /** Non-null while browsing a past session's transcript (U3 reopen). */
   viewingPastSessionId: string | null;
 
+  /**
+   * `Date.now()` of the last final, non-empty segment on either side, or of
+   * the live run's own start — the idle-auto-stop clock (`lib/idleAutoStop.ts`)
+   * measures elapsed silence from this rather than raw wall-clock listening
+   * time, so a session with someone still talking never auto-stops.
+   */
+  lastActivityMs: number | null;
+
   applySegment: (segment: TranscriptSegment) => void;
   setSession: (session: SessionStateEvent) => void;
   setLevel: (level: AudioLevelEvent) => void;
@@ -88,6 +96,7 @@ export const useTranscriptStore = create<TranscriptState>((set) => ({
   session: { state: "idle" },
   levels: { inbound: null, outbound: null },
   viewingPastSessionId: null,
+  lastActivityMs: null,
 
   applySegment: (segment) =>
     set((s) => {
@@ -95,24 +104,31 @@ export const useTranscriptStore = create<TranscriptState>((set) => ({
         (existing) =>
           existing.side === segment.side && existing.seq === segment.seq,
       );
+      const activity =
+        segment.is_final && segment.text.trim().length > 0
+          ? Date.now()
+          : s.lastActivityMs;
       if (idx === -1) {
-        return { segments: [...s.segments, segment] };
+        return { segments: [...s.segments, segment], lastActivityMs: activity };
       }
       const next = s.segments.slice();
       next[idx] = segment;
-      return { segments: next };
+      return { segments: next, lastActivityMs: activity };
     }),
 
   setSession: (session) =>
     set((s) => {
       if (session.state !== "listening") return { session };
       // New live run: with a conversation open the previous run is archived
-      // (append); otherwise the screen resets as before.
+      // (append); otherwise the screen resets as before. A (re)start also
+      // resets the idle clock — silence before anyone has spoken yet
+      // shouldn't immediately read as "already idle".
       return {
         session,
         archived: s.retainHistory ? withLiveArchived(s.archived, s.segments) : [],
         segments: [],
         viewingPastSessionId: null,
+        lastActivityMs: Date.now(),
       };
     }),
 

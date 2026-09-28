@@ -1,11 +1,14 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { LiveControlBar } from "@/components/studio/LiveControlBar";
 import { LiveTopBar } from "@/components/studio/LiveTopBar";
@@ -20,12 +23,10 @@ import type {
   TranscriptSegment,
 } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
-import { fanerPrompt } from "@/lib/faner";
 import { AnswerBody } from "@/lib/allyMarkdown";
 import { useAppStore } from "@/state/app";
 import {
   groupSourcesByFile,
-  uniqueSourceFiles,
   useAllyStore,
   type AllyCard,
   type AllyRequestResult,
@@ -45,33 +46,29 @@ import {
   type FoundGroups,
   type FoundItem,
 } from "@/components/transcript/foundGroups";
-import {
-  prependOrFocus,
-  removeEntry,
-  toggleExpanded,
-  type ViewEntry,
-} from "@/components/transcript/viewEntries";
 import { FoundList } from "@/components/transcript/FoundList";
-import { AllyFocusCanvas } from "@/components/transcript/AllyFocusCanvas";
+import { AllyFocusCanvas, sectionOfGroup } from "@/components/transcript/AllyFocusCanvas";
 import {
   buildAllyFocusItems,
   isTermDefinitionCard,
-  makeTermDefinitionRequestId,
   type AllyFocusItem,
 } from "@/components/transcript/allyFocus";
-import { TermPeek, type TermPeekModel } from "@/components/transcript/TermPeek";
+import { markSeen, unseenIn } from "@/components/transcript/unseenItems";
 import type {
   ClaimDisplayItem,
   ClaimRowAction,
 } from "@/components/transcript/claims";
 import { projectClaimRecords } from "@/components/transcript/claims";
-import { ViewHistory } from "@/components/transcript/ViewHistory";
 import { AllyAccordion } from "@/components/transcript/AllyAccordion";
 import {
   TranscriptBubbleHeader,
   type SpeakerHeaderInfo,
 } from "@/components/transcript/TranscriptBubbleHeader";
-import type { PanelState } from "@/components/transcript/panelSections";
+import {
+  SECTION_ORDER,
+  type PanelSectionId,
+  type PanelState,
+} from "@/components/transcript/panelSections";
 import {
   YOU_SPEAKER_ID,
   fixtureVoiceId,
@@ -153,36 +150,6 @@ function splitReasoning(text: string): { answer: string; context: string } {
   };
 }
 
-/** Collapsible "reasoning" region — default collapsed; keeps deeper context out
- *  of the way during a call but one tap away. */
-function ReasoningBlock({ text }: { text: string }) {
-  const defaultOpen = useUiPrefs((s) => s.reasoningDefaultOpen);
-  const [open, setOpen] = useState(defaultOpen);
-  if (!text.trim()) return null;
-  return (
-    <div className="rounded-md border border-border/70 bg-bg/30">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-fg-faint transition-colors hover:text-fg-muted"
-      >
-        <Icon name="reasoning" size={13} />
-        Reasoning
-        <Icon
-          name="chevron"
-          size={12}
-          className={`ml-auto transition-transform ${open ? "" : "-rotate-90"}`}
-        />
-      </button>
-      {open && (
-        <div className="border-t border-border/70 px-2.5 py-2 text-[12px] text-fg-muted">
-          <AnswerBody text={text} />
-        </div>
-      )}
-    </div>
-  );
-}
 
 function cardLabel(card: AllyCard): string {
   if (card.kind === "suggest_reply") return "Suggested reply";
@@ -203,23 +170,83 @@ const TERM_ACTIONS: { action: TermAction; icon: IconName; tip: string }[] = [
 ];
 type TermAction = "definition" | "howto" | "elaborate";
 
-interface ActiveTermPeek {
-  term: string;
-  cachedDefinition: string | null;
-  requestId: string | null;
-  requestState: "idle" | "running" | "busy";
-  pinned: boolean;
-}
-
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Fired on `window` the instant a `TermMenu` or `SelectionMenu` opens, so any
+ *  other already-open instance can close itself — the transcript can render
+ *  many independent `HighlightedText`/selection instances (one per segment
+ *  unit, one per bubble), each with its own local open/closed state, so
+ *  "only one menu open at a time" can't come from any single instance's own
+ *  click-outside handling alone (a click on a SECOND term calls
+ *  `stopPropagation`, so it never reaches the first menu's window listener).
+ *  Carries a per-menu token so a menu never closes itself upon opening. */
+const TRANSCRIPT_MENU_OPEN_EVENT = "conva:transcript-menu-open";
+let transcriptMenuTokenSeq = 0;
+
+/** Both popovers below are portaled to `document.body`. The transcript list
+ *  virtualizes with `transform: translateY(...)` on each row (see the
+ *  `turnVirtualizer` render below) — a CSS `transform` on an ancestor makes
+ *  THAT ancestor the containing block for any `position: fixed` descendant
+ *  instead of the viewport (spec, not a bug), which silently broke both
+ *  menus' positioning and its "escapes scroll clipping" claim the moment the
+ *  virtualizer landed: the menu no longer tracked the viewport, so it drifted
+ *  further off from where the clicked/selected text actually was the more
+ *  the list had scrolled (owner report, 2026-09-28). Escaping to `body` via
+ *  a portal restores `position: fixed` to its real, viewport-relative
+ *  meaning; React's synthetic event bubbling (stopPropagation, etc.) still
+ *  works identically through a portal regardless of where in the DOM it
+ *  renders. */
+function useCloseOnOtherMenuOpen(onClose: () => void) {
+  const token = useRef(++transcriptMenuTokenSeq).current;
+  useEffect(() => {
+    const onOtherOpen = (e: Event) => {
+      if ((e as CustomEvent<number>).detail !== token) onClose();
+    };
+    window.addEventListener(TRANSCRIPT_MENU_OPEN_EVENT, onOtherOpen);
+    window.dispatchEvent(
+      new CustomEvent(TRANSCRIPT_MENU_OPEN_EVENT, { detail: token }),
+    );
+    return () => window.removeEventListener(TRANSCRIPT_MENU_OPEN_EVENT, onOtherOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- token is stable for this instance's lifetime
+  }, [onClose]);
+}
+
+/** Clamps a popover anchored above `(x, y)` — `y` is the anchor's TOP edge,
+ *  the popover grows upward from `gap` above it — to stay fully on-screen.
+ *  Measures the real rendered size via `ref` (variable content: 3, 5, or an
+ *  arbitrary number of action buttons), so it's exact rather than a guessed
+ *  width. Returns `null` until the first measurement lands (one frame,
+ *  before paint via `useLayoutEffect` — no visible jump). */
+function useClampedUpwardPosition(
+  ref: React.RefObject<HTMLElement | null>,
+  x: number,
+  y: number,
+  gap: number,
+) {
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.min(
+      Math.max(x, margin),
+      Math.max(margin, window.innerWidth - rect.width - margin),
+    );
+    const top = Math.max(margin, y - gap - rect.height);
+    setPos({ left, top });
+  }, [ref, x, y, gap]);
+  return pos;
+}
+
 /** A small icon popover anchored to a highlighted word: definition / how-to /
  *  elaborate. Opens upward from the term (V4.0 §9) so it never collides with
- *  the turn below — `y` is the term's TOP edge; `position: fixed` already
- *  escapes the transcript's scroll clipping, translateY does the rest.
- *  Closes on outside click, scroll, or resize. */
+ *  the turn below — `y` is the term's TOP edge. Portaled to `body` (see the
+ *  doc comment above) and clamped to stay on-screen; only one of these (or a
+ *  `SelectionMenu`) is ever open at once. Closes on outside click, scroll,
+ *  resize, or another menu opening. */
 function TermMenu({
   term,
   x,
@@ -236,10 +263,13 @@ function TermMenu({
   onClose: () => void;
 }) {
   const backend = useBackend();
+  const ref = useRef<HTMLDivElement>(null);
+  const pos = useClampedUpwardPosition(ref, x, y, 4);
   const feedback = (signal: "up" | "down") => {
     void backend.rag.recordHighlightFeedback(term, signal);
     onClose();
   };
+  useCloseOnOtherMenuOpen(onClose);
   useEffect(() => {
     const close = () => onClose();
     window.addEventListener("click", close);
@@ -251,13 +281,15 @@ function TermMenu({
       window.removeEventListener("scroll", close, true);
     };
   }, [onClose]);
-  return (
+  return createPortal(
     <div
+      ref={ref}
       style={{
         position: "fixed",
-        left: x,
-        top: y - 4,
-        transform: "translateY(-100%)",
+        left: pos?.left ?? x,
+        top: pos?.top ?? y - 4,
+        transform: pos ? undefined : "translateY(-100%)",
+        visibility: pos ? "visible" : "hidden",
         zIndex: 60,
       }}
       onClick={(e) => e.stopPropagation()}
@@ -300,7 +332,8 @@ function TermMenu({
       >
         <Icon name="thumbDown" size={16} />
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -396,6 +429,23 @@ function SelectionMenu({
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.min(
+      Math.max(x - rect.width / 2, margin),
+      Math.max(margin, window.innerWidth - rect.width - margin),
+    );
+    // Grows downward from the selection; clamp the bottom edge so it never
+    // renders off-screen on a short viewport.
+    const top = Math.min(y + 6, Math.max(margin, window.innerHeight - rect.height - margin));
+    setPos({ left, top });
+  }, [x, y]);
+  useCloseOnOtherMenuOpen(onClose);
   useEffect(() => {
     const close = () => onClose();
     window.addEventListener("resize", close);
@@ -408,10 +458,16 @@ function SelectionMenu({
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
-  const left = Math.max(8, Math.min(x - 52, window.innerWidth - 120));
-  return (
+  return createPortal(
     <div
-      style={{ position: "fixed", left, top: y + 6, zIndex: 60 }}
+      ref={ref}
+      style={{
+        position: "fixed",
+        left: pos?.left ?? x,
+        top: pos?.top ?? y + 6,
+        visibility: pos ? "visible" : "hidden",
+        zIndex: 60,
+      }}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -454,7 +510,8 @@ function SelectionMenu({
       >
         <Icon name="chevron" size={15} className="rotate-90" />
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -514,12 +571,16 @@ function CollapsedPreview({
 }
 
 /** The expanded content: sentences flow on one continuous line, separated by a
- *  coloured `|`. Hovering a sentence highlights it and reveals a lightbulb to
- *  ask Ally about just that sentence; RAG terms stay clickable within. */
+ *  coloured `|`. RAG terms stay clickable within (TermMenu already covers
+ *  "ask Ally about this" per-term — owner, 2026-09-28: the per-sentence
+ *  hover lightbulb this used to also show was redundant with that menu, and
+ *  toggling it into/out of the layout on hover reshaped the surrounding text
+ *  (`hidden` → `inline-flex` inserts an inline box), so it's gone; the
+ *  sentence-hover highlight itself is a pure background-colour change and
+ *  never affects layout. */
 function FlowText({
   units,
   terms,
-  onAskText,
   onAskTerm,
 }: {
   /** Stability-aware units (F13) — one per finalized segment in this turn,
@@ -527,7 +588,6 @@ function FlowText({
    *  case where the true final text corrected what was last shown. */
   units: StabilityUnit[];
   terms: string[];
-  onAskText: (t: string) => void;
   onAskTerm: (action: TermAction, term: string) => void;
 }) {
   return (
@@ -535,33 +595,13 @@ function FlowText({
       {units.map((unit) => (
         <span
           key={unit.key}
-          className="group/u rounded-[3px] px-0.5 transition-colors hover:bg-ai/10"
+          className="rounded-[3px] px-0.5 transition-colors hover:bg-ai/10"
         >
           {unit.diff ? (
             <ScrambleText words={unit.diff} />
           ) : (
             <HighlightedText text={unit.text} terms={terms} onAsk={onAskTerm} />
           )}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAskText(unit.text);
-            }}
-            title="Ask Ally about this"
-            aria-label="Ask Ally about this sentence"
-            // `hidden` (not `display: none` via opacity) — a turn commonly
-            // holds many `units` (one per ASR-finalized segment, which
-            // finalizes every ~1-3s of speech, not per sentence), so an
-            // `opacity-0` icon here still reserved ~14px of inline layout
-            // space at EVERY segment boundary, scattered through the
-            // flowing paragraph — the "messy text, large gaps" bug (owner
-            // screenshot report). `hidden`/`group-hover/u:inline-flex`
-            // removes it from layout entirely until its unit is hovered.
-            className="ml-0.5 hidden align-middle text-ai/70 hover:text-ai group-hover/u:inline-flex"
-          >
-            <Icon name="lightbulb" size={12} />
-          </button>
         </span>
       ))}
     </span>
@@ -750,7 +790,15 @@ function Bubble({
     return () => window.removeEventListener("mousemove", onMove);
   }, [sel]);
 
-  const accent = inbound ? "bg-inbound" : "bg-outbound";
+  // Per-voice accent (owner: each new voice defaults to its own color) —
+  // `speaker.color` is set for every real profile (`colorForOrdinal`); the
+  // literal fallback only covers the placeholder "…" stand-in before one
+  // resolves. The background wash stays the plain inbound/outbound tint —
+  // a per-voice tint reads as noisy at that low an opacity and wasn't asked
+  // for; only the accent bar and label need to carry voice identity.
+  const accentColor = inbound
+    ? (speaker.color ?? "var(--color-inbound)")
+    : "var(--color-outbound)";
   const tint = inbound ? "bg-inbound/[0.05]" : "bg-outbound/[0.05]";
 
   const timeMs = firstFinal ? firstFinal.start_ms : 0;
@@ -800,7 +848,8 @@ function Bubble({
         )}
         {/* 2px voice-colour accent bar (density law). */}
         <span
-          className={`absolute inset-y-0 left-0 w-[2px] rounded-l ${accent}`}
+          className="absolute inset-y-0 left-0 w-[2px] rounded-l"
+          style={{ backgroundColor: accentColor }}
           aria-hidden
         />
         {/* Option B (owner-approved, 2026-09-03): one compact metadata header.
@@ -833,7 +882,6 @@ function Bubble({
               <FlowText
                 units={finalUnits}
                 terms={highlightTerms}
-                onAskText={onAskText}
                 onAskTerm={onAskTerm}
               />
             )}
@@ -1079,285 +1127,6 @@ function ThreadViewer({
   );
 }
 
-/**
- * An Ally answer card (V4.0's `.allycard` — notched top-left corner, gold
- * left spine, "SAY THIS"/label eyebrow), rendered in the Ally answers
- * COLUMN, never in the conversation stream (owner rule, 2026-08-21: the
- * conversation column is conversation text only). Cards with a `sourceKey`
- * sit at their source turn's position in the column; freeform "Ask Ally"
- * cards follow at the end, in the order they were asked (orderAllyCards).
- */
-function AllyAnswerCard({
-  card,
-  registerEl,
-  flashToken,
-  collapsed,
-  onToggleCollapse,
-  onOpenViewer,
-  onContextMenu,
-  onRequest,
-  onSummarize,
-  fontPx,
-}: {
-  card: AllyCard;
-  registerEl: (id: string, el: HTMLElement | null) => void;
-  flashToken: number | null;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
-  onOpenViewer: () => void;
-  onContextMenu: (e: React.MouseEvent) => void;
-  onRequest: (
-    kind: AllyKind,
-    question?: string,
-    source?: { key: string; quote: string },
-  ) => void;
-  onSummarize: () => void;
-  fontPx: number;
-}) {
-  const label = cardLabel(card);
-  const suggest = card.kind === "suggest_reply";
-  const eyebrow = suggest ? "Say this" : label;
-  const { answer, context } = splitReasoning(card.text);
-  const sayText = answer || card.text;
-  // Clean citation line (owner, 2026-08-22): unique FILE names only — the
-  // per-chunk ¶ ranges live in the thread viewer, not on the card.
-  const sourceFiles = uniqueSourceFiles(card.sources);
-  const sourceDetail = groupSourcesByFile(card.sources)
-    .map((g) => `${g.file} — ${g.locations.join(", ")}`)
-    .join("\n");
-  const [summaryOpen, setSummaryOpen] = useState(true);
-  // Raw/formatted toggle (owner report, 2026-09-15: "still in markup format,
-  // offer raw and formatted"). Per-card — unlike the Focus canvas above,
-  // each Answers-archive card is its own independent thing to read.
-  const [raw, setRaw] = useState(false);
-  const rephrase = () =>
-    onRequest(
-      "question",
-      `Rephrase this a different way, same meaning: "${sayText}"`,
-      card.sourceKey
-        ? { key: card.sourceKey, quote: card.sourceQuote ?? "" }
-        : undefined,
-    );
-  // Distinct from both neighbors: expand on the SAME answer (more context,
-  // not a reword like Rephrase, not a wider dig like Research this line).
-  const moreDetail = () =>
-    onRequest(
-      "question",
-      `Give more detail on this — expand with more context, keep the same core answer: "${sayText}"`,
-      card.sourceKey
-        ? { key: card.sourceKey, quote: card.sourceQuote ?? "" }
-        : undefined,
-    );
-  const researchMore = () =>
-    onRequest(
-      "question",
-      `Research this further and go deeper: "${sayText}"`,
-      card.sourceKey
-        ? { key: card.sourceKey, quote: card.sourceQuote ?? "" }
-        : undefined,
-    );
-
-  return (
-    <div
-      ref={(el) => registerEl(card.id, el)}
-      onContextMenu={onContextMenu}
-      style={{ clipPath: "polygon(0 10px, 10px 0, 100% 0, 100% 100%, 0 100%)" }}
-      className="relative w-[96%] border border-ai/34 bg-ai/[0.06] py-2 pl-3 pr-2.5"
-    >
-      {flashToken !== null && (
-        <span
-          key={flashToken}
-          className="pointer-events-none absolute inset-0 ring-2 ring-primary/70 animate-flash-ring"
-          aria-hidden
-        />
-      )}
-      {/* Gold left spine — Ally's identity colour, never borrowed by chrome. */}
-      <span
-        className="absolute bottom-2 left-0 top-2 w-[3px] rounded-full bg-ai"
-        aria-hidden
-      />
-      <div
-        onClick={onToggleCollapse}
-        role="button"
-        tabIndex={0}
-        aria-expanded={!collapsed}
-        aria-label={`${collapsed ? "Expand" : "Collapse"} ${eyebrow} answer`}
-        className="flex cursor-pointer select-none items-center gap-2.5"
-      >
-        <span className="grid h-[20px] min-w-[20px] shrink-0 place-items-center rounded-[6px] bg-ai font-mono text-[9px] font-bold text-bg">
-          AI
-        </span>
-        <span className="shrink-0 font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
-          {eyebrow}
-        </span>
-        {!card.done && (
-          <span className="shrink-0 text-[11px] text-fg-faint" role="status">
-            thinking…
-          </span>
-        )}
-        {collapsed && card.text && (
-          <span className="min-w-0 flex-1 truncate text-[11px] text-fg-muted">
-            {card.text}
-          </span>
-        )}
-        {!collapsed && !card.error && card.text && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setRaw((r) => !r);
-            }}
-            title={raw ? "Show formatted" : "Show raw markdown"}
-            className="ml-auto shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-fg-faint transition hover:text-fg"
-          >
-            {raw ? "Raw" : "Formatted"}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenViewer();
-          }}
-          title="Open in viewer"
-          aria-label={`Open A${card.seq} in the viewer`}
-          className={`${collapsed || card.error || !card.text ? "ml-auto" : ""} shrink-0 rounded p-0.5 text-fg-faint transition-colors hover:text-ai`}
-        >
-          <Icon name="expand" size={13} />
-        </button>
-      </div>
-
-      {!collapsed && (
-        <div
-          className="mt-1.5 flex flex-col gap-1.5 text-fg leading-relaxed"
-          style={{ fontSize: `${fontPx}px` }}
-        >
-          {/* Collapsible Summary — sits at the TOP of the card once the
-              Summarize action has run (owner, 2026-08-22). */}
-          {card.summary !== null && (
-            <div className="rounded-[4px] border border-ai/30 bg-ai/[0.05]">
-              <button
-                type="button"
-                onClick={() => setSummaryOpen((o) => !o)}
-                aria-expanded={summaryOpen}
-                className="flex w-full items-center gap-2 px-2 py-1"
-              >
-                <span className="font-mono text-[9.5px] font-bold uppercase tracking-[0.16em] text-ai">
-                  Summary
-                </span>
-                <Icon
-                  name="chevron"
-                  size={12}
-                  className={`ml-auto text-fg-faint transition-transform ${summaryOpen ? "rotate-90" : ""}`}
-                />
-              </button>
-              {summaryOpen &&
-                (card.summary ? (
-                  <div className="px-2 pb-1.5 text-[0.92em] leading-relaxed text-fg">
-                    <AnswerBody text={card.summary} />
-                  </div>
-                ) : (
-                  <p className="px-2 pb-1.5 text-[0.92em] leading-relaxed text-fg">
-                    Summarizing…
-                  </p>
-                ))}
-            </div>
-          )}
-
-          {card.error ? (
-            <p className="text-[13px] text-rec">{card.error}</p>
-          ) : card.text ? (
-            raw ? (
-              <pre className="whitespace-pre-wrap break-words font-mono text-[0.85em]">
-                {card.text}
-              </pre>
-            ) : (
-              <>
-                <AnswerBody text={sayText} />
-                <ReasoningBlock text={context} />
-              </>
-            )
-          ) : (
-            <p className="text-[13px] text-fg-muted">…</p>
-          )}
-
-          {sourceFiles.length > 0 && (
-            <p
-              title={sourceDetail}
-              className="flex items-center gap-1.5 font-mono text-[10.5px] text-fg-faint"
-            >
-              <Icon name="file" size={12} className="text-ai" />
-              <span className="min-w-0 truncate">
-                Grounded in {sourceFiles.join(" · ")}
-              </span>
-            </p>
-          )}
-
-          {!card.error && card.done && (
-            <div className="mt-0.5 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => void navigator.clipboard.writeText(sayText)}
-                className="rounded-full bg-ai px-3 py-1 text-[11.5px] font-bold text-bg transition hover:brightness-110"
-              >
-                Use it
-              </button>
-              <button
-                type="button"
-                onClick={rephrase}
-                className="rounded-full border border-ai/40 px-3 py-1 text-[11.5px] font-bold text-ai transition hover:bg-ai/10"
-              >
-                Rephrase
-              </button>
-              <button
-                type="button"
-                onClick={moreDetail}
-                className="rounded-full border border-ai/40 px-3 py-1 text-[11.5px] font-bold text-ai transition hover:bg-ai/10"
-              >
-                More detail
-              </button>
-              <button
-                type="button"
-                onClick={researchMore}
-                className="rounded-full border border-border-strong px-3 py-1 text-[11.5px] font-medium text-fg-muted transition hover:text-fg"
-              >
-                Research this line
-              </button>
-              {card.summary === null && (
-                <button
-                  type="button"
-                  onClick={onSummarize}
-                  title="Condense this answer into a scannable summary at the top of the card"
-                  className="rounded-full border border-border-strong px-3 py-1 text-[11.5px] font-medium text-fg-muted transition hover:text-fg"
-                >
-                  Summarize
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Order for the Ally answers column: cards derived from a turn follow that
- * turn's position in the conversation; freeform (sourceless) cards append at
- * the end in the order given. Pure so it's unit-testable (test-spec T-CTX
- * neighbourhood; see orderAllyCards.test.ts).
- */
-export function orderAllyCards(
-  turnKeys: readonly string[],
-  cardsBySource: ReadonlyMap<string, AllyCard[]>,
-  sourcelessCards: readonly AllyCard[],
-): AllyCard[] {
-  const out: AllyCard[] = [];
-  for (const key of turnKeys) out.push(...(cardsBySource.get(key) ?? []));
-  out.push(...sourcelessCards);
-  return out;
-}
-
 function useAutoScroll(dep: unknown) {
   const ref = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
@@ -1449,18 +1218,22 @@ function ContextMenu({
 }
 
 /**
- * The right Ally panel (grown from V4.0's `.ally-panel`) — the ONE home for
- * everything Ally, a spine-icon ACCORDION (spec 2026-08-26, superseding the
- * 2026-08-22 Found/View split + control-bar tabs):
+ * The right side of the live cockpit — two permanently visible panels
+ * (owner, 2026-09-28; supersedes the 2026-08-26 Focus-canvas-above-
+ * accordion model, itself once the 2026-08-22 Found/View split):
  *
- * - Focus keeps the current question and full answer together above the
- *   accordion, with question tabs, pin, refresh, and expand actions.
- * - Four sections remain in fixed order — Questions · Tracking · Terms ·
- *   Answers. Answers is now the archive rather than a height-capped bottom
- *   dock, and definitions stay in Term Peek instead of the archive.
- * - `panelState`/`onPanelState` carry the exclusive accordion state.
+ * - **Active** (3): the spine-icon accordion, unchanged in mechanic from
+ *   2026-08-26 — Questions · Tracking · Terms, one section open at a time,
+ *   each header showing a NEW badge for unseen finds. This is "what's here
+ *   right now, pick one."
+ * - **View** (4): `AllyFocusCanvas`, content-first — the selected item's
+ *   answer/definition/detail is the dominant element; the source item
+ *   (question/term/phrase) shrinks to one hover-tooltip icon since Active
+ *   already showed it in context. Pin and Elaborate are always one click.
  *
- * Answers never render in the conversation column.
+ * Selecting anything in Active — or a highlighted term in the transcript,
+ * via `onSelectFound`/`askTerm` upstream — rings it in Active and loads it
+ * in View in the same action (the 2 → 3 → 4 relationship).
  */
 function AllyPanel({
   busy,
@@ -1478,30 +1251,20 @@ function AllyPanel({
   onToggleFocusPin,
   onRefreshFocus,
   onOpenFocus,
-  renderAnswers,
-  scrollRef,
-  onBodyScroll,
   panelState,
   onPanelState,
   groups,
+  newCounts,
   groundingDocs,
   questionsMode,
   onQuestionsMode,
   liveUnseen,
-  viewEntries,
-  viewFocusKey,
   onSelectFound,
-  onToggleEntry,
-  onRemoveEntry,
-  onEntryFetchInfo,
-  onEntryDefine,
-  onEntryElaborate,
-  onEntryOpenInViewer,
   canOpenClaimEvidence,
   enabledClaimActions,
   onClaimAction,
-  splitRatio,
-  onSplitRatio,
+  activeViewSplitRatio,
+  onActiveViewSplitRatio,
   widthPx,
   onResize,
 }: {
@@ -1524,12 +1287,11 @@ function AllyPanel({
   onToggleFocusPin: (id: string) => void;
   onRefreshFocus: (item: AllyFocusItem) => void;
   onOpenFocus: (item: AllyFocusItem) => void;
-  renderAnswers: () => React.ReactNode;
-  scrollRef: React.RefObject<HTMLDivElement | null>;
-  onBodyScroll: () => void;
   panelState: PanelState;
   onPanelState: (s: PanelState) => void;
   groups: FoundGroups;
+  /** Unseen-item count per Active section — drives its NEW badge. */
+  newCounts: Partial<Record<PanelSectionId, number>>;
   /** File names of the grounded context's docs — the header count + the
    *  3-dot grounding line (loaded by the cockpit's grounding effect). */
   groundingDocs: string[];
@@ -1537,20 +1299,13 @@ function AllyPanel({
   questionsMode: "live" | "prep";
   onQuestionsMode: (m: "live" | "prep") => void;
   liveUnseen: boolean;
-  viewEntries: ViewEntry[];
-  viewFocusKey: string | null;
   onSelectFound: (item: FoundItem) => void;
-  onToggleEntry: (key: string) => void;
-  onRemoveEntry: (key: string) => void;
-  onEntryFetchInfo: (entry: ViewEntry) => void;
-  onEntryDefine: (entry: ViewEntry) => void;
-  onEntryElaborate: (entry: ViewEntry) => void;
-  onEntryOpenInViewer: (entry: ViewEntry) => void;
   canOpenClaimEvidence: boolean;
   enabledClaimActions: readonly ClaimRowAction[];
   onClaimAction: (claim: ClaimDisplayItem, action: ClaimRowAction) => void;
-  splitRatio: number;
-  onSplitRatio: (r: number) => void;
+  /** Active's share of the combined panel width, 0.25–0.75. */
+  activeViewSplitRatio: number;
+  onActiveViewSplitRatio: (r: number) => void;
   widthPx: number;
   onResize: (px: number) => void;
 }) {
@@ -1697,23 +1452,11 @@ function AllyPanel({
           fixed-px — they're labels, not content. */}
       <div
         style={{ fontSize: `${allyFontPx}px` }}
-        className="flex min-h-0 flex-1 flex-col"
+        className="flex min-h-0 flex-1"
       >
-        <AllyFocusCanvas
-          items={focusItems}
-          activeId={focusItemId}
-          pinnedIds={pinnedFocusIds}
-          onSelect={onSelectFocus}
-          onTogglePin={onToggleFocusPin}
-          onRefresh={onRefreshFocus}
-          onOpen={onOpenFocus}
-          canOpen={(item) => Boolean(item.cardId || canOpenClaimEvidence)}
-          renderAnswer={(text) => <AnswerBody text={text} />}
-        />
         <div
-          className={
-            focusItems.length > 0 ? "min-h-[144px] flex-[2]" : "min-h-0 flex-1"
-          }
+          style={{ flexBasis: `${activeViewSplitRatio * 100}%` }}
+          className="flex min-h-0 shrink-0 grow-0 flex-col"
         >
           <AllyAccordion
             state={panelState}
@@ -1725,51 +1468,60 @@ function AllyPanel({
                 groups.commitments.length +
                 groups.mentions.length,
               terms: groups.terms.length,
-              answers:
-                viewEntries.length +
-                focusItems.filter((item) => item.cardId != null).length,
             }}
+            newCounts={newCounts}
             questionsMode={questionsMode}
             onQuestionsMode={onQuestionsMode}
             prepCount={groups.prepQa.length}
             liveUnseen={liveUnseen}
-            splitRatio={splitRatio}
-            onSplitRatio={onSplitRatio}
-            answersDockEnabled={false}
-            renderSection={(id) =>
-              id === "answers" ? (
-                // Answers is now the archive. The active question and its
-                // full answer stay in Focus above instead of competing with
-                // the bottom edge of the panel.
-                <div
-                  ref={scrollRef}
-                  onScroll={onBodyScroll}
-                  className="h-full overflow-y-auto"
-                >
-                  <ViewHistory
-                    entries={viewEntries}
-                    focusKey={viewFocusKey}
-                    onToggleExpanded={onToggleEntry}
-                    onRemove={onRemoveEntry}
-                    onFetchInfo={onEntryFetchInfo}
-                    onDefine={onEntryDefine}
-                    onElaborate={onEntryElaborate}
-                    onOpenInViewer={onEntryOpenInViewer}
-                    renderAnswerCards={renderAnswers}
-                  />
-                </div>
-              ) : (
-                <FoundList
-                  groups={groups}
-                  onSelect={onSelectFound}
-                  only={id}
-                  questionsMode={questionsMode}
-                  canOpenClaimEvidence={canOpenClaimEvidence}
-                  enabledClaimActions={enabledClaimActions}
-                  onClaimAction={onClaimAction}
-                />
-              )
-            }
+            renderSection={(id) => (
+              <FoundList
+                groups={groups}
+                onSelect={onSelectFound}
+                only={id}
+                questionsMode={questionsMode}
+                canOpenClaimEvidence={canOpenClaimEvidence}
+                enabledClaimActions={enabledClaimActions}
+                onClaimAction={onClaimAction}
+              />
+            )}
+          />
+        </div>
+
+        {/* Active/View divider — dragging resizes Active's share. */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize Active/View"
+          onPointerDown={(e) => {
+            const host = e.currentTarget.parentElement;
+            if (!host) return;
+            const rect = host.getBoundingClientRect();
+            const move = (ev: PointerEvent) =>
+              onActiveViewSplitRatio((ev.clientX - rect.left) / rect.width);
+            const up = () => {
+              window.removeEventListener("pointermove", move);
+              window.removeEventListener("pointerup", up);
+            };
+            window.addEventListener("pointermove", move);
+            window.addEventListener("pointerup", up);
+          }}
+          className="w-[5px] shrink-0 cursor-col-resize border-x border-border bg-bg-2 hover:bg-panel-raised"
+        />
+
+        <div className="flex min-h-0 flex-1 flex-col">
+          <AllyFocusCanvas
+            items={focusItems}
+            activeId={focusItemId}
+            activeType={panelState.open}
+            pinnedIds={pinnedFocusIds}
+            onSelect={onSelectFocus}
+            onSelectType={(t) => onPanelState({ open: t })}
+            onTogglePin={onToggleFocusPin}
+            onRefresh={onRefreshFocus}
+            onOpen={onOpenFocus}
+            canOpen={(item) => Boolean(item.cardId || canOpenClaimEvidence)}
+            renderAnswer={(text) => <AnswerBody text={text} />}
           />
         </div>
       </div>
@@ -1880,7 +1632,6 @@ export function TranscriptView({
   const liveClaimSnapshot = useAllyStore((s) => s.claimSnapshot);
   const busy = useAllyStore((s) => s.busy);
   const request = useAllyStore((s) => s.request);
-  const summarizeCard = useAllyStore((s) => s.summarize);
   const clearAlly = useAllyStore((s) => s.clear);
   // FANER's routed captures for this session (F11). The inline transcript
   // marks were retired (owner, 2026-08-26 — Highlighter kept); captures now
@@ -1903,8 +1654,8 @@ export function TranscriptView({
   const bumpTranscriptFont = useUiPrefs((s) => s.bumpTranscriptFont);
   const collapseYou = useUiPrefs((s) => s.collapseYou);
   const setCollapseYou = useUiPrefs((s) => s.setCollapseYou);
-  const panelSplitRatio = useUiPrefs((s) => s.panelSplitRatio);
-  const setPanelSplitRatio = useUiPrefs((s) => s.setPanelSplitRatio);
+  const activeViewSplitRatio = useUiPrefs((s) => s.activeViewSplitRatio);
+  const setActiveViewSplitRatio = useUiPrefs((s) => s.setActiveViewSplitRatio);
   const panelWidthPx = useUiPrefs((s) => s.panelWidthPx);
   const setPanelWidthPx = useUiPrefs((s) => s.setPanelWidthPx);
   // Session start (epoch ms) — lets a bubble's time hover show a wall-clock.
@@ -1914,7 +1665,6 @@ export function TranscriptView({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const bubbleEls = useRef(new Map<string, HTMLElement>());
-  const cardEls = useRef(new Map<string, HTMLElement>());
 
   // Search result hand-off (owner request, 2026-08-17): consumed once at
   // mount, same one-shot pattern as ContextsView's quickOpenId. `key` drives
@@ -1951,8 +1701,6 @@ export function TranscriptView({
     )?.record;
     if (refreshed && refreshed !== viewerClaim) setViewerClaim(refreshed);
   }, [displayedClaims, viewerClaim]);
-  const [termPeek, setTermPeek] = useState<ActiveTermPeek | null>(null);
-  const termRequestSequence = useRef(0);
   const focusRequestSequence = useRef(0);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -2076,11 +1824,39 @@ export function TranscriptView({
 
   const convo = useAutoScroll(merged[merged.length - 1]);
 
+  // Turns render through a windowed virtualizer (fix for the multi-hour
+  // WebView "Out of Memory" crash, 2026-09-23): a long-running or loaded
+  // transcript can reach thousands of turns, and mounting every one as real
+  // DOM forever — with no eviction — was the actual crash cause. Off-screen
+  // turns simply aren't mounted; `measureElement` (ResizeObserver-backed)
+  // corrects each turn's real height once it does mount, so collapse/expand
+  // and multi-segment turns still size correctly. `convo`'s own pin-to-
+  // bottom / onScroll (`useAutoScroll` above) needs no changes for this —
+  // it already drives the real scrollTop of `convo.ref.current`, and this
+  // container's total scroll height still reflects the true content height
+  // via the spacer div below, so both keep working unmodified.
+  const turnVirtualizer = useVirtualizer({
+    count: turns.length,
+    getScrollElement: () => convo.ref.current,
+    // A collapsed ("you") turn is much shorter than an expanded one — a
+    // closer guess means less scroll-position correction once the real,
+    // measured height lands. Only affects the INITIAL estimate.
+    estimateSize: (index) => (collapsed.has(turns[index]?.key ?? "") ? 32 : 80),
+    overscan: 8,
+    getItemKey: (index) => turns[index]?.key ?? index,
+  });
+
   // Perform the queued search-result jump once turns have rendered (their
   // refs land in bubbleEls via registerEl — double rAF gives the DOM a
   // paint cycle after the segments this component was just mounted with).
+  // The target turn may not be in the window the view mounts with (e.g.
+  // jumping to an early turn while pinned to the bottom), so scrollToIndex
+  // mounts it first; centerInScroller then does the exact pixel centering
+  // once it has real, measured bounds.
   useEffect(() => {
     if (!jumpRequest) return;
+    const idx = turns.findIndex((t) => t.key === jumpRequest.key);
+    if (idx >= 0) turnVirtualizer.scrollToIndex(idx, { align: "center" });
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
@@ -2144,57 +1920,37 @@ export function TranscriptView({
   }, []);
   const headerTight = convoColW > 0 && convoColW < 520;
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  // Spine-accordion state (spec 2026-08-26), persisted via uiPrefs: one
-  // open content section + the Answers pin, combined into the pure
-  // `PanelState` the accordion's model functions operate on.
-  const answersPinned = useUiPrefs((s) => s.answersPinned);
-  const setAnswersPinned = useUiPrefs((s) => s.setAnswersPinned);
+  // Active's accordion state (spec 2026-08-26; Answers-dock pin retired
+  // 2026-09-28 with the dock itself — see the 4-panel split plan).
   const panelOpenSection = useUiPrefs((s) => s.panelOpenSection);
   const setPanelOpenSection = useUiPrefs((s) => s.setPanelOpenSection);
   const panelState = useMemo<PanelState>(
-    () => ({ open: panelOpenSection, answersPinned }),
-    [panelOpenSection, answersPinned],
+    () => ({ open: panelOpenSection }),
+    [panelOpenSection],
   );
   const applyPanelState = useCallback(
-    (next: PanelState) => {
-      setPanelOpenSection(next.open);
-      setAnswersPinned(next.answersPinned);
-    },
-    [setPanelOpenSection, setAnswersPinned],
+    (next: PanelState) => setPanelOpenSection(next.open),
+    [setPanelOpenSection],
   );
   // Focus is the immediate answer surface. On narrow layouts the Ally drawer
-  // still has to open, but we no longer force the Answers archive open.
+  // still has to open.
   const ensureAllyVisible = useCallback(() => {
     if (drawer) setDrawerOpen(true);
   }, [drawer]);
 
-  // The View half's chosen entries (spec §3.3), newest first (owner,
-  // 2026-08-27) — a fresh pick pushes the rest down and lands in view
-  // without scrolling. One monotone counter sequences selections against
-  // future needs; focusKey drives the scroll+ring focus of an
-  // already-present card.
-  const [viewEntries, setViewEntries] = useState<ViewEntry[]>([]);
-  const [viewFocusKey, setViewFocusKey] = useState<string | null>(null);
+  // View's per-type "currently showing" item (owner, 2026-09-28) — replaces
+  // the old growing viewEntries archive with one slot per Active section;
+  // selecting a new item of a type replaces that type's slot. Pin (in
+  // AllyFocusCanvas) marks a tab worth keeping when several asks of the
+  // same type are open at once.
+  const [activeByType, setActiveByType] = useState<
+    Partial<Record<PanelSectionId, FoundItem>>
+  >({});
   const [focusItemId, setFocusItemId] = useState<string | null>(null);
   const [pinnedFocusIds, setPinnedFocusIds] = useState<Set<string>>(new Set());
-  const viewSeq = useRef(0);
-  const selectFound = useCallback(
-    (item: FoundItem) => {
-      viewSeq.current += 1;
-      setViewEntries((prev) => {
-        const r = prependOrFocus(prev, item, viewSeq.current);
-        setViewFocusKey(r.focusKey);
-        return r.entries;
-      });
-      if (item.group === "question" || item.group === "prep") {
-        setFocusItemId(`entry:${item.id}`);
-      } else {
-        applyPanelState({ open: "answers", answersPinned: false });
-      }
-      ensureAllyVisible();
-    },
-    [applyPanelState, ensureAllyVisible],
-  );
+  // Which FoundItem ids Active has acknowledged — drives the NEW badge
+  // (unseenItems.ts). Populated below, once `foundGroups` exists.
+  const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
 
   // The Found half's supply: radar history + tracker + FANER captures +
   // live/doc terms, grouped by foundGroups. The grounding effect below
@@ -2326,6 +2082,60 @@ export function TranscriptView({
     ],
   );
 
+  const idsForSection = useCallback(
+    (id: PanelSectionId): string[] => {
+      if (id === "questions") return foundGroups.questions.map((i) => i.id);
+      if (id === "terms") return foundGroups.terms.map((i) => i.id);
+      return [
+        ...foundGroups.claims.map((c) => c.id),
+        ...foundGroups.commitments.map((i) => i.id),
+        ...foundGroups.mentions.map((i) => i.id),
+      ];
+    },
+    [foundGroups],
+  );
+  // Opening a section (or it already being open when new items land in it)
+  // acknowledges its current items — clears their NEW badge.
+  useEffect(() => {
+    setSeenIds((s) => markSeen(s, idsForSection(panelState.open)));
+  }, [panelState.open, idsForSection]);
+  const newCountsBySection = useMemo(() => {
+    const out: Partial<Record<PanelSectionId, number>> = {};
+    for (const id of SECTION_ORDER) out[id] = unseenIn(idsForSection(id), seenIds).length;
+    return out;
+  }, [idsForSection, seenIds]);
+
+  const findOrMakeTermItem = useCallback(
+    (term: string, cachedDefinition?: string | null): FoundItem => {
+      const existing = foundGroups.terms.find(
+        (item) => item.label.toLowerCase() === term.toLowerCase(),
+      );
+      if (existing) return existing;
+      return {
+        id: `t-${term.toLowerCase()}`,
+        group: "term",
+        label: term,
+        detail: cachedDefinition?.trim() || null,
+      };
+    },
+    [foundGroups.terms],
+  );
+
+  /** The 2 → 3 → 4 relationship (owner, 2026-09-28): selecting anything —
+   *  a row in Active, a highlighted term in the transcript — rings it in
+   *  Active, loads it in View, and marks it seen. */
+  const selectItem = useCallback(
+    (item: FoundItem) => {
+      const section = sectionOfGroup(item.group);
+      setActiveByType((prev) => ({ ...prev, [section]: item }));
+      setFocusItemId(`found:${item.id}`);
+      setSeenIds((s) => markSeen(s, [item.id]));
+      applyPanelState({ open: section });
+      ensureAllyVisible();
+    },
+    [applyPanelState, ensureAllyVisible],
+  );
+
   // Questions sub-mode + the "live questions arrived while reading prep"
   // dot (split-source spec 2026-08-27). Seen-count baselines on every
   // switch to Live; never auto-switches the mode.
@@ -2338,16 +2148,23 @@ export function TranscriptView({
   }, [questionsMode, liveCount]);
   const liveUnseen = questionsMode === "prep" && liveCount > seenLiveCount;
 
-  // Definition requests share the existing Ally stream but belong only in
-  // Term Peek. They must never appear in the question/answer Focus canvas or
-  // in the Answers archive.
+  // Definition requests share the existing Ally stream. They used to be
+  // excluded from Focus/Answers entirely (a separate Term Peek popover
+  // showed them instead) — that separation retired 2026-09-28:
+  // `buildAllyFocusItems` now tags them group "term" and routes them like
+  // everything else. `answerCards` stays filtered for the transcript's own
+  // "N threads" pill/jump-menu below, which is unrelated to this panel.
   const answerCards = useMemo(
     () => cards.filter((card) => !isTermDefinitionCard(card)),
     [cards],
   );
+  const activeItemsList = useMemo(
+    () => Object.values(activeByType).filter((i): i is FoundItem => i != null),
+    [activeByType],
+  );
   const focusItems = useMemo(
-    () => buildAllyFocusItems(answerCards, viewEntries),
-    [answerCards, viewEntries],
+    () => buildAllyFocusItems(cards, activeItemsList),
+    [cards, activeItemsList],
   );
 
   // Auto-select a freshly-created item so it's what the user sees — not just
@@ -2378,36 +2195,10 @@ export function TranscriptView({
     }
   }, [focusItemId, focusItems, ensureAllyVisible]);
 
-  const termPeekModel = useMemo<TermPeekModel | null>(() => {
-    if (!termPeek) return null;
-    const card = termPeek.requestId
-      ? cards.find((candidate) => candidate.id === termPeek.requestId)
-      : null;
-    const status: TermPeekModel["status"] = termPeek.cachedDefinition
-      ? "cached"
-      : termPeek.requestState === "busy"
-        ? "busy"
-        : card?.error
-          ? "error"
-          : card?.done
-            ? "ready"
-            : "streaming";
-    return {
-      term: termPeek.term,
-      definition: termPeek.cachedDefinition ?? card?.text ?? "",
-      sourceLabel: termPeek.cachedDefinition
-        ? "Grounded Context glossary"
-        : card?.sources.length
-          ? uniqueSourceFiles(card.sources).join(" · ")
-          : "Resolved from the current conversation",
-      status,
-      pinned: termPeek.pinned,
-    };
-  }, [cards, termPeek]);
-
   // sourceKey → ALL cards derived from it, oldest-first (cards itself is
-  // newest-first — reverse while grouping). Drives both the turn's thread
-  // count/pill and where each inline card renders in the stream.
+  // newest-first — reverse while grouping). Drives the turn's thread
+  // count/pill and its jump-to-thread context-menu entry — unrelated to
+  // the View panel, which no longer renders an interleaved card list.
   const cardsBySource = useMemo(() => {
     const m = new Map<string, AllyCard[]>();
     for (let i = answerCards.length - 1; i >= 0; i--) {
@@ -2420,47 +2211,24 @@ export function TranscriptView({
     return m;
   }, [answerCards]);
 
-  // Freeform "Ask Ally" cards (no turn to attach to) — appended at the end
-  // of the stream, oldest-first, in the order they were asked.
-  const sourcelessCards = useMemo(
-    () => [...answerCards].filter((c) => !c.sourceKey).reverse(),
-    [answerCards],
-  );
-
-  // Answers-column order: derived cards follow their source turn's position
-  // in the conversation; freeform "Ask Ally" cards append at the end in
-  // ask order. (Pure — see orderAllyCards + its unit test.)
-  const orderedCards = useMemo<AllyCard[]>(
-    () =>
-      orderAllyCards(
-        turns.map((t) => t.key),
-        cardsBySource,
-        sourcelessCards,
-      ),
-    [turns, cardsBySource, sourcelessCards],
-  );
-  const allyScroll = useAutoScroll(orderedCards[orderedCards.length - 1]?.id);
-
   const registerBubble = useCallback((key: string, el: HTMLElement | null) => {
     if (el) bubbleEls.current.set(key, el);
     else bubbleEls.current.delete(key);
-  }, []);
-  const registerCard = useCallback((id: string, el: HTMLElement | null) => {
-    if (el) cardEls.current.set(id, el);
-    else cardEls.current.delete(id);
   }, []);
 
   /** Open the viewer on `card` — the partner window on desktop (owner,
    *  2026-08-22: THE viewer is that external, dockable OS window, not an
    *  internal drawer; every "open in viewer" affordance funnels here), the
    *  internal drawer as the web fallback where no OS window can be
-   *  spawned. Either way, flash + scroll to the card in the Ally answers
-   *  column so its place in the conversation stays visible. */
+   *  spawned. Either way, show it in View too (Questions tab — every card
+   *  is question-shaped) so it's not just the drawer that reflects the
+   *  jump. */
   const openThread = useCallback(
     (card: AllyCard) => {
       setViewerClaim(null);
       ensureAllyVisible();
       setFocusItemId(`card:${card.id}`);
+      applyPanelState({ open: "questions" });
       flashToken.current += 1;
       setFlash({ key: card.id, token: flashToken.current });
       setCollapsed((prev) => {
@@ -2468,12 +2236,6 @@ export function TranscriptView({
         n.delete(card.id);
         if (card.sourceKey) n.delete(card.sourceKey);
         return n;
-      });
-      allyScroll.setPinned(false);
-      requestAnimationFrame(() => {
-        const el = cardEls.current.get(card.id);
-        if (el && allyScroll.ref.current)
-          centerInScroller(allyScroll.ref.current, el);
       });
 
       if (caps?.system.partnerWindow) {
@@ -2494,7 +2256,7 @@ export function TranscriptView({
       setViewerCardId(card.id);
       if (drawer) setDrawerOpen(true);
     },
-    [allyScroll, backend, caps, drawer, ensureAllyVisible],
+    [applyPanelState, backend, caps, drawer, ensureAllyVisible],
   );
 
   /** Open the complete typed record in the desktop partner window or the
@@ -2557,58 +2319,18 @@ export function TranscriptView({
     [requestVisible],
   );
 
-  const openTermDefinition = useCallback(
-    (term: string, cachedDefinition?: string) => {
-      const cached = cachedDefinition?.trim() || null;
-      if (cached) {
-        setTermPeek({
-          term,
-          cachedDefinition: cached,
-          requestId: null,
-          requestState: "idle",
-          pinned: false,
-        });
-        return;
-      }
-
-      termRequestSequence.current += 1;
-      const requestId = makeTermDefinitionRequestId(
-        term,
-        Date.now(),
-        termRequestSequence.current,
-      );
-      setTermPeek({
-        term,
-        cachedDefinition: null,
-        requestId,
-        requestState: "running",
-        pinned: false,
-      });
-      void request(
-        "question",
-        `Define "${term}" concisely, in the context of this conversation. Return the definition directly, without a heading.`,
-        { key: "", quote: term },
-        requestId,
-        "term",
-      ).then((result) => {
-        if (result !== "busy") return;
-        setTermPeek((current) =>
-          current?.requestId === requestId
-            ? { ...current, requestState: "busy" }
-            : current,
-        );
-      });
-    },
-    [request],
-  );
-
+  /** A term clicked in the transcript (TermMenu's "Explain the term")
+   *  routes through the same `selectItem` a Terms row in Active does — the
+   *  2 → 3 → 4 relationship (owner, 2026-09-28). The separate Term Peek
+   *  popover this used to open is retired; View is the one destination for
+   *  everything selected, term or otherwise. */
   const askTerm = useCallback(
     (action: TermAction, term: string) => {
       if (action === "definition") {
         const cached = foundGroups.terms.find(
           (item) => item.label.toLowerCase() === term.toLowerCase(),
         )?.chip?.definition;
-        openTermDefinition(term, cached);
+        selectItem(findOrMakeTermItem(term, cached));
         return;
       }
       const prompt =
@@ -2617,18 +2339,7 @@ export function TranscriptView({
           : `Elaborate on "${term}" using the most relevant context from my documents.`;
       void requestVisible("question", prompt, { key: "", quote: term });
     },
-    [foundGroups.terms, openTermDefinition, requestVisible],
-  );
-
-  const selectPanelItem = useCallback(
-    (item: FoundItem) => {
-      if (item.group === "term") {
-        openTermDefinition(item.label, item.chip?.definition);
-        return;
-      }
-      selectFound(item);
-    },
-    [openTermDefinition, selectFound],
+    [foundGroups.terms, findOrMakeTermItem, selectItem, requestVisible],
   );
 
   const toggleFocusPin = useCallback((id: string) => {
@@ -2642,6 +2353,14 @@ export function TranscriptView({
 
   const refreshFocus = useCallback(
     (item: AllyFocusItem) => {
+      if (item.group === "term") {
+        void requestVisible(
+          "question",
+          `Elaborate on "${item.question}" using the most relevant context from my documents.`,
+          { key: "", quote: item.question },
+        );
+        return;
+      }
       void requestVisible("question", item.question);
     },
     [requestVisible],
@@ -2656,20 +2375,18 @@ export function TranscriptView({
         if (card) openThread(card);
         return;
       }
-      if (!item.entryKey || !caps?.system.partnerWindow) return;
-      const entry = viewEntries.find(
-        (candidate) => candidate.key === item.entryKey,
+      if (!item.foundId || !caps?.system.partnerWindow) return;
+      const found = activeItemsList.find(
+        (candidate) => candidate.id === item.foundId,
       );
-      if (!entry) return;
+      if (!found) return;
       void backend.partner.open(
-        entry.item.label,
-        entry.item.group,
-        entry.item.radar?.bridge.text ??
-          entry.item.prep?.answer ??
-          entry.item.detail,
+        found.label,
+        found.group,
+        found.radar?.bridge.text ?? found.prep?.answer ?? found.detail,
       );
     },
-    [answerCards, backend, caps, openThread, viewEntries],
+    [activeItemsList, answerCards, backend, caps, openThread],
   );
 
   // Ask Ally about an arbitrary slice (a sentence unit or a text selection).
@@ -2685,17 +2402,6 @@ export function TranscriptView({
         quote: text,
       });
     },
-    [requestVisible],
-  );
-  // Ask Ally about a FANER-marked span (F11) — phrased by the capture's
-  // routed action (`fanerPrompt`) rather than the generic `researchPrompt`
-  // wrapper, since FANER's prompt is already a complete question.
-  const askFaner = useCallback(
-    (capture: Capture, phrase: string) =>
-      void requestVisible("question", fanerPrompt(capture, phrase), {
-        key: "",
-        quote: phrase,
-      }),
     [requestVisible],
   );
   // Drop a selection into the Ask-Ally box so the user can build a question.
@@ -2740,34 +2446,6 @@ export function TranscriptView({
     items.push({
       label: collapsed.has(key) ? "Expand" : "Collapse",
       run: () => toggleCollapse(key),
-    });
-    setMenu({ x: e.clientX, y: e.clientY, items });
-  };
-
-  const cardMenu = (e: React.MouseEvent, card: AllyCard) => {
-    e.preventDefault();
-    const srcs = [
-      ...new Set(card.sources.map((s) => `${s.file_name} · ${s.location}`)),
-    ];
-    const items: MenuItem[] = [
-      {
-        label: "Copy",
-        run: () => void navigator.clipboard.writeText(card.text),
-      },
-    ];
-    if (srcs.length)
-      items.push({
-        label: "Copy with citation",
-        run: () =>
-          void navigator.clipboard.writeText(
-            `${card.text}\n\nSources: ${srcs.join("; ")}`,
-          ),
-      });
-    items.push({ label: "Open in viewer", run: () => openThread(card) });
-    items.push({ sep: true });
-    items.push({
-      label: collapsed.has(card.id) ? "Expand" : "Collapse",
-      run: () => toggleCollapse(card.id),
     });
     setMenu({ x: e.clientX, y: e.clientY, items });
   };
@@ -3019,95 +2697,125 @@ export function TranscriptView({
                 message to ask Ally — answers open in the Ally column.
               </p>
             ) : (
-              turns.map((turn) => {
-                const key = turn.key;
-                const linked = cardsBySource.get(key) ?? [];
-                const newest = linked[linked.length - 1];
-                // A representative segment for the whole turn: first segment's
-                // identity (so segmentKey === turn.key) with the combined final
-                // text — lets research()/bubbleMenu() work unchanged.
-                const finalText = turn.segments
-                  .filter((s) => s.is_final)
-                  .map((s) => s.text)
-                  .join(" ");
-                const repSeg = {
-                  ...turn.segments[0]!,
-                  text: finalText,
-                  is_final: turn.segments.some((s) => s.is_final),
-                };
-                // Resolve this turn's voice profile + assignment status from
-                // its first segment (every segment in the turn already
-                // shares the same resolved speakerId by construction).
-                const status = voiceStatusFor(turn.segments[0]!);
-                const profile = speakers[turn.speakerId];
-                const speaker: SpeakerHeaderInfo = profile
-                  ? {
-                      id: profile.id,
-                      kind: profile.kind,
-                      // Doc §1: overlap/insufficient speech shows no
-                      // confident identity claim, never a guessed name.
-                      label:
-                        status === "uncertain"
-                          ? "Unclear speaker"
-                          : profile.label,
-                    }
-                  : {
-                      id: turn.speakerId,
-                      kind: turn.side === "outbound" ? "you" : "anonymous",
-                      label: "…",
-                    };
-                const otherSpeakers: SpeakerHeaderInfo[] = Object.values(
-                  speakers,
-                )
-                  .filter((s) => s.id !== speaker.id && s.kind !== "you")
-                  .map((s) => ({ id: s.id, label: s.label, kind: s.kind }));
-                return (
-                  <Bubble
-                    key={key}
-                    segments={turn.segments}
-                    turnKey={key}
-                    registerEl={registerBubble}
-                    flashToken={flash?.key === key ? flash.token : null}
-                    collapsed={collapsed.has(key)}
-                    onToggleCollapse={() => toggleCollapse(key)}
-                    onResearch={() => research(repSeg)}
-                    onAskText={askText}
-                    onSendToAsk={sendToAsk}
-                    onAskTerm={askTerm}
-                    onContextMenu={(e) => bubbleMenu(e, repSeg)}
-                    threadCount={linked.length}
-                    onOpenThreads={() => newest && openThread(newest)}
-                    busy={busy}
-                    fontPx={transcriptFontPx}
-                    sessionStartMs={sessionStartMs}
-                    searchHighlight={searchHighlight}
-                    speaker={speaker}
-                    speakerStatus={status}
-                    otherSpeakers={otherSpeakers}
-                    onRenameSpeaker={(label) =>
-                      renameSpeaker(speaker.id, label)
-                    }
-                    // A true merge (doc UC5): every turn ever resolved to
-                    // this voice — not just this one — folds into the
-                    // target, via the merge table rather than a one-off
-                    // per-segment override.
-                    onMergeSpeaker={(targetId) =>
-                      mergeSpeakerInto(speaker.id, targetId)
-                    }
-                    onSplitSpeaker={() => {
-                      const fresh = createSpeaker();
-                      turn.segments.forEach((s) =>
-                        reassignSpeakerSegment(
-                          segmentKey(s),
-                          fresh.id,
-                          "confirmed",
-                        ),
-                      );
-                    }}
-                    onForgetSpeaker={() => forgetSpeaker(speaker.id)}
-                  />
-                );
-              })
+              // Windowed rendering (see turnVirtualizer above) — a spacer
+              // div carries the true total scroll height, absolutely
+              // positioned items are placed at their measured offsets. Only
+              // turns actually near the viewport are ever mounted.
+              <div
+                style={{
+                  position: "relative",
+                  width: "100%",
+                  height: turnVirtualizer.getTotalSize(),
+                }}
+              >
+                {turnVirtualizer.getVirtualItems().map((virtualItem) => {
+                  const turn = turns[virtualItem.index]!;
+                  const key = turn.key;
+                  const linked = cardsBySource.get(key) ?? [];
+                  const newest = linked[linked.length - 1];
+                  // A representative segment for the whole turn: first segment's
+                  // identity (so segmentKey === turn.key) with the combined final
+                  // text — lets research()/bubbleMenu() work unchanged.
+                  const finalText = turn.segments
+                    .filter((s) => s.is_final)
+                    .map((s) => s.text)
+                    .join(" ");
+                  const repSeg = {
+                    ...turn.segments[0]!,
+                    text: finalText,
+                    is_final: turn.segments.some((s) => s.is_final),
+                  };
+                  // Resolve this turn's voice profile + assignment status from
+                  // its first segment (every segment in the turn already
+                  // shares the same resolved speakerId by construction).
+                  const status = voiceStatusFor(turn.segments[0]!);
+                  const profile = speakers[turn.speakerId];
+                  const speaker: SpeakerHeaderInfo = profile
+                    ? {
+                        id: profile.id,
+                        kind: profile.kind,
+                        color: profile.color,
+                        // Doc §1: overlap/insufficient speech shows no
+                        // confident identity claim, never a guessed name.
+                        label:
+                          status === "uncertain"
+                            ? "Unclear speaker"
+                            : profile.label,
+                      }
+                    : {
+                        id: turn.speakerId,
+                        kind: turn.side === "outbound" ? "you" : "anonymous",
+                        label: "…",
+                      };
+                  const otherSpeakers: SpeakerHeaderInfo[] = Object.values(
+                    speakers,
+                  )
+                    .filter((s) => s.id !== speaker.id && s.kind !== "you")
+                    .map((s) => ({ id: s.id, label: s.label, kind: s.kind }));
+                  return (
+                    <div
+                      key={key}
+                      ref={turnVirtualizer.measureElement}
+                      data-index={virtualItem.index}
+                      // Replaces the old flex `gap-2.5` between bubbles — that
+                      // gap only applies between in-flow flex children, and
+                      // these items are absolutely positioned.
+                      className="pb-2.5"
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${virtualItem.start}px)`,
+                      }}
+                    >
+                      <Bubble
+                        segments={turn.segments}
+                        turnKey={key}
+                        registerEl={registerBubble}
+                        flashToken={flash?.key === key ? flash.token : null}
+                        collapsed={collapsed.has(key)}
+                        onToggleCollapse={() => toggleCollapse(key)}
+                        onResearch={() => research(repSeg)}
+                        onAskText={askText}
+                        onSendToAsk={sendToAsk}
+                        onAskTerm={askTerm}
+                        onContextMenu={(e) => bubbleMenu(e, repSeg)}
+                        threadCount={linked.length}
+                        onOpenThreads={() => newest && openThread(newest)}
+                        busy={busy}
+                        fontPx={transcriptFontPx}
+                        sessionStartMs={sessionStartMs}
+                        searchHighlight={searchHighlight}
+                        speaker={speaker}
+                        speakerStatus={status}
+                        otherSpeakers={otherSpeakers}
+                        onRenameSpeaker={(label) =>
+                          renameSpeaker(speaker.id, label)
+                        }
+                        // A true merge (doc UC5): every turn ever resolved to
+                        // this voice — not just this one — folds into the
+                        // target, via the merge table rather than a one-off
+                        // per-segment override.
+                        onMergeSpeaker={(targetId) =>
+                          mergeSpeakerInto(speaker.id, targetId)
+                        }
+                        onSplitSpeaker={() => {
+                          const fresh = createSpeaker();
+                          turn.segments.forEach((s) =>
+                            reassignSpeakerSegment(
+                              segmentKey(s),
+                              fresh.id,
+                              "confirmed",
+                            ),
+                          );
+                        }}
+                        onForgetSpeaker={() => forgetSpeaker(speaker.id)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
           {!convo.pinned && (
@@ -3154,7 +2862,7 @@ export function TranscriptView({
             setReasoningDefaultOpen={setReasoningDefaultOpen}
             clearAlly={() => {
               clearAlly();
-              setTermPeek(null);
+              setActiveByType({});
               setPinnedFocusIds(new Set());
             }}
             barPad={barPad}
@@ -3165,73 +2873,22 @@ export function TranscriptView({
             onToggleFocusPin={toggleFocusPin}
             onRefreshFocus={refreshFocus}
             onOpenFocus={openFocus}
-            scrollRef={allyScroll.ref}
-            onBodyScroll={allyScroll.onScroll}
             panelState={panelState}
             onPanelState={applyPanelState}
             groups={foundGroups}
+            newCounts={newCountsBySection}
             groundingDocs={groundingDocs}
             questionsMode={questionsMode}
             onQuestionsMode={setQuestionsMode}
             liveUnseen={liveUnseen}
-            viewEntries={viewEntries}
-            viewFocusKey={viewFocusKey}
-            onSelectFound={selectPanelItem}
-            onToggleEntry={(k) => setViewEntries((p) => toggleExpanded(p, k))}
-            onRemoveEntry={(k) => setViewEntries((p) => removeEntry(p, k))}
-            onEntryFetchInfo={(e) =>
-              e.item.chip?.capture
-                ? askFaner(e.item.chip.capture, e.item.label)
-                : askTerm("elaborate", e.item.label)
-            }
-            onEntryDefine={(e) => {
-              openTermDefinition(e.item.label, e.item.chip?.definition);
-            }}
-            onEntryElaborate={(e) => {
-              void requestVisible("question", e.item.label);
-            }}
-            onEntryOpenInViewer={(e) => {
-              if (caps?.system.partnerWindow) {
-                void backend.partner.open(
-                  e.item.label,
-                  e.item.group,
-                  e.item.chip?.capture?.preview ?? e.item.detail ?? null,
-                );
-              }
-            }}
+            onSelectFound={selectItem}
             canOpenClaimEvidence={Boolean(caps?.system.partnerWindow)}
             enabledClaimActions={CLAIM_EVIDENCE_ACTIONS}
             onClaimAction={handleClaimAction}
-            splitRatio={panelSplitRatio}
-            onSplitRatio={setPanelSplitRatio}
+            activeViewSplitRatio={activeViewSplitRatio}
+            onActiveViewSplitRatio={setActiveViewSplitRatio}
             widthPx={effectivePanelWidth}
             onResize={setPanelWidthPx}
-            renderAnswers={() =>
-              orderedCards.length === 0 ? (
-                <p className="px-2 py-4 text-center text-xs text-fg-faint">
-                  Ally answers appear here, next to the conversation. Tap the ✦
-                  lightbulb on any message, or ask below.
-                </p>
-              ) : (
-                orderedCards.map((c) => (
-                  <AllyAnswerCard
-                    key={c.id}
-                    card={c}
-                    registerEl={registerCard}
-                    flashToken={flash?.key === c.id ? flash.token : null}
-                    collapsed={collapsed.has(c.id)}
-                    onToggleCollapse={() => toggleCollapse(c.id)}
-                    onOpenViewer={() => openThread(c)}
-                    onContextMenu={(e) => cardMenu(e, c)}
-                    onRequest={(kind, question, source) =>
-                      void requestVisible(kind, question, source)
-                    }
-                    onSummarize={() => void summarizeCard(c.id)}
-                    fontPx={allyFontPx}
-                  />
-                ))
-              )
-            }
           />
         </div>
 
@@ -3248,34 +2905,6 @@ export function TranscriptView({
           }
         />
 
-        <TermPeek
-          model={termPeekModel}
-          canOpenDetails={Boolean(caps?.system.partnerWindow)}
-          onClose={() => setTermPeek(null)}
-          onTogglePin={() =>
-            setTermPeek((current) =>
-              current ? { ...current, pinned: !current.pinned } : current,
-            )
-          }
-          onAskMore={() => {
-            if (!termPeek) return;
-            void requestVisible(
-              "question",
-              `Elaborate on "${termPeek.term}" using the current conversation and grounded Context.`,
-              { key: "", quote: termPeek.term },
-            );
-          }}
-          onOpenDetails={() => {
-            if (!termPeekModel || !caps?.system.partnerWindow) return;
-            void backend.partner.open(
-              termPeekModel.term,
-              "definition",
-              termPeekModel.sourceLabel,
-              termPeekModel.definition,
-              [],
-            );
-          }}
-        />
 
         {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
       </main>

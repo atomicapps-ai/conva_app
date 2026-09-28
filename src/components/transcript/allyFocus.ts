@@ -1,4 +1,4 @@
-import type { ViewEntry } from "@/components/transcript/viewEntries";
+import type { FoundItem } from "@/components/transcript/foundGroups";
 import { uniqueSourceFiles, type AllyCard } from "@/state/ally";
 
 export const TERM_DEFINITION_REQUEST_PREFIX = "term-definition:";
@@ -7,6 +7,10 @@ export type AllyFocusStatus = "instant" | "streaming" | "ready" | "error";
 
 export interface AllyFocusItem {
   id: string;
+  /** Which `FoundItem` group this is — drives View's outer type-tab and the
+   *  "Question"/"Definition"/"Detail" answer-section label (owner,
+   *  2026-09-28). */
+  group: FoundItem["group"];
   question: string;
   answer: string;
   sourceLabel: string;
@@ -14,7 +18,10 @@ export interface AllyFocusItem {
   sourceFiles?: string[];
   status: AllyFocusStatus;
   cardId?: string;
-  entryKey?: string;
+  /** The originating `FoundItem.id`, when this item was built directly from
+   *  one (an instant radar hit, a term's cached definition, a tracking
+   *  item) rather than a streamed Ally card. */
+  foundId?: string;
 }
 
 export function isTermDefinitionCard(
@@ -47,6 +54,7 @@ function itemFromCard(card: AllyCard): AllyFocusItem {
     (card.kind === "summarize" ? "Summarize this conversation" : "Ally response");
   return {
     id: `card:${card.id}`,
+    group: isTermDefinitionCard(card) ? "term" : "question",
     question,
     answer: card.error ?? card.text,
     sourceLabel: `A${card.seq}`,
@@ -56,59 +64,78 @@ function itemFromCard(card: AllyCard): AllyFocusItem {
   };
 }
 
-function itemFromEntry(entry: ViewEntry): AllyFocusItem | null {
-  if (entry.item.group === "prep" && entry.item.prep) {
+/** Builds a View item directly from a `FoundItem` — the "instant" content
+ *  shown the moment something is selected in Active, before (or absent)
+ *  any fuller Ally elaboration. */
+function itemFromFoundItem(item: FoundItem): AllyFocusItem | null {
+  if (item.group === "prep" && item.prep) {
     return {
-      id: `entry:${entry.key}`,
-      question: entry.item.label,
-      answer: entry.item.prep.answer,
-      sourceLabel:
-        entry.item.prep.source === "ally"
-          ? "Prepared by Ally"
-          : entry.item.prep.source,
-      sourceFiles:
-        entry.item.prep.source === "ally" ? [] : [entry.item.prep.source],
+      id: `found:${item.id}`,
+      group: "prep",
+      question: item.label,
+      answer: item.prep.answer,
+      sourceLabel: item.prep.source === "ally" ? "Prepared by Ally" : item.prep.source,
+      sourceFiles: item.prep.source === "ally" ? [] : [item.prep.source],
       status: "instant",
-      entryKey: entry.key,
+      foundId: item.id,
     };
   }
-  if (entry.item.group === "question" && entry.item.radar) {
+  if (item.group === "question" && item.radar) {
     return {
-      id: `entry:${entry.key}`,
-      question: entry.item.label,
-      answer: entry.item.radar.bridge.text,
+      id: `found:${item.id}`,
+      group: "question",
+      question: item.label,
+      answer: item.radar.bridge.text,
       sourceLabel:
-        entry.item.radar.outcome === "miss" ? "Question Radar · refining" : "Question Radar",
-      sourceFiles: [
-        ...new Set(entry.item.radar.sources.map((source) => source.file_name)),
-      ],
+        item.radar.outcome === "miss" ? "Question Radar · refining" : "Question Radar",
+      sourceFiles: [...new Set(item.radar.sources.map((source) => source.file_name))],
       status: "instant",
-      entryKey: entry.key,
+      foundId: item.id,
+    };
+  }
+  if (item.group === "term" || item.group === "commitment" || item.group === "mention") {
+    return {
+      id: `found:${item.id}`,
+      group: item.group,
+      question: item.label,
+      answer: item.detail ?? "No detail yet — Elaborate for one.",
+      sourceLabel:
+        item.group === "term" ? "Term" : item.group === "commitment" ? "Commitment" : "Mentioned",
+      sourceFiles: [],
+      status: item.detail ? "instant" : "ready",
+      foundId: item.id,
     };
   }
   return null;
 }
 
 /**
- * Question/answer material eligible for the Focus canvas. Term definition
- * requests deliberately stay out of this list and out of the Answers archive.
+ * All material eligible for the View panel — Questions, Terms, and Tracking
+ * alike (owner, 2026-09-28; term definitions used to be excluded here and
+ * shown only in a separate Term Peek popover — that separation is retired).
+ * `activeItems` is Active's current per-type selection
+ * (`Object.values(activeByType)`); `cards` are the streamed Ally
+ * cards/answers. Elaborating an instant `FoundItem`-derived entry opens a
+ * new, separately-tabbed card alongside it rather than replacing it in
+ * place — the same "each ask is its own thread" behavior Questions already
+ * had, now shared by every type (`card:`/`found:` id prefixes keep the two
+ * sources from ever colliding).
  */
 export function buildAllyFocusItems(
   cards: readonly AllyCard[],
-  entries: readonly ViewEntry[],
+  activeItems: readonly FoundItem[],
 ): AllyFocusItem[] {
   const items: AllyFocusItem[] = [];
   const seen = new Set<string>();
 
   for (const card of cards) {
-    if (isTermDefinitionCard(card)) continue;
     const item = itemFromCard(card);
     items.push(item);
     seen.add(item.id);
   }
 
-  for (const entry of entries) {
-    const item = itemFromEntry(entry);
+  for (const found of activeItems) {
+    const item = itemFromFoundItem(found);
     if (!item || seen.has(item.id)) continue;
     items.push(item);
     seen.add(item.id);

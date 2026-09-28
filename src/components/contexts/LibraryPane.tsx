@@ -29,7 +29,7 @@ export const DOC_DRAG_MIME = "application/x-conva-doc-id";
 
 /** The top-level Library page's table grid (AppUI V5.0 §4's column set). */
 const PAGE_ROW_GRID =
-  "grid grid-cols-[24px_minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,0.8fr)_40px] gap-3.5";
+  "grid grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,0.8fr)_40px] gap-3.5";
 
 /** Default title for a pasted note (owner spec): words + numbers only — no
  *  punctuation/symbols — spaces replaced with underscores, capped at the
@@ -86,6 +86,9 @@ function LibraryRowMenu({
   conversationTitle,
   linked,
   onToggleLink,
+  canToggleRetrieval,
+  retrievalEnabled,
+  onToggleRetrieval,
   onDelete,
 }: {
   doc: RagDocument;
@@ -102,6 +105,11 @@ function LibraryRowMenu({
   conversationTitle: string | null;
   linked: boolean;
   onToggleLink: () => void;
+  /** The top-level Library keeps the global retrieval switch as an explicit
+   *  management action. It must never masquerade as Context attachment. */
+  canToggleRetrieval: boolean;
+  retrievalEnabled: boolean;
+  onToggleRetrieval: () => void;
   onDelete: () => void;
 }) {
   const [view, setView] = useState<"menu" | "attach" | null>(null);
@@ -195,6 +203,22 @@ function LibraryRowMenu({
                   {linked ? `Unlink from "${conversationTitle}"` : `Link to "${conversationTitle}"`}
                 </button>
               )}
+              {canToggleRetrieval && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setView(null);
+                    onToggleRetrieval();
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-fg transition hover:bg-white/[0.06]"
+                >
+                  <Icon name="book" size={13} className={retrievalEnabled ? "text-primary" : "text-fg-faint"} />
+                  {retrievalEnabled
+                    ? "Exclude from general retrieval"
+                    : "Include in general retrieval"}
+                </button>
+              )}
               {canDownload && (
                 <button
                   type="button"
@@ -267,51 +291,39 @@ function LibraryRowMenu({
  * see that file and CLAUDE.md's drag-and-drop note for the real trade-off
  * this carries for Library's own OS file-drop ingest. `contextTitles`
  * (id → title) drives both the picker and a doc's own context-tag label.
- * `focusContextId` (set from a context's doc-count control in
- * `ContextsPane`) filters the list to that context's documents, with a
- * dismissible banner as the "show everything again" affordance.
+ * `selectedContextId` is the same Context shown in the middle workspace.
+ * Its documents are checked and grouped first; every other document remains
+ * visible and unchecked below. With no selected Context the dock shows no
+ * checkboxes at all. This keeps attachment as the checkbox's only meaning —
+ * the unrelated global retrieval switch lives in the top-level Library row
+ * menu instead of presenting apparently random checked rows.
  */
 export function LibraryPane({
   contextTitles,
   onAttach,
+  onDetach,
   refreshToken,
   quickAction,
-  focusContextId,
-  onClearFocus,
-  linkedContextId,
+  selectedContextId,
   variant = "dock",
 }: {
   contextTitles: Record<string, string>;
   /** Attach `docId` to `contextId` — the real mutation
    *  (`backend.rag.attachContext`) lives with the caller. */
   onAttach: (docId: string, contextId: string) => void;
+  /** Detach `docId` from `contextId` (`backend.rag.detachContext`) —
+   *  unchecking a selected Context's row. Only used while `selectedContextId`
+   *  is set; omitted callers (e.g. the top-level Library page) never need it. */
+  onDetach?: (docId: string, contextId: string) => void;
   /** Bump this to force a refresh from outside (e.g. after generating). */
   refreshToken?: number;
   /** One-shot: open the file picker or the paste box on mount — driven by
    *  ⌘K's quick-add commands (`useLibraryQuickAdd`), consumed by the
    *  caller before it ever reaches here, so this only ever fires once. */
   quickAction?: "upload" | "paste" | null;
-  /** Set by clicking a context's doc-count control in `ContextsPane`
-   *  (owner, 2026-08-29: "when I click the document icon in the context
-   *  card it doesn't auto select the documents on the library") — HIDES
-   *  every document not attached to this context. A deliberate, separate
-   *  control from `linkedContextId` below: this one narrows the list,
-   *  that one only reorders/relabels it. */
-  focusContextId?: string | null;
-  /** Clears `focusContextId` — the banner's ✕, and clicking the same
-   *  doc-count control again (`ContextsView`'s toggle). */
-  onClearFocus?: () => void;
-  /**
-   * The Context currently open in the workspace (owner bug report,
-   * 2026-09-22: "the files on the left remain having no relationship with
-   * the open context"). Unlike `focusContextId`, this never hides anything
-   * — it groups the list (documents already attached to this context
-   * first, checked, newest-first; every other document below, also
-   * newest-first) and repurposes each row's checkbox from the global
-   * "enabled in retrieval" toggle to "attached to this context", so
-   * checking a box here is the whole action, no drag or menu needed.
-   */
-  linkedContextId?: string | null;
+  /** The Context open in Pane B. Pane C follows this same id: its attached
+   *  documents are checked and grouped first, with all other documents below. */
+  selectedContextId?: string | null;
   /**
    * `"dock"` (default) is the narrow contextual pane inside Contexts —
    * relationship-focused, one line per document. `"page"` is the top-level
@@ -520,74 +532,31 @@ export function LibraryPane({
   };
 
   const visible = useMemo(
-    () => filterDocuments(documents, { search, filter, focusContextId }),
-    [documents, search, filter, focusContextId],
-  );
-
-  const byRecency = (a: RagDocument, b: RagDocument) =>
-    b.ingested_at_unix_ms - a.ingested_at_unix_ms;
-
-  // Linked-first grouping (owner bug report, 2026-09-22) — separate from
-  // `focusContextId`'s hide-everything-else filter above: this only
-  // reorders `visible` into "already attached to the open context" (newest
-  // first) then "everything else" (also newest first), never hides a row.
-  const { linked: linkedDocuments, rest: otherDocuments } = useMemo(() => {
-    if (!linkedContextId) return { linked: [] as RagDocument[], rest: visible };
-    const linked: RagDocument[] = [];
-    const rest: RagDocument[] = [];
-    for (const doc of visible) {
-      (doc.context_ids.includes(linkedContextId) ? linked : rest).push(doc);
-    }
-    return { linked: linked.sort(byRecency), rest: rest.sort(byRecency) };
-  }, [visible, linkedContextId]);
-
-  // Unfiltered — used for the singleton-role conflict check below, so an
-  // active search/filter chip can never hide the one document that would
-  // otherwise correctly block a second résumé/JD/Q&A from attaching.
-  const allAttachedToLinkedContext = useMemo(
-    () => (linkedContextId ? documents.filter((d) => d.context_ids.includes(linkedContextId)) : []),
-    [documents, linkedContextId],
+    () => filterDocuments(documents, { search, filter }),
+    [documents, search, filter],
   );
 
   const page = variant === "page";
-  // When a context is open, the checkbox stops meaning "enabled in
-  // retrieval" and starts meaning "attached to this context" — the one
-  // action the owner asked this screen to make simple. `enabled` stays the
-  // per-row control everywhere else (the top-level Library page, or the
-  // dock with nothing open).
-  const isLinkedMode = Boolean(linkedContextId);
+  const attachmentMode = !page && Boolean(selectedContextId);
+  const byRecency = (a: RagDocument, b: RagDocument) =>
+    b.ingested_at_unix_ms - a.ingested_at_unix_ms;
+  const { attachedDocuments, otherDocuments } = useMemo(() => {
+    if (!attachmentMode || !selectedContextId) {
+      return { attachedDocuments: [] as RagDocument[], otherDocuments: visible };
+    }
+    const attached: RagDocument[] = [];
+    const other: RagDocument[] = [];
+    for (const document of visible) {
+      (document.context_ids.includes(selectedContextId) ? attached : other).push(document);
+    }
+    return { attachedDocuments: attached.sort(byRecency), otherDocuments: other.sort(byRecency) };
+  }, [attachmentMode, selectedContextId, visible]);
 
-  const renderDoc = (doc: RagDocument) => {
-    // A local const (not repeated array indexing) so TS narrows it for
-    // every use below.
+  const renderDocument = (doc: RagDocument) => {
     const firstContextId = doc.context_ids[0];
-    const attached = isLinkedMode && doc.context_ids.includes(linkedContextId!);
-    const checked = isLinkedMode ? attached : doc.enabled;
-    const disabled = isLinkedMode ? false : isImageDocument(doc) || doc.searchable === false;
-    const onCheckedChange = (next: boolean) => {
-      if (isLinkedMode) {
-        if (next) {
-          // Owner request 2026-09-22: "limit one Q&A document, one resume,
-          // one job description" — block, don't silently swap, so nothing
-          // disappears without the owner choosing it.
-          const role = classifyDocumentRole(doc.file_name);
-          const conflict =
-            role && findRoleConflict(role.role, allAttachedToLinkedContext, doc.id);
-          if (conflict) {
-            setNotice(
-              `Only one ${role!.label} document per context — remove "${conflict.file_name}" first.`,
-            );
-            return;
-          }
-        }
-        void (next
-          ? backend.rag.attachContext(doc.id, linkedContextId!)
-          : backend.rag.detachContext(doc.id, linkedContextId!)
-        ).then(refresh);
-      } else {
-        void backend.rag.setEnabled(doc.id, next).then(refresh);
-      }
-    };
+    const attached = Boolean(
+      attachmentMode && selectedContextId && doc.context_ids.includes(selectedContextId),
+    );
     return (
       <li
         key={doc.id}
@@ -602,41 +571,58 @@ export function LibraryPane({
             : "flex items-center gap-1.5 border-b border-border py-1.5 text-[12px] last:border-0"
         }
       >
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={disabled}
-          onChange={(e) => onCheckedChange(e.target.checked)}
-          aria-label={
-            isLinkedMode
-              ? attached
-                ? `Remove ${doc.file_name} from ${contextTitles[linkedContextId!] ?? "this context"}`
-                : `Add ${doc.file_name} to ${contextTitles[linkedContextId!] ?? "this context"}`
-              : isImageDocument(doc)
-                ? `${doc.file_name} is a visual asset and is not text-searchable`
-                : doc.searchable === false
-                  ? `${doc.file_name} is a review-only resource and is not independently searchable`
-                  : `Include ${doc.file_name} in retrieval`
-          }
-        />
+        {attachmentMode && selectedContextId && (
+          <input
+            type="checkbox"
+            checked={attached}
+            onChange={(e) => {
+              if (e.target.checked) {
+                // Owner request 2026-09-22: "limit one Q&A document, one
+                // resume, one job description" — block, don't silently
+                // swap, so nothing disappears without the owner choosing it.
+                const role = classifyDocumentRole(doc.file_name);
+                const conflict =
+                  role && findRoleConflict(role.role, attachedDocuments, doc.id);
+                if (conflict) {
+                  setNotice(
+                    `Only one ${role!.label} document per context — remove "${conflict.file_name}" first.`,
+                  );
+                  return;
+                }
+                onAttach(doc.id, selectedContextId);
+              } else {
+                onDetach?.(doc.id, selectedContextId);
+              }
+            }}
+            aria-label={
+              attached
+                ? `Remove ${doc.file_name} from ${contextTitles[selectedContextId] ?? "this context"}`
+                : `Add ${doc.file_name} to ${contextTitles[selectedContextId] ?? "this context"}`
+            }
+            title={contextTitles[selectedContextId] ?? "this context"}
+            className="shrink-0"
+          />
+        )}
         <span className="flex min-w-0 items-center gap-2.5">
-        <DocumentTypeIcon doc={doc} size={page ? 18 : 14} />
-        <span
-          className={[
-            "min-w-0 flex-1 truncate",
-            page ? "font-semibold" : "",
-            (isLinkedMode ? true : doc.enabled) ? "text-fg" : "text-fg-faint",
-          ].join(" ")}
-          title={
-            doc.searchable === false
-              ? `${doc.file_name} — review-only; its supported content is compiled into Context Intelligence`
-              : doc.enabled
-              ? doc.file_name
-              : `${doc.file_name} — not included in retrieval`
-          }
-        >
-          {doc.file_name}
-        </span>
+          <DocumentTypeIcon doc={doc} size={page ? 18 : 14} />
+          <span
+            className={[
+              "min-w-0 flex-1 truncate",
+              page ? "font-semibold" : "",
+              attachmentMode || doc.enabled ? "text-fg" : "text-fg-faint",
+            ].join(" ")}
+            title={
+              attachmentMode
+                ? doc.file_name
+                : doc.searchable === false
+                  ? `${doc.file_name} — review-only; its supported content is compiled into Context Intelligence`
+                  : doc.enabled
+                    ? doc.file_name
+                    : `${doc.file_name} — not included in general retrieval`
+            }
+          >
+            {doc.file_name}
+          </span>
         </span>
 
         {page && (
@@ -671,7 +657,7 @@ export function LibraryPane({
             Wrapped in a <span title=…> rather than passing title to
             Icon directly (it doesn't forward one — same pattern as
             ContextDetail.tsx's stage icons). */}
-        {!page && firstContextId && (
+        {!page && !attachmentMode && firstContextId && (
           <span
             className="shrink-0"
             title={doc.context_ids.map((id) => contextTitles[id] ?? id).join(", ")}
@@ -696,6 +682,11 @@ export function LibraryPane({
           conversationTitle={conversationTitle}
           linked={linkedDocs.includes(doc.id)}
           onToggleLink={() => void toggleLinkedDoc(doc.id)}
+          canToggleRetrieval={page && !isImageDocument(doc) && doc.searchable !== false}
+          retrievalEnabled={doc.enabled}
+          onToggleRetrieval={() =>
+            void backend.rag.setEnabled(doc.id, !doc.enabled).then(refresh)
+          }
           onDelete={() => void backend.rag.delete(doc.id).then(refresh)}
         />
       </li>
@@ -811,24 +802,18 @@ export function LibraryPane({
         </div>
       )}
 
-      {focusContextId && (
+      {!page && selectedContextId ? (
         <div className="mb-2 flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/[0.06] px-2 py-1 text-[11px] text-fg">
           <Icon name="file" size={11} className="shrink-0 text-primary" />
           <span className="min-w-0 flex-1 truncate">
-            Showing documents for{" "}
-            <span className="font-semibold">{contextTitles[focusContextId] ?? "this context"}</span>
+            Adding to <span className="font-semibold">{contextTitles[selectedContextId] ?? "this context"}</span>
           </span>
-          <button
-            type="button"
-            onClick={onClearFocus}
-            aria-label="Clear filter"
-            title="Show all documents"
-            className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
-          >
-            <Icon name="close" size={12} />
-          </button>
         </div>
-      )}
+      ) : !page ? (
+        <p className="mb-2 px-1 text-[10px] leading-relaxed text-fg-faint">
+          Select a context to add or remove documents.
+        </p>
+      ) : null}
 
       {pasteOpen && (
         <div className="mb-2 rounded-md border border-border p-2">
@@ -897,7 +882,6 @@ export function LibraryPane({
 
       {page && visible.length > 0 && (
         <div className={`${PAGE_ROW_GRID} shrink-0 items-center border-b border-border bg-bg-2 px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-fg-faint`}>
-          <span aria-hidden />
           <span>Name</span>
           <span>Type</span>
           <span>In contexts</span>
@@ -913,27 +897,25 @@ export function LibraryPane({
               ? "No documents yet — add files or paste a note."
               : "No documents match."}
           </p>
-        ) : isLinkedMode ? (
+        ) : attachmentMode ? (
           <>
-            {linkedDocuments.length > 0 && (
-              <>
-                <p className="px-1 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
-                  In this context
-                </p>
-                <ul className="flex flex-col">{linkedDocuments.map(renderDoc)}</ul>
-              </>
+            <p className="px-1 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-primary">
+              In this context · {attachedDocuments.length}
+            </p>
+            {attachedDocuments.length > 0 && (
+              <ul className="flex flex-col">{attachedDocuments.map(renderDocument)}</ul>
             )}
             {otherDocuments.length > 0 && (
               <>
-                <p className="px-1 pt-2 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
-                  {linkedDocuments.length > 0 ? "Other documents" : "Library"}
+                <p className="border-t border-border px-1 pt-2 font-mono text-[9px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
+                  Other documents
                 </p>
-                <ul className="flex flex-col">{otherDocuments.map(renderDoc)}</ul>
+                <ul className="flex flex-col">{otherDocuments.map(renderDocument)}</ul>
               </>
             )}
           </>
         ) : (
-          <ul className="flex flex-col">{visible.map(renderDoc)}</ul>
+          <ul className="flex flex-col">{visible.map(renderDocument)}</ul>
         )}
       </div>
 

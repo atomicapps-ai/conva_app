@@ -16,13 +16,218 @@
 use std::collections::{HashMap, HashSet};
 
 /// Very common words that carry no topical weight — never highlight these.
+///
+/// This is deliberately broader than a classic grammatical stopword list
+/// (owner report, 2026-09-23: a live conversation's Terms tab filled up with
+/// noise like "current", "background", "It's", "So", "Mhmm" instead of
+/// jargon). Two failure modes converge on this one list:
+///  - `doc_overlap_phrases` flags ANY shared word ≥ [`MIN_LEN`] between the
+///    spoken text and the indexed document, with no rarity check — a
+///    résumé-style document is mostly ordinary prose, so ordinary words
+///    shared with speech (e.g. "background", "expertise", "question") were
+///    passing straight through the old 36-word list.
+///  - `is_entity_token`'s sentence-start tracking only resets on `.`/`!`/
+///    `?`/`…` in the flattened turn text, but ASR turns are joined with a
+///    plain space — Whisper capitalizes each new utterance's first word
+///    without necessarily closing the previous one with terminal
+///    punctuation, so backchannel/filler words and ordinary sentence-initial
+///    words ("Always", "So", "Mhmm", "It's") get mistaken for proper nouns.
+///
+/// Both paths already gate through `is_noise_token` -> `STOPWORDS`, so one
+/// broader list fixes both. Deliberately keeps out words with a real dual
+/// technical sense even though they're common prose (e.g. "message",
+/// "service", "point", "development", "information", "long") — those stay
+/// eligible so a genuine "message broker"/"service architecture" still
+/// surfaces; see `doc_overlap_ignores_common_words_the_oracle_scores_low` below.
 const STOPWORDS: &[&str] = &[
-    "the", "and", "for", "are", "but", "not", "you", "your", "with", "this", "that", "have", "has",
-    "had", "was", "were", "will", "would", "could", "should", "from", "they", "them", "their",
-    "what", "when", "where", "which", "about", "into", "than", "then", "there", "here", "been",
-    "being", "just", "like", "some", "more", "most", "also", "only", "over", "such", "very",
-    "much", "many", "each", "other", "because", "while", "after", "before", "these", "those",
-    "still", "want", "need", "know", "make", "made", "does", "done", "going", "gonna",
+    "the",
+    "and",
+    "for",
+    "are",
+    "but",
+    "not",
+    "you",
+    "your",
+    "with",
+    "this",
+    "that",
+    "have",
+    "has",
+    "had",
+    "was",
+    "were",
+    "will",
+    "would",
+    "could",
+    "should",
+    "from",
+    "they",
+    "them",
+    "their",
+    "what",
+    "when",
+    "where",
+    "which",
+    "about",
+    "into",
+    "than",
+    "then",
+    "there",
+    "here",
+    "been",
+    "being",
+    "just",
+    "like",
+    "some",
+    "more",
+    "most",
+    "also",
+    "only",
+    "over",
+    "such",
+    "very",
+    "much",
+    "many",
+    "each",
+    "other",
+    "because",
+    "while",
+    "after",
+    "before",
+    "these",
+    "those",
+    "still",
+    "want",
+    "wanted",
+    "need",
+    "know",
+    "knew",
+    "make",
+    "made",
+    "does",
+    "done",
+    "going",
+    "gonna",
+    "so",
+    "worked",
+    "always",
+    "although",
+    "driven",
+    "kind",
+    "sort",
+    "sorta",
+    // Contractions — ASR renders these as one apostrophe'd token.
+    "it's",
+    "that's",
+    "there's",
+    "here's",
+    "what's",
+    "let's",
+    "who's",
+    "he's",
+    "she's",
+    "i'm",
+    "i've",
+    "i'll",
+    "i'd",
+    "you're",
+    "you've",
+    "you'll",
+    "you'd",
+    "we're",
+    "we've",
+    "we'll",
+    "we'd",
+    "they're",
+    "they've",
+    "they'll",
+    "they'd",
+    "isn't",
+    "aren't",
+    "wasn't",
+    "weren't",
+    "doesn't",
+    "didn't",
+    "wouldn't",
+    "couldn't",
+    "shouldn't",
+    "won't",
+    "can't",
+    "don't",
+    // Backchannel / filler — near-universal in a live ASR transcript, never jargon.
+    "mhmm",
+    "hmm",
+    "uh",
+    "um",
+    "huh",
+    "uh-huh",
+    "alright",
+    // Common qualifiers/adverbs — carry no topical weight regardless of context.
+    "maybe",
+    "probably",
+    "really",
+    "actually",
+    "basically",
+    "mostly",
+    "definitely",
+    "especially",
+    "exactly",
+    "currently",
+    "recently",
+    "previously",
+    "already",
+    "somewhat",
+    // Common adjectives — generic in any domain.
+    "current",
+    "fine",
+    "strong",
+    "general",
+    "specific",
+    "different",
+    "first",
+    "next",
+    "last",
+    "same",
+    "own",
+    "whole",
+    "little",
+    "certain",
+    "various",
+    "particular",
+    // Common resume/bio-prose nouns — generic filler in a self-introduction.
+    "background",
+    "interest",
+    "expertise",
+    "introduction",
+    "question",
+    "details",
+    "name",
+    "area",
+    "areas",
+    "moment",
+    "moments",
+    "thing",
+    "things",
+    "way",
+    "ways",
+    // Common verbs — generic regardless of domain.
+    "think",
+    "thought",
+    "wanted",
+    "understand",
+    "understood",
+    "talk",
+    "talking",
+    "ask",
+    "asking",
+    "tell",
+    "telling",
+    "look",
+    "looking",
+    "come",
+    "coming",
+    "give",
+    "giving",
 ];
 
 const MIN_LEN: usize = 4;
@@ -45,26 +250,49 @@ const MIN_RARE_LEN: usize = 6;
 /// already corpus-size-normalized, so this threshold is independent of N —
 /// ≈ present in ≤ 13.5% of documents.
 const RARITY_MIN_IDF: f32 = 2.0;
+/// Corpus IDF at or above which a *doc-overlap* word counts as "significant"
+/// when a rarity oracle is supplied — lower than [`RARITY_MIN_IDF`] because
+/// doc-overlap already has a stronger corroborating signal than bare rarity
+/// (the word is grounded in an actively retrieved, topically-relevant
+/// document, not just globally uncommon). Defense-in-depth alongside the
+/// broadened [`STOPWORDS`]: a short résumé/bio document is mostly ordinary
+/// prose, so presence-in-doc alone doesn't distinguish jargon from filler —
+/// see the 2026-09-23 noisy-Terms-tab report.
+const DOC_OVERLAP_MIN_IDF: f32 = 1.0;
 
 fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '-' || c == '\''
 }
 
-/// Lowercased significant words from the context: length ≥ MIN_LEN and not a
-/// stopword. These are the terms the message is matched against.
-fn significant_terms(context: &str) -> HashSet<String> {
+/// Lowercased significant words from the context: length ≥ MIN_LEN, not a
+/// stopword, and — when `rarity` is supplied — not a high-frequency corpus
+/// word either. These are the terms the message is matched against.
+/// `rarity: None` (the doc-only mining paths: `salient_doc_terms`,
+/// `interviewer_terms`, and every test using `HighlightContext::from_doc_text`)
+/// keeps the STOPWORDS-only behavior unchanged — this only tightens the LIVE
+/// conversation path, which always supplies a real IDF oracle
+/// (`src-tauri/src/lib.rs`'s `analyze_terms`).
+fn significant_terms(context: &str, rarity: Option<&dyn Fn(&str) -> f32>) -> HashSet<String> {
     context
         .split(|c: char| !is_word_char(c))
         .filter(|w| w.chars().count() >= MIN_LEN)
         .map(|w| w.to_lowercase())
         .filter(|w| !STOPWORDS.contains(&w.as_str()))
+        .filter(|w| match rarity {
+            Some(idf) => idf(w) >= DOC_OVERLAP_MIN_IDF,
+            None => true,
+        })
         .collect()
 }
 
 /// Phrases in `message` that also appear as significant terms in `context`
 /// (the RAG-grounded signal). Consecutive matching words merge into one phrase.
-fn doc_overlap_phrases(message: &str, context: &str) -> Vec<String> {
-    let terms = significant_terms(context);
+fn doc_overlap_phrases(
+    message: &str,
+    context: &str,
+    rarity: Option<&dyn Fn(&str) -> f32>,
+) -> Vec<String> {
+    let terms = significant_terms(context, rarity);
     if terms.is_empty() {
         return Vec::new();
     }
@@ -151,6 +379,12 @@ fn proper_noun_phrases(message: &str) -> Vec<String> {
         if matches!(c, '.' | '!' | '?' | '…') {
             flush(&mut phrase, &mut out);
             sentence_start = true;
+        } else if matches!(c, ',' | ';' | ':') {
+            // A clause break, not a sentence end: the next capital is still
+            // mid-sentence (so still entity-eligible), but it must start a
+            // new phrase rather than glue onto the one before the comma —
+            // "IBM Watson, Claude, and ChatGPT" is three entities, not one.
+            flush(&mut phrase, &mut out);
         }
     }
     if !token.is_empty() && is_entity_token(&token, sentence_start) {
@@ -339,6 +573,23 @@ fn tokens(s: &str) -> Vec<String> {
         .collect()
 }
 
+/// Final, source-independent admission gate. Every candidate source — active
+/// Context terms, document overlap, entity detection, rarity, and explicit
+/// feedback — must contain at least one meaningful token. This prevents a
+/// malformed/generated Context term or historical 👍 from bypassing the same
+/// stopword and filler hygiene applied by the heuristic paths.
+///
+/// Phrases containing connector words remain valid when they also contain a
+/// content word (for example, "state of the art").
+fn has_content_bearing_token(phrase: &str) -> bool {
+    tokens(phrase).iter().any(|token| {
+        !is_noise_token(token)
+            && token
+                .chars()
+                .any(|character| character.is_alphabetic() || character.is_numeric())
+    })
+}
+
 /// Does the token sequence `needle` appear consecutively (word-bounded) in
 /// `hay`? Used for phrase-level context/boost matching.
 fn contains_phrase(hay: &[String], needle: &[String]) -> bool {
@@ -408,7 +659,7 @@ pub fn relevant_terms_capped(message: &str, ctx: &HighlightContext, cap: usize) 
         }
     }
     // RAG-grounded overlap with the retrieved library chunks.
-    for phrase in doc_overlap_phrases(message, ctx.doc_text) {
+    for phrase in doc_overlap_phrases(message, ctx.doc_text, ctx.rarity) {
         add_candidate(&mut cands, &mut index, &lower_msg, &phrase, W_DOC);
     }
     // Proper nouns / acronyms — researchable regardless of the library.
@@ -461,6 +712,10 @@ pub fn relevant_terms_capped(message: &str, ctx: &HighlightContext, cap: usize) 
     if let Some(suppress) = ctx.suppress {
         cands.retain(|c| !suppress.iter().any(|s| s.eq_ignore_ascii_case(&c.display)));
     }
+
+    // Defense in depth: explicit Context terms and feedback are valuable
+    // signals, not permission to surface semantically empty words.
+    cands.retain(|candidate| has_content_bearing_token(&candidate.display));
 
     // Strongest first; ties by earliest appearance. Score ordering makes rarity
     // (0.3) fall behind every grounded/context/entity signal automatically.
@@ -545,6 +800,34 @@ mod tests {
         // Sentence-initial word + pronoun must NOT be flagged.
         assert!(!hits.iter().any(|h| h.eq_ignore_ascii_case("before")));
         assert!(!hits.iter().any(|h| h.eq_ignore_ascii_case("i")));
+    }
+
+    #[test]
+    fn comma_separated_entities_stay_distinct() {
+        // Real transcript bug: "IBM Watson, Claude, and ChatGPT" was merging
+        // into one bogus phrase "IBM Watson Claude" because only '.', '!',
+        // '?', '…' broke a run of capitalized words — a comma-separated list
+        // (spoken enumeration is extremely common) didn't. A comma is a
+        // clause break, not a sentence end, so it must flush the phrase
+        // without making the next word "sentence-initial" (still eligible).
+        let hits = terms("I have worked with IBM Watson, Claude, and ChatGPT.", "");
+        assert!(hits.iter().any(|h| h == "IBM Watson"), "{hits:?}");
+        assert!(hits.iter().any(|h| h == "Claude"), "{hits:?}");
+        assert!(hits.iter().any(|h| h == "ChatGPT"), "{hits:?}");
+        assert!(!hits.iter().any(|h| h == "IBM Watson Claude"), "{hits:?}");
+
+        // Same bug, three-way list: "REST APIs, Python, Oracle,"
+        let hits2 = terms(
+            "Strong hands on experience with REST APIs, Python, Oracle.",
+            "",
+        );
+        assert!(hits2.iter().any(|h| h == "REST APIs"), "{hits2:?}");
+        assert!(hits2.iter().any(|h| h == "Python"), "{hits2:?}");
+        assert!(hits2.iter().any(|h| h == "Oracle"), "{hits2:?}");
+        assert!(
+            !hits2.iter().any(|h| h == "REST APIs Python Oracle"),
+            "{hits2:?}"
+        );
     }
 
     #[test]
@@ -636,6 +919,59 @@ mod tests {
     }
 
     #[test]
+    fn doc_overlap_ignores_common_words_the_oracle_scores_low() {
+        // Reproduces the 2026-09-23 noisy-Terms-tab report: a short résumé-
+        // style doc is mostly ordinary prose, so without a rarity gate every
+        // shared ≥4-letter word (not just jargon) was scoring as a "term".
+        let doc = "My current role is solution architect. I have strong \
+            background and expertise in Python, Kafka, and Postgres.";
+        let message = "So what is your current role? I'd like to know your \
+            background and expertise. We'll use Python, Kafka, and Postgres.";
+        let idf = |t: &str| {
+            if matches!(t, "python" | "kafka" | "postgres") {
+                3.0 // rare, domain-specific
+            } else {
+                0.0 // everything else is common
+            }
+        };
+        let ctx = HighlightContext {
+            rarity: Some(&idf),
+            ..HighlightContext::from_doc_text(doc)
+        };
+        let hits = relevant_terms(message, &ctx);
+        for common in ["current", "background", "expertise", "role"] {
+            assert!(
+                !hits.iter().any(|h| h.eq_ignore_ascii_case(common)),
+                "{common:?} should not be highlighted: {hits:?}"
+            );
+        }
+        // "Python" and "Kafka" are comma-adjacent in both doc and message, so
+        // the existing (unchanged) phrase-merge logic folds them into one
+        // "Python Kafka" hit — a substring check tolerates that merge.
+        let lower_hits: Vec<String> = hits.iter().map(|h| h.to_lowercase()).collect();
+        for jargon in ["python", "kafka", "postgres"] {
+            assert!(
+                lower_hits.iter().any(|h| h.contains(jargon)),
+                "{jargon:?} should still be highlighted: {hits:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn doc_overlap_stays_oracle_free_for_document_mining_paths() {
+        // salient_doc_terms/interviewer_terms never supply a rarity oracle
+        // (HighlightContext::from_doc_text sets rarity: None) — the new
+        // DOC_OVERLAP_MIN_IDF gate must not touch that path, only the live
+        // conversation path where lib.rs's analyze_terms always wires one up.
+        let doc = "DynamoDB partitioning and expand-and-contract migration.";
+        let terms = salient_doc_terms(doc, 8);
+        assert!(
+            terms.iter().any(|t| t.to_lowercase().contains("dynamodb")),
+            "{terms:?}"
+        );
+    }
+
+    #[test]
     fn suppress_drops_and_boost_surfaces() {
         // 👎 removes a would-be hit; 👍 surfaces one the heuristics miss.
         let suppress: HashSet<String> = ["GAAP".to_string()].into_iter().collect();
@@ -652,6 +988,43 @@ mod tests {
         );
         assert!(
             hits.iter().any(|h| h.eq_ignore_ascii_case("gut feel")),
+            "{hits:?}"
+        );
+    }
+
+    #[test]
+    fn final_gate_rejects_stopwords_from_context_and_feedback() {
+        let context_terms = vec!["the".to_string(), "this".to_string()];
+        let boost: HashSet<String> = ["are".to_string(), "mhmm".to_string()]
+            .into_iter()
+            .collect();
+        let ctx = HighlightContext {
+            context_terms: &context_terms,
+            boost: Some(&boost),
+            ..HighlightContext::from_doc_text("")
+        };
+
+        let hits = relevant_terms("the things are this, mhmm", &ctx);
+        for noise in ["the", "this", "are", "mhmm"] {
+            assert!(
+                !hits.iter().any(|hit| hit.eq_ignore_ascii_case(noise)),
+                "{noise:?} bypassed the final gate: {hits:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn final_gate_preserves_phrases_with_connectors_and_content() {
+        let context_terms = vec!["state of the art".to_string()];
+        let ctx = HighlightContext {
+            context_terms: &context_terms,
+            ..HighlightContext::from_doc_text("")
+        };
+
+        let hits = relevant_terms("Is this state of the art?", &ctx);
+        assert!(
+            hits.iter()
+                .any(|hit| hit.eq_ignore_ascii_case("state of the art")),
             "{hits:?}"
         );
     }

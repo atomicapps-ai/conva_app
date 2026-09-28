@@ -53,6 +53,12 @@ pub struct AppConfig {
     /// Firecrawl by default; switchable to Anthropic web search or Tavily so
     /// the three can be compared without a rebuild.
     pub research_provider: ResearchProviderId,
+    /// Auto-stop a listening session after this many minutes with no new
+    /// transcribed speech on either side — releases the mic/loopback devices
+    /// and finalizes any recording instead of burning resources unattended.
+    /// `None` disables it. Settings → Devices offers presets + a custom
+    /// value; the default matches the 5-minute preset.
+    pub idle_stop_minutes: Option<u32>,
 }
 
 impl Default for AppConfig {
@@ -85,6 +91,7 @@ impl Default for AppConfig {
             profile_display_name: None,
             profile_role: None,
             research_provider: DEFAULT_RESEARCH_PROVIDER,
+            idle_stop_minutes: Some(5),
         }
     }
 }
@@ -159,5 +166,16 @@ mod tests {
         };
         let back: AppConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
         assert_eq!(back, cfg);
+    }
+
+    #[test]
+    fn idle_stop_defaults_to_five_minutes_and_round_trips_off() {
+        assert_eq!(AppConfig::default().idle_stop_minutes, Some(5));
+        let off = AppConfig {
+            idle_stop_minutes: None,
+            ..Default::default()
+        };
+        let back: AppConfig = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
+        assert_eq!(back.idle_stop_minutes, None);
     }
 }

@@ -79,6 +79,7 @@ export function LiveControlBar({
   const requestSave = useConversationStore((s) => s.setSavePromptOpen);
   const busy = useAppStore((s) => s.busy);
   const lastError = useAppStore((s) => s.lastError);
+  const idleStoppedMinutes = useAppStore((s) => s.idleStoppedMinutes);
   const modelStatus = useAppStore((s) => s.modelStatus);
   const start = useAppStore((s) => s.start);
   const stop = useAppStore((s) => s.stop);
@@ -103,6 +104,12 @@ export function LiveControlBar({
       return "Fetching the speech model — Start again when it's ready.";
     }
     if (session.state === "error") return session.message;
+    // lib/idleAutoStop.ts already called the same stop() this bar's End
+    // button does — Start listening (still fully functional below) IS the
+    // resume action, and clears this the moment it's clicked.
+    if (idleStoppedMinutes != null && !sessionActive && !lastError) {
+      return `Stopped after ${idleStoppedMinutes} min of inactivity — Start listening to resume.`;
+    }
     return lastError ?? "";
   })();
   const isError =

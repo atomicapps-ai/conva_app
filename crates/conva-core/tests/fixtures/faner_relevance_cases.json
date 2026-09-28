@@ -1,0 +1,124 @@
+{
+  "cases": [
+    {
+      "name": "stopword signals never bypass hygiene",
+      "category": "other",
+      "message": "the things are this, mhmm",
+      "doc_text": "",
+      "context_terms": ["the", "this", "are"],
+      "boost": ["mhmm"],
+      "suppress": [],
+      "idf": {},
+      "relevant": [],
+      "forbidden": ["the", "this", "are", "mhmm"]
+    },
+    {
+      "name": "meaningful phrase keeps connector words",
+      "category": "other",
+      "message": "is this state of the art?",
+      "doc_text": "",
+      "context_terms": ["state of the art"],
+      "boost": [],
+      "suppress": [],
+      "idf": {},
+      "relevant": ["state of the art"],
+      "forbidden": ["this", "the"]
+    },
+    {
+      "name": "interview vocabulary follows the goal context",
+      "category": "interview",
+      "message": "how do you make kafka consumers idempotent?",
+      "doc_text": "",
+      "context_terms": ["kafka", "idempotent"],
+      "boost": [],
+      "suppress": [],
+      "idf": {},
+      "relevant": ["kafka", "idempotent"],
+      "forbidden": ["how", "you", "make"]
+    },
+    {
+      "name": "meeting document overlap finds a technical phrase",
+      "category": "company_meeting",
+      "message": "we need a decision on zero trust segmentation.",
+      "doc_text": "the architecture proposes zero trust segmentation.",
+      "context_terms": [],
+      "boost": [],
+      "suppress": [],
+      "idf": {"zero": 3.0, "trust": 3.0, "segmentation": 3.0},
+      "relevant": ["zero trust segmentation"],
+      "forbidden": ["need", "decision"]
+    },
+    {
+      "name": "sales phrase keeps its internal stopwords",
+      "category": "sales_call",
+      "message": "let's compare total cost of ownership.",
+      "doc_text": "",
+      "context_terms": ["total cost of ownership"],
+      "boost": [],
+      "suppress": [],
+      "idf": {},
+      "relevant": ["total cost of ownership"],
+      "forbidden": ["let's"]
+    },
+    {
+      "name": "livestream feedback cannot boost filler",
+      "category": "live_stream",
+      "message": "are we inside the latency budget?",
+      "doc_text": "",
+      "context_terms": [],
+      "boost": ["are", "latency budget"],
+      "suppress": [],
+      "idf": {},
+      "relevant": ["latency budget"],
+      "forbidden": ["are", "inside"]
+    },
+    {
+      "name": "acronym and declared metric are retained",
+      "category": "company_meeting",
+      "message": "we measure the SLA against p99 latency.",
+      "doc_text": "",
+      "context_terms": ["p99 latency"],
+      "boost": [],
+      "suppress": [],
+      "idf": {},
+      "relevant": ["SLA", "p99 latency"],
+      "forbidden": ["measure", "against"]
+    },
+    {
+      "name": "negative feedback remains authoritative",
+      "category": "company_meeting",
+      "message": "plan the zero downtime migration.",
+      "doc_text": "",
+      "context_terms": ["zero downtime migration"],
+      "boost": [],
+      "suppress": ["zero downtime migration"],
+      "idf": {},
+      "relevant": [],
+      "forbidden": ["zero downtime migration"]
+    },
+    {
+      "name": "rarity works without documents",
+      "category": "interview",
+      "message": "explain the hypervisor.",
+      "doc_text": "",
+      "context_terms": [],
+      "boost": [],
+      "suppress": [],
+      "idf": {"hypervisor": 3.2},
+      "relevant": ["hypervisor"],
+      "forbidden": ["explain", "the"]
+    },
+    {
+      "name": "generic resume prose loses to rare technology",
+      "category": "interview",
+      "message": "tell me about your current background and kubernetes expertise.",
+      "doc_text": "current background and kubernetes expertise",
+      "context_terms": [],
+      "boost": [],
+      "suppress": [],
+      "idf": {"current": 0.0, "background": 0.0, "kubernetes": 3.5, "expertise": 0.0},
+      "relevant": ["kubernetes"],
+      "forbidden": ["current", "background", "expertise"]
+    }
+  ]
+}

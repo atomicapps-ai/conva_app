@@ -422,10 +422,13 @@ impl SessionManager {
             .lock()
             .expect("ctx lock")
             .clone();
-        let ctx = conva_core::capture::PreparedContext {
-            role: String::new(),
-            terms,
-        };
+        let snapshot = app
+            .state::<crate::AppState>()
+            .active_context_snapshot
+            .lock()
+            .expect("ctx lock")
+            .clone();
+        let ctx = conva_core::capture::PreparedContext::from_snapshot(snapshot.as_ref(), terms);
         let capture_tx = crate::llm::resolve_key(selection.provider)
             .ok()
             .map(|key| crate::capture::spawn_capture(app.clone(), selection, key, ctx));

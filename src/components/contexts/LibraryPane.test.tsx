@@ -33,12 +33,13 @@ function fakeBackend(
     deleteDoc: ReturnType<typeof vi.fn>;
     attachContext: ReturnType<typeof vi.fn>;
     detachContext: ReturnType<typeof vi.fn>;
+    setEnabled: ReturnType<typeof vi.fn>;
   }> = {},
 ): ConvaBackend {
   return {
     rag: {
       list: vi.fn().mockResolvedValue(docs),
-      setEnabled: vi.fn().mockResolvedValue(undefined),
+      setEnabled: overrides.setEnabled ?? vi.fn().mockResolvedValue(undefined),
       delete: overrides.deleteDoc ?? vi.fn().mockResolvedValue(undefined),
       attachContext: overrides.attachContext ?? vi.fn().mockResolvedValue(undefined),
       detachContext: overrides.detachContext ?? vi.fn().mockResolvedValue(undefined),
@@ -63,34 +64,47 @@ function renderPane(
 }
 
 describe("LibraryPane row", () => {
-  it("labels an image as a visual asset and disables the misleading retrieval toggle", async () => {
-    renderPane([doc({ file_name: "scene.png", enabled: false, chunk_count: 0 })]);
-    await screen.findByText("scene.png");
-    expect(
-      screen.getByRole("checkbox", { name: /scene\.png is a visual asset and is not text-searchable/i }),
-    ).toBeDisabled();
-  });
-
-  it("disables retrieval for a generated review-only resource", async () => {
+  it("shows no selected documents by default, regardless of the global retrieval flag", async () => {
     renderPane([
-      doc({
-        file_name: "Nolan Wells — Research findings.txt",
-        source: "generated",
-        enabled: false,
-        searchable: false,
-      }),
+      doc({ id: "d1", file_name: "enabled.pdf", enabled: true }),
+      doc({ id: "d2", file_name: "disabled.pdf", enabled: false }),
     ]);
-    await screen.findByText("Nolan Wells — Research findings.txt");
-    expect(
-      screen.getByRole("checkbox", { name: /review-only resource/i }),
-    ).toBeDisabled();
+    await screen.findByText("enabled.pdf");
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getByText(/select a context to add or remove documents/i)).toBeInTheDocument();
   });
 
-  it("shows checkbox, source icon, and name — no drag-handle icon or generated-by badge", async () => {
-    renderPane([doc({ source: "generated" })]);
+  it("keeps global retrieval as an explicit top-level Library action, not a selection checkbox", async () => {
+    const setEnabled = vi.fn().mockResolvedValue(undefined);
+    renderPane([doc({ enabled: true })], { variant: "page" }, { setEnabled });
     await screen.findByText("resume.pdf");
-    expect(screen.getByRole("checkbox", { name: /include resume\.pdf in retrieval/i })).toBeInTheDocument();
-    expect(screen.queryByText("conva")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /more actions for resume\.pdf/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /exclude from general retrieval/i }));
+    expect(setEnabled).toHaveBeenCalledWith("d1", false);
+  });
+
+  it("does not offer general retrieval for an image or review-only resource", async () => {
+    renderPane(
+      [
+        doc({ id: "image", file_name: "scene.png", enabled: false, chunk_count: 0 }),
+        doc({
+          id: "review",
+          file_name: "Nolan Wells — Research findings.txt",
+          source: "generated",
+          enabled: false,
+          searchable: false,
+        }),
+      ],
+      { variant: "page" },
+    );
+    await screen.findByText("scene.png");
+    fireEvent.click(screen.getByRole("button", { name: /more actions for scene\.png/i }));
+    expect(screen.queryByRole("menuitem", { name: /general retrieval/i })).toBeNull();
+    fireEvent.click(document.body);
+    fireEvent.click(screen.getByRole("button", { name: /more actions for nolan wells/i }));
+    expect(screen.queryByRole("menuitem", { name: /general retrieval/i })).toBeNull();
   });
 
   it("shows a context icon with a hover title naming the attached context(s), only when attached", async () => {
@@ -104,21 +118,48 @@ describe("LibraryPane row", () => {
     expect(screen.queryByTitle("Acme interview")).toBeNull();
   });
 
-  it("focusContextId filters to that context's documents, with a clearable banner", async () => {
-    const onClearFocus = vi.fn();
+  it("selectedContextId groups attached documents first and uses one checkbox only for attachment", async () => {
+    const onAttach = vi.fn();
+    const onDetach = vi.fn();
     renderPane(
       [
-        doc({ id: "d1", file_name: "resume.pdf", context_ids: ["c1"] }),
-        doc({ id: "d2", file_name: "cover-letter.pdf", context_ids: [] }),
+        doc({ id: "d1", file_name: "cover-letter.pdf", context_ids: [], enabled: true }),
+        doc({ id: "d2", file_name: "resume.pdf", context_ids: ["c1"], enabled: false }),
       ],
-      { contextTitles: { c1: "Acme interview" }, focusContextId: "c1", onClearFocus },
+      { contextTitles: { c1: "Acme interview" }, selectedContextId: "c1", onAttach, onDetach },
     );
     await screen.findByText("resume.pdf");
-    expect(screen.queryByText("cover-letter.pdf")).toBeNull();
+    expect(screen.getByText("In this context · 1")).toBeInTheDocument();
+    expect(screen.getByText("Other documents")).toBeInTheDocument();
+    expect(screen.getByText("cover-letter.pdf")).toBeInTheDocument();
+    const rows = screen.getAllByRole("listitem").map((li) => li.textContent ?? "");
+    expect(rows[0]).toContain("resume.pdf");
+    expect(rows[1]).toContain("cover-letter.pdf");
     expect(screen.getByText("Acme interview")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: /clear filter/i }));
-    expect(onClearFocus).toHaveBeenCalled();
+    const checked = screen.getByRole("checkbox", { name: /remove resume\.pdf from acme interview/i });
+    expect(checked).toBeChecked();
+    fireEvent.click(checked);
+    expect(onDetach).toHaveBeenCalledWith("d2", "c1");
+
+    const unchecked = screen.getByRole("checkbox", { name: /add cover-letter\.pdf to acme interview/i });
+    expect(unchecked).not.toBeChecked();
+    fireEvent.click(unchecked);
+    expect(onAttach).toHaveBeenCalledWith("d1", "c1");
+  });
+
+  it("allows visual assets to be attached to the selected context", async () => {
+    const onAttach = vi.fn();
+    renderPane(
+      [doc({ file_name: "scene.png", enabled: false, chunk_count: 0 })],
+      { contextTitles: { c1: "Acme interview" }, selectedContextId: "c1", onAttach },
+    );
+    await screen.findByText("scene.png");
+    const checkbox = screen.getByRole("checkbox", { name: /add scene\.png to acme interview/i });
+    expect(checkbox).toBeEnabled();
+    fireEvent.click(checkbox);
+    expect(onAttach).toHaveBeenCalledWith("d1", "c1");
   });
 
   it("the overflow menu shows only Delete when nothing else applies (no contexts, no partner window, no open conversation)", async () => {
@@ -131,8 +172,10 @@ describe("LibraryPane row", () => {
   });
 });
 
-describe("LibraryPane linkedContextId (owner bug report, 2026-09-22)", () => {
-  it("lists documents already attached to the open context first (newest first), everything else below (also newest first)", async () => {
+describe("LibraryPane selectedContextId singleton document roles (owner request 2026-09-22)", () => {
+  it("lists documents already attached to the selected context first (newest first), everything else below (also newest first)", async () => {
+    const onAttach = vi.fn();
+    const onDetach = vi.fn();
     renderPane(
       [
         doc({ id: "d1", file_name: "old-attached.pdf", context_ids: ["c1"], ingested_at_unix_ms: 100 }),
@@ -140,14 +183,14 @@ describe("LibraryPane linkedContextId (owner bug report, 2026-09-22)", () => {
         doc({ id: "d3", file_name: "new-attached.pdf", context_ids: ["c1"], ingested_at_unix_ms: 200 }),
         doc({ id: "d4", file_name: "unattached-old.pdf", context_ids: [], ingested_at_unix_ms: 50 }),
       ],
-      { linkedContextId: "c1" },
+      { selectedContextId: "c1", onAttach, onDetach },
     );
     await screen.findByText("old-attached.pdf");
-    expect(screen.getByText("In this context")).toBeInTheDocument();
+    expect(screen.getByText("In this context · 2")).toBeInTheDocument();
     expect(screen.getByText("Other documents")).toBeInTheDocument();
 
     const names = screen.getAllByRole("listitem").map((li) => li.textContent);
-    // Linked group first, newest-attached before oldest-attached; then the
+    // Attached group first, newest-attached before oldest-attached; then the
     // rest, also newest first.
     expect(names.findIndex((t) => t?.includes("new-attached.pdf"))).toBeLessThan(
       names.findIndex((t) => t?.includes("old-attached.pdf")),
@@ -160,73 +203,46 @@ describe("LibraryPane linkedContextId (owner bug report, 2026-09-22)", () => {
     );
   });
 
-  it("checkbox reflects and toggles attachment to the open context, not the retrieval-enabled flag", async () => {
-    const attachContext = vi.fn().mockResolvedValue(undefined);
-    const detachContext = vi.fn().mockResolvedValue(undefined);
-    renderPane(
-      [
-        doc({ id: "d1", file_name: "attached.pdf", context_ids: ["c1"], enabled: false }),
-        doc({ id: "d2", file_name: "unattached.pdf", context_ids: [], enabled: true }),
-      ],
-      { linkedContextId: "c1" },
-      { attachContext, detachContext },
-    );
-    await screen.findByText("attached.pdf");
-
-    // Already attached (even though globally "disabled") shows checked.
-    const attachedBox = screen.getByRole("checkbox", { name: /remove attached\.pdf from/i });
-    expect(attachedBox).toBeChecked();
-    fireEvent.click(attachedBox);
-    expect(detachContext).toHaveBeenCalledWith("d1", "c1");
-
-    // Not attached (even though globally "enabled") shows unchecked.
-    const unattachedBox = screen.getByRole("checkbox", { name: /add unattached\.pdf to/i });
-    expect(unattachedBox).not.toBeChecked();
-    fireEvent.click(unattachedBox);
-    expect(attachContext).toHaveBeenCalledWith("d2", "c1");
-  });
-
-  it("never hides a document in linked mode — an image or review-only doc can still be attached", async () => {
+  it("never hides a document in attachment mode — an image or review-only doc can still be attached", async () => {
+    const onAttach = vi.fn();
     renderPane(
       [doc({ id: "d1", file_name: "scene.png", enabled: false, chunk_count: 0, context_ids: [] })],
-      { linkedContextId: "c1" },
+      { selectedContextId: "c1", onAttach },
     );
     await screen.findByText("scene.png");
     expect(screen.getByRole("checkbox", { name: /add scene\.png to/i })).toBeEnabled();
   });
 
   it("blocks attaching a second résumé to the same context and names the one already there", async () => {
-    const attachContext = vi.fn().mockResolvedValue(undefined);
+    const onAttach = vi.fn();
     renderPane(
       [
         doc({ id: "d1", file_name: "old-resume.pdf", context_ids: ["c1"] }),
         doc({ id: "d2", file_name: "new-resume.pdf", context_ids: [] }),
       ],
-      { linkedContextId: "c1" },
-      { attachContext },
+      { selectedContextId: "c1", onAttach },
     );
     await screen.findByText("new-resume.pdf");
     fireEvent.click(screen.getByRole("checkbox", { name: /add new-resume\.pdf to/i }));
 
-    expect(attachContext).not.toHaveBeenCalled();
+    expect(onAttach).not.toHaveBeenCalled();
     expect(
       await screen.findByText(/only one résumé\/cv document per context — remove "old-resume\.pdf" first/i),
     ).toBeInTheDocument();
   });
 
   it("does not block a second document with no recognized role", async () => {
-    const attachContext = vi.fn().mockResolvedValue(undefined);
+    const onAttach = vi.fn();
     renderPane(
       [
         doc({ id: "d1", file_name: "meeting-notes.txt", context_ids: ["c1"] }),
         doc({ id: "d2", file_name: "more-notes.txt", context_ids: [] }),
       ],
-      { linkedContextId: "c1" },
-      { attachContext },
+      { selectedContextId: "c1", onAttach },
     );
     await screen.findByText("more-notes.txt");
     fireEvent.click(screen.getByRole("checkbox", { name: /add more-notes\.txt to/i }));
-    expect(attachContext).toHaveBeenCalledWith("d2", "c1");
+    expect(onAttach).toHaveBeenCalledWith("d2", "c1");
   });
 });
 

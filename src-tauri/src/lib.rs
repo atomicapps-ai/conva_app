@@ -503,7 +503,8 @@ fn rag_list(state: State<AppState>) -> Vec<RagDocument> {
 /// RAG-grounded term detection for transcript highlighting: retrieve the
 /// library context for `text`, then return the phrases in `text` that overlap
 /// it — the words worth offering an Ally action (definition / how-to /
-/// elaborate) on. Empty when the library is empty or nothing overlaps.
+/// elaborate) on. Context, entity, rarity, and feedback signals remain active
+/// when retrieval finds no chunks; only the document-overlap signal is empty.
 #[tauri::command]
 fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<String> {
     // With a context active, its own documents are the relevance prior — an
@@ -522,9 +523,6 @@ fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<St
     } else {
         state.rag.retrieve_scoped(&text, 4, &scope)
     };
-    if chunks.is_empty() {
-        return Vec::new();
-    }
     let context = chunks
         .iter()
         .map(|c| c.text.as_str())
@@ -2722,6 +2720,19 @@ fn ally(
 
     let request = build_ally_request(kind, &segments, &chunks, question.as_deref(), 1024);
 
+    // The active Context's source policy (Setup wizard's "Ally searches the
+    // web" toggle) must gate every Ally surface that can reach for the open
+    // web — Ask box, Elaborate, and Term Peek's live definition fallback all
+    // share this command. No active Context means no policy has restricted
+    // anything yet, so default to allowed (matches pre-existing behavior).
+    let context_allows_web = state
+        .active_context_snapshot
+        .lock()
+        .expect("ctx lock")
+        .as_ref()
+        .map(|snapshot| snapshot.source_policy.allow_open_web)
+        .unwrap_or(true);
+
     // Usage attribution: which Ally surface asked. Card summaries reuse the
     // `question` kind but are a distinct feature, marked by their "sum:"
     // request-id prefix (src/state/ally.ts).
@@ -2750,12 +2761,14 @@ fn ally(
                 );
             };
             // Web search is offered to Ally only when the default provider
-            // (Anthropic) is active AND a Tavily key exists. The model decides
-            // whether to call it, so cost is incurred only on queries that
-            // genuinely need fresh/external facts — general knowledge and
-            // document questions stay a single request.
-            let web_enabled =
-                selection.provider == ProviderId::Anthropic && context::load_tavily_key().is_some();
+            // (Anthropic) is active AND a Tavily key exists AND the active
+            // Context's source policy allows open-web research. The model
+            // decides whether to call it, so cost is incurred only on
+            // queries that genuinely need fresh/external facts — general
+            // knowledge and document questions stay a single request.
+            let web_enabled = selection.provider == ProviderId::Anthropic
+                && context::load_tavily_key().is_some()
+                && context_allows_web;
 
             // Latency trace: time to first token + total.
             let t0 = std::time::Instant::now();

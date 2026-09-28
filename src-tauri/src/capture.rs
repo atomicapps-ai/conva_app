@@ -207,7 +207,11 @@ pub async fn faner_replay(
         .fast_selection()
         .clone();
     let key = crate::llm::resolve_key(selection.provider).map_err(|e| e.to_string())?;
-    let ctx = PreparedContext { role, terms };
+    let ctx = PreparedContext {
+        role,
+        terms,
+        ..PreparedContext::default()
+    };
     let segments: Vec<TranscriptSegment> =
         lines.into_iter().map(ReplayLine::into_segment).collect();
     let request = build_capture_request(&segments, &ctx);

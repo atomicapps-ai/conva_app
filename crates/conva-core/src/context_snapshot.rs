@@ -49,6 +49,33 @@ pub enum ParticipationLens {
 }
 
 impl ParticipationLens {
+    /// Human-readable role label used in model prompts and diagnostics.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Interviewer => "interviewer",
+            Self::Interviewee => "interviewee",
+            Self::InterviewObserverCoach => "interview observer or coach",
+            Self::MeetingLead => "meeting lead",
+            Self::MeetingParticipant => "meeting participant",
+            Self::MeetingPresenter => "meeting presenter",
+            Self::MeetingDecisionOwner => "meeting decision owner",
+            Self::MeetingObserver => "meeting observer",
+            Self::Buyer => "buyer",
+            Self::Seller => "seller",
+            Self::SalesCustomerSuccess => "customer-success representative",
+            Self::SalesCoach => "sales coach",
+            Self::LiveHost => "live host",
+            Self::LiveGuest => "live guest",
+            Self::LiveProducer => "live producer",
+            Self::LiveModerator => "live moderator",
+            Self::OtherSpeaker => "speaker",
+            Self::OtherListener => "listener",
+            Self::OtherFacilitator => "facilitator",
+            Self::OtherAdvisor => "advisor",
+            Self::OtherPresenter => "presenter",
+        }
+    }
+
     pub fn is_compatible_with(self, category: ContextCategory) -> bool {
         matches!(
             (category, self),
