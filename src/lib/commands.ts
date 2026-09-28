@@ -18,11 +18,14 @@ import type {
   AudioDevice,
   AuthStatus,
   AvatarBytes,
-  Capture,
   ClaimRecord,
   ClaimSnapshotEvent,
   Conversation,
   ConversationSummary,
+  DebugHighlightRequest,
+  DebugHighlightResponse,
+  FanerEvalCase,
+  FanerEvalResult,
   ContextSummary,
   ConversationContext,
   KnowledgeProfile,
@@ -32,6 +35,7 @@ import type {
   ProviderId,
   ProviderInfo,
   ProviderKeyStatus,
+  ReplayOutcome,
   RagDocument,
   SecretsStatus,
   SessionSummary,
@@ -151,15 +155,65 @@ export interface FanerReplayLine {
 
 /**
  * Route a scripted transcript (the golden conversations) through the FANER
- * capture rubric and return the routed captures — the in-app validation path,
- * no speaking required. Uses the fast-slot model, exactly as the live worker.
+ * capture rubric — the in-app validation path, no speaking required. Uses the
+ * fast-slot model, exactly as the live worker. Returns the model's raw
+ * captures, the deterministic phrase-resolved captures (what the live path
+ * emits), and the per-argument trace.
  */
 export function fanerReplay(
   role: string,
   terms: string[],
   lines: FanerReplayLine[],
-): Promise<Capture[]> {
+): Promise<ReplayOutcome> {
   return invoke("faner_replay", { role, terms, lines });
+}
+
+/** DEV-ONLY: run the deterministic highlighter (no LLM) and explain every
+ *  candidate. Rejects in release builds. */
+export function fanerDebugHighlight(
+  request: DebugHighlightRequest,
+): Promise<DebugHighlightResponse> {
+  return invoke("faner_debug_highlight", {
+    request: {
+      text: request.text,
+      terms: request.terms,
+      doc_text: request.docText,
+      use_active_context: request.useActiveContext,
+    },
+  }).then((r) => {
+    const raw = r as {
+      terms: string[];
+      trace: DebugHighlightResponse["trace"];
+      source: DebugHighlightResponse["source"];
+      known_terms: string[];
+      active_context_terms: string[];
+      active_scope_doc_count: number;
+    };
+    return {
+      terms: raw.terms,
+      trace: raw.trace,
+      source: raw.source,
+      knownTerms: raw.known_terms,
+      activeContextTerms: raw.active_context_terms,
+      activeScopeDocCount: raw.active_scope_doc_count,
+    };
+  });
+}
+
+/** DEV-ONLY: reproducible seeded cases from known terms. */
+export function fanerDebugGenerateCases(
+  seed: number,
+  count: number,
+  terms: string[],
+): Promise<FanerEvalCase[]> {
+  return invoke("faner_debug_generate_cases", { seed, count, terms });
+}
+
+/** DEV-ONLY: evaluate cases against the real highlighter. */
+export function fanerDebugEvaluate(
+  cases: FanerEvalCase[],
+): Promise<FanerEvalResult[]> {
+  return invoke("faner_debug_evaluate", { cases });
 }
 
 export function ragIngest(paths: string[]): Promise<IngestReport[]> {

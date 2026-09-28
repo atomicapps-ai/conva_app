@@ -32,6 +32,7 @@ const RUBRIC = `You assist a user during a live conversation. You receive the OT
 For the utterance:
 1. Find the QUESTIONS first — a question is the clearest signal of what the user must address.
 2. Extract TASK FRAMES — (verb + arguments); split a compound ask into separate items. Scan the WHOLE utterance for jargon, not just the words inside a detected question — scene-setting sentences carry real terms too ("In high-throughput, event-driven systems..." has two gap terms before any question starts). Emit ONE capture per distinct term — never bundle several terms into one capture's arguments.
+   TERM SHAPE: an argument is the LONGEST semantically complete term or noun phrase actually spoken — 'API Gateway', never the bare fragment 'API'; 'AWS Lambda', never 'AWS' and 'Lambda' separately. Never extend a term with words that were not spoken. When a spoken term matches a KNOWN TERM from the prepared context (ignoring capitalization), reproduce that known term EXACTLY as written there — known terms are canonical.
 3. For each item choose an ACTION by its relationship to the prepared context:
    - term NOT in prepared context (a gap) -> EXPLAIN
    - term IN the prepared context, referenced back ("on your résumé", "you mentioned") -> RECALL

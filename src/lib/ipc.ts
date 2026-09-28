@@ -258,6 +258,97 @@ export interface CaptureEvent {
   captures: Capture[];
 }
 
+// ── FANER phrase resolution — DEV-ONLY debug surface ─────────────────────────
+// Mirrors `conva-core/src/phrase.rs` (trace), `phrase_eval.rs` (eval cases),
+// `capture.rs` (`ArgumentTrace`), and `src-tauri/src/faner_debug.rs` +
+// `capture.rs` (`ReplayOutcome`). Produced only by the `faner_debug_*` /
+// `faner_replay` commands; never part of a production payload.
+
+export interface SignalTrace {
+  /** `context term` | `boost` | `document phrase` | `document overlap` |
+   *  `entity/acronym` | `rarity` */
+  source: string;
+  weight: number;
+}
+
+export interface SpanTrace {
+  /** Char offsets into the analysed text. */
+  start: number;
+  end: number;
+  /** The transcript's own text (original casing). */
+  text: string;
+  status: "selected" | "contained";
+  /** The longer phrase that swallowed this occurrence, when `contained`. */
+  container: string | null;
+}
+
+export interface CandidateTrace {
+  term: string;
+  /** Normalized identity, e.g. `api gateway`. */
+  key: string;
+  score: number;
+  signals: SignalTrace[];
+  spans: SpanTrace[];
+  decision: "selected" | "rejected";
+  reason: string;
+}
+
+export interface DebugHighlightRequest {
+  text: string;
+  terms: string[];
+  docText: string;
+  useActiveContext: boolean;
+}
+
+export interface DebugHighlightResponse {
+  /** Exactly what `relevant_terms` returns — what a bubble would render. */
+  terms: string[];
+  trace: CandidateTrace[];
+  source: "manual" | "active_context";
+  knownTerms: string[];
+  activeContextTerms: string[];
+  activeScopeDocCount: number;
+}
+
+export interface FanerEvalCase {
+  id: string;
+  seed: number;
+  transcript: string;
+  known_terms: string[];
+  expected_terms: string[];
+  forbidden_terms: string[];
+}
+
+export interface FanerEvalResult {
+  case: FanerEvalCase;
+  actual_terms: string[];
+  /** null when the case declares no expectations. */
+  passed: boolean | null;
+  failures: string[];
+  trace: CandidateTrace[];
+}
+
+export type ArgumentOutcome =
+  "kept" | "canonicalized" | "rewritten" | "unverified" | "dropped";
+
+export interface ArgumentTrace {
+  capture_index: number;
+  raw: string;
+  resolved: string;
+  outcome: ArgumentOutcome;
+  reason: string;
+  container: string | null;
+  matched_text: string | null;
+}
+
+/** `faner_replay` result: raw model captures vs. the deterministic
+ *  phrase-resolved captures the live path emits, plus the per-argument trace. */
+export interface ReplayOutcome {
+  raw: Capture[];
+  resolved: Capture[];
+  trace: ArgumentTrace[];
+}
+
 // ── FANER claim snapshot — mirrors claim/evidence/source_policy + ipc.rs ────
 export const CLAIM_SNAPSHOT_CONTRACT_VERSION = 2;
 

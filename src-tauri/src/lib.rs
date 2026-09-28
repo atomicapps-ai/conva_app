@@ -15,6 +15,7 @@ mod context;
 mod conversations;
 mod embed;
 mod events_flush;
+mod faner_debug;
 mod feedback;
 mod hud;
 mod llm;
@@ -90,6 +91,13 @@ struct AppState {
     /// worker at Start. `None` means the worker uses an honest General
     /// conversation fallback rather than inventing Context knowledge.
     active_context_snapshot: Mutex<Option<ContextSnapshot>>,
+    /// Id of the Context whose terms/scope are currently applied (set by
+    /// `activate_context`, cleared with the rest of the active state). Lets
+    /// `context_save` refresh the live terms when the *active* Context is
+    /// edited — without it, a key term added after activation showed in the
+    /// Terms panel (which reloads from disk) but never reached
+    /// `analyze_terms`.
+    active_context_id: Mutex<Option<String>>,
     /// `.cva` archive operation ids the UI has asked to cancel (checked
     /// between documents by `archive::export_*`/`import_*`; see
     /// `archive_cancel`/the `archive_*` commands below).
@@ -502,6 +510,17 @@ fn rag_list(state: State<AppState>) -> Vec<RagDocument> {
 /// when retrieval finds no chunks; only the document-overlap signal is empty.
 #[tauri::command]
 fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<String> {
+    evaluate_live_terms(&app, &state, &text).terms
+}
+
+/// The live highlighting pipeline behind [`analyze_terms`], returning the
+/// per-candidate trace too. Shared with the dev-only `faner_debug_highlight`
+/// so the FANER panel validates exactly what transcript bubbles run.
+pub(crate) fn evaluate_live_terms(
+    app: &AppHandle,
+    state: &AppState,
+    text: &str,
+) -> conva_core::phrase::HighlightEvaluation {
     // With a context active, its own documents are the relevance prior — an
     // "Amazon interview" context's AWS docs should drive what gets underlined,
     // not whatever else happens to live in the library (owner, 2026-08-21:
@@ -514,9 +533,9 @@ fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<St
         .expect("ctx lock")
         .clone();
     let chunks = if scope.is_empty() {
-        state.rag.retrieve(&text, 4)
+        state.rag.retrieve(text, 4)
     } else {
-        state.rag.retrieve_scoped(&text, 4, &scope)
+        state.rag.retrieve_scoped(text, 4, &scope)
     };
     let context = chunks
         .iter()
@@ -532,7 +551,7 @@ fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<St
     let context_terms = state.active_context_terms.lock().expect("ctx lock").clone();
     // Phase 4: the user's on-device 👍/👎 — an explicit signal always wins
     // (boost surfaces, suppress drops), whatever the heuristics scored.
-    let (boost, suppress) = feedback::sets(&app);
+    let (boost, suppress) = feedback::sets(app);
     let ctx = conva_core::highlight::HighlightContext {
         context_terms: &context_terms,
         rarity: Some(&idf),
@@ -540,7 +559,7 @@ fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<St
         suppress: Some(&suppress),
         ..conva_core::highlight::HighlightContext::from_doc_text(&context)
     };
-    conva_core::highlight::relevant_terms(&text, &ctx)
+    conva_core::highlight::evaluate_terms(text, &ctx, conva_core::highlight::MAX_TERMS)
 }
 
 /// Record the user's 👍/👎 on a highlight term (Phase 4). `signal` is "up"
@@ -1145,9 +1164,19 @@ fn conversation_delete(app: AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 fn context_save(
     app: AppHandle,
+    state: State<AppState>,
     session: ConversationContext,
 ) -> Result<ConversationContext, String> {
-    context::save(&app, session).map_err(|e| e.to_string())
+    let saved = context::save(&app, session).map_err(|e| e.to_string())?;
+    // Editing the ACTIVE Context (e.g. adding a key term) must reach live
+    // highlighting now — the Terms panel reloads from disk, so without this
+    // it could show a term `analyze_terms` never received.
+    let is_active =
+        state.active_context_id.lock().expect("ctx lock").as_deref() == Some(saved.id.as_str());
+    if is_active {
+        apply_active_context(&app, &state, &saved);
+    }
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -1569,6 +1598,7 @@ fn clear_active_context(state: &AppState) {
         .expect("ctx lock")
         .clear();
     *state.active_context_snapshot.lock().expect("ctx lock") = None;
+    *state.active_context_id.lock().expect("ctx lock") = None;
 }
 
 /// Assemble the bounded, versioned semantic context that FANER may send to
@@ -1629,6 +1659,38 @@ fn semantic_snapshot_for_context(session: &ConversationContext, rag: &RagStore) 
     summary.push(format!("Purpose: {}", session.purpose));
     snapshot.rolling_summary = summary.join("\n");
     snapshot.bounded()
+}
+
+/// Apply `session` as the active Context: its highlight terms, retrieval
+/// scope, semantic snapshot, and id. Shared by `activate_context` and by
+/// `context_save` when the saved Context is the active one, so an edit made
+/// while active goes live immediately instead of on the next activation.
+fn apply_active_context(app: &AppHandle, state: &AppState, session: &ConversationContext) {
+    // The profile's doc_ids (docs + any generated dossier) is the same
+    // grounding scope rehearsal's persona prompt already uses. A context with
+    // no profile yet (never prepared) activates with highlight terms only —
+    // still useful, just not retrieval-scoped.
+    let profile_doc_ids = session
+        .knowledge_profile_id
+        .as_deref()
+        .and_then(|pid| context::load_profile(app, pid).ok())
+        .map(|p| p.doc_ids)
+        .unwrap_or_default();
+    // Union with the Context's own source documents (not just the compiled
+    // pack) — see `conva_core::context::grounding_scope` doc comment.
+    let grounding_doc_ids =
+        conva_core::context::grounding_scope(&session.source_doc_ids, &profile_doc_ids);
+
+    *state.active_context_terms.lock().expect("ctx lock") =
+        conva_core::context::active_highlight_terms(
+            &session.key_terms,
+            &session.glossary,
+            session.job_description.as_deref(),
+        );
+    *state.active_context_doc_ids.lock().expect("ctx lock") = grounding_doc_ids;
+    *state.active_context_snapshot.lock().expect("ctx lock") =
+        Some(semantic_snapshot_for_context(session, &state.rag));
+    *state.active_context_id.lock().expect("ctx lock") = Some(session.id.clone());
 }
 
 /// Activate a conversation context for the **next** live session (session
@@ -1721,42 +1783,7 @@ fn activate_context(
         }
     }
 
-    // The profile's doc_ids (docs + any generated dossier) is the same
-    // grounding scope rehearsal's persona prompt already uses. A context with
-    // no profile yet (never prepared) activates with highlight terms only —
-    // still useful, just not retrieval-scoped.
-    let profile_doc_ids = session
-        .knowledge_profile_id
-        .as_deref()
-        .and_then(|pid| context::load_profile(&app, pid).ok())
-        .map(|p| p.doc_ids)
-        .unwrap_or_default();
-    // Union with the Context's own source documents (not just the compiled
-    // pack) — see `conva_core::context::grounding_scope` doc comment.
-    let grounding_doc_ids =
-        conva_core::context::grounding_scope(&session.source_doc_ids, &profile_doc_ids);
-
-    {
-        let mut terms = state.active_context_terms.lock().expect("ctx lock");
-        terms.clear();
-        terms.extend(session.key_terms.iter().cloned());
-        terms.extend(session.glossary.iter().cloned());
-        // The interviewer's own vocabulary always rides along (spec
-        // 2026-08-26, part 2) — in-memory only, so live highlighting is
-        // never hostage to a stale or truncated digest.
-        if let Some(jd) = session.job_description.as_deref() {
-            let have: std::collections::HashSet<String> =
-                terms.iter().map(|t| t.to_lowercase()).collect();
-            terms.extend(
-                conva_core::highlight::interviewer_terms(jd, 16)
-                    .into_iter()
-                    .filter(|t| !have.contains(&t.to_lowercase())),
-            );
-        }
-    }
-    *state.active_context_doc_ids.lock().expect("ctx lock") = grounding_doc_ids;
-    *state.active_context_snapshot.lock().expect("ctx lock") =
-        Some(semantic_snapshot_for_context(&session, &state.rag));
+    apply_active_context(&app, &state, &session);
 
     Ok(session)
 }
@@ -2987,6 +3014,7 @@ pub fn run() {
                                     active_context_terms: Mutex::new(Vec::new()),
                                     active_context_doc_ids: Mutex::new(Vec::new()),
                                     active_context_snapshot: Mutex::new(None),
+                                    active_context_id: Mutex::new(None),
                                     archive_cancelled: Mutex::new(HashSet::new()),
                                 }) {
                                     return Err("application state was already managed".into());
@@ -3084,6 +3112,9 @@ pub fn run() {
             record_highlight_feedback,
             record_term_pick,
             capture::faner_replay,
+            faner_debug::faner_debug_highlight,
+            faner_debug::faner_debug_generate_cases,
+            faner_debug::faner_debug_evaluate,
             debug_inject_segment,
             rag_download,
             secrets_status,

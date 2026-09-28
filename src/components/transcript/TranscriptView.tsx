@@ -83,6 +83,7 @@ import {
   type StabilityUnit,
 } from "@/components/transcript/useTranscriptStability";
 import { ScrambleText } from "@/components/transcript/ScrambleText";
+import { buildHighlightSegments } from "@/components/transcript/highlightSegments";
 
 // Stable reference so a Zustand selector reading `capture?.captures` never
 // hands React a "new" empty array on every render before the first
@@ -169,10 +170,6 @@ const TERM_ACTIONS: { action: TermAction; icon: IconName; tip: string }[] = [
   { action: "elaborate", icon: "elaborate", tip: "Ask Ally about this" },
 ];
 type TermAction = "definition" | "howto" | "elaborate";
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 /** Fired on `window` the instant a `TermMenu` or `SelectionMenu` opens, so any
  *  other already-open instance can close itself — the transcript can render
@@ -355,35 +352,27 @@ function HighlightedText({
   } | null>(null);
   if (terms.length === 0) return <>{text}</>;
 
-  const alts = [...terms]
-    .sort((a, b) => b.length - a.length)
-    .map((t) => t.split(/\s+/).map(escapeRegExp).join("\\s+"));
-  const re = new RegExp(`\\b(${alts.join("|")})\\b`, "gi");
-
-  const parts: ReactNode[] = [];
-  let last = 0;
-  let key = 0;
-  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
-    if (m.index > last) parts.push(text.slice(last, m.index));
-    const word = m[0];
-    parts.push(
-      <button
-        key={`h${key++}`}
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          const r = e.currentTarget.getBoundingClientRect();
-          setMenu({ term: word, x: r.left, y: r.top });
-        }}
-        className="rounded-[3px] bg-ai/[0.07] px-0.5 font-semibold text-fg underline decoration-ai/80 decoration-1 decoration-dotted underline-offset-[3px] transition-colors hover:bg-ai/[0.14] hover:text-ai focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ai/70"
-      >
-        {word}
-      </button>,
-    );
-    last = m.index + word.length;
-    if (m.index === re.lastIndex) re.lastIndex++;
-  }
-  if (last < text.length) parts.push(text.slice(last));
+  // Segmentation lives in `highlightSegments.ts` so the dev FANER panel's
+  // preview renders through the exact same longest-first matcher.
+  const parts: ReactNode[] = buildHighlightSegments(text, terms).map(
+    (seg, key) =>
+      !seg.hit ? (
+        seg.text
+      ) : (
+        <button
+          key={`h${key}`}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({ term: seg.text, x: r.left, y: r.top });
+          }}
+          className="rounded-[3px] bg-ai/[0.07] px-0.5 font-semibold text-fg underline decoration-ai/80 decoration-1 decoration-dotted underline-offset-[3px] transition-colors hover:bg-ai/[0.14] hover:text-ai focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ai/70"
+        >
+          {seg.text}
+        </button>
+      ),
+  );
 
   return (
     <>
