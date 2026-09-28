@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ArchiveExportDialog } from "@/components/ArchiveExportDialog";
+import { ArchiveImportDialog } from "@/components/ArchiveImportDialog";
 import { ContextsPane } from "@/components/contexts/ContextsPane";
 import { ContextWorkspace } from "@/components/contexts/ContextWorkspace";
 import { LibraryPane } from "@/components/contexts/LibraryPane";
@@ -9,7 +11,12 @@ import { EmptyState, PageView, PrimaryButton } from "@/components/studio/PageVie
 import { Icon } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
 import type { WebBackend } from "@/lib/backend/web";
-import { DEFAULT_CONTEXT_ID, type ConversationContext, type ContextSummary } from "@/lib/ipc";
+import {
+  DEFAULT_CONTEXT_ID,
+  type ArchiveInspection,
+  type ConversationContext,
+  type ContextSummary,
+} from "@/lib/ipc";
 import { isDesktop } from "@/lib/platform";
 import { CENTER_MIN_PX, resolveLayout } from "@/lib/responsive";
 import { useContextsQuickOpen } from "@/state/contextsQuickOpen";
@@ -65,6 +72,20 @@ export function ContextsView() {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dockOpen, setDockOpen] = useState(true);
+  const [importInspecting, setImportInspecting] = useState(false);
+  const [importPreview, setImportPreview] = useState<{
+    archiveDigest: string;
+    operationId: string;
+    inspection: ArchiveInspection;
+  } | null>(null);
+  const [exportTarget, setExportTarget] = useState<{
+    kind: "context";
+    id: string;
+    title: string;
+    operationId: string;
+    linkedConversationId: string | null;
+    linkedTitle: string | null;
+  } | null>(null);
   const activeGroundingId = useGroundingStore((s) => s.activeId);
   const setGroundingActive = useGroundingStore((s) => s.setActive);
 
@@ -177,68 +198,57 @@ export function ContextsView() {
   // `.cva` portable archive (Checkpoints B/C). Desktop's `exportArchive`
   // opens the native save dialog itself (see `tauri.ts`) — a rejection
   // whose message names that cancellation is the user closing the dialog,
-  // not a real failure, so it's swallowed rather than surfaced as an error.
+  // not a real failure, so it's swallowed rather than surfaced as an error
+  // (`ArchiveExportDialog` itself treats it as a plain cancel).
+  //
+  // Finds the newest conversation linked back to this Context (if any) so
+  // the export picker can offer bundling it in — a Context has no reverse
+  // pointer of its own, so this is the one place that needs a fresh
+  // `conversations.list()` rather than reading state already on screen.
   const exportContextArchive = async (id: string) => {
-    const operationId = `archive-export-${Date.now()}`;
-    try {
-      const result = await backend.archive.exportArchive(
-        { kind: "context", context_id: id },
-        { include_source_documents: true },
-        operationId,
-      );
-      setNotice(`Exported to ${result.destination}.`);
-    } catch (e) {
-      if (e instanceof Error && /destination file was chosen/.test(e.message)) return;
-      setNotice(`Couldn't export: ${String(e)}`);
-    }
+    const linked = await backend.conversations
+      .list()
+      .then((rows) =>
+        rows
+          .filter((r) => r.linked_context_id === id)
+          .sort((a, b) => b.updated_at_unix_ms - a.updated_at_unix_ms)[0],
+      )
+      .catch(() => undefined);
+    setExportTarget({
+      kind: "context",
+      id,
+      title: contextTitles[id] ?? "Context",
+      operationId: `archive-export-${Date.now()}`,
+      linkedConversationId: linked?.id ?? null,
+      linkedTitle: linked?.title ?? null,
+    });
   };
 
   // Selecting a file only previews it (`inspectArchive` is side-effect-free)
-  // — nothing is persisted until the confirmation below and the subsequent
-  // `importArchive` call. A native `confirm()` is a placeholder for the
-  // designed import-preview dialog (spec §8.3); it shows the same counts but
-  // not the full visual review screen. Shared by both platforms — desktop's
-  // `archiveDigest` is a file path, web's is a `registerLocalArchiveFile`/
-  // `prepareLocalFile` content digest, but `inspectArchive`/`importArchive`
-  // themselves take that string opaquely either way (`ConvaBackend.ts`).
+  // — nothing is persisted until the owner confirms in `ArchiveImportDialog`
+  // and the subsequent `importArchive` call. That dialog replaces a bare
+  // `window.confirm()` (owner bug report, 2026-09-22): a WebView2 JS dialog
+  // can render without stealing focus, so the import silently stalled with
+  // no visible prompt and nothing persisted. `inspectArchive` itself has no
+  // progress events (a single blocking read/validate), so the brief
+  // "Reading archive…" state below is the only feedback available for that
+  // step; the dialog picks up real progress once `importArchive` starts.
+  // Shared by both platforms — desktop's `archiveDigest` is a file path,
+  // web's is a `registerLocalArchiveFile`/`prepareLocalFile` content digest,
+  // but `inspectArchive`/`importArchive` themselves take that string
+  // opaquely either way (`ConvaBackend.ts`).
   const runImportFlow = async (archiveDigest: string) => {
     const operationId = `archive-import-${Date.now()}`;
+    setImportInspecting(true);
+    setNotice("Reading archive…");
     try {
       const inspection = await backend.archive.inspectArchive(archiveDigest, operationId);
-      const lines = [
-        `Import "${inspection.title}"?`,
-        inspection.context
-          ? `Context: ${inspection.context.title} (${inspection.context.category})`
-          : null,
-        inspection.conversation
-          ? `Conversation: ${inspection.conversation.title}, ${inspection.conversation.segment_count} segment(s)`
-          : null,
-        inspection.documents.length
-          ? `${inspection.documents.filter((d) => d.included).length} of ${inspection.documents.length} document(s) will be included`
-          : null,
-        inspection.warnings.length ? `${inspection.warnings.length} compatibility warning(s)` : null,
-      ].filter((line): line is string => line !== null);
-      if (!window.confirm(lines.join("\n"))) return;
-      const result = await backend.archive.importArchive(
-        archiveDigest,
-        {
-          include_document_ids: inspection.documents.filter((d) => d.included).map((d) => d.portable_id),
-          reuse_exact_document_ids: [],
-        },
-        operationId,
-      );
-      refresh();
-      if (result.context_id) setWorkspaceId(result.context_id);
-      const omitted = result.omitted_documents.length;
-      setNotice(
-        `Imported "${inspection.title}".${omitted ? ` ${omitted} document(s) omitted — see the console for why.` : ""}`,
-      );
-      if (omitted) {
-        // eslint-disable-next-line no-console -- best-effort detail, not worth a second dialog
-        console.info("[cva import] omitted documents:", result.omitted_documents);
-      }
+      setNotice(null);
+      setImportPreview({ archiveDigest, operationId, inspection });
     } catch (e) {
       setNotice(`Couldn't import: ${String(e)}`);
+    } finally {
+      setImportInspecting(false);
     }
   };
 
@@ -371,6 +381,7 @@ export function ContextsView() {
             onGenerate={(id) => void generate(id)}
             onExport={(id) => void exportContextArchive(id)}
             onImport={importContextArchive}
+            importBusy={importInspecting}
             onAttach={(contextId, docId) => void attach(docId, contextId)}
             generatingId={generatingId}
             refreshToken={libraryRefreshToken}
@@ -453,6 +464,7 @@ export function ContextsView() {
                 quickAction={quickAction === "upload" || quickAction === "paste" ? quickAction : null}
                 focusContextId={focusId}
                 onClearFocus={() => setFocusId(null)}
+                linkedContextId={workspaceId}
               />
             </div>
           ) : dockOpen ? (
@@ -477,6 +489,7 @@ export function ContextsView() {
                   }
                   focusContextId={focusId}
                   onClearFocus={() => setFocusId(null)}
+                  linkedContextId={workspaceId}
                 />
               </div>
             </>
@@ -508,6 +521,70 @@ export function ContextsView() {
         className="hidden"
         onChange={(e) => void onImportFileSelected(e)}
       />
+      {importPreview && (
+        <ArchiveImportDialog
+          inspection={importPreview.inspection}
+          operationId={importPreview.operationId}
+          onCancel={() => setImportPreview(null)}
+          onImport={(options) =>
+            backend.archive.importArchive(
+              importPreview.archiveDigest,
+              options,
+              importPreview.operationId,
+            )
+          }
+          onImported={(result) => {
+            setImportPreview(null);
+            refresh();
+            if (result.context_id) setWorkspaceId(result.context_id);
+            const omitted = result.omitted_documents.length;
+            setNotice(
+              `Imported "${importPreview.inspection.title}".${omitted ? ` ${omitted} document(s) omitted — see the console for why.` : ""}`,
+            );
+            if (omitted) {
+              // eslint-disable-next-line no-console -- best-effort detail, not worth a second dialog
+              console.info("[cva import] omitted documents:", result.omitted_documents);
+            }
+          }}
+          onError={(message) => {
+            setImportPreview(null);
+            setNotice(`Couldn't import: ${message}`);
+          }}
+        />
+      )}
+      {exportTarget && (
+        <ArchiveExportDialog
+          title={exportTarget.title}
+          linkedItem={
+            exportTarget.linkedConversationId && exportTarget.linkedTitle
+              ? { kind: "conversation", title: exportTarget.linkedTitle }
+              : null
+          }
+          operationId={exportTarget.operationId}
+          onCancel={() => setExportTarget(null)}
+          onExport={({ includeLinked, includeSourceDocuments }) =>
+            backend.archive.exportArchive(
+              includeLinked && exportTarget.linkedConversationId
+                ? {
+                    kind: "conversation",
+                    conversation_id: exportTarget.linkedConversationId,
+                    include_context: true,
+                  }
+                : { kind: "context", context_id: exportTarget.id },
+              { include_source_documents: includeSourceDocuments },
+              exportTarget.operationId,
+            )
+          }
+          onExported={(result) => {
+            setExportTarget(null);
+            setNotice(`Exported to ${result.destination}.`);
+          }}
+          onError={(message) => {
+            setExportTarget(null);
+            setNotice(`Couldn't export: ${message}`);
+          }}
+        />
+      )}
     </PageView>
   );
 }

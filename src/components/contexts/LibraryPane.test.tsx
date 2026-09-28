@@ -31,6 +31,8 @@ function fakeBackend(
     capabilities: unknown;
     partnerOpen: ReturnType<typeof vi.fn>;
     deleteDoc: ReturnType<typeof vi.fn>;
+    attachContext: ReturnType<typeof vi.fn>;
+    detachContext: ReturnType<typeof vi.fn>;
   }> = {},
 ): ConvaBackend {
   return {
@@ -38,6 +40,8 @@ function fakeBackend(
       list: vi.fn().mockResolvedValue(docs),
       setEnabled: vi.fn().mockResolvedValue(undefined),
       delete: overrides.deleteDoc ?? vi.fn().mockResolvedValue(undefined),
+      attachContext: overrides.attachContext ?? vi.fn().mockResolvedValue(undefined),
+      detachContext: overrides.detachContext ?? vi.fn().mockResolvedValue(undefined),
     },
     partner: {
       open: overrides.partnerOpen ?? vi.fn().mockResolvedValue(undefined),
@@ -124,6 +128,105 @@ describe("LibraryPane row", () => {
     expect(screen.getByRole("menuitem", { name: /delete/i })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /attach to a context/i })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /^view$/i })).toBeNull();
+  });
+});
+
+describe("LibraryPane linkedContextId (owner bug report, 2026-09-22)", () => {
+  it("lists documents already attached to the open context first (newest first), everything else below (also newest first)", async () => {
+    renderPane(
+      [
+        doc({ id: "d1", file_name: "old-attached.pdf", context_ids: ["c1"], ingested_at_unix_ms: 100 }),
+        doc({ id: "d2", file_name: "unattached-new.pdf", context_ids: [], ingested_at_unix_ms: 300 }),
+        doc({ id: "d3", file_name: "new-attached.pdf", context_ids: ["c1"], ingested_at_unix_ms: 200 }),
+        doc({ id: "d4", file_name: "unattached-old.pdf", context_ids: [], ingested_at_unix_ms: 50 }),
+      ],
+      { linkedContextId: "c1" },
+    );
+    await screen.findByText("old-attached.pdf");
+    expect(screen.getByText("In this context")).toBeInTheDocument();
+    expect(screen.getByText("Other documents")).toBeInTheDocument();
+
+    const names = screen.getAllByRole("listitem").map((li) => li.textContent);
+    // Linked group first, newest-attached before oldest-attached; then the
+    // rest, also newest first.
+    expect(names.findIndex((t) => t?.includes("new-attached.pdf"))).toBeLessThan(
+      names.findIndex((t) => t?.includes("old-attached.pdf")),
+    );
+    expect(names.findIndex((t) => t?.includes("old-attached.pdf"))).toBeLessThan(
+      names.findIndex((t) => t?.includes("unattached-new.pdf")),
+    );
+    expect(names.findIndex((t) => t?.includes("unattached-new.pdf"))).toBeLessThan(
+      names.findIndex((t) => t?.includes("unattached-old.pdf")),
+    );
+  });
+
+  it("checkbox reflects and toggles attachment to the open context, not the retrieval-enabled flag", async () => {
+    const attachContext = vi.fn().mockResolvedValue(undefined);
+    const detachContext = vi.fn().mockResolvedValue(undefined);
+    renderPane(
+      [
+        doc({ id: "d1", file_name: "attached.pdf", context_ids: ["c1"], enabled: false }),
+        doc({ id: "d2", file_name: "unattached.pdf", context_ids: [], enabled: true }),
+      ],
+      { linkedContextId: "c1" },
+      { attachContext, detachContext },
+    );
+    await screen.findByText("attached.pdf");
+
+    // Already attached (even though globally "disabled") shows checked.
+    const attachedBox = screen.getByRole("checkbox", { name: /remove attached\.pdf from/i });
+    expect(attachedBox).toBeChecked();
+    fireEvent.click(attachedBox);
+    expect(detachContext).toHaveBeenCalledWith("d1", "c1");
+
+    // Not attached (even though globally "enabled") shows unchecked.
+    const unattachedBox = screen.getByRole("checkbox", { name: /add unattached\.pdf to/i });
+    expect(unattachedBox).not.toBeChecked();
+    fireEvent.click(unattachedBox);
+    expect(attachContext).toHaveBeenCalledWith("d2", "c1");
+  });
+
+  it("never hides a document in linked mode — an image or review-only doc can still be attached", async () => {
+    renderPane(
+      [doc({ id: "d1", file_name: "scene.png", enabled: false, chunk_count: 0, context_ids: [] })],
+      { linkedContextId: "c1" },
+    );
+    await screen.findByText("scene.png");
+    expect(screen.getByRole("checkbox", { name: /add scene\.png to/i })).toBeEnabled();
+  });
+
+  it("blocks attaching a second résumé to the same context and names the one already there", async () => {
+    const attachContext = vi.fn().mockResolvedValue(undefined);
+    renderPane(
+      [
+        doc({ id: "d1", file_name: "old-resume.pdf", context_ids: ["c1"] }),
+        doc({ id: "d2", file_name: "new-resume.pdf", context_ids: [] }),
+      ],
+      { linkedContextId: "c1" },
+      { attachContext },
+    );
+    await screen.findByText("new-resume.pdf");
+    fireEvent.click(screen.getByRole("checkbox", { name: /add new-resume\.pdf to/i }));
+
+    expect(attachContext).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(/only one résumé\/cv document per context — remove "old-resume\.pdf" first/i),
+    ).toBeInTheDocument();
+  });
+
+  it("does not block a second document with no recognized role", async () => {
+    const attachContext = vi.fn().mockResolvedValue(undefined);
+    renderPane(
+      [
+        doc({ id: "d1", file_name: "meeting-notes.txt", context_ids: ["c1"] }),
+        doc({ id: "d2", file_name: "more-notes.txt", context_ids: [] }),
+      ],
+      { linkedContextId: "c1" },
+      { attachContext },
+    );
+    await screen.findByText("more-notes.txt");
+    fireEvent.click(screen.getByRole("checkbox", { name: /add more-notes\.txt to/i }));
+    expect(attachContext).toHaveBeenCalledWith("d2", "c1");
   });
 });
 

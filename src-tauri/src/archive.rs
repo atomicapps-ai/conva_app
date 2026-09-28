@@ -906,7 +906,23 @@ pub fn import_conversation(
             conversation.title = title.trim().to_string();
         }
     }
-    let mut context: Option<PortableContextV1> = loaded.json("context/context.json")?;
+    // Owner request 2026-09-22: when an archive carries both a Context and a
+    // conversation, "import context/conversation" is a real per-record
+    // choice — `include_context: false` drops the bundled Context entirely,
+    // same as if the archive never had one. Every downstream step already
+    // branches on `context.is_some()`, so skipping the load is most of the
+    // fix — but the portable conversation's own `linked_context_id` still
+    // points at the (now-skipped) Context, and `import_conversation_dto`
+    // requires that field's presence to agree with the destination
+    // `context_id` it's handed (`validate_paired_import_ids`) — so it must
+    // be cleared here too, exactly as an export that never bundled a
+    // Context would have left it.
+    let mut context: Option<PortableContextV1> = if options.include_context {
+        loaded.json("context/context.json")?
+    } else {
+        conversation.linked_context_id = None;
+        None
+    };
     if let Some(title) = &options.context_title {
         if let Some(context) = &mut context {
             if !title.trim().is_empty() {
@@ -1109,6 +1125,8 @@ mod tests {
                 conversation_title: None,
                 include_document_ids: vec![],
                 reuse_exact_document_ids: vec![],
+                include_context: true,
+                include_conversation: true,
             },
             "test-op",
             &mut noop_progress,
@@ -1164,6 +1182,8 @@ mod tests {
                 conversation_title: None,
                 include_document_ids,
                 reuse_exact_document_ids: vec![],
+                include_context: true,
+                include_conversation: true,
             },
             "test-op",
             &mut noop_progress,
@@ -1213,6 +1233,8 @@ mod tests {
                 conversation_title: None,
                 include_document_ids: vec![], // explicitly exclude everything
                 reuse_exact_document_ids: vec![],
+                include_context: true,
+                include_conversation: true,
             },
             "test-op",
             &mut noop_progress,
@@ -1266,6 +1288,8 @@ mod tests {
                 conversation_title: None,
                 include_document_ids: vec![],
                 reuse_exact_document_ids: vec![],
+                include_context: true,
+                include_conversation: true,
             },
             "test-op",
             &mut noop_progress,
@@ -1316,6 +1340,8 @@ mod tests {
                 conversation_title: None,
                 include_document_ids: vec![],
                 reuse_exact_document_ids: vec![],
+                include_context: true,
+                include_conversation: true,
             },
             "test-op",
             &mut noop_progress,
@@ -1433,6 +1459,8 @@ mod tests {
                 conversation_title: None,
                 include_document_ids,
                 reuse_exact_document_ids: vec![],
+                include_context: true,
+                include_conversation: true,
             },
             "test-op",
             &mut noop_progress,
@@ -1506,6 +1534,8 @@ mod tests {
                 conversation_title: None,
                 include_document_ids: vec![],
                 reuse_exact_document_ids: vec![],
+                include_context: true,
+                include_conversation: true,
             },
             "test-op",
             &mut noop_progress,
@@ -1521,5 +1551,81 @@ mod tests {
             imported_context.conversation_id.as_deref(),
             Some(imported.conversation.id.as_str())
         );
+    }
+
+    #[test]
+    fn conversation_import_can_decline_its_bundled_context() {
+        // Owner request 2026-09-22: "what to import" is a real per-record
+        // choice when an archive carries both — `include_context: false`
+        // must persist the conversation alone, even though the archive's
+        // `context/context.json` entry is right there.
+        use conva_core::asr::TranscriptSegment;
+        use conva_core::audio::StreamSide;
+
+        let dir = temp_dir("conv-decline-context");
+        let source_rag = RagStore::open(&dir.join("source-rag")).unwrap();
+        let mut context = minimal_context("ctx-old", "Linked context");
+        context.conversation_id = Some("conv-old".into());
+        let segments = vec![TranscriptSegment {
+            side: StreamSide::Outbound,
+            seq: 0,
+            text: "Hello there".into(),
+            is_final: true,
+            start_ms: 0,
+            end_ms: 1000,
+            confidence: Some(0.9),
+            latency_ms: 10,
+        }];
+        let input = ConversationExportInput {
+            id: "conv-old",
+            title: "Case call",
+            created_at_unix_ms: 1,
+            updated_at_unix_ms: 2,
+            segments: &segments,
+            linked_docs: &[],
+            linked_context_id: Some("ctx-old"),
+            source_session_ids: &[],
+            claim_snapshots: &[],
+        };
+        let dest = dir.join("export.cva");
+        export_conversation(
+            input,
+            Some((&context, None)),
+            &source_rag,
+            &ArchiveExportOptions {
+                include_source_documents: true,
+            },
+            &dest,
+            "test-op",
+            &mut noop_progress,
+            &noop_cancel,
+        )
+        .unwrap();
+
+        let dest_rag = RagStore::open(&dir.join("dest-rag")).unwrap();
+        let inspection = inspect(&dest, &BTreeSet::new()).unwrap();
+        // The archive genuinely has both — proves the next assertion is
+        // about the import CHOICE, not about the archive lacking a context.
+        assert!(inspection.context.is_some());
+
+        let imported = import_conversation(
+            &dest,
+            &dest_rag,
+            &ArchiveImportOptions {
+                context_title: None,
+                conversation_title: None,
+                include_document_ids: vec![],
+                reuse_exact_document_ids: vec![],
+                include_context: false,
+                include_conversation: true,
+            },
+            "test-op",
+            &mut noop_progress,
+            &noop_cancel,
+        )
+        .unwrap();
+        assert!(imported.context.is_none());
+        assert!(imported.profile.is_none());
+        assert_eq!(imported.conversation.linked_context_id, None);
     }
 }

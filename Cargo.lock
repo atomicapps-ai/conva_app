@@ -874,6 +874,7 @@ dependencies = [
  "cocoon",
  "conva-core",
  "cpal",
+ "english-pos-tagger",
  "fastembed",
  "hound",
  "keyring",
@@ -1532,6 +1533,19 @@ name = "endi"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
+
+[[package]]
+name = "english-pos-tagger"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a899479ae043a4aa4254ce0e65ba2daabdeb7f18c663c6df6a18f4a12abfdbe"
+dependencies = [
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "unicode-normalization",
+]
 
 [[package]]
 name = "enumflags2"

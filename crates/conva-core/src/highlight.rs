@@ -160,6 +160,13 @@ fn proper_noun_phrases(message: &str) -> Vec<String> {
     out
 }
 
+/// One `(word, Penn-Treebank tag)` pair, in message order — the shape
+/// `HighlightContext::pos_tags` returns per token.
+pub type TaggedToken = (String, Option<String>);
+
+/// A POS-tagger oracle: `message -> tagged tokens`, in order.
+pub type PosTagFn<'a> = dyn Fn(&str) -> Vec<TaggedToken> + 'a;
+
 /// Everything needed to score one transcript message. All corpus- and
 /// feedback-derived inputs are assembled by the shell and passed in, so this
 /// module stays pure and deterministic. See
@@ -179,11 +186,20 @@ pub struct HighlightContext<'a> {
     /// rarer). `None` disables rarity (Phase 3a); wired to the RAG store's BM25
     /// document frequencies in Phase 3b.
     pub rarity: Option<&'a dyn Fn(&str) -> f32>,
+    /// Part-of-speech tagger oracle: `message -> [(word, Penn-Treebank tag)]`
+    /// (e.g. `("throttling", Some("VBG"))`), one entry per token in order.
+    /// `None` disables grammar-gated phrase rarity (owner request
+    /// 2026-09-22 — see `noun_phrases_from_tags` below); wired to
+    /// `english_pos_tagger::Tagger` in the shell, which owns the actual
+    /// lexicon/model — `conva-core` only consumes tags, never tags text
+    /// itself, keeping this module free of that dependency's weight.
+    pub pos_tags: Option<&'a PosTagFn<'a>>,
 }
 
 impl<'a> HighlightContext<'a> {
-    /// Doc-only context: no active conversation context, feedback, or rarity
-    /// oracle. The plain RAG-grounded fallback used by generic term analysis.
+    /// Doc-only context: no active conversation context, feedback, rarity
+    /// oracle, or POS tagger. The plain RAG-grounded fallback used by
+    /// generic term analysis.
     pub fn from_doc_text(doc_text: &'a str) -> Self {
         Self {
             doc_text,
@@ -191,8 +207,120 @@ impl<'a> HighlightContext<'a> {
             suppress: None,
             boost: None,
             rarity: None,
+            pos_tags: None,
         }
     }
+}
+
+// ── Grammar-gated phrase rarity (owner request 2026-09-22) ──────────────────
+//
+// Motivating finding (spike, same date): on a transcript turn with no doc
+// overlap and no capitalized entities, the doc-overlap/entity signals above
+// find nothing at all, even when the turn is full of real jargon
+// ("cross-cutting concerns", "gateway configuration bottleneck"). The
+// standalone-word rarity tier below only catches single words ≥6 letters —
+// it never assembles them into the phrase a listener would actually want
+// highlighted. Chunking by the standard keyphrase-extraction grammar,
+// `Adjective* (Noun|Gerund)+` (RAKE/TextRank/YAKE all use this same
+// pattern), fixes both what the message-side single-word rarity loop below
+// misses (it only sees the head noun, e.g. "traffic" instead of "heavy
+// traffic") AND the original "pointless words highlighted" complaint —
+// ordinary nouns like "team"/"experience"/"process" still have to clear the
+// SAME `RARITY_MIN_IDF` bar as everything else in this tier, so they only
+// surface if they are genuinely uncommon in the owner's own library, not
+// merely grammatical.
+
+fn is_noun_like_tag(tag: &str) -> bool {
+    matches!(tag, "NN" | "NNS" | "NNP" | "NNPS" | "VBG")
+}
+
+fn is_adj_like_tag(tag: &str) -> bool {
+    matches!(tag, "JJ" | "JJR" | "JJS")
+}
+
+/// Grammatically a noun/gerund but carrying no topical weight on its own
+/// (spike finding: pure `Adjective* (Noun|Gerund)+` chunking let "things"
+/// and "trying" through on real transcript text) — a second, narrower
+/// stopword-style list scoped to generic placeholders, not domain words.
+const GENERIC_NOUNS: &[&str] = &[
+    "thing",
+    "things",
+    "stuff",
+    "way",
+    "ways",
+    "something",
+    "someone",
+    "anyone",
+    "everything",
+    "everyone",
+    "nothing",
+    "somebody",
+    "anybody",
+    "everybody",
+    "nobody",
+    "lot",
+    "lots",
+    "bit",
+    "kind",
+    "sort",
+    "part",
+    "parts",
+    "time",
+    "times",
+    "people",
+    "person",
+    "trying",
+    "going",
+    "doing",
+    "saying",
+    "getting",
+    "making",
+    "looking",
+    "talking",
+    "working",
+    "thinking",
+];
+
+/// `Adjective* (Noun|Gerund)+` phrase chunks from `tagged` (word, Penn
+/// Treebank tag pairs, in message order) — the candidate grammar every major
+/// unsupervised keyphrase extractor (RAKE, TextRank, YAKE) filters on before
+/// any scoring. A run only survives if it ends on a noun/gerund (a trailing
+/// adjective with nothing after it is discarded) and its last token isn't a
+/// bare [`GENERIC_NOUNS`] entry — the "cutting concerns" vs "things" case
+/// from the spike. An untagged token (`None`, an unrecognized token) ends
+/// the current run without discarding what came before it.
+fn noun_phrases_from_tags(tagged: &[TaggedToken]) -> Vec<String> {
+    let mut phrases = Vec::new();
+    let mut buf: Vec<&str> = Vec::new();
+    let mut ends_noun = false;
+
+    let flush = |buf: &mut Vec<&str>, ends_noun: bool, out: &mut Vec<String>| {
+        if !buf.is_empty() && ends_noun {
+            let last = buf[buf.len() - 1].to_lowercase();
+            if !GENERIC_NOUNS.contains(&last.as_str()) {
+                out.push(buf.join(" "));
+            }
+        }
+        buf.clear();
+    };
+
+    for (word, tag) in tagged {
+        match tag.as_deref() {
+            Some(t) if is_noun_like_tag(t) => {
+                buf.push(word);
+                ends_noun = true;
+            }
+            Some(t) if is_adj_like_tag(t) && !ends_noun => {
+                buf.push(word);
+            }
+            _ => {
+                flush(&mut buf, ends_noun, &mut phrases);
+                ends_noun = false;
+            }
+        }
+    }
+    flush(&mut buf, ends_noun, &mut phrases);
+    phrases
 }
 
 /// A scored highlight candidate, keyed (deduped) by lowercased phrase.
@@ -296,6 +424,27 @@ pub fn relevant_terms_capped(message: &str, ctx: &HighlightContext, cap: usize) 
             let lower = token.to_lowercase();
             if is_rarity_candidate(&lower) && idf(&lower) >= RARITY_MIN_IDF {
                 add_candidate(&mut cands, &mut index, &lower_msg, token, W_RARITY);
+            }
+        }
+    }
+    // Grammar-gated phrase rarity (owner request 2026-09-22) — richer than
+    // the single-word loop just above: a phrase clears the bar if ANY of
+    // its rarity-eligible tokens does, so "heavy traffic" can surface even
+    // when only "traffic" alone is corpus-rare enough. Still gated by the
+    // same `RARITY_MIN_IDF` oracle, not by grammar alone — an ordinary noun
+    // like "team"/"experience"/"process" only makes it through if it is
+    // genuinely uncommon in the owner's own library, exactly like every
+    // other rarity candidate (see `noun_phrases_from_tags`'s doc comment
+    // for why grammar by itself isn't enough). Requires both oracles: no
+    // tagger, no phrase candidates; no rarity, no admission bar to clear.
+    if let (Some(idf), Some(tag_fn)) = (ctx.rarity, ctx.pos_tags) {
+        for phrase in noun_phrases_from_tags(&tag_fn(message)) {
+            let phrase_tokens = tokens(&phrase);
+            let clears = phrase_tokens
+                .iter()
+                .any(|t| is_rarity_candidate(t) && idf(t) >= RARITY_MIN_IDF);
+            if clears {
+                add_candidate(&mut cands, &mut index, &lower_msg, &phrase, W_RARITY);
             }
         }
     }
@@ -505,6 +654,115 @@ mod tests {
             hits.iter().any(|h| h.eq_ignore_ascii_case("gut feel")),
             "{hits:?}"
         );
+    }
+
+    // ── Grammar-gated phrase rarity (owner request 2026-09-22) ──────────────
+
+    fn tag(word: &str, pos: &str) -> (String, Option<String>) {
+        (word.to_string(), Some(pos.to_string()))
+    }
+
+    #[test]
+    fn noun_phrases_merge_adjectives_into_the_following_noun() {
+        // "heavy traffic" — JJ then NN merge into one phrase.
+        let tagged = vec![tag("heavy", "JJ"), tag("traffic", "NN")];
+        assert_eq!(noun_phrases_from_tags(&tagged), vec!["heavy traffic"]);
+    }
+
+    #[test]
+    fn noun_phrases_drop_a_trailing_adjective_with_no_noun_after_it() {
+        // A run must END on a noun/gerund — "very heavy" alone never
+        // qualifies (matches every unsupervised keyphrase extractor's
+        // Adjective*(Noun|Gerund)+ grammar).
+        let tagged = vec![tag("very", "JJ"), tag("heavy", "JJ")];
+        assert!(noun_phrases_from_tags(&tagged).is_empty());
+    }
+
+    #[test]
+    fn noun_phrases_exclude_bare_generic_nouns_but_keep_real_jargon() {
+        // Spike finding, 2026-09-22: pure grammar chunking let "things" and
+        // "trying" through on real transcript text — GENERIC_NOUNS is the
+        // narrow fix, and it must not take real jargon down with it.
+        let tagged = vec![
+            tag("some", "DT"),
+            tag("things", "NNS"),
+            (",".to_string(), None), // separates the two nouns, same as real transcript text
+            tag("authorization", "NN"),
+        ];
+        let phrases = noun_phrases_from_tags(&tagged);
+        assert!(!phrases.iter().any(|p| p == "things"), "{phrases:?}");
+        assert!(phrases.iter().any(|p| p == "authorization"), "{phrases:?}");
+    }
+
+    #[test]
+    fn noun_phrases_an_untagged_token_ends_a_run_without_discarding_it() {
+        let tagged = vec![
+            tag("gateway", "NN"),
+            ("...".to_string(), None),
+            tag("bottleneck", "NN"),
+        ];
+        let phrases = noun_phrases_from_tags(&tagged);
+        assert_eq!(phrases, vec!["gateway", "bottleneck"]);
+    }
+
+    #[test]
+    fn phrase_rarity_surfaces_jargon_that_doc_overlap_and_entity_both_miss() {
+        // The spike's actual motivating case: a turn with no matching
+        // library doc and no capitalized entities — doc-overlap and entity
+        // find nothing, but the phrase is genuinely rare in the corpus.
+        let idf = |t: &str| {
+            if t == "cutting" || t == "authorization" {
+                5.0
+            } else {
+                0.0
+            }
+        };
+        let tag_fn = |_: &str| {
+            vec![
+                tag("cross", "JJ"),
+                tag("cutting", "VBG"),
+                tag("concerns", "NNS"),
+                (",".to_string(), None), // separates the two phrases, same as real transcript text
+                tag("authorization", "NN"),
+            ]
+        };
+        let ctx = HighlightContext {
+            rarity: Some(&idf),
+            pos_tags: Some(&tag_fn),
+            ..HighlightContext::from_doc_text("")
+        };
+        let hits = relevant_terms("cross cutting concerns, authorization", &ctx);
+        assert!(
+            hits.iter().any(|h| h == "cross cutting concerns"),
+            "{hits:?}"
+        );
+        assert!(hits.iter().any(|h| h == "authorization"), "{hits:?}");
+    }
+
+    #[test]
+    fn phrase_rarity_still_requires_the_idf_bar_not_grammar_alone() {
+        // "team" is a perfectly good noun grammatically — the fix for
+        // "pointless words highlighted" is that it still must clear the
+        // SAME rarity bar as everything else in this tier, not skip it.
+        let idf = |_: &str| 0.0; // nothing clears RARITY_MIN_IDF
+        let tag_fn = |_: &str| vec![tag("the", "DT"), tag("team", "NN")];
+        let ctx = HighlightContext {
+            rarity: Some(&idf),
+            pos_tags: Some(&tag_fn),
+            ..HighlightContext::from_doc_text("")
+        };
+        assert!(relevant_terms("the team", &ctx).is_empty());
+    }
+
+    #[test]
+    fn phrase_rarity_needs_both_oracles_present() {
+        let tag_fn = |_: &str| vec![tag("authorization", "NN")];
+        // pos_tags without rarity: no admission bar, so nothing fires.
+        let ctx = HighlightContext {
+            pos_tags: Some(&tag_fn),
+            ..HighlightContext::from_doc_text("")
+        };
+        assert!(relevant_terms("authorization", &ctx).is_empty());
     }
 }
 

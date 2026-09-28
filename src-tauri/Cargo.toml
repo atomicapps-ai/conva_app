@@ -20,6 +20,13 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 conva-core = { path = "../crates/conva-core" }
 thiserror = { workspace = true }
+# Offline Brill-style POS tagger for the FANER Highlighter's grammar gate
+# (owner request 2026-09-22, `highlight.rs`'s `pos_tags` oracle) — bundled
+# lexicon, no network/model download. MIT licensed (unlike the GPL
+# `pos-tagger` alternative, ruled out for this closed-source app). Lives
+# here, not in `conva-core`, so the tagger's lexicon weight never reaches
+# the wasm32 web build — `conva-core` only consumes tags via a closure.
+english-pos-tagger = "0.2"
 # macos-private-api: required by `macOSPrivateApi: true` in tauri.conf.json,
 # which the transparent floating HUD window (src/hud.rs) needs on macOS.
 tauri = { version = "2", features = ["macos-private-api", "devtools"] }

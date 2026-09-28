@@ -1002,6 +1002,13 @@ export interface ArchiveImportOptions {
   conversation_title?: string | null;
   include_document_ids: string[];
   reuse_exact_document_ids?: string[];
+  /** When an archive carries both a Context and a conversation, which of the
+   *  two top-level records to actually persist (owner request 2026-09-22).
+   *  Both default `true` on the Rust side when omitted — the desktop import
+   *  dialog always sends them explicitly; web's Context-only import (which
+   *  refuses any archive that also has a conversation) never needs to. */
+  include_context?: boolean;
+  include_conversation?: boolean;
 }
 
 /** One document the importer declined to bring in, with a user-facing

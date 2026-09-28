@@ -441,9 +441,17 @@ pub struct ArchiveInspection {
     pub warnings: Vec<ArchiveCompatibilityWarning>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// User decisions confirmed on the import preview screen (spec §8.3):
-/// editable destination titles plus which previewed documents to actually
-/// bring in vs. reuse an existing identical one.
+/// editable destination titles, which previewed documents to actually bring
+/// in vs. reuse an existing identical one, and — when an archive carries
+/// both a Context and a conversation — which of the two top-level records to
+/// actually persist (owner request 2026-09-22: "what to import" needs to be
+/// a real choice, not always-both). Defaulting both to `true` keeps every
+/// existing caller's behavior unchanged.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchiveImportOptions {
     #[serde(default)]
@@ -453,6 +461,10 @@ pub struct ArchiveImportOptions {
     pub include_document_ids: Vec<String>,
     #[serde(default)]
     pub reuse_exact_document_ids: Vec<String>,
+    #[serde(default = "default_true")]
+    pub include_context: bool,
+    #[serde(default = "default_true")]
+    pub include_conversation: bool,
 }
 
 /// One document the importer declined to bring in, with a user-facing

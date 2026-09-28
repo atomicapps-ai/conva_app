@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities, useCapabilitySnapshot } from "@/lib/backend/context";
 import { isUsable } from "@/lib/capture/contract";
+import { ArchiveExportDialog } from "@/components/ArchiveExportDialog";
+import { ArchiveImportDialog } from "@/components/ArchiveImportDialog";
 import { ConversationClaimReview } from "@/components/conversations/ConversationClaimReview";
 import {
   claimReviewFromConversation,
@@ -15,6 +17,7 @@ import { ListRow } from "@/components/ui/ListRow";
 import { formatTranscriptForViewer } from "@/lib/formatTranscript";
 import {
   DEFAULT_CONTEXT_ID,
+  type ArchiveInspection,
   type ClaimRecord,
   type Conversation,
   type ConversationSummary,
@@ -208,6 +211,18 @@ export function ConversationsPanel({
     data: ConversationClaimReviewData;
   } | null>(null);
   const [reviewViewerClaim, setReviewViewerClaim] = useState<ClaimRecord | null>(null);
+  const [importInspecting, setImportInspecting] = useState(false);
+  const [importPreview, setImportPreview] = useState<{
+    archiveDigest: string;
+    operationId: string;
+    inspection: ArchiveInspection;
+  } | null>(null);
+  const [exportTarget, setExportTarget] = useState<{
+    id: string;
+    title: string;
+    operationId: string;
+    linkedContextTitle: string | null;
+  } | null>(null);
   const openId = useConversationStore((s) => s.openId);
   const title = useConversationStore((s) => s.title);
   const notice = useConversationStore((s) => s.notice);
@@ -555,30 +570,29 @@ export function ConversationsPanel({
   // Markdown export above (spec §8.1: "keep existing Export transcript (.md)
   // clearly separate"). Only saved conversations (not raw sessions or
   // Rehearsals-tab context rows) get an Export .cva action — see
-  // `ListRow`'s `onExport` doc comment. Bundles the conversation's linked
-  // Context when it has one; the user isn't offered a scope choice yet
-  // (see the implementation handoff's "Known gaps"). Desktop only — the web
-  // adapter doesn't implement `archive.*` yet (Checkpoint E).
-  const exportConversationArchive = async (id: string) => {
-    const operationId = `archive-export-${Date.now()}`;
-    try {
-      const result = await backend.archive.exportArchive(
-        { kind: "conversation", conversation_id: id, include_context: true },
-        { include_source_documents: true },
-        operationId,
-      );
-      setNotice(`Exported to ${result.destination}.`);
-    } catch (e) {
-      if (e instanceof Error && /destination file was chosen/.test(e.message)) return;
-      setNotice(`Couldn't export: ${String(e)}`);
-    }
+  // `ListRow`'s `onExport` doc comment. Owner request 2026-09-22: what to
+  // bundle (the linked Context, source documents) is now a real choice in
+  // `ArchiveExportDialog`, not a hardcoded `true`/`true`. Desktop only — the
+  // web adapter doesn't implement `archive.*` yet (Checkpoint E).
+  const exportConversationArchive = (id: string) => {
+    const conversation = conversations.find((c) => c.id === id);
+    const linkedContext = conversation?.linked_context_id
+      ? contexts.find((c) => c.id === conversation.linked_context_id)
+      : undefined;
+    setExportTarget({
+      id,
+      title: conversation?.title ?? "Conversation",
+      operationId: `archive-export-${Date.now()}`,
+      linkedContextTitle: linkedContext?.title ?? null,
+    });
   };
-
   // Selecting a file only previews it (`inspectArchive` is side-effect-free)
-  // — nothing is persisted until the confirmation below and the subsequent
-  // `importArchive` call. A native `confirm()` is a placeholder for the
-  // designed import-preview dialog (spec §8.3), same simplification as the
-  // Contexts page's import flow (`ContextsView.tsx`).
+  // — nothing is persisted until the owner confirms in `ArchiveImportDialog`
+  // and the subsequent `importArchive` call. That dialog replaces a bare
+  // `window.confirm()` (owner bug report, 2026-09-22): a WebView2 JS dialog
+  // can render without stealing focus, so the import silently stalled with
+  // no visible prompt and nothing persisted — same fix as the Contexts
+  // page's import flow (`ContextsView.tsx`).
   const importConversationArchive = async () => {
     const { open: openFileDialog } = await import("@tauri-apps/plugin-dialog");
     const picked = await openFileDialog({
@@ -587,45 +601,16 @@ export function ConversationsPanel({
     });
     if (!picked || Array.isArray(picked)) return;
     const operationId = `archive-import-${Date.now()}`;
+    setImportInspecting(true);
+    setNotice("Reading archive…");
     try {
       const inspection = await backend.archive.inspectArchive(picked, operationId);
-      const lines = [
-        `Import "${inspection.title}"?`,
-        inspection.context
-          ? `Context: ${inspection.context.title} (${inspection.context.category})`
-          : null,
-        inspection.conversation
-          ? `Conversation: ${inspection.conversation.title}, ${inspection.conversation.segment_count} segment(s)`
-          : null,
-        inspection.documents.length
-          ? `${inspection.documents.filter((d) => d.included).length} of ${inspection.documents.length} document(s) will be included`
-          : null,
-        inspection.warnings.length ? `${inspection.warnings.length} compatibility warning(s)` : null,
-      ].filter((line): line is string => line !== null);
-      if (!window.confirm(lines.join("\n"))) return;
-      const result = await backend.archive.importArchive(
-        picked,
-        {
-          include_document_ids: inspection.documents.filter((d) => d.included).map((d) => d.portable_id),
-          reuse_exact_document_ids: [],
-        },
-        operationId,
-      );
-      await refresh();
-      const omitted = result.omitted_documents.length;
-      setNotice(
-        `Imported "${inspection.title}".${omitted ? ` ${omitted} document(s) omitted — see the console for why.` : ""}`,
-      );
-      if (omitted) {
-        // eslint-disable-next-line no-console -- best-effort detail, not worth a second dialog
-        console.info("[cva import] omitted documents:", result.omitted_documents);
-      }
-      // `open()` navigates to Live (setView) and handles its own errors —
-      // called last, and after the notice above, so a failure there doesn't
-      // clobber the "Imported" notice with its own "couldn't open" one.
-      if (result.conversation_id) await open(result.conversation_id);
+      setNotice(null);
+      setImportPreview({ archiveDigest: picked, operationId, inspection });
     } catch (e) {
       setNotice(`Couldn't import: ${String(e)}`);
+    } finally {
+      setImportInspecting(false);
     }
   };
 
@@ -709,11 +694,14 @@ export function ConversationsPanel({
             <button
               type="button"
               onClick={() => void importConversationArchive()}
-              title="Import a .cva archive"
-              aria-label="Import a .cva archive"
-              className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
+              disabled={importInspecting}
+              title={importInspecting ? "Reading archive…" : "Import a .cva archive"}
+              aria-label={importInspecting ? "Reading archive…" : "Import a .cva archive"}
+              className="rounded-sm p-1.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg disabled:opacity-50"
             >
-              <Icon name="upload" size={16} />
+              <span className={importInspecting ? "inline-block animate-spin" : "inline-block"}>
+                <Icon name={importInspecting ? "history" : "upload"} size={16} />
+              </span>
             </button>
           )}
         </>
@@ -1005,6 +993,70 @@ export function ConversationsPanel({
             />
           </div>
         </div>
+      )}
+      {importPreview && (
+        <ArchiveImportDialog
+          inspection={importPreview.inspection}
+          operationId={importPreview.operationId}
+          onCancel={() => setImportPreview(null)}
+          onImport={(options) =>
+            backend.archive.importArchive(
+              importPreview.archiveDigest,
+              options,
+              importPreview.operationId,
+            )
+          }
+          onImported={(result) => {
+            setImportPreview(null);
+            void (async () => {
+              await refresh();
+              const omitted = result.omitted_documents.length;
+              setNotice(
+                `Imported "${importPreview.inspection.title}".${omitted ? ` ${omitted} document(s) omitted — see the console for why.` : ""}`,
+              );
+              if (omitted) {
+                // eslint-disable-next-line no-console -- best-effort detail, not worth a second dialog
+                console.info("[cva import] omitted documents:", result.omitted_documents);
+              }
+              // `open()` navigates to Live (setView) and handles its own
+              // errors — called last, and after the notice above, so a
+              // failure there doesn't clobber the "Imported" notice with
+              // its own "couldn't open" one.
+              if (result.conversation_id) await open(result.conversation_id);
+            })();
+          }}
+          onError={(message) => {
+            setImportPreview(null);
+            setNotice(`Couldn't import: ${message}`);
+          }}
+        />
+      )}
+      {exportTarget && (
+        <ArchiveExportDialog
+          title={exportTarget.title}
+          linkedItem={
+            exportTarget.linkedContextTitle
+              ? { kind: "context", title: exportTarget.linkedContextTitle }
+              : null
+          }
+          operationId={exportTarget.operationId}
+          onCancel={() => setExportTarget(null)}
+          onExport={({ includeLinked, includeSourceDocuments }) =>
+            backend.archive.exportArchive(
+              { kind: "conversation", conversation_id: exportTarget.id, include_context: includeLinked },
+              { include_source_documents: includeSourceDocuments },
+              exportTarget.operationId,
+            )
+          }
+          onExported={(result) => {
+            setExportTarget(null);
+            setNotice(`Exported to ${result.destination}.`);
+          }}
+          onError={(message) => {
+            setExportTarget(null);
+            setNotice(`Couldn't export: ${message}`);
+          }}
+        />
       )}
     </ViewShell>
   );

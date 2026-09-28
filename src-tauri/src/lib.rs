@@ -94,6 +94,11 @@ struct AppState {
     /// between documents by `archive::export_*`/`import_*`; see
     /// `archive_cancel`/the `archive_*` commands below).
     archive_cancelled: Mutex<HashSet<String>>,
+    /// FANER Highlighter's grammar gate (owner request 2026-09-22) — built
+    /// once at startup (its bundled lexicon isn't free to construct) and
+    /// reused for every `analyze_terms` call. Stateless per call, so a
+    /// shared `&Tagger` behind `AppState` needs no lock.
+    pos_tagger: english_pos_tagger::Tagger,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -535,11 +540,23 @@ fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<St
     // Phase 4: the user's on-device 👍/👎 — an explicit signal always wins
     // (boost surfaces, suppress drops), whatever the heuristics scored.
     let (boost, suppress) = feedback::sets(&app);
+    // Owner request 2026-09-22: grammar-gated phrase rarity — `conva-core`
+    // only consumes tags via this closure, never touches the tagger crate
+    // itself (see `Cargo.toml`'s and `AppState.pos_tagger`'s doc comments).
+    let pos_tags = |msg: &str| {
+        state
+            .pos_tagger
+            .tag_sentence(msg)
+            .into_iter()
+            .map(|t| (t.value, t.pos))
+            .collect()
+    };
     let ctx = conva_core::highlight::HighlightContext {
         context_terms: &context_terms,
         rarity: Some(&idf),
         boost: Some(&boost),
         suppress: Some(&suppress),
+        pos_tags: Some(&pos_tags),
         ..conva_core::highlight::HighlightContext::from_doc_text(&context)
     };
     conva_core::highlight::relevant_terms(&text, &ctx)
@@ -1425,6 +1442,9 @@ fn archive_import_blocking(
     let ledger = archive_ledger_path(app)?;
     let digests = archive::load_imported_digests(&ledger);
     let inspection = archive::inspect(path, &digests).map_err(|e| e.to_string())?;
+    if !options.include_context && !options.include_conversation {
+        return Err("Nothing selected to import".into());
+    }
 
     let mut progress = |event: ArchiveProgressEvent| {
         let _ = app.emit(events::ARCHIVE_PROGRESS, event);
@@ -1437,7 +1457,11 @@ fn archive_import_blocking(
             .contains(&operation_id)
     };
 
-    let result = if inspection.conversation.is_some() {
+    // Owner request 2026-09-22: "what to import" is a real per-record choice
+    // when an archive carries both — `include_conversation: false` routes an
+    // archive that DOES have a conversation through the context-only path
+    // instead (safe: `import_context` never reads `conversation/conversation.json`).
+    let result = if inspection.conversation.is_some() && options.include_conversation {
         match archive::import_conversation(
             path,
             &state.rag,
@@ -2975,6 +2999,7 @@ pub fn run() {
                                     active_context_doc_ids: Mutex::new(Vec::new()),
                                     active_context_snapshot: Mutex::new(None),
                                     archive_cancelled: Mutex::new(HashSet::new()),
+                                    pos_tagger: english_pos_tagger::Tagger::new(),
                                 }) {
                                     return Err("application state was already managed".into());
                                 }

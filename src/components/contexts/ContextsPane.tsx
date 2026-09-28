@@ -394,6 +394,7 @@ export function ContextsPane({
   onAttach,
   onExport,
   onImport,
+  importBusy = false,
   generatingId,
   refreshToken,
   widthPx,
@@ -417,6 +418,10 @@ export function ContextsPane({
    *  both platforms (Checkpoint E's import slice); the caller branches on
    *  platform internally (native dialog vs. hidden file input). */
   onImport: () => void;
+  /** True while a picked archive is being read/validated (`inspectArchive`
+   *  has no progress events of its own) — disables the button so a second
+   *  click can't start a second inspect. */
+  importBusy?: boolean;
   generatingId: string | null;
   /** Bump this to re-fetch the child-doc list (e.g. after an attach). */
   refreshToken?: number;
@@ -487,11 +492,14 @@ export function ContextsPane({
           <button
             type="button"
             onClick={onImport}
-            title="Import a .cva archive"
-            aria-label="Import a .cva archive"
-            className="btn shrink-0 gap-1 px-2 py-1"
+            disabled={importBusy}
+            title={importBusy ? "Reading archive…" : "Import a .cva archive"}
+            aria-label={importBusy ? "Reading archive…" : "Import a .cva archive"}
+            className="btn shrink-0 gap-1 px-2 py-1 disabled:opacity-50"
           >
-            <Icon name="upload" size={14} />
+            <span className={importBusy ? "inline-block animate-spin" : "inline-block"}>
+              <Icon name={importBusy ? "history" : "upload"} size={14} />
+            </span>
           </button>
           {isDesktop && (
             /* Icon-only + tooltip (owner decision, 2026-08-17) — "Brief Ally"
