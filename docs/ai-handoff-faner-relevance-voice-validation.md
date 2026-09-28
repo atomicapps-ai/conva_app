@@ -8,7 +8,7 @@
 - Repository: `C:\Projects\atomicapps\conva\worktrees\faner-context-voice`
 - Branch: `codex/faner-context-voice`
 - Base: `origin/dev` at `399ac3b3b7263aaf0ebc94d1cd8315802570ee64`
-- Target: merge into `dev` through a reviewable pull request.
+- Target: merged into `dev` as `73e748e435c3ac2dbe4caa7950b3ecec600151dd`.
 - App implementation commit: `8b403b0`; pull request:
   <https://github.com/atomicapps-ai/conva_app/pull/354>
 - Canonical-doc companion worktree:
@@ -18,6 +18,8 @@
   `main`.
 - Canonical-doc commit: `0e4c6be`; pull request:
   <https://github.com/atomicapps-ai/conva_core/pull/80>
+- Canonical-doc target: merged into `main` as
+  `6772b907d5da07b0d937772c161166748c4c5cb1`.
 
 Do not move this work into `C:\Projects\atomicapps\conva\conva_app`. That
 checkout was already dirty with unrelated parallel changes, including an older
@@ -78,7 +80,7 @@ testable, while keeping the product behavior honest.
       suite.
 - [x] Re-check open PR overlap, commit, push, and open the app PR to `dev` plus
       its canonical-doc companion PR to `conva_core/main`.
-- [ ] Confirm CI/review state and merge both PRs when the gates are green.
+- [x] Confirm CI/review state and merge both PRs when the gates are green.
 
 ## Validation log
 
@@ -97,14 +99,23 @@ testable, while keeping the product behavior honest.
 - `cargo check -p conva-app`: blocked before compiling the application because
   `whisper-rs-sys` CMake configuration could not find `CMAKE_C_COMPILER` or
   `CMAKE_CXX_COMPILER`. This checkout did not produce an application-source
-  compiler diagnostic. A Visual Studio developer environment or corrected
-  CMake compiler discovery is required to rerun it.
+  compiler diagnostic. GitHub's Windows CI subsequently passed `npm run build`,
+  `cargo clippy -p conva-app --all-targets -- -D warnings`,
+  `cargo test -p conva-app`, and `cargo test -p conva-core`.
+- All six current app PR checks passed: version/commit hygiene, portable core,
+  UI, web certification, first-run rehearsal, and Windows Tauri shell.
+- No unresolved review threads remained on either PR at merge time.
+- Tracking issue #355 remains open because the app PR merged to `dev`, not the
+  repository's default branch. Leave it for the normal `dev` to `main`
+  promotion rather than closing it early.
 
 ## Resume prompt
 
 Open this file first, then read the repository `AGENTS.md` and `CLAUDE.md`.
-Continue on `codex/faner-context-voice` in the worktree above. Inspect `git
-status` before editing. Preserve unrelated work, keep all FANER domain logic in
-`crates/conva-core`, use PowerShell commands, edit with patches, and update this
-handoff after every meaningful milestone. Do not assert voice accuracy without
-labeled-corpus measurements.
+The approved implementation is complete and merged. For follow-up work, start
+from current `origin/dev`, not this historical feature branch. Preserve
+unrelated work, keep all FANER domain logic in `crates/conva-core`, use
+PowerShell commands, and edit with patches. The next honest voice milestone is
+to implement candidate diarization/prosody engines and evaluate them on a
+ground-truth-labeled, consented corpus; do not assert voice accuracy before
+those measurements exist.
