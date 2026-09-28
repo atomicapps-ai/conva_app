@@ -9,11 +9,15 @@
 - Branch: `codex/faner-context-voice`
 - Base: `origin/dev` at `399ac3b3b7263aaf0ebc94d1cd8315802570ee64`
 - Target: merge into `dev` through a reviewable pull request.
+- App implementation commit: `8b403b0`; pull request:
+  <https://github.com/atomicapps-ai/conva_app/pull/354>
 - Canonical-doc companion worktree:
   `C:\Projects\atomicapps\conva\worktrees\faner-context-voice-core`
 - Canonical-doc branch: `codex/faner-context-voice-docs`, based on
   `origin/main` at `eed86fc`; `conva_core` is main-only, so its PR targets
   `main`.
+- Canonical-doc commit: `0e4c6be`; pull request:
+  <https://github.com/atomicapps-ai/conva_core/pull/80>
 
 Do not move this work into `C:\Projects\atomicapps\conva\conva_app`. That
 checkout was already dirty with unrelated parallel changes, including an older
@@ -72,7 +76,9 @@ testable, while keeping the product behavior honest.
       the isolated `conva_core` companion branch.
 - [x] Run focused tests, formatting, Clippy, and the complete portable core
       suite.
-- [ ] Re-check open PR overlap, commit, push, and open a PR to `dev`.
+- [x] Re-check open PR overlap, commit, push, and open the app PR to `dev` plus
+      its canonical-doc companion PR to `conva_core/main`.
+- [ ] Confirm CI/review state and merge both PRs when the gates are green.
 
 ## Validation log
 
