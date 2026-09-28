@@ -99,7 +99,7 @@ export function AllyFocusCanvas({
   return (
     <section
       aria-label="View"
-      className="flex min-h-0 flex-1 flex-col border-y border-r border-border bg-panel"
+      className="flex min-h-0 flex-1 flex-col bg-panel"
     >
       {/* Outer type tabs — mirrors Active's sections, always visible when
           more than one type has anything to show. */}

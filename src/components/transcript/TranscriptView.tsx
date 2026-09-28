@@ -1252,10 +1252,11 @@ function AllyPanel({
   canOpenClaimEvidence,
   enabledClaimActions,
   onClaimAction,
-  activeViewSplitRatio,
-  onActiveViewSplitRatio,
   widthPx,
   onResize,
+  viewWidthPx,
+  onViewResize,
+  stacked,
 }: {
   busy: boolean;
   request: (
@@ -1292,32 +1293,32 @@ function AllyPanel({
   canOpenClaimEvidence: boolean;
   enabledClaimActions: readonly ClaimRowAction[];
   onClaimAction: (claim: ClaimDisplayItem, action: ClaimRowAction) => void;
-  /** Active's share of the combined panel width, 0.25–0.75. */
-  activeViewSplitRatio: number;
-  onActiveViewSplitRatio: (r: number) => void;
+  /** Active (3) width, px. */
   widthPx: number;
   onResize: (px: number) => void;
+  /** View (4) width, px — its own docked panel at the far right. */
+  viewWidthPx: number;
+  onViewResize: (px: number) => void;
+  /** Drawer mode (<640px): the two panels stack inside the overlay. */
+  stacked: boolean;
 }) {
   const activeTitle = useGroundingStore((s) => s.activeTitle);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  return (
-    <aside
-      data-col="ally"
-      style={{ width: widthPx }}
-      className={`relative flex h-full max-w-full shrink-0 flex-col border-l border-border bg-bg-2${barPad}`}
-    >
-      {/* Left-edge width handle (spec A.2): dragging left widens. The
-          pref clamps 280-560; the cockpit clamps again vs window width. */}
+  // Two SEPARATE, permanently visible panels docked to the right edge
+  // (owner-approved mockup, 2026-09-28): Active (3) then View (4), each with
+  // its own border, background, header, and width handle — never one shared
+  // box with a divider. In drawer mode they stack inside the overlay.
+  const resizeHandle = (width: number, onSize: (px: number) => void, label: string) =>
+    stacked ? null : (
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize panel"
+        aria-label={label}
         onPointerDown={(e) => {
           const startX = e.clientX;
-          const startW = widthPx;
           const move = (ev: PointerEvent) =>
-            onResize(startW + (startX - ev.clientX));
+            onSize(width + (startX - ev.clientX));
           const up = () => {
             window.removeEventListener("pointermove", move);
             window.removeEventListener("pointerup", up);
@@ -1327,6 +1328,21 @@ function AllyPanel({
         }}
         className="absolute inset-y-0 left-0 z-30 w-[5px] cursor-col-resize hover:bg-panel-raised"
       />
+    );
+  const panelSize = stacked
+    ? "min-h-0 w-full flex-1"
+    : "h-full max-w-full shrink-0";
+
+  return (
+    <>
+    <aside
+      data-col="ally"
+      style={stacked ? undefined : { width: widthPx }}
+      className={`relative flex ${panelSize} flex-col border-l border-border bg-bg-2${barPad}`}
+    >
+      {/* Left-edge width handle (spec A.2): dragging left widens. The
+          pref clamps 280-560; the cockpit clamps again vs window width. */}
+      {resizeHandle(widthPx, onResize, "Resize Active panel")}
       <div className="relative flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
         <Icon name="ally" size={15} className="text-ai" />
         <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-ai">
@@ -1441,80 +1457,70 @@ function AllyPanel({
           fixed-px — they're labels, not content. */}
       <div
         style={{ fontSize: `${allyFontPx}px` }}
-        className="flex min-h-0 flex-1"
+        className="flex min-h-0 flex-1 flex-col"
       >
-        <div
-          style={{ flexBasis: `${activeViewSplitRatio * 100}%` }}
-          className="flex min-h-0 shrink-0 grow-0 flex-col"
-        >
-          <AllyAccordion
-            state={panelState}
-            onState={onPanelState}
-            counts={{
-              questions: groups.questions.length,
-              tracking:
-                groups.claims.length +
-                groups.commitments.length +
-                groups.mentions.length,
-              terms: groups.terms.length,
-            }}
-            newCounts={newCounts}
-            questionsMode={questionsMode}
-            onQuestionsMode={onQuestionsMode}
-            prepCount={groups.prepQa.length}
-            liveUnseen={liveUnseen}
-            renderSection={(id) => (
-              <FoundList
-                groups={groups}
-                onSelect={onSelectFound}
-                only={id}
-                questionsMode={questionsMode}
-                canOpenClaimEvidence={canOpenClaimEvidence}
-                enabledClaimActions={enabledClaimActions}
-                onClaimAction={onClaimAction}
-              />
-            )}
-          />
-        </div>
-
-        {/* Active/View divider — dragging resizes Active's share. */}
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize Active/View"
-          onPointerDown={(e) => {
-            const host = e.currentTarget.parentElement;
-            if (!host) return;
-            const rect = host.getBoundingClientRect();
-            const move = (ev: PointerEvent) =>
-              onActiveViewSplitRatio((ev.clientX - rect.left) / rect.width);
-            const up = () => {
-              window.removeEventListener("pointermove", move);
-              window.removeEventListener("pointerup", up);
-            };
-            window.addEventListener("pointermove", move);
-            window.addEventListener("pointerup", up);
+        <AllyAccordion
+          state={panelState}
+          onState={onPanelState}
+          counts={{
+            questions: groups.questions.length,
+            tracking:
+              groups.claims.length +
+              groups.commitments.length +
+              groups.mentions.length,
+            terms: groups.terms.length,
           }}
-          className="w-[5px] shrink-0 cursor-col-resize border-x border-border bg-bg-2 hover:bg-panel-raised"
+          newCounts={newCounts}
+          questionsMode={questionsMode}
+          onQuestionsMode={onQuestionsMode}
+          prepCount={groups.prepQa.length}
+          liveUnseen={liveUnseen}
+          renderSection={(id) => (
+            <FoundList
+              groups={groups}
+              onSelect={onSelectFound}
+              only={id}
+              questionsMode={questionsMode}
+              canOpenClaimEvidence={canOpenClaimEvidence}
+              enabledClaimActions={enabledClaimActions}
+              onClaimAction={onClaimAction}
+            />
+          )}
         />
-
-        <div className="flex min-h-0 flex-1 flex-col">
-          <AllyFocusCanvas
-            items={focusItems}
-            activeId={focusItemId}
-            activeType={panelState.open}
-            pinnedIds={pinnedFocusIds}
-            onSelect={onSelectFocus}
-            onSelectType={(t) => onPanelState({ open: t })}
-            onTogglePin={onToggleFocusPin}
-            onRefresh={onRefreshFocus}
-            onOpen={onOpenFocus}
-            canOpen={(item) => Boolean(item.cardId || canOpenClaimEvidence)}
-            renderAnswer={(text) => <AnswerBody text={text} />}
-          />
-        </div>
       </div>
     </aside>
+
+    <aside
+      data-col="view"
+      style={stacked ? undefined : { width: viewWidthPx }}
+      className={`relative flex ${panelSize} flex-col border-l border-border bg-panel${barPad}`}
+    >
+      {resizeHandle(viewWidthPx, onViewResize, "Resize View panel")}
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-fg-muted">
+          View
+        </span>
+      </div>
+      <div
+        style={{ fontSize: `${allyFontPx}px` }}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <AllyFocusCanvas
+          items={focusItems}
+          activeId={focusItemId}
+          activeType={panelState.open}
+          pinnedIds={pinnedFocusIds}
+          onSelect={onSelectFocus}
+          onSelectType={(t) => onPanelState({ open: t })}
+          onTogglePin={onToggleFocusPin}
+          onRefresh={onRefreshFocus}
+          onOpen={onOpenFocus}
+          canOpen={(item) => Boolean(item.cardId || canOpenClaimEvidence)}
+          renderAnswer={(text) => <AnswerBody text={text} />}
+        />
+      </div>
+    </aside>
+    </>
   );
 }
 
@@ -1643,8 +1649,8 @@ export function TranscriptView({
   const bumpTranscriptFont = useUiPrefs((s) => s.bumpTranscriptFont);
   const collapseYou = useUiPrefs((s) => s.collapseYou);
   const setCollapseYou = useUiPrefs((s) => s.setCollapseYou);
-  const activeViewSplitRatio = useUiPrefs((s) => s.activeViewSplitRatio);
-  const setActiveViewSplitRatio = useUiPrefs((s) => s.setActiveViewSplitRatio);
+  const viewWidthPx = useUiPrefs((s) => s.viewWidthPx);
+  const setViewWidthPx = useUiPrefs((s) => s.setViewWidthPx);
   const panelWidthPx = useUiPrefs((s) => s.panelWidthPx);
   const setPanelWidthPx = useUiPrefs((s) => s.setPanelWidthPx);
   // Session start (epoch ms) — lets a bubble's time hover show a wall-clock.
@@ -1885,9 +1891,18 @@ export function TranscriptView({
   // Never let the panel squeeze the conversation below ~320px on a narrow
   // window; the 640px drawer breakpoint takes over before this can push
   // under the 280 floor (spec A.2).
+  // Active (3) and View (4) are separate docked panels; View is clamped
+  // first, then Active takes what is left of the same budget.
+  const effectiveViewWidth =
+    width > 0
+      ? Math.min(viewWidthPx, Math.max(260, width - 320 - 280))
+      : viewWidthPx;
   const effectivePanelWidth =
     width > 0
-      ? Math.min(panelWidthPx, Math.max(280, width - 320))
+      ? Math.min(
+          panelWidthPx,
+          Math.max(280, width - 320 - effectiveViewWidth),
+        )
       : panelWidthPx;
 
   // Conversation-header responsiveness (owner, 2026-08-21: the text-size /
@@ -2833,7 +2848,7 @@ export function TranscriptView({
         <div
           className={
             drawer
-              ? `absolute right-0 top-0 z-30 h-full w-[min(360px,92%)] shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
+              ? `absolute right-0 top-0 z-30 flex h-full w-[min(360px,92%)] flex-col shadow-[var(--shadow-lg)] transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`
               : // Not a flex item of `main` in the drawer case (it's absolutely
                 // positioned), but inline it IS one — without an explicit
                 // height it shrink-wraps to content instead of filling the
@@ -2874,10 +2889,11 @@ export function TranscriptView({
             canOpenClaimEvidence={Boolean(caps?.system.partnerWindow)}
             enabledClaimActions={CLAIM_EVIDENCE_ACTIONS}
             onClaimAction={handleClaimAction}
-            activeViewSplitRatio={activeViewSplitRatio}
-            onActiveViewSplitRatio={setActiveViewSplitRatio}
             widthPx={effectivePanelWidth}
             onResize={setPanelWidthPx}
+            viewWidthPx={effectiveViewWidth}
+            onViewResize={setViewWidthPx}
+            stacked={drawer}
           />
         </div>
 

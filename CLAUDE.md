@@ -155,7 +155,7 @@ swap a layer without asking the owner.**
      ambiguous; don't quietly turn remove into a hard delete without an
      explicit owner decision.
 10. **Live cockpit: conversation column is conversation text ONLY; everything
-    Ally lives in two side-by-side panels — Active (3) and View (4).**
+    Ally lives in two SEPARATE docked panels — Active (3) and View (4).**
     (Owner, 2026-09-28 — a 4-panel model naming the whole cockpit: **1**
     the left nav rail, **2** the transcript/conversation column, **3**
     Active, **4** View. Supersedes the 2026-08-26 single-panel
@@ -163,6 +163,15 @@ swap a layer without asking the owner.**
     2026-08-22 Found/View split and the 2026-08-17 dock.) Ally answers
     never render in the transcript stream (V4.0's inline-cards layout was
     explicitly reversed).
+    - **Layout (owner, 2026-09-28 — a session once shipped one shared box
+      with an in-panel divider; that was a misreading of the approved
+      mockup):** the cockpit is four columns — rail · transcript · **Active**
+      (its own `<aside data-col="ally">`, own border, background, header, and
+      width handle) · **View** (its own `<aside data-col="view">` docked at
+      the far right, own border/background/header/width handle, default
+      ~380px). Never merge them into one container or reintroduce a shared
+      Active/View divider or split-ratio pref. Only in drawer mode (<640px)
+      do the two stack inside the overlay. `panelLayout.test.ts` guards this.
     - **Active (3)** is the spine-icon accordion (`AllyAccordion.tsx`,
       `panelSections.ts` the pure model) — UNCHANGED in mechanic from
       2026-08-26: three sections in a fixed order, **Questions** (`question`

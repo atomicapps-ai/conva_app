@@ -21,3 +21,14 @@ describe("panel width pref", () => {
     expect(localStorage.getItem("conva.panel.widthPx")).toBe("413");
   });
 });
+
+describe("viewWidthPx", () => {
+  it("clamps View (4)'s own docked width to 300–640", () => {
+    useUiPrefs.getState().setViewWidthPx(9999);
+    expect(useUiPrefs.getState().viewWidthPx).toBe(640);
+    useUiPrefs.getState().setViewWidthPx(10);
+    expect(useUiPrefs.getState().viewWidthPx).toBe(300);
+    useUiPrefs.getState().setViewWidthPx(400.4);
+    expect(useUiPrefs.getState().viewWidthPx).toBe(400);
+  });
+});

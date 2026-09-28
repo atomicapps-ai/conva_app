@@ -15,7 +15,10 @@ const TRANSCRIPT_FONT_KEY = "conva.transcript.fontPx";
 const REASONING_KEY = "conva.ally.reasoningOpen";
 const COLLAPSE_YOU_KEY = "conva.transcript.collapseYou";
 const PARTNER_FONT_KEY = "conva.partner.fontPx";
-const ACTIVE_VIEW_SPLIT_KEY = "conva.panel.activeViewSplitRatio";
+const VIEW_WIDTH_KEY = "conva.panel.viewWidthPx";
+const VIEW_WIDTH_MIN = 300;
+const VIEW_WIDTH_MAX = 640;
+const VIEW_WIDTH_DEFAULT = 380;
 const PANEL_WIDTH_KEY = "conva.panel.widthPx";
 const PANEL_OPEN_SECTION_KEY = "conva.panel.openSection";
 const QUESTIONS_MODE_KEY = "conva.panel.questionsMode";
@@ -74,8 +77,9 @@ interface UiPrefs {
   /** Active/View split ratio — Active's share of the combined panel width,
    *  0.25–0.75 (owner, 2026-09-28; was the Found/View vertical split before
    *  Active and View became two side-by-side panels). */
-  activeViewSplitRatio: number;
-  setActiveViewSplitRatio: (r: number) => void;
+  /** View (4) panel width, px — its own docked panel right of Active. */
+  viewWidthPx: number;
+  setViewWidthPx: (px: number) => void;
   /** The Active accordion's open section. */
   panelOpenSection: PanelSectionId;
   setPanelOpenSection: (id: PanelSectionId) => void;
@@ -109,9 +113,9 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
   // Default on — the user rarely re-reads their own words.
   collapseYou: localStorage.getItem(COLLAPSE_YOU_KEY) !== "0",
   partnerFontPx: loadFont(PARTNER_FONT_KEY, FONT_DEFAULT),
-  activeViewSplitRatio: (() => {
-    const v = Number(localStorage.getItem(ACTIVE_VIEW_SPLIT_KEY));
-    return v >= 0.25 && v <= 0.75 ? v : 0.45;
+  viewWidthPx: (() => {
+    const v = Number(localStorage.getItem(VIEW_WIDTH_KEY));
+    return v >= VIEW_WIDTH_MIN && v <= VIEW_WIDTH_MAX ? v : VIEW_WIDTH_DEFAULT;
   })(),
   panelWidthPx: (() => {
     const v = Number(localStorage.getItem(PANEL_WIDTH_KEY));
@@ -144,10 +148,13 @@ export const useUiPrefs = create<UiPrefs>((set) => ({
     set({ autoInstallUpdates: enabled });
   },
 
-  setActiveViewSplitRatio: (r) => {
-    const clamped = Math.max(0.25, Math.min(0.75, r));
-    localStorage.setItem(ACTIVE_VIEW_SPLIT_KEY, String(clamped));
-    set({ activeViewSplitRatio: clamped });
+  setViewWidthPx: (px) => {
+    const clamped = Math.max(
+      VIEW_WIDTH_MIN,
+      Math.min(VIEW_WIDTH_MAX, Math.round(px)),
+    );
+    localStorage.setItem(VIEW_WIDTH_KEY, String(clamped));
+    set({ viewWidthPx: clamped });
   },
   setPanelOpenSection: (id) => {
     if (!SECTION_ORDER.includes(id)) return; // invalid → keep current
