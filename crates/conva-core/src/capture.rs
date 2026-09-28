@@ -21,16 +21,47 @@ use serde::{Deserialize, Serialize};
 
 use crate::asr::TranscriptSegment;
 use crate::audio::StreamSide;
+use crate::context_snapshot::ContextSnapshot;
 use crate::llm::LlmRequest;
 
-/// The prepared context the capture pass is grounded in — the user's role and
-/// the terms already on their résumé. A term IN `terms` that the other party
-/// references routes to RECALL; a term NOT in it routes to EXPLAIN.
+/// The prepared context the capture pass is grounded in. A term IN `terms`
+/// that the other party references routes to RECALL; a term NOT in it routes
+/// to EXPLAIN. The conversation type, lens, and goal tell the model what is
+/// common knowledge and what help has marginal value for this exact session.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PreparedContext {
+    #[serde(default)]
+    pub conversation_type: String,
+    #[serde(default)]
+    pub participation_lens: String,
+    #[serde(default)]
+    pub goal: String,
+    #[serde(default)]
     pub role: String,
     #[serde(default)]
     pub terms: Vec<String>,
+}
+
+impl PreparedContext {
+    pub fn from_snapshot(snapshot: Option<&ContextSnapshot>, terms: Vec<String>) -> Self {
+        match snapshot {
+            Some(snapshot) => {
+                let lens = snapshot.participation_lens.label().to_string();
+                Self {
+                    conversation_type: snapshot.category.label().to_string(),
+                    participation_lens: lens.clone(),
+                    goal: snapshot.purpose.clone(),
+                    role: lens,
+                    terms,
+                }
+            }
+            None => Self {
+                conversation_type: "general conversation".to_string(),
+                terms,
+                ..Self::default()
+            },
+        }
+    }
 }
 
 /// What in the other party's speech triggered a capture.
@@ -114,7 +145,8 @@ pub struct CaptureExtraction {
 /// `faner-capture-algorithm.md` §"The LLM rubric" and `scripts/faner-eval.mjs`.
 pub const CAPTURE_SYSTEM_PROMPT: &str = "You assist a user during a live \
 conversation. You receive the OTHER party's latest utterance plus the user's \
-PREPARED CONTEXT (their role and the terms already on their résumé). Decide \
+PREPARED CONTEXT (conversation type, participation lens, goal, role, and \
+known terms or interests). Decide \
 what to surface to help the user answer right now.\n\
 For the utterance:\n\
 1. Find the QUESTIONS first — a question is the clearest signal of what the \
@@ -160,8 +192,20 @@ several bundled together. tier/kind are null for RECALL/ASSIST/SYNTHESIZE \
 /// the prepared context. THEM lines are the other party, YOU lines the user.
 pub fn build_capture_request(segments: &[TranscriptSegment], ctx: &PreparedContext) -> LlmRequest {
     let mut user = String::from("PREPARED CONTEXT\n");
+    user.push_str(&format!(
+        "conversation type: {}\n",
+        ctx.conversation_type.trim()
+    ));
+    user.push_str(&format!(
+        "participation lens: {}\n",
+        ctx.participation_lens.trim()
+    ));
+    user.push_str(&format!("goal or purpose: {}\n", ctx.goal.trim()));
     user.push_str(&format!("role: {}\n", ctx.role.trim()));
-    user.push_str(&format!("résumé terms: {}\n\n", ctx.terms.join(", ")));
+    user.push_str(&format!(
+        "known terms and interests: {}\n\n",
+        ctx.terms.join(", ")
+    ));
     user.push_str("OTHER PARTY SAID:\n");
     for segment in segments.iter().filter(|s| s.is_final) {
         let speaker = match segment.side {
@@ -260,6 +304,9 @@ mod tests {
     #[test]
     fn request_includes_context_and_them_line() {
         let ctx = PreparedContext {
+            conversation_type: "job interview".into(),
+            participation_lens: "interviewee".into(),
+            goal: "Demonstrate infrastructure expertise".into(),
             role: "Software Engineer".into(),
             terms: vec!["AWS".into(), "Terraform".into()],
         };
@@ -270,6 +317,11 @@ mod tests {
             )],
             &ctx,
         );
+        assert!(req.user.contains("conversation type: job interview"));
+        assert!(req.user.contains("participation lens: interviewee"));
+        assert!(req
+            .user
+            .contains("goal or purpose: Demonstrate infrastructure expertise"));
         assert!(req.user.contains("role: Software Engineer"));
         assert!(req.user.contains("Terraform"));
         assert!(req
@@ -286,6 +338,29 @@ mod tests {
         let req = build_capture_request(&[seg(StreamSide::Outbound, "my answer"), partial], &ctx);
         assert!(req.user.contains("YOU: my answer"));
         assert!(!req.user.contains("partial words"));
+    }
+
+    #[test]
+    fn prepared_context_uses_the_active_conversation_snapshot() {
+        let snapshot = crate::context_snapshot::ContextSnapshot::new(
+            crate::context::ContextCategory::SalesCall,
+            crate::context_snapshot::ParticipationLens::Seller,
+            "Qualify the account and understand its security constraints",
+        )
+        .unwrap();
+        let prepared = PreparedContext::from_snapshot(
+            Some(&snapshot),
+            vec!["data residency".into(), "SOC 2".into()],
+        );
+
+        assert_eq!(prepared.conversation_type, "sales call");
+        assert_eq!(prepared.participation_lens, "seller");
+        assert_eq!(prepared.role, "seller");
+        assert_eq!(
+            prepared.goal,
+            "Qualify the account and understand its security constraints"
+        );
+        assert_eq!(prepared.terms, ["data residency", "SOC 2"]);
     }
 
     #[test]

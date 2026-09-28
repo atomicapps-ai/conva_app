@@ -445,6 +445,23 @@ fn tokens(s: &str) -> Vec<String> {
         .collect()
 }
 
+/// Final, source-independent admission gate. Every candidate source — active
+/// Context terms, document overlap, entity detection, rarity, and explicit
+/// feedback — must contain at least one meaningful token. This prevents a
+/// malformed/generated Context term or historical 👍 from bypassing the same
+/// stopword and filler hygiene applied by the heuristic paths.
+///
+/// Phrases containing connector words remain valid when they also contain a
+/// content word (for example, "state of the art").
+fn has_content_bearing_token(phrase: &str) -> bool {
+    tokens(phrase).iter().any(|token| {
+        !is_noise_token(token)
+            && token
+                .chars()
+                .any(|character| character.is_alphabetic() || character.is_numeric())
+    })
+}
+
 /// Does the token sequence `needle` appear consecutively (word-bounded) in
 /// `hay`? Used for phrase-level context/boost matching.
 fn contains_phrase(hay: &[String], needle: &[String]) -> bool {
@@ -546,6 +563,10 @@ pub fn relevant_terms_capped(message: &str, ctx: &HighlightContext, cap: usize) 
     if let Some(suppress) = ctx.suppress {
         cands.retain(|c| !suppress.iter().any(|s| s.eq_ignore_ascii_case(&c.display)));
     }
+
+    // Defense in depth: explicit Context terms and feedback are valuable
+    // signals, not permission to surface semantically empty words.
+    cands.retain(|candidate| has_content_bearing_token(&candidate.display));
 
     // Strongest first; ties by earliest appearance. Score ordering makes rarity
     // (0.3) fall behind every grounded/context/entity signal automatically.
@@ -818,6 +839,43 @@ mod tests {
         );
         assert!(
             hits.iter().any(|h| h.eq_ignore_ascii_case("gut feel")),
+            "{hits:?}"
+        );
+    }
+
+    #[test]
+    fn final_gate_rejects_stopwords_from_context_and_feedback() {
+        let context_terms = vec!["the".to_string(), "this".to_string()];
+        let boost: HashSet<String> = ["are".to_string(), "mhmm".to_string()]
+            .into_iter()
+            .collect();
+        let ctx = HighlightContext {
+            context_terms: &context_terms,
+            boost: Some(&boost),
+            ..HighlightContext::from_doc_text("")
+        };
+
+        let hits = relevant_terms("the things are this, mhmm", &ctx);
+        for noise in ["the", "this", "are", "mhmm"] {
+            assert!(
+                !hits.iter().any(|hit| hit.eq_ignore_ascii_case(noise)),
+                "{noise:?} bypassed the final gate: {hits:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn final_gate_preserves_phrases_with_connectors_and_content() {
+        let context_terms = vec!["state of the art".to_string()];
+        let ctx = HighlightContext {
+            context_terms: &context_terms,
+            ..HighlightContext::from_doc_text("")
+        };
+
+        let hits = relevant_terms("Is this state of the art?", &ctx);
+        assert!(
+            hits.iter()
+                .any(|hit| hit.eq_ignore_ascii_case("state of the art")),
             "{hits:?}"
         );
     }

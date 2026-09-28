@@ -44,5 +44,6 @@ pub mod telemetry_events;
 pub mod tracker;
 pub mod vad;
 pub mod verification;
+pub mod voice_eval;
 
 pub use error::CoreError;
