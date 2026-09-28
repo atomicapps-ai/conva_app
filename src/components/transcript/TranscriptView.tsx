@@ -1,11 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { LiveControlBar } from "@/components/studio/LiveControlBar";
@@ -216,11 +218,79 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** Fired on `window` the instant a `TermMenu` or `SelectionMenu` opens, so any
+ *  other already-open instance can close itself — the transcript can render
+ *  many independent `HighlightedText`/selection instances (one per segment
+ *  unit, one per bubble), each with its own local open/closed state, so
+ *  "only one menu open at a time" can't come from any single instance's own
+ *  click-outside handling alone (a click on a SECOND term calls
+ *  `stopPropagation`, so it never reaches the first menu's window listener).
+ *  Carries a per-menu token so a menu never closes itself upon opening. */
+const TRANSCRIPT_MENU_OPEN_EVENT = "conva:transcript-menu-open";
+let transcriptMenuTokenSeq = 0;
+
+/** Both popovers below are portaled to `document.body`. The transcript list
+ *  virtualizes with `transform: translateY(...)` on each row (see the
+ *  `turnVirtualizer` render below) — a CSS `transform` on an ancestor makes
+ *  THAT ancestor the containing block for any `position: fixed` descendant
+ *  instead of the viewport (spec, not a bug), which silently broke both
+ *  menus' positioning and its "escapes scroll clipping" claim the moment the
+ *  virtualizer landed: the menu no longer tracked the viewport, so it drifted
+ *  further off from where the clicked/selected text actually was the more
+ *  the list had scrolled (owner report, 2026-09-28). Escaping to `body` via
+ *  a portal restores `position: fixed` to its real, viewport-relative
+ *  meaning; React's synthetic event bubbling (stopPropagation, etc.) still
+ *  works identically through a portal regardless of where in the DOM it
+ *  renders. */
+function useCloseOnOtherMenuOpen(onClose: () => void) {
+  const token = useRef(++transcriptMenuTokenSeq).current;
+  useEffect(() => {
+    const onOtherOpen = (e: Event) => {
+      if ((e as CustomEvent<number>).detail !== token) onClose();
+    };
+    window.addEventListener(TRANSCRIPT_MENU_OPEN_EVENT, onOtherOpen);
+    window.dispatchEvent(
+      new CustomEvent(TRANSCRIPT_MENU_OPEN_EVENT, { detail: token }),
+    );
+    return () => window.removeEventListener(TRANSCRIPT_MENU_OPEN_EVENT, onOtherOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- token is stable for this instance's lifetime
+  }, [onClose]);
+}
+
+/** Clamps a popover anchored above `(x, y)` — `y` is the anchor's TOP edge,
+ *  the popover grows upward from `gap` above it — to stay fully on-screen.
+ *  Measures the real rendered size via `ref` (variable content: 3, 5, or an
+ *  arbitrary number of action buttons), so it's exact rather than a guessed
+ *  width. Returns `null` until the first measurement lands (one frame,
+ *  before paint via `useLayoutEffect` — no visible jump). */
+function useClampedUpwardPosition(
+  ref: React.RefObject<HTMLElement | null>,
+  x: number,
+  y: number,
+  gap: number,
+) {
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.min(
+      Math.max(x, margin),
+      Math.max(margin, window.innerWidth - rect.width - margin),
+    );
+    const top = Math.max(margin, y - gap - rect.height);
+    setPos({ left, top });
+  }, [ref, x, y, gap]);
+  return pos;
+}
+
 /** A small icon popover anchored to a highlighted word: definition / how-to /
  *  elaborate. Opens upward from the term (V4.0 §9) so it never collides with
- *  the turn below — `y` is the term's TOP edge; `position: fixed` already
- *  escapes the transcript's scroll clipping, translateY does the rest.
- *  Closes on outside click, scroll, or resize. */
+ *  the turn below — `y` is the term's TOP edge. Portaled to `body` (see the
+ *  doc comment above) and clamped to stay on-screen; only one of these (or a
+ *  `SelectionMenu`) is ever open at once. Closes on outside click, scroll,
+ *  resize, or another menu opening. */
 function TermMenu({
   term,
   x,
@@ -237,10 +307,13 @@ function TermMenu({
   onClose: () => void;
 }) {
   const backend = useBackend();
+  const ref = useRef<HTMLDivElement>(null);
+  const pos = useClampedUpwardPosition(ref, x, y, 4);
   const feedback = (signal: "up" | "down") => {
     void backend.rag.recordHighlightFeedback(term, signal);
     onClose();
   };
+  useCloseOnOtherMenuOpen(onClose);
   useEffect(() => {
     const close = () => onClose();
     window.addEventListener("click", close);
@@ -252,13 +325,15 @@ function TermMenu({
       window.removeEventListener("scroll", close, true);
     };
   }, [onClose]);
-  return (
+  return createPortal(
     <div
+      ref={ref}
       style={{
         position: "fixed",
-        left: x,
-        top: y - 4,
-        transform: "translateY(-100%)",
+        left: pos?.left ?? x,
+        top: pos?.top ?? y - 4,
+        transform: pos ? undefined : "translateY(-100%)",
+        visibility: pos ? "visible" : "hidden",
         zIndex: 60,
       }}
       onClick={(e) => e.stopPropagation()}
@@ -301,7 +376,8 @@ function TermMenu({
       >
         <Icon name="thumbDown" size={16} />
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -397,6 +473,23 @@ function SelectionMenu({
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const margin = 8;
+    const left = Math.min(
+      Math.max(x - rect.width / 2, margin),
+      Math.max(margin, window.innerWidth - rect.width - margin),
+    );
+    // Grows downward from the selection; clamp the bottom edge so it never
+    // renders off-screen on a short viewport.
+    const top = Math.min(y + 6, Math.max(margin, window.innerHeight - rect.height - margin));
+    setPos({ left, top });
+  }, [x, y]);
+  useCloseOnOtherMenuOpen(onClose);
   useEffect(() => {
     const close = () => onClose();
     window.addEventListener("resize", close);
@@ -409,10 +502,16 @@ function SelectionMenu({
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
-  const left = Math.max(8, Math.min(x - 52, window.innerWidth - 120));
-  return (
+  return createPortal(
     <div
-      style={{ position: "fixed", left, top: y + 6, zIndex: 60 }}
+      ref={ref}
+      style={{
+        position: "fixed",
+        left: pos?.left ?? x,
+        top: pos?.top ?? y + 6,
+        visibility: pos ? "visible" : "hidden",
+        zIndex: 60,
+      }}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -455,7 +554,8 @@ function SelectionMenu({
       >
         <Icon name="chevron" size={15} className="rotate-90" />
       </button>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -734,7 +834,15 @@ function Bubble({
     return () => window.removeEventListener("mousemove", onMove);
   }, [sel]);
 
-  const accent = inbound ? "bg-inbound" : "bg-outbound";
+  // Per-voice accent (owner: each new voice defaults to its own color) —
+  // `speaker.color` is set for every real profile (`colorForOrdinal`); the
+  // literal fallback only covers the placeholder "…" stand-in before one
+  // resolves. The background wash stays the plain inbound/outbound tint —
+  // a per-voice tint reads as noisy at that low an opacity and wasn't asked
+  // for; only the accent bar and label need to carry voice identity.
+  const accentColor = inbound
+    ? (speaker.color ?? "var(--color-inbound)")
+    : "var(--color-outbound)";
   const tint = inbound ? "bg-inbound/[0.05]" : "bg-outbound/[0.05]";
 
   const timeMs = firstFinal ? firstFinal.start_ms : 0;
@@ -784,7 +892,8 @@ function Bubble({
         )}
         {/* 2px voice-colour accent bar (density law). */}
         <span
-          className={`absolute inset-y-0 left-0 w-[2px] rounded-l ${accent}`}
+          className="absolute inset-y-0 left-0 w-[2px] rounded-l"
+          style={{ backgroundColor: accentColor }}
           aria-hidden
         />
         {/* Option B (owner-approved, 2026-09-03): one compact metadata header.
@@ -3067,6 +3176,7 @@ export function TranscriptView({
                     ? {
                         id: profile.id,
                         kind: profile.kind,
+                        color: profile.color,
                         // Doc §1: overlap/insufficient speech shows no
                         // confident identity claim, never a guessed name.
                         label:

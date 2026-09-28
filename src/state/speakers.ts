@@ -45,6 +45,10 @@ export interface SpeakerProfile {
   /** True once the user has explicitly named this voice at least once this
    *  session — cleared by `forgetSpeaker` (doc §6.4's "Forget" action). */
   namedByUser: boolean;
+  /** This voice's accent color (bubble accent bar, speaker label) — assigned
+   *  once at creation from `colorForOrdinal` and stable for the rest of the
+   *  session, even across a rename. Never reassigned by `forgetSpeaker`. */
+  color: string;
 }
 
 export interface SpeakerAssignment {
@@ -69,8 +73,39 @@ export function defaultLabelFor(kind: SpeakerKind, ordinal: number): string {
   return ordinal <= 1 ? "New voice" : `Voice ${ordinal}`;
 }
 
+/** Distinct per-voice accent colors, cycling by ordinal — each new inbound
+ *  voice this session gets its own color instead of sharing the generic
+ *  "them" green. Ordinal 1 keeps today's `--color-inbound` green so an
+ *  ordinary single-voice session looks exactly as before; "you" (ordinal 0)
+ *  is always the separate `--color-outbound` lavender and never drawn from
+ *  this list. Kept out of the red/danger hue family, same rule and reasoning
+ *  as `ContextsPane.tsx`'s `CATEGORY_ICON` ("red means negative, bad, stop,
+ *  error, caution — not a voice"). */
+const VOICE_COLORS = [
+  "var(--color-inbound)",
+  "#E0B84C",
+  "#9D7DC4",
+  "#6C5CE7",
+  "#67C6C5",
+  "#4CC2E0",
+  "#C48D7D",
+  "#8FB86C",
+];
+
+export function colorForOrdinal(ordinal: number): string {
+  if (ordinal <= 0) return "var(--color-outbound)";
+  return VOICE_COLORS[(ordinal - 1) % VOICE_COLORS.length]!;
+}
+
 export function makeSpeaker(id: string, kind: SpeakerKind, ordinal: number): SpeakerProfile {
-  return { id, kind, label: defaultLabelFor(kind, ordinal), ordinal, namedByUser: false };
+  return {
+    id,
+    kind,
+    label: defaultLabelFor(kind, ordinal),
+    ordinal,
+    namedByUser: false,
+    color: colorForOrdinal(ordinal),
+  };
 }
 
 /** Pure: today's placeholder inference (see file doc comment). Every

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_INBOUND_SPEAKER_ID,
   YOU_SPEAKER_ID,
+  colorForOrdinal,
   defaultLabelFor,
   fixtureVoiceId,
   mergeSpeakers,
@@ -23,6 +24,26 @@ describe("defaultLabelFor", () => {
   it("labels later anonymous voices 'Voice N'", () => {
     expect(defaultLabelFor("anonymous", 2)).toBe("Voice 2");
     expect(defaultLabelFor("anonymous", 3)).toBe("Voice 3");
+  });
+});
+
+describe("colorForOrdinal (owner: each new voice defaults to its own color)", () => {
+  it("gives 'you' (ordinal 0) the fixed outbound lavender", () => {
+    expect(colorForOrdinal(0)).toBe("var(--color-outbound)");
+  });
+
+  it("gives the first inbound voice today's unchanged inbound green", () => {
+    expect(colorForOrdinal(1)).toBe("var(--color-inbound)");
+  });
+
+  it("gives later voices distinct, non-repeating colors", () => {
+    const colors = [1, 2, 3, 4].map(colorForOrdinal);
+    expect(new Set(colors).size).toBe(4);
+  });
+
+  it("cycles once the palette is exhausted rather than throwing", () => {
+    expect(() => colorForOrdinal(50)).not.toThrow();
+    expect(typeof colorForOrdinal(50)).toBe("string");
   });
 });
 
@@ -110,17 +131,32 @@ describe("useSpeakerStore", () => {
   it("ensureSpeaker creates 'you' at ordinal 0 and is idempotent", () => {
     const a = useSpeakerStore.getState().ensureSpeaker(YOU_SPEAKER_ID, "you");
     const b = useSpeakerStore.getState().ensureSpeaker(YOU_SPEAKER_ID, "you");
-    expect(a).toEqual({ id: "you", kind: "you", label: "You", ordinal: 0, namedByUser: false });
+    expect(a).toEqual({
+      id: "you",
+      kind: "you",
+      label: "You",
+      ordinal: 0,
+      namedByUser: false,
+      color: "var(--color-outbound)",
+    });
     expect(b).toBe(a);
   });
 
-  it("ensureSpeaker assigns increasing ordinals to non-'you' voices", () => {
+  it("ensureSpeaker assigns increasing ordinals to non-'you' voices, each its own color", () => {
     const first = useSpeakerStore.getState().ensureSpeaker("voice-unknown", "anonymous");
     const second = useSpeakerStore.getState().createSpeaker();
     expect(first.ordinal).toBe(1);
     expect(first.label).toBe("New voice");
+    expect(first.color).toBe("var(--color-inbound)");
     expect(second.ordinal).toBe(2);
     expect(second.label).toBe("Voice 2");
+    expect(second.color).not.toBe(first.color);
+  });
+
+  it("a voice's color survives a rename (only the label/kind change)", () => {
+    const before = useSpeakerStore.getState().ensureSpeaker("voice-unknown", "anonymous");
+    useSpeakerStore.getState().renameSpeaker("voice-unknown", "Alex");
+    expect(useSpeakerStore.getState().speakers["voice-unknown"]?.color).toBe(before.color);
   });
 
   it("renameSpeaker sets a user label, flips kind to 'named', and sticks", () => {
