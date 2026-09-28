@@ -29,4 +29,18 @@ describe("markSeen", () => {
     const after = markSeen(new Set(["a"]), ["a"]);
     expect(after).toEqual(new Set(["a"]));
   });
+
+  it("returns the same Set instance when nothing is new — avoids a needless React state update on every live-transcript tick (2026-09-28 flicker fix)", () => {
+    const before = new Set(["a", "b"]);
+    expect(markSeen(before, [])).toBe(before);
+    expect(markSeen(before, ["a"])).toBe(before);
+    expect(markSeen(before, ["a", "b"])).toBe(before);
+  });
+
+  it("still allocates a new Set when at least one id is actually new", () => {
+    const before = new Set(["a"]);
+    const after = markSeen(before, ["a", "b"]);
+    expect(after).not.toBe(before);
+    expect(after).toEqual(new Set(["a", "b"]));
+  });
 });
