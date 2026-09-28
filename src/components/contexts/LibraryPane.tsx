@@ -5,6 +5,7 @@ import {
   documentTypeLabel,
   filterDocuments,
   LIBRARY_FILTERS,
+  sortPinnedFirst,
   type LibraryFilter,
 } from "@/components/contexts/libraryFilter";
 import { Icon } from "@/components/ui/Icon";
@@ -267,12 +268,18 @@ function LibraryRowMenu({
  * this carries for Library's own OS file-drop ingest. `contextTitles`
  * (id → title) drives both the picker and a doc's own context-tag label.
  * `focusContextId` (set from a context's doc-count control in
- * `ContextsPane`) filters the list to that context's documents, with a
- * dismissible banner as the "show everything again" affordance.
+ * `ContextsPane`) PINS that context's documents to the top of the list and
+ * shows a per-row checkbox to attach/detach (owner, 2026-09-23: "each time
+ * I click I want to see the document rearrange properly" / "default for
+ * library is no document checked or selected at all" — `focusContextId`
+ * starts `null` and is only ever set by an explicit click, so that default
+ * holds). Nothing is hidden — a doc not (yet) in the context stays visible
+ * and reachable below the pinned ones.
  */
 export function LibraryPane({
   contextTitles,
   onAttach,
+  onDetach,
   refreshToken,
   quickAction,
   focusContextId,
@@ -283,6 +290,10 @@ export function LibraryPane({
   /** Attach `docId` to `contextId` — the real mutation
    *  (`backend.rag.attachContext`) lives with the caller. */
   onAttach: (docId: string, contextId: string) => void;
+  /** Detach `docId` from `contextId` (`backend.rag.detachContext`) —
+   *  unchecking a pinned row's checkbox. Only used while `focusContextId`
+   *  is set; omitted callers (e.g. the top-level Library page) never need it. */
+  onDetach?: (docId: string, contextId: string) => void;
   /** Bump this to force a refresh from outside (e.g. after generating). */
   refreshToken?: number;
   /** One-shot: open the file picker or the paste box on mount — driven by
@@ -291,8 +302,9 @@ export function LibraryPane({
   quickAction?: "upload" | "paste" | null;
   /** Set by clicking a context's doc-count control in `ContextsPane`
    *  (owner, 2026-08-29: "when I click the document icon in the context
-   *  card it doesn't auto select the documents on the library") — filters
-   *  the list to documents attached to this context. */
+   *  card it doesn't auto select the documents on the library") — pins
+   *  documents attached to this context to the top and shows their
+   *  attach/detach checkbox. */
   focusContextId?: string | null;
   /** Clears `focusContextId` — the banner's ✕, and clicking the same
    *  doc-count control again (`ContextsView`'s toggle). */
@@ -505,7 +517,7 @@ export function LibraryPane({
   };
 
   const visible = useMemo(
-    () => filterDocuments(documents, { search, filter, focusContextId }),
+    () => sortPinnedFirst(filterDocuments(documents, { search, filter }), focusContextId ?? null),
     [documents, search, filter, focusContextId],
   );
 
@@ -624,14 +636,14 @@ export function LibraryPane({
         <div className="mb-2 flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/[0.06] px-2 py-1 text-[11px] text-fg">
           <Icon name="file" size={11} className="shrink-0 text-primary" />
           <span className="min-w-0 flex-1 truncate">
-            Showing documents for{" "}
-            <span className="font-semibold">{contextTitles[focusContextId] ?? "this context"}</span>
+            <span className="font-semibold">{contextTitles[focusContextId] ?? "this context"}</span>{" "}
+            documents are pinned to the top — check a row to add or remove it
           </span>
           <button
             type="button"
             onClick={onClearFocus}
             aria-label="Clear filter"
-            title="Show all documents"
+            title="Stop pinning"
             className="shrink-0 rounded-sm p-0.5 text-fg-faint transition hover:bg-panel-raised/60 hover:text-fg"
           >
             <Icon name="close" size={12} />
@@ -804,18 +816,40 @@ export function LibraryPane({
                     </span>
                   </>
                 )}
-                {/* Passive "which context(s) is this doc in" hint — an icon
-                    now, not the old text chip, since the row has less room.
-                    Wrapped in a <span title=…> rather than passing title to
-                    Icon directly (it doesn't forward one — same pattern as
-                    ContextDetail.tsx's stage icons). */}
-                {!page && firstContextId && (
-                  <span
+                {/* When a context is pinned (`focusContextId`), a checkbox
+                    replaces the passive hint below — attach/detach this doc
+                    to that context, re-sorting live (owner, 2026-09-23).
+                    Otherwise, the passive "which context(s) is this doc in"
+                    hint — an icon, not a text chip, since the row has less
+                    room. Wrapped in a <span title=…> rather than passing
+                    title to Icon directly (it doesn't forward one — same
+                    pattern as ContextDetail.tsx's stage icons). */}
+                {!page && focusContextId ? (
+                  <input
+                    type="checkbox"
+                    checked={doc.context_ids.includes(focusContextId)}
+                    onChange={(e) => {
+                      if (e.target.checked) onAttach(doc.id, focusContextId);
+                      else onDetach?.(doc.id, focusContextId);
+                    }}
+                    aria-label={
+                      doc.context_ids.includes(focusContextId)
+                        ? `Remove ${doc.file_name} from ${contextTitles[focusContextId] ?? "this context"}`
+                        : `Add ${doc.file_name} to ${contextTitles[focusContextId] ?? "this context"}`
+                    }
+                    title={contextTitles[focusContextId] ?? "this context"}
                     className="shrink-0"
-                    title={doc.context_ids.map((id) => contextTitles[id] ?? id).join(", ")}
-                  >
-                    <Icon name="book" size={13} className="text-fg-faint" />
-                  </span>
+                  />
+                ) : (
+                  !page &&
+                  firstContextId && (
+                    <span
+                      className="shrink-0"
+                      title={doc.context_ids.map((id) => contextTitles[id] ?? id).join(", ")}
+                    >
+                      <Icon name="book" size={13} className="text-fg-faint" />
+                    </span>
+                  )
                 )}
                 {/* Far right (owner, 2026-08-29) — the row's one remaining
                     "more" surface; Delete and Download both live here now

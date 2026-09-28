@@ -100,18 +100,34 @@ describe("LibraryPane row", () => {
     expect(screen.queryByTitle("Acme interview")).toBeNull();
   });
 
-  it("focusContextId filters to that context's documents, with a clearable banner", async () => {
+  it("focusContextId pins that context's documents to the top with a checkbox, without hiding the rest", async () => {
+    const onAttach = vi.fn();
+    const onDetach = vi.fn();
     const onClearFocus = vi.fn();
     renderPane(
       [
-        doc({ id: "d1", file_name: "resume.pdf", context_ids: ["c1"] }),
-        doc({ id: "d2", file_name: "cover-letter.pdf", context_ids: [] }),
+        doc({ id: "d1", file_name: "cover-letter.pdf", context_ids: [] }),
+        doc({ id: "d2", file_name: "resume.pdf", context_ids: ["c1"] }),
       ],
-      { contextTitles: { c1: "Acme interview" }, focusContextId: "c1", onClearFocus },
+      { contextTitles: { c1: "Acme interview" }, focusContextId: "c1", onAttach, onDetach, onClearFocus },
     );
     await screen.findByText("resume.pdf");
-    expect(screen.queryByText("cover-letter.pdf")).toBeNull();
+    // Nothing is hidden — the unattached doc is still there, just below the pinned one.
+    expect(screen.getByText("cover-letter.pdf")).toBeInTheDocument();
+    const rows = screen.getAllByRole("listitem").map((li) => li.textContent ?? "");
+    expect(rows[0]).toContain("resume.pdf");
+    expect(rows[1]).toContain("cover-letter.pdf");
     expect(screen.getByText("Acme interview")).toBeInTheDocument();
+
+    const checked = screen.getByRole("checkbox", { name: /remove resume\.pdf from acme interview/i });
+    expect(checked).toBeChecked();
+    fireEvent.click(checked);
+    expect(onDetach).toHaveBeenCalledWith("d2", "c1");
+
+    const unchecked = screen.getByRole("checkbox", { name: /add cover-letter\.pdf to acme interview/i });
+    expect(unchecked).not.toBeChecked();
+    fireEvent.click(unchecked);
+    expect(onAttach).toHaveBeenCalledWith("d1", "c1");
 
     fireEvent.click(screen.getByRole("button", { name: /clear filter/i }));
     expect(onClearFocus).toHaveBeenCalled();

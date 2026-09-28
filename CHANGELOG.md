@@ -11,6 +11,46 @@ entries, only the `[Unreleased]` section between releases.
 
 No user-facing changes recorded yet.
 
+## [0.6.0] — 2026-09-23
+
+### Highlights
+
+- Live sessions now auto-stop after a period of inactivity (default 5
+  minutes, configurable in Settings → Devices, including a Custom value)
+  instead of running unattended — releasing the microphone/system-audio
+  devices and finalizing any recording the same way End does.
+- Fixed a crash where the Live cockpit's transcript would eventually run
+  out of memory on a long call — turns now render in a windowed view
+  instead of staying mounted forever, and a couple of other long-session
+  memory/disk growth spots were capped along the way.
+- Coaching: a checkbox now selects the rehearsal persona directly, and
+  favorites let you star personas for quick reuse.
+- Rehearsal flags itself as text-only when no Deepgram key is configured,
+  instead of silently going quiet.
+- Real Pause and TTS cancellation in Live, plus a plain Stop with an
+  explicit Save action.
+- Contexts: document intake (upload, drag-and-drop, and paste) is now one
+  unified control.
+
+### Fixes
+
+- Ally's answer/summary cards now show a clear, actionable message when
+  the LLM hits a usage limit, rate limit, or is overloaded, instead of the
+  provider's raw error JSON.
+- Rehearsing from a Coaching setup (or a Context's own Start button) now
+  correctly shows that Context as attached in the Live cockpit.
+- A rehearsal persona's reply now shows a dismissible notice if
+  text-to-speech fails, instead of silently doing nothing.
+- The top-right context picker no longer errors when reselecting the
+  already-active context.
+- Ally's live Ask box, term highlighting, and Question Radar can now find
+  facts from a Context's original attached documents even after its
+  dossier has been generated.
+- The web dashboard's download link now points at the public releases
+  repo.
+- Context setup's document drop zones accept OS files and clipboard
+  paste, not just one or the other.
+
 ## [0.5.1] — 2026-09-15
 
 ### Fixes
