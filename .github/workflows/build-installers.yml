@@ -79,6 +79,10 @@ jobs:
             args: --features gpu-metal
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
+    env:
+      # Vulkan SDK the Windows leg installs (see the install step). Lives at job
+      # level because the rust-cache key below must change when it does.
+      VULKAN_SDK_VERSION: "1.4.321.1"
     steps:
       - uses: actions/checkout@v4
 
@@ -86,6 +90,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          # The restored target/ holds whisper-rs-sys's CMake build dir, and its
+          # CMakeCache.txt remembers where Vulkan was found (find_library results
+          # are cached). After an SDK version change that path no longer exists,
+          # and CMake fails with 'Imported target "Vulkan::Vulkan" includes
+          # non-existent path C:/VulkanSDK/<old>/include' (dev-build, 2026-09-29).
+          # Keying the Windows cache on the SDK version makes a bump start clean.
+          key: ${{ matrix.platform == 'windows-latest' && format('vulkan-{0}', env.VULKAN_SDK_VERSION) || '' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -104,15 +115,11 @@ jobs:
       - name: Install Vulkan SDK (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
-        env:
-          # Pinned, not LunarG's "latest" alias: 1.4.357.0 installed without
-          # its Include\ directory and broke the whisper.cpp Vulkan build
-          # (dev-build Windows job). 1.4.321.1 is the version whisper.cpp's
-          # own CI builds against. Bump deliberately, and only after the
-          # post-install check below passes on the new version. LunarG keeps
-          # old versions at the same URL shape; if one ever 404s, the size
-          # guard below fails the step with a clear message.
-          VULKAN_SDK_VERSION: "1.4.321.1"
+        # Pinned (VULKAN_SDK_VERSION, job env above), not LunarG's "latest" alias, so
+        # the SDK only changes when someone bumps it, and the rust-cache key with it.
+        # 1.4.321.1 is the version whisper.cpp's own CI builds against. LunarG keeps
+        # old versions at the same URL shape; if one ever 404s, the size guard below
+        # fails the step with a clear message.
         run: |
           $url = "https://sdk.lunarg.com/sdk/download/$env:VULKAN_SDK_VERSION/windows/vulkan_sdk.exe"
           $exe = "$env:RUNNER_TEMP\vulkan_sdk.exe"

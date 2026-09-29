@@ -126,6 +126,9 @@ refuses to build if the tag doesn't match `package.json`.
      The Windows leg installs a **pinned** Vulkan SDK (`VULKAN_SDK_VERSION` in
      `build-installers.yml`) and checks its headers, `glslc` and import lib
      right after install — bump it deliberately, never via LunarG's `latest`.
+     The same version keys the Windows `rust-cache`, because the cached
+     `whisper-rs-sys` CMake build dir remembers where Vulkan was found and
+     breaks when that SDK path is gone.
 6. The `verify-draft` job blocks completion unless the draft has substantive
    versioned notes, Windows MSI + NSIS assets, a macOS dmg + updater archive,
    updater signatures, and a `latest.json` covering both platforms.
