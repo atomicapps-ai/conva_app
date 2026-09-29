@@ -462,7 +462,7 @@ impl Lexicon {
     /// is the longest. Idempotent.
     pub fn finish(&mut self) {
         for entries in self.by_head.values_mut() {
-            entries.sort_by(|a, b| b.toks.len().cmp(&a.toks.len()));
+            entries.sort_by_key(|entry| std::cmp::Reverse(entry.toks.len()));
         }
     }
 
