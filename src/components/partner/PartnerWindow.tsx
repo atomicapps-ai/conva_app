@@ -11,21 +11,32 @@ import {
   tabLabel,
   type PartnerTab,
 } from "@/components/partner/partnerTabs";
+import { ViewPanel } from "@/components/transcript/ViewPanel";
+import { fromViewItem } from "@/components/transcript/viewMirror";
 import { Icon } from "@/components/ui/Icon";
 import { MarkdownDocument } from "@/components/ui/MarkdownDocument";
 import { AnswerBody } from "@/lib/allyMarkdown";
 import { useBackend } from "@/lib/backend";
+import type { ViewState } from "@/lib/ipc";
 import { useIpcBridge } from "@/lib/useIpcBridge";
 import { useAllyStore } from "@/state/ally";
 import { ALLY_FONT_MAX, ALLY_FONT_MIN, useUiPrefs } from "@/state/uiPrefs";
 
+/** The fixed first tab: View (4), a live mirror of the main window's View
+ *  state. Never closable; document/claim/term tabs open after it. */
+const VIEW_KEY = "view";
+
 /**
  * The partner window's whole view (`?partner=1` — see `src/main.tsx` and
- * `src-tauri/src/partner.rs`). THE viewer (owner, 2026-08-22): a real OS
- * window, docked to the app's right edge by default, not an internal
- * drawer — every "open in viewer" affordance in the main window routes
- * here. Every delivery becomes a TAB (spec §4.1) — opening a second item
- * keeps the first; re-opening an item focuses its existing tab. Each tab's
+ * `src-tauri/src/partner.rs`) — **panel 4, View** (owner, 2026-09-29): a
+ * real OS window, docked to the app's right edge by default, where
+ * everything selected in Ally (3) or clicked in the conversation (2) is
+ * written. Its first tab, "View", mirrors the main window's live View state
+ * (`ViewPanel`: one item per tab, Say now → key points → sources); the main
+ * window owns that state and performs the actions taken here (select, pin,
+ * elaborate, ask). Documents and claim evidence open as further tabs (spec
+ * §4.1) — opening a second item keeps the first; re-opening an item focuses
+ * its existing tab. Each tab's
  * research/follow-ups are tagged `partner::<tabKey>` via the ally request's
  * `source` param, so per-tab content is a filter over this window's own
  * ally store (each webview has its own store instance; `conva://*` events
@@ -35,7 +46,9 @@ export function PartnerWindow() {
   useIpcBridge();
   const backend = useBackend();
   const [tabs, setTabs] = useState<PartnerTab[]>([]);
-  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [activeKey, setActiveKey] = useState<string | null>(VIEW_KEY);
+  // Mirror of the main window's View (4) state (see the effect below).
+  const [viewState, setViewState] = useState<ViewState | null>(null);
   // Raw/formatted toggle (owner report, 2026-09-15: "still in markup format,
   // offer raw and formatted in all cases"). One toggle for the visible tab's
   // answer, same as the Focus canvas — a viewing preference, not per-tab
@@ -148,6 +161,25 @@ export function PartnerWindow() {
     };
   }, [backend, openTab]);
 
+  // View (4): read whatever the main window last pushed, then follow live.
+  useEffect(() => {
+    let alive = true;
+    void backend.partner.viewState().then((s) => {
+      if (alive && s) setViewState(s);
+    });
+    let unsub: (() => void) | undefined;
+    void backend
+      .subscribe("partnerViewState", (s) => setViewState(s))
+      .then((un) => {
+        if (alive) unsub = un;
+        else un();
+      });
+    return () => {
+      alive = false;
+      unsub?.();
+    };
+  }, [backend]);
+
   // A claim tab is keyed by durable claim id. When a newer cumulative live
   // snapshot arrives in this webview, refresh the tab in place without
   // stealing focus or creating a duplicate.
@@ -179,6 +211,7 @@ export function PartnerWindow() {
   };
 
   const active = tabs.find((t) => t.key === activeKey) ?? null;
+  const onView = active === null;
   const activeDocId = active?.kind === "document" ? active.docId : null;
   useEffect(() => {
     if (!activeDocId || docTexts.has(activeDocId)) return;
@@ -233,7 +266,7 @@ export function PartnerWindow() {
           data-tauri-drag-region
           className="min-w-0 flex-1 truncate text-xs font-bold"
         >
-          Ally{active ? ` — ${tabLabel(active)}` : ""}
+          Ally — {active ? tabLabel(active) : "View"}
         </span>
         <button
           type="button"
@@ -324,12 +357,39 @@ export function PartnerWindow() {
 
       {/* Tab strip — one tab per open item (spec §4.1); the sanctioned
           exclusive-tab silhouette (2px top spine + raised fill). */}
-      {tabs.length > 0 && (
+      {(
         <div
           role="tablist"
           aria-label="Open items"
           className="flex shrink-0 items-stretch overflow-x-auto border-b border-border bg-bg-2"
         >
+          <div
+            className={[
+              "relative flex h-[30px] shrink-0 items-stretch border-r border-border",
+              onView ? "bg-panel-raised" : "",
+            ].join(" ")}
+          >
+            {onView && (
+              <span
+                className="absolute inset-x-0 top-0 h-[2px] bg-primary"
+                aria-hidden
+              />
+            )}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={onView}
+              onClick={() => setActiveKey(VIEW_KEY)}
+              className={[
+                "px-3 text-[11.5px]",
+                onView
+                  ? "font-bold text-primary"
+                  : "font-semibold text-fg-faint hover:text-fg",
+              ].join(" ")}
+            >
+              View
+            </button>
+          </div>
           {tabs.map((t) => {
             const isActive = t.key === activeKey;
             return (
@@ -385,14 +445,45 @@ export function PartnerWindow() {
       <div
         data-testid="partner-body"
         style={{ fontSize: partnerFontPx }}
-        className={`flex min-h-0 flex-1 flex-col gap-3 p-4 ${
-          active?.kind === "document" ? "overflow-hidden" : "overflow-y-auto"
-        }`}
+        className={
+          onView
+            ? "flex min-h-0 flex-1 flex-col"
+            : `flex min-h-0 flex-1 flex-col gap-3 p-4 ${
+                active?.kind === "document" ? "overflow-hidden" : "overflow-y-auto"
+              }`
+        }
       >
         {!active ? (
-          <p className="mt-8 text-center text-[0.86em] text-fg-faint">
-            Open a term from the Terms tab to research it here.
-          </p>
+          <ViewPanel
+            items={(viewState?.items ?? []).map(fromViewItem)}
+            activeId={viewState?.active_id ?? null}
+            pinnedIds={new Set(viewState?.pinned_ids ?? [])}
+            onSelect={(id) => {
+              setViewState((cur) => (cur ? { ...cur, active_id: id } : cur));
+              void backend.partner.sendViewAction({ kind: "select", id });
+            }}
+            onTogglePin={(id) =>
+              void backend.partner.sendViewAction({ kind: "pin", id })
+            }
+            onRefresh={(item) =>
+              void backend.partner.sendViewAction({
+                kind: "elaborate",
+                id: item.id,
+              })
+            }
+            onAsk={(item, text) =>
+              void backend.partner.sendViewAction({
+                kind: "ask",
+                id: item.id,
+                text,
+              })
+            }
+            onOpenSource={(file) => {
+              const docId = docIdsByName.get(file);
+              if (docId) openTab(documentTab(docId, file));
+            }}
+            canOpenSource={(file) => docIdsByName.has(file)}
+          />
         ) : active.kind === "document" ? (
           <>
             <h2 className="text-[1.3em] font-extrabold">{active.fileName}</h2>
@@ -511,7 +602,7 @@ export function PartnerWindow() {
       {/* Claim tabs are an evidence audit surface in this checkpoint. Keep the
           existing follow-up composer on term/answer/document tabs only so it
           cannot be mistaken for a verification action. */}
-      {!(active?.kind === "item" && active.payload.claim) && (
+      {!onView && !(active?.kind === "item" && active.payload.claim) && (
         <div className="shrink-0 border-t border-border px-3 py-2.5">
           <label className="flex h-9 items-center gap-2.5 rounded-[4px] border border-ai/30 bg-white/[0.04] px-3 transition-colors focus-within:border-ai/60">
             <Icon name="lightbulb" size={16} className="shrink-0 text-ai/70" />

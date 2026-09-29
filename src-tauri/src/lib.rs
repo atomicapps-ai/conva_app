@@ -2582,6 +2582,33 @@ fn get_partner_payload() -> Option<conva_core::ipc::PartnerPayload> {
     partner::payload()
 }
 
+/// Make sure View (4) — the partner window — is open beside the app, without
+/// retargeting it or taking focus. `async` for the same Windows reason as
+/// `open_partner` (it may build the window).
+#[tauri::command]
+async fn ensure_partner_open(app: AppHandle) -> Result<(), String> {
+    partner::ensure_open(&app)
+}
+
+/// The main window pushes its live View (4) state; the partner window mirrors it.
+#[tauri::command]
+fn publish_view_state(app: AppHandle, state: conva_core::ipc::ViewState) {
+    partner::publish_view(&app, state);
+}
+
+/// The latest pushed View (4) state (read on partner-window boot).
+#[tauri::command]
+fn get_view_state() -> Option<conva_core::ipc::ViewState> {
+    partner::view_state()
+}
+
+/// The partner window reports something the user did in View (4); the main
+/// window performs it.
+#[tauri::command]
+fn send_view_action(app: AppHandle, action: conva_core::ipc::ViewAction) {
+    partner::send_view_action(&app, action);
+}
+
 /// Lock (follow the main window) / unlock (float free) the partner window.
 /// Locking snaps it flush to the app's right edge, keeping its size.
 #[tauri::command]
@@ -3186,6 +3213,10 @@ pub fn run() {
             open_partner,
             close_partner,
             redock_partner,
+            ensure_partner_open,
+            publish_view_state,
+            get_view_state,
+            send_view_action,
             get_partner_payload,
             wait_for_startup,
             get_splash_progress,

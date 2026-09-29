@@ -154,12 +154,21 @@ try {
     await ask.fill(REHEARSAL_QUESTION);
     await ask.press("Enter");
     answerMs = await waitFor(page, async () => (await bodyText(page)).includes(REHEARSAL_FACT), 15_000);
-    cited = (await waitFor(page, async () => (await bodyText(page)).includes(`Grounded in ${REHEARSAL_DOC.name}`), 5000)) !== null;
+    // The answer's grounding shows in View's "From your documents" list (the
+    // embedded View on web, ViewPanel.tsx) — the section header AND the file name.
+    cited = (await waitFor(page, async () => {
+      const text = await page.getByRole("region", { name: "View", exact: true }).first().innerText().catch(() => "");
+      // innerText applies the header's CSS uppercase, so compare case-insensitively.
+      return text.toLowerCase().includes("from your documents") && text.includes(REHEARSAL_DOC.name);
+    }, 5000)) !== null;
   }
+  const viewText = askVisible
+    ? await page.getByRole("region", { name: "View", exact: true }).first().innerText().catch(() => "(no View region)")
+    : "";
   const allyReq = cloud.stats.ally[0] ?? null;
   // A stream that ended badly shows on the card as "(stream_truncated)" / "(stream_interrupted)".
   const cardError = /stream_truncated|stream_interrupted|\(network\)/.test(await bodyText(page));
-  record(8, "Ask → streamed, cited answer", askVisible && answerMs !== null && cited && !cardError && allyReq !== null && allyReq.sources > 0 && (!contextActivated || allyReq.context_id), { ask_box: askVisible, answer_ms: answerMs, citation_shown: cited, card_error: cardError, request: allyReq });
+  record(8, "Ask → streamed, cited answer", askVisible && answerMs !== null && cited && !cardError && allyReq !== null && allyReq.sources > 0 && (!contextActivated || allyReq.context_id), { ask_box: askVisible, answer_ms: answerMs, citation_shown: cited, view_text: viewText.slice(0, 300), card_error: cardError, request: allyReq });
 
   // ── 10: End → stop reaches the gateway, telemetry posted.
   const stop = page.getByRole("button", { name: /^end\b/i }).first();

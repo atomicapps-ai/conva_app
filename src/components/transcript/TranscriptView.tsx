@@ -47,10 +47,12 @@ import {
   type FoundItem,
 } from "@/components/transcript/foundGroups";
 import { FoundList } from "@/components/transcript/FoundList";
-import { AllyFocusCanvas, sectionOfGroup } from "@/components/transcript/AllyFocusCanvas";
+import { ViewPanel } from "@/components/transcript/ViewPanel";
+import { sameViewState, toViewState } from "@/components/transcript/viewMirror";
 import {
   buildAllyFocusItems,
   isTermDefinitionCard,
+  sectionOfGroup,
   type AllyFocusItem,
 } from "@/components/transcript/allyFocus";
 import { markSeen, unseenIn } from "@/components/transcript/unseenItems";
@@ -1207,22 +1209,15 @@ function ContextMenu({
 }
 
 /**
- * The right side of the live cockpit — two permanently visible panels
- * (owner, 2026-09-28; supersedes the 2026-08-26 Focus-canvas-above-
- * accordion model, itself once the 2026-08-22 Found/View split):
+ * Panel 3 of the live cockpit (owner, 2026-09-29): **Ally** — the spine-icon
+ * accordion (Questions · Tracking · Terms, one section open at a time, each
+ * header showing a NEW badge for unseen finds). It only LISTS what FANER
+ * found; it holds no answer text. Selecting a row here — or a highlighted
+ * term in the conversation (2) — writes that item into View (4), the
+ * separate attached window (`PartnerWindow.tsx`), which renders the answer.
  *
- * - **Active** (3): the spine-icon accordion, unchanged in mechanic from
- *   2026-08-26 — Questions · Tracking · Terms, one section open at a time,
- *   each header showing a NEW badge for unseen finds. This is "what's here
- *   right now, pick one."
- * - **View** (4): `AllyFocusCanvas`, content-first — the selected item's
- *   answer/definition/detail is the dominant element; the source item
- *   (question/term/phrase) shrinks to one hover-tooltip icon since Active
- *   already showed it in context. Pin and Elaborate are always one click.
- *
- * Selecting anything in Active — or a highlighted term in the transcript,
- * via `onSelectFound`/`askTerm` upstream — rings it in Active and loads it
- * in View in the same action (the 2 → 3 → 4 relationship).
+ * `embeddedView` is the web-only fallback: with no second OS window to attach,
+ * View (4) renders inside this panel beside the accordion instead.
  */
 function AllyPanel({
   busy,
@@ -1233,13 +1228,7 @@ function AllyPanel({
   setReasoningDefaultOpen,
   clearAlly,
   barPad,
-  focusItems,
-  focusItemId,
-  pinnedFocusIds,
-  onSelectFocus,
-  onToggleFocusPin,
-  onRefreshFocus,
-  onOpenFocus,
+  embeddedView,
   panelState,
   onPanelState,
   groups,
@@ -1269,13 +1258,10 @@ function AllyPanel({
   setReasoningDefaultOpen: (v: boolean) => void;
   clearAlly: () => void;
   barPad: string;
-  focusItems: readonly AllyFocusItem[];
-  focusItemId: string | null;
-  pinnedFocusIds: ReadonlySet<string>;
-  onSelectFocus: (id: string) => void;
-  onToggleFocusPin: (id: string) => void;
-  onRefreshFocus: (item: AllyFocusItem) => void;
-  onOpenFocus: (item: AllyFocusItem) => void;
+  /** View (4) rendered INSIDE this panel — only where no second OS window
+   *  can exist (web). On desktop View (4) is the separate attached window
+   *  and this is `null`: this panel is then the Ally accordion alone. */
+  embeddedView: ReactNode | null;
   panelState: PanelState;
   onPanelState: (s: PanelState) => void;
   groups: FoundGroups;
@@ -1444,8 +1430,16 @@ function AllyPanel({
         className="flex min-h-0 flex-1"
       >
         <div
-          style={{ flexBasis: `${activeViewSplitRatio * 100}%` }}
-          className="flex min-h-0 shrink-0 grow-0 flex-col"
+          style={
+            embeddedView
+              ? { flexBasis: `${activeViewSplitRatio * 100}%` }
+              : undefined
+          }
+          className={
+            embeddedView
+              ? "flex min-h-0 shrink-0 grow-0 flex-col"
+              : "flex min-h-0 flex-1 flex-col"
+          }
         >
           <AllyAccordion
             state={panelState}
@@ -1477,42 +1471,33 @@ function AllyPanel({
           />
         </div>
 
-        {/* Active/View divider — dragging resizes Active's share. */}
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize Active/View"
-          onPointerDown={(e) => {
-            const host = e.currentTarget.parentElement;
-            if (!host) return;
-            const rect = host.getBoundingClientRect();
-            const move = (ev: PointerEvent) =>
-              onActiveViewSplitRatio((ev.clientX - rect.left) / rect.width);
-            const up = () => {
-              window.removeEventListener("pointermove", move);
-              window.removeEventListener("pointerup", up);
-            };
-            window.addEventListener("pointermove", move);
-            window.addEventListener("pointerup", up);
-          }}
-          className="w-[5px] shrink-0 cursor-col-resize border-x border-border bg-bg-2 hover:bg-panel-raised"
-        />
-
-        <div className="flex min-h-0 flex-1 flex-col">
-          <AllyFocusCanvas
-            items={focusItems}
-            activeId={focusItemId}
-            activeType={panelState.open}
-            pinnedIds={pinnedFocusIds}
-            onSelect={onSelectFocus}
-            onSelectType={(t) => onPanelState({ open: t })}
-            onTogglePin={onToggleFocusPin}
-            onRefresh={onRefreshFocus}
-            onOpen={onOpenFocus}
-            canOpen={(item) => Boolean(item.cardId || canOpenClaimEvidence)}
-            renderAnswer={(text) => <AnswerBody text={text} />}
-          />
-        </div>
+        {embeddedView && (
+          <>
+            {/* Web fallback only — dragging resizes Active's share. */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize Active/View"
+              onPointerDown={(e) => {
+                const host = e.currentTarget.parentElement;
+                if (!host) return;
+                const rect = host.getBoundingClientRect();
+                const move = (ev: PointerEvent) =>
+                  onActiveViewSplitRatio((ev.clientX - rect.left) / rect.width);
+                const up = () => {
+                  window.removeEventListener("pointermove", move);
+                  window.removeEventListener("pointerup", up);
+                };
+                window.addEventListener("pointermove", move);
+                window.addEventListener("pointerup", up);
+              }}
+              className="w-[5px] shrink-0 cursor-col-resize border-x border-border bg-bg-2 hover:bg-panel-raised"
+            />
+            <div className="flex min-h-0 flex-1 flex-col border-y border-r border-border bg-panel">
+              {embeddedView}
+            </div>
+          </>
+        )}
       </div>
     </aside>
   );
@@ -1923,14 +1908,18 @@ export function TranscriptView({
   );
   // Focus is the immediate answer surface. On narrow layouts the Ally drawer
   // still has to open.
+  const partnerView = Boolean(caps?.system.partnerWindow);
   const ensureAllyVisible = useCallback(() => {
     if (drawer) setDrawerOpen(true);
-  }, [drawer]);
+    // View (4) is the separate attached window — bring it up beside the app
+    // (no retarget, no focus steal) whenever something lands in it.
+    if (partnerView) void backend.partner.ensureOpen().catch(() => {});
+  }, [drawer, partnerView, backend]);
 
   // View's per-type "currently showing" item (owner, 2026-09-28) — replaces
   // the old growing viewEntries archive with one slot per Active section;
   // selecting a new item of a type replaces that type's slot. Pin (in
-  // AllyFocusCanvas) marks a tab worth keeping when several asks of the
+  // ViewPanel) marks a tab worth keeping when several asks of the
   // same type are open at once.
   const [activeByType, setActiveByType] = useState<
     Partial<Record<PanelSectionId, FoundItem>>
@@ -2175,14 +2164,18 @@ export function TranscriptView({
       return;
     }
     if (newlyAdded) {
-      setFocusItemId(newlyAdded.id);
+      // A new item takes the view unless the open one is pinned — then it
+      // waits behind a NEW dot instead of yanking what you're reading.
+      if (!(focusItemId && pinnedFocusIds.has(focusItemId))) {
+        setFocusItemId(newlyAdded.id);
+      }
       ensureAllyVisible();
       return;
     }
     if (!focusItems.some((item) => item.id === focusItemId)) {
       setFocusItemId(focusItems[0]!.id);
     }
-  }, [focusItemId, focusItems, ensureAllyVisible]);
+  }, [focusItemId, focusItems, pinnedFocusIds, ensureAllyVisible]);
 
   // sourceKey → ALL cards derived from it, oldest-first (cards itself is
   // newest-first — reverse while grouping). Drives the turn's thread
@@ -2227,25 +2220,14 @@ export function TranscriptView({
         return n;
       });
 
-      if (caps?.system.partnerWindow) {
-        const { answer: sayText } = splitReasoning(card.text);
-        const term = card.sourceQuote || card.question || cardLabel(card);
-        const sourceLines = groupSourcesByFile(card.sources).map(
-          (g) => `${g.file} — ${g.locations.join(", ")}`,
-        );
-        void backend.partner.open(
-          term,
-          card.kind,
-          null,
-          sayText || card.text,
-          sourceLines,
-        );
-        return;
-      }
+      // Desktop: View (4) IS the attached window and already shows this
+      // card (focus was set above; `ensureAllyVisible` opened the window).
+      if (partnerView) return;
+      // Web fallback: the internal drawer.
       setViewerCardId(card.id);
       if (drawer) setDrawerOpen(true);
     },
-    [applyPanelState, backend, caps, drawer, ensureAllyVisible],
+    [applyPanelState, drawer, ensureAllyVisible, partnerView],
   );
 
   /** Open the complete typed record in the desktop partner window or the
@@ -2355,28 +2337,79 @@ export function TranscriptView({
     [requestVisible],
   );
 
-  const openFocus = useCallback(
-    (item: AllyFocusItem) => {
-      if (item.cardId) {
-        const card = answerCards.find(
-          (candidate) => candidate.id === item.cardId,
-        );
-        if (card) openThread(card);
-        return;
-      }
-      if (!item.foundId || !caps?.system.partnerWindow) return;
-      const found = activeItemsList.find(
-        (candidate) => candidate.id === item.foundId,
-      );
-      if (!found) return;
-      void backend.partner.open(
-        found.label,
-        found.group,
-        found.radar?.bridge.text ?? found.prep?.answer ?? found.detail,
-      );
+  /** A follow-up typed in View (4) about one of its items. */
+  const askFocus = useCallback(
+    (item: AllyFocusItem, text: string) => {
+      void requestVisible("question", `About "${item.question}": ${text}`, {
+        key: "",
+        quote: item.question,
+      });
     },
-    [activeItemsList, answerCards, backend, caps, openThread],
+    [requestVisible],
   );
+
+  // ── View (4) ⇄ the attached window ────────────────────────────────────
+  // The main window owns the truth; the partner window mirrors it. Push the
+  // live state (throttled — tokens stream in fast), and perform what the
+  // user does over there.
+  const lastViewPush = useRef<{ state: ReturnType<typeof toViewState> | null; at: number }>({
+    state: null,
+    at: 0,
+  });
+  useEffect(() => {
+    if (!partnerView) return;
+    const state = toViewState(focusItems, focusItemId, pinnedFocusIds);
+    if (sameViewState(lastViewPush.current.state, state)) return;
+    const push = () => {
+      lastViewPush.current = { state, at: Date.now() };
+      void backend.partner.publishView(state).catch(() => {});
+    };
+    const wait = Math.max(0, 120 - (Date.now() - lastViewPush.current.at));
+    if (wait === 0) {
+      push();
+      return;
+    }
+    const t = window.setTimeout(push, wait);
+    return () => window.clearTimeout(t);
+  }, [partnerView, backend, focusItems, focusItemId, pinnedFocusIds]);
+
+  const viewActionHandlers = useRef({
+    select: (_id: string) => {},
+    pin: (_id: string) => {},
+    elaborate: (_item: AllyFocusItem) => {},
+    ask: (_item: AllyFocusItem, _text: string) => {},
+    find: (_id: string): AllyFocusItem | undefined => undefined,
+  });
+  viewActionHandlers.current = {
+    select: setFocusItemId,
+    pin: toggleFocusPin,
+    elaborate: refreshFocus,
+    ask: askFocus,
+    find: (id) => focusItems.find((item) => item.id === id),
+  };
+  useEffect(() => {
+    if (!partnerView) return;
+    let unsub: (() => void) | undefined;
+    let alive = true;
+    void backend
+      .subscribe("partnerViewAction", (action) => {
+        const h = viewActionHandlers.current;
+        if (action.kind === "select") return h.select(action.id);
+        if (action.kind === "pin") return h.pin(action.id);
+        const item = h.find(action.id);
+        if (!item) return;
+        if (action.kind === "elaborate") h.elaborate(item);
+        else if (action.text) h.ask(item, action.text);
+      })
+      .then((un) => {
+        if (alive) unsub = un;
+        else un();
+      });
+    return () => {
+      alive = false;
+      unsub?.();
+    };
+  }, [partnerView, backend]);
 
   // Ask Ally about an arbitrary slice (a sentence unit or a text selection).
   // A selection sent this way also becomes a live term (owner, 2026-08-21):
@@ -2855,13 +2888,19 @@ export function TranscriptView({
               setPinnedFocusIds(new Set());
             }}
             barPad={barPad}
-            focusItems={focusItems}
-            focusItemId={focusItemId}
-            pinnedFocusIds={pinnedFocusIds}
-            onSelectFocus={setFocusItemId}
-            onToggleFocusPin={toggleFocusPin}
-            onRefreshFocus={refreshFocus}
-            onOpenFocus={openFocus}
+            embeddedView={
+              partnerView ? null : (
+                <ViewPanel
+                  items={focusItems}
+                  activeId={focusItemId}
+                  pinnedIds={pinnedFocusIds}
+                  onSelect={setFocusItemId}
+                  onTogglePin={toggleFocusPin}
+                  onRefresh={refreshFocus}
+                  onAsk={askFocus}
+                />
+              )
+            }
             panelState={panelState}
             onPanelState={applyPanelState}
             groups={foundGroups}

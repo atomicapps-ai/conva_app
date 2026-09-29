@@ -470,6 +470,10 @@ export class FakeBackend implements ConvaBackend {
     close: nc("partner.close"),
     redock: nc("partner.redock"),
     payload: nc("partner.payload"),
+    ensureOpen: nc("partner.ensureOpen"),
+    publishView: nc("partner.publishView"),
+    viewState: nc("partner.viewState"),
+    sendViewAction: nc("partner.sendViewAction"),
     setLocked: nc("partner.setLocked"),
     locked: nc("partner.locked"),
   };
