@@ -123,6 +123,9 @@ refuses to build if the tag doesn't match `package.json`.
      (MSI + NSIS, Vulkan) and macOS (dmg, Metal) on GitHub-hosted runners,
      signs updater artifacts, and opens a
      **draft** Release in `atomicapps-ai/conva_releases` with those notes.
+     The Windows leg installs a **pinned** Vulkan SDK (`VULKAN_SDK_VERSION` in
+     `build-installers.yml`) and checks its headers, `glslc` and import lib
+     right after install — bump it deliberately, never via LunarG's `latest`.
 6. The `verify-draft` job blocks completion unless the draft has substantive
    versioned notes, Windows MSI + NSIS assets, a macOS dmg + updater archive,
    updater signatures, and a `latest.json` covering both platforms.

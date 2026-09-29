@@ -104,19 +104,34 @@ jobs:
       - name: Install Vulkan SDK (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
+        env:
+          # Pinned, not LunarG's "latest" alias: 1.4.357.0 installed without
+          # its Include\ directory and broke the whisper.cpp Vulkan build
+          # (dev-build Windows job). 1.4.321.1 is the version whisper.cpp's
+          # own CI builds against. Bump deliberately, and only after the
+          # post-install check below passes on the new version. LunarG keeps
+          # old versions at the same URL shape; if one ever 404s, the size
+          # guard below fails the step with a clear message.
+          VULKAN_SDK_VERSION: "1.4.321.1"
         run: |
-          # LunarG's "latest" alias — pinned version URLs rot as releases
-          # cycle (a stale pin returns a tiny error body, not an installer).
-          $url = "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe"
+          $url = "https://sdk.lunarg.com/sdk/download/$env:VULKAN_SDK_VERSION/windows/vulkan_sdk.exe"
           $exe = "$env:RUNNER_TEMP\vulkan_sdk.exe"
           curl.exe --retry 3 -L -o $exe $url
           $size = (Get-Item $exe).Length
-          if ($size -lt 50MB) { throw "Vulkan SDK download looks wrong ($size bytes) — not an installer" }
+          if ($size -lt 50MB) { throw "Vulkan SDK $env:VULKAN_SDK_VERSION download looks wrong ($size bytes) - not an installer" }
           Start-Process -FilePath $exe `
             -ArgumentList "--accept-licenses","--default-answer","--confirm-command","install" -Wait
           $sdk = (Get-ChildItem "C:\VulkanSDK" -Directory | Sort-Object Name | Select-Object -Last 1).FullName
           if (-not $sdk) { throw "Vulkan SDK install dir not found under C:\VulkanSDK" }
-          Write-Host "Vulkan SDK at $sdk"
+          # Fail here, with a clear message, instead of ~10 minutes later inside
+          # ggml-vulkan's CMake: the SDK must provide headers and the shader compiler.
+          foreach ($need in @("Include\vulkan\vulkan.h", "Bin\glslc.exe", "Lib\vulkan-1.lib")) {
+            if (-not (Test-Path (Join-Path $sdk $need))) {
+              Get-ChildItem $sdk | ForEach-Object { Write-Host "  found: $($_.Name)" }
+              throw "Vulkan SDK at $sdk is missing $need (version $env:VULKAN_SDK_VERSION)"
+            }
+          }
+          Write-Host "Vulkan SDK $env:VULKAN_SDK_VERSION at $sdk"
           Add-Content $env:GITHUB_ENV "VULKAN_SDK=$sdk"
           Add-Content $env:GITHUB_PATH "$sdk\Bin"
 
