@@ -44,6 +44,12 @@ pub mod events {
     /// The partner window's lock-to-app state changed shell-side (e.g. a
     /// manual drag released it) — the window updates its toggle icon.
     pub const PARTNER_LOCK: &str = "conva://partner-lock";
+    /// Payload: [`super::ViewState`] — the main window's live View (4)
+    /// content, pushed to the partner window that renders it.
+    pub const PARTNER_VIEW_STATE: &str = "conva://partner-view-state";
+    /// Payload: [`super::ViewAction`] — something the user did in View (4)
+    /// (select a tab, pin, elaborate, ask), sent back to the main window.
+    pub const PARTNER_VIEW_ACTION: &str = "conva://partner-view-action";
     /// Payload: [`super::SplashProgressEvent`]
     pub const SPLASH_PROGRESS: &str = "conva://splash-progress";
     /// Payload: [`super::ContextGenerateProgressEvent`]
@@ -191,6 +197,75 @@ pub struct PartnerPayload {
     /// remain valid. The viewer presents this record without starting research.
     #[serde(default)]
     pub claim: Option<crate::claim::ClaimRecord>,
+}
+
+/// One labelled fact row shown under a View (4) item ("Who · You").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewFact {
+    pub label: String,
+    pub value: String,
+}
+
+/// One item in View (4) — mirrors the UI's `AllyFocusItem`
+/// (`src/components/transcript/allyFocus.ts`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewItem {
+    pub id: String,
+    /// `question` | `prep` | `term` | `commitment` | `mention`.
+    pub group: String,
+    pub question: String,
+    pub answer: String,
+    pub source_label: String,
+    #[serde(default)]
+    pub source_files: Vec<String>,
+    /// `instant` | `streaming` | `ready` | `error`.
+    pub status: String,
+    #[serde(default)]
+    pub card_id: Option<String>,
+    #[serde(default)]
+    pub found_id: Option<String>,
+    /// `field` | `specialized` (captured terms).
+    #[serde(default)]
+    pub tier: Option<String>,
+    /// `concept` | `problem` (captured terms).
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub facts: Vec<ViewFact>,
+}
+
+/// Everything View (4) shows. The main window owns the truth (it has the
+/// radar, tracker, captures and Ally cards); the partner window is a live
+/// mirror of this state, pushed over [`events::PARTNER_VIEW_STATE`].
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ViewState {
+    pub items: Vec<ViewItem>,
+    #[serde(default)]
+    pub active_id: Option<String>,
+    #[serde(default)]
+    pub pinned_ids: Vec<String>,
+}
+
+/// What the user can do in View (4). The main window performs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewActionKind {
+    /// Focus the item `id` (its tab was clicked).
+    Select,
+    /// Toggle the pin on `id`.
+    Pin,
+    /// Ask Ally for a fuller pass on `id`.
+    Elaborate,
+    /// Ask a follow-up `text` about `id`.
+    Ask,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewAction {
+    pub kind: ViewActionKind,
+    pub id: String,
+    #[serde(default)]
+    pub text: Option<String>,
 }
 
 /// Payload of [`events::PARTNER_LOCK`] — whether the partner window is
@@ -574,6 +649,44 @@ mod tests {
         assert_eq!(json["epoch"], 2);
         assert_eq!(json["revision"], 7);
         assert_eq!(json["claims"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn view_state_and_actions_round_trip_with_stable_wire_names() {
+        let state = ViewState {
+            items: vec![ViewItem {
+                id: "card:a1".into(),
+                group: "question".into(),
+                question: "Q".into(),
+                answer: "A".into(),
+                source_label: "A1".into(),
+                source_files: vec!["brief.md".into()],
+                status: "ready".into(),
+                card_id: Some("a1".into()),
+                found_id: None,
+                tier: None,
+                kind: None,
+                facts: vec![ViewFact {
+                    label: "Who".into(),
+                    value: "You".into(),
+                }],
+            }],
+            active_id: Some("card:a1".into()),
+            pinned_ids: vec!["card:a1".into()],
+        };
+        let json = serde_json::to_value(&state).unwrap();
+        assert_eq!(json["items"][0]["source_files"][0], "brief.md");
+        assert_eq!(json["active_id"], "card:a1");
+        assert_eq!(serde_json::from_value::<ViewState>(json).unwrap(), state);
+
+        let action = ViewAction {
+            kind: ViewActionKind::Elaborate,
+            id: "card:a1".into(),
+            text: None,
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(json["kind"], "elaborate");
+        assert_eq!(serde_json::from_value::<ViewAction>(json).unwrap(), action);
     }
 
     #[test]

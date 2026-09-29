@@ -1,9 +1,25 @@
 import type { FoundItem } from "@/components/transcript/foundGroups";
+import type { PanelSectionId } from "@/components/transcript/panelSections";
 import { uniqueSourceFiles, type AllyCard } from "@/state/ally";
 
 export const TERM_DEFINITION_REQUEST_PREFIX = "term-definition:";
 
 export type AllyFocusStatus = "instant" | "streaming" | "ready" | "error";
+
+/** Maps a `FoundItem`/`AllyFocusItem` group to the Active (3) panel section
+ *  it belongs under — the same mapping the cockpit uses to keep Active (3)
+ *  and View (4) in sync, and what View (4) uses for a tab's icon/colour. */
+export function sectionOfGroup(group: FoundItem["group"]): PanelSectionId {
+  if (group === "question" || group === "prep") return "questions";
+  if (group === "commitment" || group === "mention") return "tracking";
+  return "terms";
+}
+
+/** One labelled fact row ("Who · You") View (4) shows under a tracking item. */
+export interface AllyFocusFact {
+  label: string;
+  value: string;
+}
 
 export interface AllyFocusItem {
   id: string;
@@ -22,6 +38,13 @@ export interface AllyFocusItem {
    *  one (an instant radar hit, a term's cached definition, a tracking
    *  item) rather than a streamed Ally card. */
   foundId?: string;
+  /** FANER's tier for a captured term — decides how much View (4) writes:
+   *  a quick refresher (`field`) or a fuller entry (`specialized`). */
+  tier?: "field" | "specialized";
+  /** FANER's kind for a captured term. A `problem` leads with the fix. */
+  kind?: "concept" | "problem";
+  /** Labelled facts (a commitment's who / when). */
+  facts?: AllyFocusFact[];
 }
 
 export function isTermDefinitionCard(
@@ -94,16 +117,28 @@ function itemFromFoundItem(item: FoundItem): AllyFocusItem | null {
     };
   }
   if (item.group === "term" || item.group === "commitment" || item.group === "mention") {
+    const capture = item.chip?.capture;
+    const facts: AllyFocusFact[] = [];
+    if (item.commitment) {
+      facts.push({
+        label: "Who",
+        value: item.commitment.who === "you" ? "You" : "Them",
+      });
+      if (item.commitment.due) facts.push({ label: "When", value: item.commitment.due });
+    }
     return {
       id: `found:${item.id}`,
       group: item.group,
       question: item.label,
-      answer: item.detail ?? "No detail yet — Elaborate for one.",
+      answer: item.detail ?? capture?.preview ?? "No detail yet — Elaborate for one.",
       sourceLabel:
         item.group === "term" ? "Term" : item.group === "commitment" ? "Commitment" : "Mentioned",
       sourceFiles: [],
-      status: item.detail ? "instant" : "ready",
+      status: item.detail || capture?.preview ? "instant" : "ready",
       foundId: item.id,
+      ...(capture?.tier ? { tier: capture.tier } : {}),
+      ...(capture?.kind ? { kind: capture.kind } : {}),
+      ...(facts.length > 0 ? { facts } : {}),
     };
   }
   return null;

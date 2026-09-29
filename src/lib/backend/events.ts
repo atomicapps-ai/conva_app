@@ -20,6 +20,8 @@ import type {
   ModelStatusEvent,
   PartnerLockEvent,
   PartnerPayload,
+  ViewAction,
+  ViewState,
   RadarEvent,
   RehearsalStateEvent,
   SessionStateEvent,
@@ -43,6 +45,8 @@ export interface EventMap {
   rehearsalState: RehearsalStateEvent;
   partnerTerm: PartnerPayload;
   partnerLock: PartnerLockEvent;
+  partnerViewState: ViewState;
+  partnerViewAction: ViewAction;
   splashProgress: SplashProgressEvent;
   contextGenerateProgress: ContextGenerateProgressEvent;
   /** No adapter emits this yet (checkpoint A defines the contract only). */
@@ -71,6 +75,8 @@ export const EVENT_CHANNEL: Record<keyof EventMap, string> = {
   rehearsalState: "conva://rehearsal-state",
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
+  partnerViewState: "conva://partner-view-state",
+  partnerViewAction: "conva://partner-view-action",
   splashProgress: "conva://splash-progress",
   contextGenerateProgress: "conva://context-generate-progress",
   archiveProgress: "conva://archive-progress",

@@ -41,6 +41,8 @@ import type {
   IngestReport,
   ModelInfo,
   PartnerPayload,
+  ViewAction,
+  ViewState,
   ProviderId,
   ProviderInfo,
   ProviderKeyStatus,
@@ -413,6 +415,14 @@ export interface ConvaBackend {
     close(): Promise<void>;
     redock(): Promise<void>;
     payload(): Promise<PartnerPayload | null>;
+    /** Make sure View (4) is open beside the app — no retarget, no focus. */
+    ensureOpen(): Promise<void>;
+    /** Main window → partner window: the live View (4) state. */
+    publishView(state: ViewState): Promise<void>;
+    /** The latest pushed View (4) state (read on partner-window boot). */
+    viewState(): Promise<ViewState | null>;
+    /** Partner window → main window: something the user did in View (4). */
+    sendViewAction(action: ViewAction): Promise<void>;
     /** Lock (follow the app) / unlock (float free). Desktop-only. */
     setLocked(locked: boolean): Promise<void>;
     /** Current lock state; `false` where the window doesn't exist (web). */

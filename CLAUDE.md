@@ -154,77 +154,70 @@ swap a layer without asking the owner.**
      `aria-label`/`title` say "stays in your Library" so this is never
      ambiguous; don't quietly turn remove into a hard delete without an
      explicit owner decision.
-10. **Live cockpit: conversation column is conversation text ONLY; everything
-    Ally lives in two side-by-side panels — Active (3) and View (4).**
-    (Owner, 2026-09-28 — a 4-panel model naming the whole cockpit: **1**
-    the left nav rail, **2** the transcript/conversation column, **3**
-    Active, **4** View. Supersedes the 2026-08-26 single-panel
-    Focus-canvas-above-accordion model, which itself superseded the
-    2026-08-22 Found/View split and the 2026-08-17 dock.) Ally answers
-    never render in the transcript stream (V4.0's inline-cards layout was
-    explicitly reversed).
-    - **Active (3)** is the spine-icon accordion (`AllyAccordion.tsx`,
-      `panelSections.ts` the pure model) — UNCHANGED in mechanic from
-      2026-08-26: three sections in a fixed order, **Questions** (`question`
-      icon; ◉ Live/◈ Prep mode chips, owner 2026-08-27, exactly as before) ·
-      **Tracking** (`target`; commitments + mentions) · **Terms** (`book`;
-      live + doc term chips, azure dot = detected live, gold = doc).
-      Exactly ONE section open at a time; each spine icon overlays the
-      panel's left border at that section's top edge and slides with it.
-      Answers is retired as a fourth section — its content now lives
-      entirely in View. A header shows a **NEW** badge the moment FANER
-      finds something unseen in it (`unseenItems.ts`); opening the section,
-      or selecting one of its rows, clears that badge. This is "what's here
-      right now, pick one."
-    - **View (4)** is `AllyFocusCanvas` — content-first: the selected
-      item's answer/definition/detail is the dominant element on the panel;
-      the source item (the question/term/phrase itself) shrinks to ONE
-      hover/focus-tooltip icon, never a heading — Active already showed it
-      in context, so View doesn't repeat it. Pin and Elaborate are a fixed
-      top row, always one click, never buried in a menu. An outer type-tab
-      strip (Questions/Tracking/Terms, mirrors Active's sections) lets
-      several types stay open at once — selecting a new Term doesn't
-      discard an open Question — and within a type, several asks can be
-      open as their own tabs (pinned ones float first), reusing the
-      original Focus canvas's per-item tab strip unchanged. Nothing
-      selected yet → the most recent item, across any type.
-    - **The 2 → 3 → 4 relationship**: selecting anything — a row in Active,
-      or a highlighted term in the transcript (TermMenu's "Explain the
-      term") — rings it in Active, loads it in View, and marks it seen, all
-      in one action (`selectItem`/`askTerm` in `TranscriptView.tsx`). The
-      separate local "Term Peek" popover this used to route through is
-      retired (owner, 2026-09-28: "route into the Viewer") — View is the
-      one destination for everything selected, term or otherwise.
-    - Definitions used to be excluded from the Ally-card stream shown here;
-      that separation is also retired — a term-definition ask now appears
-      in View like any other.
+10. **Live cockpit: conversation column is conversation text ONLY; the cockpit
+    is four numbered panels and View (4) is a separate attached window.**
+    (Owner, 2026-09-29 — after two misreadings of the 2026-09-28 mockup, the
+    numbering is fixed here; use these numbers and names.)
+    - **1 · Nav rail** — the icon column on the far left.
+    - **2 · Conversation** — the transcript (conversation text ONLY; Ally
+      answers never render in the transcript stream).
+    - **3 · Ally** — the spine-icon accordion (`AllyAccordion.tsx`,
+      `panelSections.ts`): **Questions** (◉ Live/◈ Prep chips) · **Tracking**
+      (commitments + mentions) · **Terms** (azure dot = detected live, gold =
+      doc), exactly ONE section open at a time, NEW badge per header
+      (`unseenItems.ts`). It only LISTS what FANER found and holds NO answer
+      text. Header: "ALLY · N docs indexed" + the ⋮ menu (text size,
+      Summarize the call, grounding, Clear).
+    - **4 · View** — the **separate attached window** (the partner window,
+      `partner.rs` + `PartnerWindow.tsx`, `?partner=1`): a real OS window
+      docked flush to the app's right edge, lock 🔒 / re-dock ⇥ / Aa. It is
+      where EVERYTHING selected is written. Its fixed first tab, "View",
+      renders `ViewPanel.tsx` (approved mockup): ONE tab strip of open items
+      (type icon + colour, pinned first, a NEW dot for an item that arrived
+      while you read another — never a silent switch); a fixed top row
+      (source icon with tooltip, status, tier/kind, Pin · Copy · Elaborate);
+      then **Say now** (the line you can read aloud; a problem term leads
+      with **The fix**) → the rest of the answer in full → facts (a
+      commitment's who/when) → "From your documents" (open ›) → follow-up
+      box. Nothing is collapsed. Documents and claim evidence open as further
+      tabs beside it.
+    - **There is NO View pane inside the main window.** Never put one next to
+      3 (that was #353's mistake, then #363's). The one exception is the
+      **web fallback**: where `capabilities().system.partnerWindow` is
+      unsupported there is no second window, so `ViewPanel` renders embedded
+      beside 3 (`embeddedView` in `AllyPanel`).
+    - **The 2 → 3 → 4 relationship**: selecting anything — a row in 3, or a
+      highlighted term in 2 (TermMenu's "Explain the term") — rings it in 3,
+      marks it seen, and writes it into 4 (`selectItem`/`askTerm` in
+      `TranscriptView.tsx`). Mechanism: the main window OWNS the state
+      (radar, tracker, captures and Ally cards live there) and pushes a
+      `ViewState` snapshot (throttled) via `partner.publishView` →
+      `conva://partner-view-state`; window 4 mirrors it and sends
+      `ViewAction`s (select · pin · elaborate · ask) back over
+      `conva://partner-view-action`, which the main window performs. Window 4
+      is opened (no retarget, no focus steal) the moment something lands in
+      it (`ensureAllyVisible` → `partner.ensureOpen`). A new item takes the
+      view unless the open one is pinned. `viewMirror.ts` is the pure
+      UI⇄wire conversion; `viewContent.ts` the Say-now/points split.
     - The control bar has NO tabs — in drawer mode (<640px) it shows one
-      right-edge Ally button that opens Active+View together as an overlay
-      drawer (same two panels inside, same behavior). The **Ask box** lives
-      at the conversation column's foot (compact: h-8, 12px text) at EVERY
-      width — never in the panel. Live summary is the 3-dot "Summarize the
-      call"; Grounding is a 3-dot line; TrackerRail/AllyDock/the old
-      ViewHistory archive stay retired — View shows the current item per
-      type, not a growing history. The A−/A+ pref (3-dot menu) scales ALL
-      panel content.
+      right-edge Ally button that opens 3 as an overlay drawer. The **Ask
+      box** lives at the conversation column's foot (compact: h-8, 12px text)
+      at EVERY width — never in a panel. Live summary is the 3-dot
+      "Summarize the call"; TrackerRail/AllyDock/the old ViewHistory archive
+      stay retired. The A−/A+ pref (3-dot menu) scales ALL panel-3 content;
+      window 4 has its own Aa.
     - **FANER inline transcript marks are retired** (owner, 2026-08-26 —
       "keep FANER's Highlighter, retire the inline live-transcript marks"):
       `HighlightedText`'s clickable term underlines REMAIN, capture chips
       remain in Terms, but no `FanerMark`-style inline capture underlines/
       popovers in bubbles — don't reintroduce them.
-    - The **partner window** (`src-tauri/src/partner.rs` +
-      `PartnerWindow.tsx`, `?partner=1`) is a real, ordinary OS window for
-      one item's deep-dive — draggable custom title bar, resizable,
-      defaults docked flush to the app's right edge, ⇥ re-docks; gated on
-      `capabilities().system.partnerWindow`. **It IS the viewer** (owner,
-      2026-08-22 — every "open in viewer"/Expand affordance must route to
-      `openThread`/View's own Expand button in `TranscriptView.tsx`, which
-      opens the partner window on desktop and falls back to the internal
-      drawer ONLY when `partnerWindow` is unsupported (web)). Don't
-      reintroduce a second internal "viewer" surface on desktop. Don't
-      invent a third switching pattern for the panels either — Active's
-      exclusive accordion and View's type/item tabs ARE the sanctioned
-      patterns here, the way the rail is for navigation.
+    - The partner window IS the viewer (owner, 2026-08-22, restated
+      2026-09-29): every "open in viewer" affordance routes to it
+      (`openThread` focuses the item in View; `backend.partner.open(...)`
+      opens a document/claim tab). Don't reintroduce a second internal
+      "viewer" surface on desktop, and don't invent a third switching
+      pattern: 3's exclusive accordion and 4's one tab strip ARE the
+      sanctioned patterns, the way the rail is for navigation.
 
 ## Build & run
 

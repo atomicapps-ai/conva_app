@@ -30,7 +30,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use conva_core::ipc::{events, PartnerLockEvent, PartnerPayload};
+use conva_core::ipc::{events, PartnerLockEvent, PartnerPayload, ViewAction, ViewState};
 use tauri::{AppHandle, Emitter, LogicalPosition, Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// The dedicated window label; the UI bundle branches on `?partner=1`
@@ -41,6 +41,10 @@ pub const PARTNER_LABEL: &str = "partner";
 const PARTNER_WIDTH: f64 = 430.0;
 
 static PAYLOAD: Mutex<Option<PartnerPayload>> = Mutex::new(None);
+
+/// The latest View (4) state the main window pushed — what a freshly-booted
+/// partner window renders before the next push arrives.
+static VIEW_STATE: Mutex<Option<ViewState>> = Mutex::new(None);
 
 /// Lock-to-app (spec §4.4): while true, the partner window follows the main
 /// window flush at its right edge, keeping its own user-set size. Default on
@@ -122,6 +126,11 @@ pub fn open(app: &AppHandle, payload: PartnerPayload) -> Result<(), String> {
         return Ok(());
     }
 
+    build_window(app)
+}
+
+/// Create the partner window docked to the main window's right edge.
+fn build_window(app: &AppHandle) -> Result<(), String> {
     // ROOT CAUSE FOUND & FIXED (2026-08-21 — see #82): `WebviewWindowBuilder
     // ::build()` deadlocks on Windows when called from a *synchronous* Tauri
     // command — a documented WRY/WebView2 limitation (confirmed against
@@ -205,4 +214,36 @@ fn dock_rect(app: &AppHandle) -> Option<(f64, f64, f64)> {
         pos.y as f64 / scale,
         size.height as f64 / scale,
     ))
+}
+
+/// Make sure the partner window exists and is visible — WITHOUT retargeting
+/// its content or taking focus (a live call is in progress: View (4) must
+/// appear beside the app, never steal the keyboard). Creates it docked on
+/// first use; a no-op when it is already open.
+pub fn ensure_open(app: &AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window(PARTNER_LABEL) {
+        if !win.is_visible().unwrap_or(true) {
+            win.show().map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
+    build_window(app)
+}
+
+/// Store the main window's latest View (4) state and push it to the partner
+/// window (a no-op delivery when the window is not open yet — it reads the
+/// stored copy on boot via [`view_state`]).
+pub fn publish_view(app: &AppHandle, state: ViewState) {
+    *VIEW_STATE.lock().unwrap() = Some(state.clone());
+    let _ = app.emit(events::PARTNER_VIEW_STATE, &state);
+}
+
+/// The most recent View (4) state — what a freshly-booted partner view renders.
+pub fn view_state() -> Option<ViewState> {
+    VIEW_STATE.lock().unwrap().clone()
+}
+
+/// Forward something the user did in View (4) to the main window.
+pub fn send_view_action(app: &AppHandle, action: ViewAction) {
+    let _ = app.emit(events::PARTNER_VIEW_ACTION, &action);
 }

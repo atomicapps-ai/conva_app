@@ -28,6 +28,8 @@ export const EVENTS = {
   authChanged: "conva://auth-changed",
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
+  partnerViewState: "conva://partner-view-state",
+  partnerViewAction: "conva://partner-view-action",
   splashProgress: "conva://splash-progress",
   contextGenerateProgress: "conva://context-generate-progress",
 } as const;
@@ -577,6 +579,47 @@ export interface PartnerPayload {
   /** Complete typed claim state for a Tracking evidence view. `null` for
    *  terms, answers, and documents. Mirrors the Rust optional field. */
   claim: ClaimRecord | null;
+}
+
+/** Mirror of `ipc.rs::ViewFact` — one labelled fact row under a View item. */
+export interface ViewFact {
+  label: string;
+  value: string;
+}
+
+/** Mirror of `ipc.rs::ViewItem` — one item in View (4); the wire form of the
+ *  UI's `AllyFocusItem` (`viewMirror.ts` converts). */
+export interface ViewItem {
+  id: string;
+  group: "question" | "prep" | "term" | "commitment" | "mention";
+  question: string;
+  answer: string;
+  source_label: string;
+  source_files: string[];
+  status: "instant" | "streaming" | "ready" | "error";
+  card_id: string | null;
+  found_id: string | null;
+  tier: "field" | "specialized" | null;
+  kind: "concept" | "problem" | null;
+  facts: ViewFact[];
+}
+
+/** Mirror of `ipc.rs::ViewState` — everything View (4) shows. The main
+ *  window owns the truth; the partner window mirrors it. */
+export interface ViewState {
+  items: ViewItem[];
+  active_id: string | null;
+  pinned_ids: string[];
+}
+
+/** Mirror of `ipc.rs::ViewActionKind`. */
+export type ViewActionKind = "select" | "pin" | "elaborate" | "ask";
+
+/** Mirror of `ipc.rs::ViewAction` — what the user did in View (4). */
+export interface ViewAction {
+  kind: ViewActionKind;
+  id: string;
+  text?: string | null;
 }
 
 /** Mirror of `ipc.rs::PartnerLockEvent` — sent when the shell changes the

@@ -301,6 +301,10 @@ export class TauriBackend implements ConvaBackend {
     close: cmd.closePartner,
     redock: cmd.redockPartner,
     payload: cmd.getPartnerPayload,
+    ensureOpen: cmd.ensurePartnerOpen,
+    publishView: cmd.publishViewState,
+    viewState: cmd.getViewState,
+    sendViewAction: cmd.sendViewAction,
     setLocked: cmd.setPartnerLocked,
     locked: cmd.getPartnerLocked,
   };

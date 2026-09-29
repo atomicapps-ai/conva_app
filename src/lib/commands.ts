@@ -36,6 +36,8 @@ import type {
   ProviderInfo,
   ProviderKeyStatus,
   ReplayOutcome,
+  ViewAction,
+  ViewState,
   RagDocument,
   SecretsStatus,
   SessionSummary,
@@ -749,6 +751,27 @@ export function redockPartner(): Promise<void> {
 /** The payload the partner view should render (read on partner-window boot). */
 export function getPartnerPayload(): Promise<PartnerPayload | null> {
   return invoke<PartnerPayload | null>("get_partner_payload");
+}
+
+/** Make sure View (4) — the partner window — is open beside the app,
+ *  without retargeting it or taking focus. */
+export function ensurePartnerOpen(): Promise<void> {
+  return invoke("ensure_partner_open");
+}
+
+/** The main window pushes its live View (4) state to the partner window. */
+export function publishViewState(state: ViewState): Promise<void> {
+  return invoke("publish_view_state", { state });
+}
+
+/** The latest pushed View (4) state (read on partner-window boot). */
+export function getViewState(): Promise<ViewState | null> {
+  return invoke<ViewState | null>("get_view_state");
+}
+
+/** The partner window reports something the user did in View (4). */
+export function sendViewAction(action: ViewAction): Promise<void> {
+  return invoke("send_view_action", { action });
 }
 
 /** Lock (follow the main window, snapping flush to its right edge) or

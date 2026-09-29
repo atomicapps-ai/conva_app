@@ -705,6 +705,10 @@ export class WebBackend implements ConvaBackend {
     close: (): Promise<void> => unsupported("partner.close"),
     redock: (): Promise<void> => unsupported("partner.redock"),
     payload: () => Promise.resolve(null),
+    ensureOpen: (): Promise<void> => unsupported("partner.ensureOpen"),
+    publishView: (): Promise<void> => Promise.resolve(),
+    viewState: () => Promise.resolve(null),
+    sendViewAction: (): Promise<void> => Promise.resolve(),
     setLocked: (): Promise<void> => Promise.resolve(),
     locked: (): Promise<boolean> => Promise.resolve(false),
   };
