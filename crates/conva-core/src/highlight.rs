@@ -245,6 +245,10 @@ const W_CONTEXT: f32 = 1.0;
 const W_DOC: f32 = 0.6;
 const W_ENTITY: f32 = 0.5;
 const W_RARITY: f32 = 0.3;
+/// Domain-lexicon phrases (`crate::lexicon`): core sits just under document
+/// signals and above bare entities; extended sits under entities.
+const W_DOMAIN_CORE: f32 = 0.55;
+const W_DOMAIN_EXTENDED: f32 = 0.40;
 /// Explicit 👍 (Phase 4): outscores every heuristic so the term always admits.
 const W_BOOST: f32 = 2.0;
 
@@ -460,6 +464,9 @@ pub struct HighlightContext<'a> {
     /// rarer). `None` disables rarity (Phase 3a); wired to the RAG store's BM25
     /// document frequencies in Phase 3b.
     pub rarity: Option<&'a dyn Fn(&str) -> f32>,
+    /// Domain lexicon (bundled packs selected for the active Context) — the
+    /// "vocabulary any LLM already knows" signal. `None` = off.
+    pub lexicon: Option<&'a crate::lexicon::Lexicon>,
 }
 
 impl<'a> HighlightContext<'a> {
@@ -472,6 +479,7 @@ impl<'a> HighlightContext<'a> {
             suppress: None,
             boost: None,
             rarity: None,
+            lexicon: None,
         }
     }
 }
@@ -487,6 +495,8 @@ enum Source {
     DocOverlap,
     Entity,
     Rarity,
+    DomainCore,
+    DomainExtended,
 }
 
 impl Source {
@@ -498,6 +508,8 @@ impl Source {
             Source::DocOverlap => "document overlap",
             Source::Entity => "entity/acronym",
             Source::Rarity => "rarity",
+            Source::DomainCore => "domain lexicon (core)",
+            Source::DomainExtended => "domain lexicon (extended)",
         }
     }
     fn canonical(self) -> bool {
@@ -511,6 +523,18 @@ struct Candidate {
     key: String,
     score: f32,
     signals: Vec<(Source, f32)>,
+}
+
+impl Candidate {
+    /// The user's own vocabulary — a declared Context term or an explicit 👍.
+    /// These rank ahead of every heuristic candidate whatever the summed score,
+    /// so nothing the app merely *inferred* (documents, entities, rarity, the
+    /// domain lexicon) can push them out under the result cap.
+    fn is_user_term(&self) -> bool {
+        self.signals
+            .iter()
+            .any(|(s, _)| matches!(s, Source::Context | Source::Boost))
+    }
 }
 
 /// Lowercased word tokens of `s` (same tokenizer the signals use).
@@ -668,6 +692,19 @@ pub fn evaluate_terms(message: &str, ctx: &HighlightContext, cap: usize) -> High
             }
         }
     }
+    // Domain lexicon: vocabulary any LLM already knows for this conversation's
+    // domain (`modeling data` in a technical interview). The matched SURFACE
+    // text is the candidate, so the highlight is what was actually said.
+    if let Some(lexicon) = ctx.lexicon {
+        for m in lexicon.matches(&msg_tokens) {
+            let surface = &message[m.span.start..m.span.end];
+            let (source, weight) = match m.tier {
+                crate::lexicon::Tier::Core => (Source::DomainCore, W_DOMAIN_CORE),
+                crate::lexicon::Tier::Extended => (Source::DomainExtended, W_DOMAIN_EXTENDED),
+            };
+            add_candidate(&mut cands, &mut index, surface, source, weight);
+        }
+    }
     // Explicit 👍 (Phase 4): surface even if the heuristics missed it.
     if let Some(boost) = ctx.boost {
         for term in boost {
@@ -692,9 +729,14 @@ pub fn evaluate_terms(message: &str, ctx: &HighlightContext, cap: usize) -> High
         .collect();
     work.sort_by(|a, b| {
         b.cand
-            .score
-            .partial_cmp(&a.cand.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .is_user_term()
+            .cmp(&a.cand.is_user_term())
+            .then(
+                b.cand
+                    .score
+                    .partial_cmp(&a.cand.score)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
             .then_with(|| {
                 let first = |w: &Work| w.spans.first().map_or(usize::MAX, |s| s.start);
                 first(a).cmp(&first(b))
@@ -747,6 +789,7 @@ pub fn evaluate_terms(message: &str, ctx: &HighlightContext, cap: usize) -> High
         let (wa, wb) = (&work[a], &work[b]);
         (wa.rejected.is_some())
             .cmp(&wb.rejected.is_some())
+            .then(wb.cand.is_user_term().cmp(&wa.cand.is_user_term()))
             .then(
                 wb.cand
                     .score
