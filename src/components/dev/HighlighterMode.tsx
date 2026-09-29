@@ -1,6 +1,10 @@
 import { useState } from "react";
 
-import { buildHighlightSegments } from "@/components/transcript/highlightSegments";
+import {
+  buildHighlightSegments,
+  highlightHitClass,
+  termKey,
+} from "@/components/transcript/highlightSegments";
 import { fanerDebugHighlight } from "@/lib/commands";
 import type { CandidateTrace, DebugHighlightResponse } from "@/lib/ipc";
 
@@ -12,6 +16,10 @@ import { highlighterText, parseTerms } from "./fanerDebug";
  * shows the preview exactly as a transcript bubble renders it, the selected
  * terms, and why every candidate was selected, rewritten, or rejected.
  */
+
+/** Bundled domain packs offered in manual mode (the live pipeline picks its
+ *  own from the active Context). */
+export const MANUAL_PACKS = ["software-engineering"];
 
 export const DEFAULT_HIGHLIGHT_TEXT =
   "THEM: Can you explain how API gateway integrates with Lambda?";
@@ -36,6 +44,7 @@ export function TraceRow({ c }: { c: CandidateTrace }) {
         <span className="text-fg">“{c.term}”</span>
         <span className="text-fg-faint">key {c.key}</span>
         <span className="text-fg-faint">score {c.score.toFixed(2)}</span>
+        <span className="text-fg-faint">origin {c.origin}</span>
       </div>
       <div className="text-fg-muted">
         signals:{" "}
@@ -68,6 +77,10 @@ export function HighlighterMode({
   const [text, setText] = useState(DEFAULT_HIGHLIGHT_TEXT);
   const [docText, setDocText] = useState("");
   const [useActive, setUseActive] = useState(false);
+  // Domain pack in manual mode. On by default so the owner's recipe sentences
+  // (`… ORM for modeling data`) show what the pack adds; untick to see the
+  // baseline without it.
+  const [usePack, setUsePack] = useState(true);
   const [result, setResult] = useState<DebugHighlightResponse | null>(null);
   const [analysed, setAnalysed] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +96,7 @@ export function HighlighterMode({
         terms: parseTerms(terms),
         docText,
         useActiveContext: useActive,
+        lexiconPacks: usePack ? MANUAL_PACKS : [],
       });
       setAnalysed(body);
       setResult(r);
@@ -93,6 +107,10 @@ export function HighlighterMode({
       setBusy(false);
     }
   };
+
+  const originByKey = new Map(
+    (result?.terms ?? []).map((t, i) => [termKey(t), result?.origins[i]]),
+  );
 
   return (
     <div className="flex flex-col gap-2">
@@ -131,6 +149,17 @@ export function HighlighterMode({
               onChange={(e) => setTerms(e.target.value)}
               className="rounded border border-border bg-bg px-2 py-1 text-fg"
             />
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={usePack}
+              onChange={(e) => setUsePack(e.target.checked)}
+            />
+            <span>
+              Apply domain pack{MANUAL_PACKS.length > 1 ? "s" : ""}:{" "}
+              {MANUAL_PACKS.join(", ")}
+            </span>
           </label>
           <details>
             <summary className="cursor-pointer text-[10px] uppercase tracking-wider text-fg-faint">
@@ -192,6 +221,35 @@ export function HighlighterMode({
               </>
             )}
           </p>
+          <p
+            data-testid="pack-banner"
+            className="rounded border border-border bg-bg px-2 py-1 text-[11px] text-fg-muted"
+          >
+            {result.packs.length > 0 ? (
+              <>
+                Domain packs used: <b>{result.packs.join(", ")}</b>.
+              </>
+            ) : result.source === "active_context" ? (
+              <>
+                <b>No domain pack</b> applies to the active Context (its title,
+                purpose, job description and terms did not match any pack’s
+                anchors).
+              </>
+            ) : (
+              <>
+                <b>No domain pack</b> applied to this run.
+              </>
+            )}{" "}
+            {result.source === "manual" && (
+              <>
+                The active Context has{" "}
+                {result.activePacks.length > 0
+                  ? `selected: ${result.activePacks.join(", ")}`
+                  : "selected none"}
+                .
+              </>
+            )}
+          </p>
 
           <div>
             <p className="mb-1 text-[10px] uppercase tracking-wider text-fg-faint">
@@ -208,7 +266,10 @@ export function HighlighterMode({
                       <mark
                         key={j}
                         data-testid="highlight-hit"
-                        className="rounded-[3px] bg-ai/[0.07] px-0.5 font-semibold text-fg underline decoration-ai/80 decoration-dotted underline-offset-[3px]"
+                        data-origin={originByKey.get(termKey(seg.text))}
+                        className={highlightHitClass(
+                          originByKey.get(termKey(seg.text)),
+                        )}
                       >
                         {seg.text}
                       </mark>
@@ -226,7 +287,11 @@ export function HighlighterMode({
               Selected terms ({result.terms.length})
             </p>
             <p data-testid="selected-terms" className="font-mono text-[11px]">
-              {result.terms.length ? result.terms.join(" · ") : "(none)"}
+              {result.terms.length
+                ? result.terms
+                    .map((t, i) => `${t} (${result.origins[i] ?? "?"})`)
+                    .join(" · ")
+                : "(none)"}
             </p>
           </div>
 

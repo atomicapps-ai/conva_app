@@ -526,6 +526,25 @@ struct Candidate {
 }
 
 impl Candidate {
+    /// Visual-weight class: the strongest reason wins. Domain applies only when
+    /// the lexicon (optionally with rarity) is the *sole* reason — a proper
+    /// noun that a pack also knows is still an entity.
+    fn origin(&self) -> phrase::HighlightOrigin {
+        use phrase::HighlightOrigin as O;
+        let has = |want: &dyn Fn(Source) -> bool| self.signals.iter().any(|(s, _)| want(*s));
+        if has(&|s| matches!(s, Source::Context | Source::Boost)) {
+            O::Context
+        } else if has(&|s| matches!(s, Source::DocPhrase | Source::DocOverlap)) {
+            O::Document
+        } else if has(&|s| matches!(s, Source::Entity)) {
+            O::Entity
+        } else if has(&|s| matches!(s, Source::DomainCore | Source::DomainExtended)) {
+            O::Domain
+        } else {
+            O::Rarity
+        }
+    }
+
     /// The user's own vocabulary — a declared Context term or an explicit 👍.
     /// These rank ahead of every heuristic candidate whatever the summed score,
     /// so nothing the app merely *inferred* (documents, entities, rarity, the
@@ -804,6 +823,7 @@ pub fn evaluate_terms(message: &str, ctx: &HighlightContext, cap: usize) -> High
 
     let char_at = |byte: usize| message[..byte].chars().count();
     let mut terms: Vec<String> = Vec::new();
+    let mut origins: Vec<phrase::HighlightOrigin> = Vec::new();
     let mut trace: Vec<CandidateTrace> = Vec::new();
     for &i in &order {
         let w = &work[i];
@@ -818,6 +838,7 @@ pub fn evaluate_terms(message: &str, ctx: &HighlightContext, cap: usize) -> High
         let selected = rejected.is_none();
         if selected {
             terms.push(display.clone());
+            origins.push(w.cand.origin());
         }
         let mut spans: Vec<SpanTrace> = w
             .spans
@@ -861,9 +882,14 @@ pub fn evaluate_terms(message: &str, ctx: &HighlightContext, cap: usize) -> High
             spans,
             decision: if selected { "selected" } else { "rejected" }.into(),
             reason,
+            origin: w.cand.origin(),
         });
     }
-    HighlightEvaluation { terms, trace }
+    HighlightEvaluation {
+        terms,
+        origins,
+        trace,
+    }
 }
 
 /// A candidate mid-resolution: its located occurrences and, once decided,

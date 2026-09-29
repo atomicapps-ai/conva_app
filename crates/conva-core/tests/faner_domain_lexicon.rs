@@ -185,3 +185,39 @@ fn selection_from_a_realistic_interview_context_picks_the_software_pack() {
     assert_eq!(select_packs(&input), vec!["software-engineering"]);
     assert!(select_packs(&SelectionInput::default()).is_empty());
 }
+
+#[test]
+fn origins_separate_pack_only_terms_from_entities_and_context_terms() {
+    use conva_core::phrase::HighlightOrigin as O;
+    let lex = software();
+    let known = s(&["Zephyr Bridge"]);
+    let ctx = HighlightContext {
+        context_terms: &known,
+        lexicon: Some(&lex),
+        ..HighlightContext::from_doc_text("")
+    };
+    let msg = "Zephyr Bridge uses Kubernetes and an ORM for modeling data.";
+    let eval = evaluate_terms(msg, &ctx, MAX_TERMS);
+    assert_eq!(eval.terms.len(), eval.origins.len());
+    let origin_of = |want: &str| {
+        let i = eval
+            .terms
+            .iter()
+            .position(|t| t.eq_ignore_ascii_case(want))
+            .unwrap_or_else(|| panic!("{want:?} missing in {:?}", eval.terms));
+        eval.origins[i]
+    };
+    // The user's own term.
+    assert_eq!(origin_of("Zephyr Bridge"), O::Context);
+    // A proper noun the pack also knows is still an entity, not "domain".
+    assert_eq!(origin_of("Kubernetes"), O::Entity);
+    // Recognised only because of the pack.
+    assert_eq!(origin_of("modeling data"), O::Domain);
+    // The trace carries the same origin.
+    let cand = eval
+        .trace
+        .iter()
+        .find(|c| c.term.eq_ignore_ascii_case("modeling data"))
+        .unwrap();
+    assert_eq!(cand.origin, O::Domain);
+}

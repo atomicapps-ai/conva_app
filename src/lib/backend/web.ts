@@ -67,6 +67,7 @@ import type {
   KnowledgeProfile,
   ConversationContext,
   ContextSummary,
+  HighlightTerm,
   IngestReport,
   ModelInfo,
   ProviderInfo,
@@ -518,7 +519,7 @@ export class WebBackend implements ConvaBackend {
       downloadBlobFile(downloadName(dest, fileName ?? "document"), blob);
     },
     syncLibrary: (): Promise<string> => unsupported("rag.syncLibrary (git)"),
-    analyzeTerms: (): Promise<string[]> => Promise.resolve([]),
+    analyzeTerms: (): Promise<HighlightTerm[]> => Promise.resolve([]),
     recordHighlightFeedback: (): Promise<void> => Promise.resolve(),
     recordTermPick: (): Promise<void> => Promise.resolve(),
     documentText: (id: string): Promise<string | null> => documentText({ fetch: (i, o) => fetch(i, o) }, id),

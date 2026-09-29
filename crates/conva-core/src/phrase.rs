@@ -383,11 +383,31 @@ pub fn document_acronym_phrases(
 
 // ── Debug/evaluation trace (dev-only; mirrored in `src/lib/ipc.ts`) ─────────
 
+/// Why a highlighted term is worth showing — drives its visual weight. The
+/// user's own vocabulary and grounded terms read strongest; a term surfaced
+/// only because a domain pack recognises it reads as quiet "recognised
+/// vocabulary". Mirrored in `src/lib/ipc.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HighlightOrigin {
+    /// A declared Context term or an explicit 👍.
+    Context,
+    /// Grounded in the user's documents (phrase or overlap).
+    Document,
+    /// A proper noun / acronym.
+    Entity,
+    /// Surfaced only by a domain lexicon pack (optionally plus rarity).
+    Domain,
+    /// A rare word by corpus IDF, nothing stronger.
+    Rarity,
+}
+
 /// One signal that nominated a candidate.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SignalTrace {
     /// `context term`, `boost`, `document phrase`, `document overlap`,
-    /// `entity/acronym`, `rarity`.
+    /// `entity/acronym`, `rarity`, `domain lexicon (core)`,
+    /// `domain lexicon (extended)`.
     pub source: String,
     pub weight: f32,
 }
@@ -419,6 +439,9 @@ pub struct CandidateTrace {
     /// `selected` or `rejected`.
     pub decision: String,
     pub reason: String,
+    /// How strongly the candidate is the user's own vocabulary (see
+    /// [`HighlightOrigin`]).
+    pub origin: HighlightOrigin,
 }
 
 /// Full result of a debug highlight evaluation.
@@ -426,6 +449,8 @@ pub struct CandidateTrace {
 pub struct HighlightEvaluation {
     /// Exactly what `relevant_terms` returns for the same input.
     pub terms: Vec<String>,
+    /// The origin of each entry of `terms`, index for index.
+    pub origins: Vec<HighlightOrigin>,
     pub trace: Vec<CandidateTrace>,
 }
 

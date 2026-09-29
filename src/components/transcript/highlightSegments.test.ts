@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildHighlightSegments } from "./highlightSegments";
+import {
+  buildHighlightSegments,
+  highlightHitClass,
+  termKey,
+} from "./highlightSegments";
 
 const hits = (text: string, terms: string[]) =>
   buildHighlightSegments(text, terms)
@@ -40,5 +44,25 @@ describe("buildHighlightSegments", () => {
     const text = "Explain API Gateway, then Lambda.";
     const segs = buildHighlightSegments(text, ["API Gateway", "Lambda"]);
     expect(segs.map((s) => s.text).join("")).toBe(text);
+  });
+});
+
+describe("termKey", () => {
+  it("is case- and whitespace-insensitive", () => {
+    expect(termKey("  Modeling   DATA ")).toBe("modeling data");
+    expect(termKey("API\tGateway")).toBe("api gateway");
+  });
+});
+
+describe("highlightHitClass", () => {
+  it("renders pack-only terms quieter than every other origin", () => {
+    const quiet = highlightHitClass("domain");
+    for (const origin of ["context", "document", "entity", "rarity", undefined] as const) {
+      const strong = highlightHitClass(origin);
+      expect(strong).toContain("font-semibold");
+      expect(strong).not.toBe(quiet);
+    }
+    expect(quiet).toContain("font-medium");
+    expect(quiet).not.toContain("font-semibold");
   });
 });

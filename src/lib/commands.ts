@@ -24,6 +24,7 @@ import type {
   ConversationSummary,
   DebugHighlightRequest,
   DebugHighlightResponse,
+  HighlightTerm,
   FanerEvalCase,
   FanerEvalResult,
   ContextSummary,
@@ -181,10 +182,14 @@ export function fanerDebugHighlight(
       terms: request.terms,
       doc_text: request.docText,
       use_active_context: request.useActiveContext,
+      lexicon_packs: request.lexiconPacks,
     },
   }).then((r) => {
     const raw = r as {
       terms: string[];
+      origins: DebugHighlightResponse["origins"];
+      packs: string[];
+      active_packs: string[];
       trace: DebugHighlightResponse["trace"];
       source: DebugHighlightResponse["source"];
       known_terms: string[];
@@ -193,6 +198,9 @@ export function fanerDebugHighlight(
     };
     return {
       terms: raw.terms,
+      origins: raw.origins,
+      packs: raw.packs,
+      activePacks: raw.active_packs,
       trace: raw.trace,
       source: raw.source,
       knownTerms: raw.known_terms,
@@ -309,8 +317,8 @@ export function openUrl(url: string): Promise<void> {
 }
 
 /** RAG-grounded relevant phrases in a transcript message, for highlighting. */
-export function analyzeTerms(text: string): Promise<string[]> {
-  return invoke<string[]>("analyze_terms", { text });
+export function analyzeTerms(text: string): Promise<HighlightTerm[]> {
+  return invoke<HighlightTerm[]>("analyze_terms", { text });
 }
 
 /** Record 👍/👎 on a highlight term: "up" boosts, "down" suppresses, null

@@ -47,6 +47,7 @@ import type {
   ProviderInfo,
   ProviderKeyStatus,
   RagDocument,
+  HighlightTerm,
   SecretsStatus,
   SessionSummary,
   StartRehearsalResult,
@@ -209,8 +210,9 @@ export interface ConvaBackend {
     download(id: string, dest: string): Promise<void>;
     /** Desktop-only: copy library originals into the repo `library/` folder. */
     syncLibrary(): Promise<string>;
-    /** RAG-relevant phrases in a message, for transcript highlighting. */
-    analyzeTerms(text: string): Promise<string[]>;
+    /** Highlight terms in a message (with why each is shown), for transcript
+     *  highlighting. */
+    analyzeTerms(text: string): Promise<HighlightTerm[]>;
     /** Record 👍/👎 on a highlight term ("up"/"down"/null=clear) — Phase 4. */
     recordHighlightFeedback(
       term: string,
