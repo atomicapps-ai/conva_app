@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use conva_core::highlight::{evaluate_terms, HighlightContext, MAX_TERMS};
-use conva_core::phrase::CandidateTrace;
+use conva_core::lexicon::Lexicon;
+use conva_core::phrase::{CandidateTrace, HighlightOrigin};
 use conva_core::phrase_eval::{evaluate_case, generate_cases, EvalCase, EvalResult};
 
 use crate::AppState;
@@ -45,12 +46,18 @@ pub struct DebugHighlightRequest {
     pub doc_text: String,
     #[serde(default)]
     pub use_active_context: bool,
+    /// Bundled domain pack ids to apply in manual mode (unknown ids ignored).
+    /// Active-Context mode uses the packs the Context itself selected.
+    #[serde(default)]
+    pub lexicon_packs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DebugHighlightResponse {
     /// What `relevant_terms` returns — exactly what a bubble would render.
     pub terms: Vec<String>,
+    /// Origin of each entry of `terms`, index for index.
+    pub origins: Vec<HighlightOrigin>,
     pub trace: Vec<CandidateTrace>,
     pub source: TermSource,
     /// The known terms this run used (manual list, or the active context's).
@@ -59,6 +66,12 @@ pub struct DebugHighlightResponse {
     /// activation is visible even in manual mode.
     pub active_context_terms: Vec<String>,
     pub active_scope_doc_count: usize,
+    /// Domain packs this run used (manual: the requested ones that exist;
+    /// active Context: the packs it selected).
+    pub packs: Vec<String>,
+    /// Packs the app's active Context has selected right now, always
+    /// reported, so a Context that selected none is visible in manual mode.
+    pub active_packs: Vec<String>,
 }
 
 /// Run the deterministic highlighter (no LLM, no tokens) and explain it.
@@ -71,12 +84,20 @@ pub fn faner_debug_highlight(
     dev_only()?;
     let active_context_terms = state.active_context_terms.lock().expect("ctx lock").clone();
     let active_scope_doc_count = state.active_context_doc_ids.lock().expect("ctx lock").len();
-    let (eval, source, known_terms) = if request.use_active_context {
+    let active_packs: Vec<String> = state
+        .active_lexicon
+        .lock()
+        .expect("ctx lock")
+        .as_ref()
+        .map(|l| l.pack_ids().to_vec())
+        .unwrap_or_default();
+    let (eval, source, known_terms, packs) = if request.use_active_context {
         let eval = crate::evaluate_live_terms(&app, &state, &request.text);
         (
             eval,
             TermSource::ActiveContext,
             active_context_terms.clone(),
+            active_packs.clone(),
         )
     } else {
         let known: Vec<String> = request
@@ -85,20 +106,26 @@ pub fn faner_debug_highlight(
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
             .collect();
+        let ids: Vec<&str> = request.lexicon_packs.iter().map(String::as_str).collect();
+        let lexicon = Lexicon::from_pack_ids(&ids);
         let ctx = HighlightContext {
             context_terms: &known,
+            lexicon: Some(&lexicon),
             ..HighlightContext::from_doc_text(&request.doc_text)
         };
         let eval = evaluate_terms(&request.text, &ctx, MAX_TERMS);
-        (eval, TermSource::Manual, known)
+        (eval, TermSource::Manual, known, lexicon.pack_ids().to_vec())
     };
     Ok(DebugHighlightResponse {
         terms: eval.terms,
+        origins: eval.origins,
         trace: eval.trace,
         source,
         known_terms,
         active_context_terms,
         active_scope_doc_count,
+        packs,
+        active_packs,
     })
 }
 

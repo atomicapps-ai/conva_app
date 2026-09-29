@@ -268,7 +268,8 @@ export interface CaptureEvent {
 
 export interface SignalTrace {
   /** `context term` | `boost` | `document phrase` | `document overlap` |
-   *  `entity/acronym` | `rarity` */
+   *  `entity/acronym` | `rarity` | `domain lexicon (core)` |
+   *  `domain lexicon (extended)` */
   source: string;
   weight: number;
 }
@@ -284,6 +285,18 @@ export interface SpanTrace {
   container: string | null;
 }
 
+/** Why a highlighted term is shown — drives its visual weight. Mirrors
+ *  `conva_core::phrase::HighlightOrigin` (snake_case). */
+export type HighlightOrigin =
+  "context" | "document" | "entity" | "domain" | "rarity";
+
+/** One highlighted term with its origin — the return of `analyze_terms`.
+ *  Mirrors `conva_core::ipc::HighlightTerm`. */
+export interface HighlightTerm {
+  term: string;
+  origin: HighlightOrigin;
+}
+
 export interface CandidateTrace {
   term: string;
   /** Normalized identity, e.g. `api gateway`. */
@@ -293,6 +306,7 @@ export interface CandidateTrace {
   spans: SpanTrace[];
   decision: "selected" | "rejected";
   reason: string;
+  origin: HighlightOrigin;
 }
 
 export interface DebugHighlightRequest {
@@ -300,16 +314,24 @@ export interface DebugHighlightRequest {
   terms: string[];
   docText: string;
   useActiveContext: boolean;
+  /** Bundled domain pack ids to apply in manual mode. */
+  lexiconPacks: string[];
 }
 
 export interface DebugHighlightResponse {
   /** Exactly what `relevant_terms` returns — what a bubble would render. */
   terms: string[];
+  /** Origin of each entry of `terms`, index for index. */
+  origins: HighlightOrigin[];
   trace: CandidateTrace[];
   source: "manual" | "active_context";
   knownTerms: string[];
   activeContextTerms: string[];
   activeScopeDocCount: number;
+  /** Domain packs this run used. */
+  packs: string[];
+  /** Packs the app's active Context has selected right now. */
+  activePacks: string[];
 }
 
 export interface FanerEvalCase {

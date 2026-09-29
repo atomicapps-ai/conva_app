@@ -199,6 +199,31 @@ pub struct PartnerPayload {
     pub claim: Option<crate::claim::ClaimRecord>,
 }
 
+/// One highlighted term with why it is highlighted — the return of
+/// `analyze_terms`. `origin` drives visual weight in transcript bubbles (a term
+/// surfaced only by a domain lexicon pack renders quieter). Mirrored in
+/// `src/lib/ipc.ts`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HighlightTerm {
+    /// The transcript's own text for the term (original casing).
+    pub term: String,
+    pub origin: crate::phrase::HighlightOrigin,
+}
+
+impl HighlightTerm {
+    /// Pair each selected term of an evaluation with its origin.
+    pub fn from_evaluation(eval: &crate::phrase::HighlightEvaluation) -> Vec<HighlightTerm> {
+        eval.terms
+            .iter()
+            .zip(&eval.origins)
+            .map(|(term, origin)| HighlightTerm {
+                term: term.clone(),
+                origin: *origin,
+            })
+            .collect()
+    }
+}
+
 /// One labelled fact row shown under a View (4) item ("Who · You").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ViewFact {
@@ -599,6 +624,28 @@ mod tests {
         let json = serde_json::to_value(&e).unwrap();
         assert_eq!(json["state"], "listening");
         assert_eq!(json["session_id"], "s1");
+    }
+
+    #[test]
+    fn highlight_term_serializes_origin_in_snake_case() {
+        use crate::phrase::HighlightOrigin;
+        let t = HighlightTerm {
+            term: "modeling data".into(),
+            origin: HighlightOrigin::Domain,
+        };
+        let json = serde_json::to_value(&t).unwrap();
+        assert_eq!(json["term"], "modeling data");
+        assert_eq!(json["origin"], "domain");
+        let back: HighlightTerm = serde_json::from_value(json).unwrap();
+        assert_eq!(back, t);
+        for (origin, wire) in [
+            (HighlightOrigin::Context, "context"),
+            (HighlightOrigin::Document, "document"),
+            (HighlightOrigin::Entity, "entity"),
+            (HighlightOrigin::Rarity, "rarity"),
+        ] {
+            assert_eq!(serde_json::to_value(origin).unwrap(), wire);
+        }
     }
 
     #[test]

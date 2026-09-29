@@ -98,6 +98,11 @@ struct AppState {
     /// Terms panel (which reloads from disk) but never reached
     /// `analyze_terms`.
     active_context_id: Mutex<Option<String>>,
+    /// Domain lexicon for the active Context: the bundled packs its own text
+    /// selects (`conva_core::lexicon::select_packs`), compiled once when the
+    /// Context is applied. `None` = no pack applies (no Context, or no pack
+    /// matches) — a casual call never lights up technical terms.
+    active_lexicon: Mutex<Option<Arc<conva_core::lexicon::Lexicon>>>,
     /// `.cva` archive operation ids the UI has asked to cancel (checked
     /// between documents by `archive::export_*`/`import_*`; see
     /// `archive_cancel`/the `archive_*` commands below).
@@ -509,8 +514,12 @@ fn rag_list(state: State<AppState>) -> Vec<RagDocument> {
 /// elaborate) on. Context, entity, rarity, and feedback signals remain active
 /// when retrieval finds no chunks; only the document-overlap signal is empty.
 #[tauri::command]
-fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<String> {
-    evaluate_live_terms(&app, &state, &text).terms
+fn analyze_terms(
+    app: AppHandle,
+    state: State<AppState>,
+    text: String,
+) -> Vec<conva_core::ipc::HighlightTerm> {
+    conva_core::ipc::HighlightTerm::from_evaluation(&evaluate_live_terms(&app, &state, &text))
 }
 
 /// The live highlighting pipeline behind [`analyze_terms`], returning the
@@ -552,8 +561,12 @@ pub(crate) fn evaluate_live_terms(
     // Phase 4: the user's on-device 👍/👎 — an explicit signal always wins
     // (boost surfaces, suppress drops), whatever the heuristics scored.
     let (boost, suppress) = feedback::sets(app);
+    // The active Context's domain lexicon (bundled packs selected for it) —
+    // vocabulary any LLM already knows, without the user supplying it.
+    let lexicon = state.active_lexicon.lock().expect("ctx lock").clone();
     let ctx = conva_core::highlight::HighlightContext {
         context_terms: &context_terms,
+        lexicon: lexicon.as_deref(),
         rarity: Some(&idf),
         boost: Some(&boost),
         suppress: Some(&suppress),
@@ -1592,6 +1605,7 @@ fn archive_cancel(state: State<AppState>, operation_id: String) -> Result<(), St
 /// `deactivate_context` (the picker's explicit clear).
 fn clear_active_context(state: &AppState) {
     state.active_context_terms.lock().expect("ctx lock").clear();
+    *state.active_lexicon.lock().expect("ctx lock") = None;
     state
         .active_context_doc_ids
         .lock()
@@ -1661,6 +1675,27 @@ fn semantic_snapshot_for_context(session: &ConversationContext, rag: &RagStore) 
     snapshot.bounded()
 }
 
+/// Recompute the active domain lexicon from `session`'s own text (title,
+/// purpose, job description, key terms, glossary): select the bundled packs
+/// whose anchors it contains and compile them once. Called wherever the active
+/// Context's highlight terms are set, so packs never drift from the Context.
+fn refresh_active_lexicon(state: &AppState, session: &ConversationContext) {
+    let input = conva_core::lexicon::SelectionInput {
+        title: &session.title,
+        purpose: &session.purpose,
+        job_description: session.job_description.as_deref(),
+        key_terms: &session.key_terms,
+        glossary: &session.glossary,
+    };
+    let packs = conva_core::lexicon::select_packs(&input);
+    let lexicon = conva_core::lexicon::Lexicon::from_pack_ids(&packs);
+    *state.active_lexicon.lock().expect("ctx lock") = if lexicon.is_empty() {
+        None
+    } else {
+        Some(Arc::new(lexicon))
+    };
+}
+
 /// Apply `session` as the active Context: its highlight terms, retrieval
 /// scope, semantic snapshot, and id. Shared by `activate_context` and by
 /// `context_save` when the saved Context is the active one, so an edit made
@@ -1687,6 +1722,7 @@ fn apply_active_context(app: &AppHandle, state: &AppState, session: &Conversatio
             &session.glossary,
             session.job_description.as_deref(),
         );
+    refresh_active_lexicon(state, session);
     *state.active_context_doc_ids.lock().expect("ctx lock") = grounding_doc_ids;
     *state.active_context_snapshot.lock().expect("ctx lock") =
         Some(semantic_snapshot_for_context(session, &state.rag));
@@ -2124,6 +2160,8 @@ fn context_generate_dossier_blocking(
         terms.clear();
         terms.extend(saved.key_terms.iter().cloned());
         terms.extend(saved.glossary.iter().cloned());
+        drop(terms);
+        refresh_active_lexicon(&state, &saved);
         *state.active_context_snapshot.lock().expect("ctx lock") =
             Some(semantic_snapshot_for_context(&saved, &state.rag));
     }
@@ -2271,6 +2309,7 @@ async fn context_start_rehearsal(
         active.extend(session.key_terms.iter().cloned());
         active.extend(session.glossary.iter().cloned());
     }
+    refresh_active_lexicon(&state, &session);
     *state.active_context_snapshot.lock().expect("ctx lock") =
         Some(semantic_snapshot_for_context(&session, &state.rag));
 
@@ -3042,6 +3081,7 @@ pub fn run() {
                                     active_context_doc_ids: Mutex::new(Vec::new()),
                                     active_context_snapshot: Mutex::new(None),
                                     active_context_id: Mutex::new(None),
+                                    active_lexicon: Mutex::new(None),
                                     archive_cancelled: Mutex::new(HashSet::new()),
                                 }) {
                                     return Err("application state was already managed".into());

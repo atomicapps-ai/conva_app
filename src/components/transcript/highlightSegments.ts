@@ -10,6 +10,24 @@
  * elsewhere still highlights.
  */
 
+import type { HighlightOrigin } from "@/lib/ipc";
+
+/** Lookup key for a term / matched surface text: case- and whitespace-
+ *  insensitive, the same way the matcher treats it. */
+export function termKey(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Classes for a highlighted term. Terms the app recognised only because a
+ *  domain pack knows them ("domain") read quieter than the user's own
+ *  vocabulary and grounded terms — one place so the real bubble and the dev
+ *  FANER preview cannot drift. */
+export function highlightHitClass(origin: HighlightOrigin | undefined): string {
+  return origin === "domain"
+    ? "rounded-[3px] bg-ai/[0.03] px-0.5 font-medium text-fg/90 underline decoration-ai/40 decoration-1 decoration-dotted underline-offset-[3px] transition-colors hover:bg-ai/[0.10] hover:text-ai"
+    : "rounded-[3px] bg-ai/[0.07] px-0.5 font-semibold text-fg underline decoration-ai/80 decoration-1 decoration-dotted underline-offset-[3px] transition-colors hover:bg-ai/[0.14] hover:text-ai";
+}
+
 export interface HighlightSegment {
   text: string;
   /** True when this segment is a highlighted term occurrence. */

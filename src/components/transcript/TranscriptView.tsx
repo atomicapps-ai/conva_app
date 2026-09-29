@@ -22,6 +22,7 @@ import type {
   ClaimRecord,
   TranscriptSegment,
 } from "@/lib/ipc";
+import type { HighlightOrigin } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
 import { AnswerBody } from "@/lib/allyMarkdown";
 import { useAppStore } from "@/state/app";
@@ -85,7 +86,11 @@ import {
   type StabilityUnit,
 } from "@/components/transcript/useTranscriptStability";
 import { ScrambleText } from "@/components/transcript/ScrambleText";
-import { buildHighlightSegments } from "@/components/transcript/highlightSegments";
+import {
+  buildHighlightSegments,
+  highlightHitClass,
+  termKey,
+} from "@/components/transcript/highlightSegments";
 
 // Stable reference so a Zustand selector reading `capture?.captures` never
 // hands React a "new" empty array on every render before the first
@@ -338,13 +343,18 @@ function TermMenu({
 
 /** Renders `text` with `terms` highlighted as clickable chips that open a
  *  TermMenu. Terms are matched case-insensitively with flexible whitespace. */
-function HighlightedText({
+export function HighlightedText({
   text,
   terms,
+  origins,
   onAsk,
 }: {
   text: string;
   terms: string[];
+  /** Why each term is highlighted, keyed by `termKey` — pack-only terms
+   *  render quieter. Absent keys (user-added phrases, search hits) render at
+   *  full weight. */
+  origins?: Record<string, HighlightOrigin>;
   onAsk: (action: TermAction, term: string) => void;
 }) {
   const [menu, setMenu] = useState<{
@@ -369,7 +379,12 @@ function HighlightedText({
             const r = e.currentTarget.getBoundingClientRect();
             setMenu({ term: seg.text, x: r.left, y: r.top });
           }}
-          className="rounded-[3px] bg-ai/[0.07] px-0.5 font-semibold text-fg underline decoration-ai/80 decoration-1 decoration-dotted underline-offset-[3px] transition-colors hover:bg-ai/[0.14] hover:text-ai focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ai/70"
+          title={
+            origins?.[termKey(seg.text)] === "domain"
+              ? "Recognised vocabulary"
+              : undefined
+          }
+          className={`${highlightHitClass(origins?.[termKey(seg.text)])} focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ai/70`}
         >
           {seg.text}
         </button>
@@ -572,6 +587,7 @@ function CollapsedPreview({
 function FlowText({
   units,
   terms,
+  origins,
   onAskTerm,
 }: {
   /** Stability-aware units (F13) — one per finalized segment in this turn,
@@ -579,6 +595,8 @@ function FlowText({
    *  case where the true final text corrected what was last shown. */
   units: StabilityUnit[];
   terms: string[];
+  /** Why each term is highlighted (see `HighlightedText`). */
+  origins?: Record<string, HighlightOrigin>;
   onAskTerm: (action: TermAction, term: string) => void;
 }) {
   return (
@@ -591,7 +609,12 @@ function FlowText({
           {unit.diff ? (
             <ScrambleText words={unit.diff} />
           ) : (
-            <HighlightedText text={unit.text} terms={terms} onAsk={onAskTerm} />
+            <HighlightedText
+              text={unit.text}
+              terms={terms}
+              origins={origins}
+              onAsk={onAskTerm}
+            />
           )}
         </span>
       ))}
@@ -683,14 +706,21 @@ function Bubble({
   // terms are also reported to the live-terms store so the Terms tab lists
   // every word underlined on the left (owner, 2026-08-21).
   const [terms, setTerms] = useState<string[]>([]);
+  const [termOrigins, setTermOrigins] = useState<
+    Record<string, HighlightOrigin>
+  >({});
   useEffect(() => {
     if (!combinedText || !isTauri()) return;
     let alive = true;
     void backend.rag
       .analyzeTerms(combinedText)
-      .then((t) => {
+      .then((found) => {
         if (!alive) return;
+        const t = found.map((f) => f.term);
         setTerms(t);
+        setTermOrigins(
+          Object.fromEntries(found.map((f) => [termKey(f.term), f.origin])),
+        );
         useLiveTermsStore.getState().reportSpoken(t);
       })
       .catch(() => {});
@@ -873,6 +903,7 @@ function Bubble({
               <FlowText
                 units={finalUnits}
                 terms={highlightTerms}
+                origins={termOrigins}
                 onAskTerm={onAskTerm}
               />
             )}

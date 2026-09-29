@@ -38,6 +38,7 @@ const cand = (over: Partial<CandidateTrace>): CandidateTrace => ({
   ],
   decision: "selected",
   reason: "selected",
+  origin: "context",
   ...over,
 });
 
@@ -46,6 +47,9 @@ function highlightResponse(
 ): DebugHighlightResponse {
   return {
     terms: ["API gateway", "Lambda"],
+    origins: ["context", "entity"],
+    packs: [],
+    activePacks: [],
     trace: [
       cand({}),
       cand({
@@ -124,7 +128,7 @@ describe("FanerReplayPanel", () => {
     expect(rows[1]).toHaveTextContent("rejected");
     expect(rows[1]).toHaveTextContent('contained in longer phrase "api gateway"');
     expect(screen.getByTestId("selected-terms")).toHaveTextContent(
-      "API gateway · Lambda",
+      "API gateway (context) · Lambda (entity)",
     );
   });
 
@@ -150,6 +154,85 @@ describe("FanerReplayPanel", () => {
       ),
     );
     expect(m.fanerDebugHighlight.mock.calls[1]?.[0].useActiveContext).toBe(true);
+  });
+
+  it("manual mode applies the software-engineering pack by default and the box turns it off", async () => {
+    const user = await openPanel();
+    await user.click(screen.getByRole("button", { name: "Run highlighter" }));
+    await waitFor(() => expect(m.fanerDebugHighlight).toHaveBeenCalledTimes(1));
+    expect(m.fanerDebugHighlight.mock.calls[0]?.[0].lexiconPacks).toEqual([
+      "software-engineering",
+    ]);
+
+    await user.click(screen.getByLabelText(/Apply domain pack/));
+    await user.click(screen.getByRole("button", { name: "Run highlighter" }));
+    await waitFor(() => expect(m.fanerDebugHighlight).toHaveBeenCalledTimes(2));
+    expect(m.fanerDebugHighlight.mock.calls[1]?.[0].lexiconPacks).toEqual([]);
+  });
+
+  it("a pack-only term renders quieter, carries its origin, and the banner names the pack", async () => {
+    m.fanerDebugHighlight.mockResolvedValue(
+      highlightResponse({
+        terms: ["modeling data", "ORM"],
+        origins: ["domain", "entity"],
+        packs: ["software-engineering"],
+        activePacks: [],
+        trace: [
+          cand({
+            term: "modeling data",
+            key: "modeling data",
+            origin: "domain",
+            signals: [{ source: "domain lexicon (core)", weight: 0.55 }],
+          }),
+        ],
+      }),
+    );
+    const user = await openPanel();
+    const box = screen.getByLabelText(/Conversation text/);
+    await user.clear(box);
+    await user.click(box);
+    await user.paste(
+      "THEM: When did you use an ORM for modeling data on AWS?",
+    );
+    await user.click(screen.getByRole("button", { name: "Run highlighter" }));
+
+    const preview = await screen.findByTestId("highlight-preview");
+    const hits = within(preview).getAllByTestId("highlight-hit");
+    const domain = hits.find((h) => h.textContent === "modeling data");
+    expect(domain).toBeDefined();
+    expect(domain?.getAttribute("data-origin")).toBe("domain");
+    expect(domain?.className).toContain("font-medium");
+    expect(domain?.className).not.toContain("font-semibold");
+    const orm = hits.find((h) => h.textContent === "ORM");
+    expect(orm?.getAttribute("data-origin")).toBe("entity");
+    expect(orm?.className).toContain("font-semibold");
+    expect(screen.getByTestId("pack-banner")).toHaveTextContent(
+      /Domain packs used: software-engineering/,
+    );
+    expect(screen.getByTestId("selected-terms")).toHaveTextContent(
+      "modeling data (domain) · ORM (entity)",
+    );
+    expect(screen.getAllByTestId("trace-row")[0]).toHaveTextContent(
+      "origin domain",
+    );
+  });
+
+  it("active-Context mode says when no pack matched the Context", async () => {
+    m.fanerDebugHighlight.mockResolvedValue(
+      highlightResponse({
+        source: "active_context",
+        activeContextTerms: ["API Gateway"],
+        activeScopeDocCount: 1,
+        packs: [],
+        activePacks: [],
+      }),
+    );
+    const user = await openPanel();
+    await user.click(screen.getByLabelText(/Active application Context/));
+    await user.click(screen.getByRole("button", { name: "Run highlighter" }));
+    expect(await screen.findByTestId("pack-banner")).toHaveTextContent(
+      /No domain pack.*active Context/is,
+    );
   });
 
   it("Capture mode still calls faner_replay and separates raw from resolved arguments", async () => {

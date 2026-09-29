@@ -96,6 +96,7 @@ export function compactTrace(trace: CandidateTrace[]) {
     key: c.key,
     decision: c.decision,
     score: c.score,
+    origin: c.origin,
     signals: c.signals.map((s) => s.source),
     reason: c.reason,
   }));
