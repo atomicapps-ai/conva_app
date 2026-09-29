@@ -49,6 +49,7 @@ fn labeled_relevance_suite_meets_precision_recall_and_hygiene_gates() {
             boost: Some(&boosts),
             suppress: Some(&suppressions),
             rarity: Some(&idf),
+            lexicon: None,
         };
         let actual = normalized(relevant_terms(&case.message, &context));
         let expected = normalized(case.relevant);

@@ -29,6 +29,7 @@ pub mod evidence;
 pub mod fuse;
 pub mod highlight;
 pub mod ipc;
+pub mod lexicon;
 pub mod llm;
 pub mod meaning_frame;
 pub mod metering;
