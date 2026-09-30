@@ -468,7 +468,7 @@ fn resolve_slot(words: &[String], columns: &[TableColumn], need_numeric: bool) -
         .map(|c| (match_score(words, &c.header), c))
         .filter(|(s, _)| *s > 0)
         .collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|a| std::cmp::Reverse(a.0));
     let Some(top) = scored.first().map(|(s, _)| *s) else {
         return Slot::Missing;
     };
@@ -705,7 +705,7 @@ pub fn plan_request(req: &DataRequest, datasets: &[&TableDataset]) -> PlanOutcom
     if ranked.is_empty() {
         return PlanOutcome::NotTableRequest;
     }
-    ranked.sort_by(|a, b| b.0.cmp(&a.0));
+    ranked.sort_by_key(|a| std::cmp::Reverse(a.0));
     let top = ranked[0].0;
     let leaders: Vec<&TableDataset> = ranked
         .iter()
