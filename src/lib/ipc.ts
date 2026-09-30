@@ -32,6 +32,7 @@ export const EVENTS = {
   partnerViewAction: "conva://partner-view-action",
   splashProgress: "conva://splash-progress",
   contextGenerateProgress: "conva://context-generate-progress",
+  liveAssist: "conva://live-assist",
 } as const;
 
 export interface TranscriptSegment {
@@ -136,6 +137,18 @@ export interface RagDocument {
    *  ingested text length for pasted/generated. Format with
    *  `formatBytes()` (`@/lib/formatBytes`), never display the raw number. */
   size_bytes: number;
+  /** Present for CSV / XLSX documents that also carry a typed table, so
+   *  spreadsheet questions can be answered by exact arithmetic. */
+  table?: TableInfo;
+}
+
+/** Mirror of `rag::TableInfo`. */
+export interface TableInfo {
+  rows: number;
+  columns: number;
+  /** False when the sheet's structure can't be totalled safely (merged
+   *  cells, no header row, ...). It is still searchable as text. */
+  supported: boolean;
 }
 
 export interface IngestReport {
@@ -213,6 +226,9 @@ export interface RadarEvent {
   confidence: number;
   bridge: BridgeResponse;
   sources: ScoredChunk[];
+  /** True when live assist is computing an exact answer for this question, so
+   *  no model answer may be started for it. Absent on older emitters. */
+  computed?: boolean;
 }
 
 export interface TrackedEntity {
@@ -624,6 +640,19 @@ export interface ViewItem {
   tier: "field" | "specialized" | null;
   kind: "concept" | "problem" | null;
   facts: ViewFact[];
+  /** A structured grid answer (spreadsheet totals); `answer` still carries
+   *  the speakable Say-now line. */
+  table?: GridPayload | null;
+  /** A question waiting on the user's pick (ambiguous column or file). */
+  choice?: ViewChoice | null;
+  /** True when a newer question replaced this live-assist result. */
+  stale?: boolean;
+}
+
+/** Mirror of `ipc.rs::ViewChoice`. */
+export interface ViewChoice {
+  question: string;
+  options: ChoiceOption[];
 }
 
 /** Mirror of `ipc.rs::ViewState` — everything View (4) shows. The main
@@ -634,8 +663,239 @@ export interface ViewState {
   pinned_ids: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Table datasets (mirror of `crates/conva-core/src/table.rs`,
+// `table_aggregate.rs`, `table_query.rs`). Numbers travel as plain decimal
+// strings ("1234.50"): exact, and safe for JavaScript. The UI never does
+// arithmetic on them.
+// ---------------------------------------------------------------------------
+
+export const TABLE_SCHEMA_VERSION = 1;
+
+export type RawKind =
+  | "text"
+  | "number"
+  | "formula_value"
+  | "formula_no_value"
+  | "error";
+export type CellKind = "blank" | "number" | "text" | "unusable";
+export type ColumnKind = "number" | "text" | "empty";
+
+export interface TableCell {
+  raw: string;
+  kind: CellKind;
+  /** Exact decimal string when `kind === "number"`. */
+  number?: string;
+}
+
+export interface TableColumn {
+  index: number;
+  header: string;
+  kind: ColumnKind;
+  currency?: string;
+  percent: boolean;
+  scale: number;
+}
+
+export interface TableRow {
+  /** One-based row number in the source sheet. */
+  source_row: number;
+  cells: TableCell[];
+  /** Source row of the earlier row this one exactly repeats. */
+  duplicate_of?: number;
+  /** A "Total" line inside the data; never aggregated. */
+  subtotal: boolean;
+}
+
+export type IssueCode =
+  | "blank_values"
+  | "malformed_numbers"
+  | "formula_without_value"
+  | "duplicate_rows"
+  | "ragged_rows"
+  | "duplicate_headers"
+  | "blank_header"
+  | "subtotal_row_skipped"
+  | "group_variants_merged"
+  | "blank_group"
+  | "mixed_currency"
+  | "other_sheets_ignored";
+
+export interface TableIssue {
+  code: IssueCode;
+  column?: number;
+  /** First 20 affected source rows. */
+  rows: number[];
+  /** True number of affected rows. */
+  count: number;
+  message: string;
+}
+
+export type UnsupportedReason =
+  | "merged_cells"
+  | "no_header_row"
+  | "no_data_rows"
+  | "too_many_rows"
+  | "empty_sheet";
+
+export interface TableDataset {
+  schema_version: number;
+  doc_id: string;
+  file_name: string;
+  sheet?: string;
+  columns: TableColumn[];
+  rows: TableRow[];
+  issues: TableIssue[];
+  /** Empty when the sheet can be aggregated safely. */
+  unsupported: UnsupportedReason[];
+}
+
+export type AggFunc = "sum" | "count" | "average" | "min" | "max";
+export type DuplicatePolicy = "keep_all" | "exclude_exact";
+
+export interface ColumnRef {
+  index: number;
+  header: string;
+}
+
+/** Mirror of `table_aggregate::AggregatePlan`. */
+export interface AggregatePlan {
+  schema_version: number;
+  doc_id: string;
+  func: AggFunc;
+  /** `null` only for `count`. */
+  measure: ColumnRef | null;
+  group_by: ColumnRef[];
+  duplicates: DuplicatePolicy;
+}
+
+/** Mirror of `table_query::ChoiceOption`. */
+export interface ChoiceOption {
+  /** Column index or document id, as text. */
+  id: string;
+  label: string;
+  detail?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Live assist (mirror of `ipc.rs`). Progressive answers that need real
+// computation: a holding response, then the finished source-linked grid,
+// under one `result_id` with a rising `revision`.
+// ---------------------------------------------------------------------------
+
+export const LIVE_ASSIST_CONTRACT_VERSION = 1;
+
+export type LiveAssistKind = "table_aggregate";
+
+export type LiveAssistLifecycle =
+  | "provisional"
+  | "needs_choice"
+  | "complete"
+  | "declined"
+  | "failed"
+  | "superseded";
+
+/** Where a figure came from: the file, the column and the rows. */
+export interface SourceRef {
+  doc_id: string;
+  file_name: string;
+  sheet?: string;
+  column?: string;
+  /** First source rows that contributed (capped at 20). */
+  rows: number[];
+  /** True number of rows that contributed. */
+  row_count: number;
+}
+
+export type GridAlign = "left" | "right";
+
+export interface GridColumn {
+  key: string;
+  label: string;
+  align: GridAlign;
+}
+
+export interface GridCell {
+  /** Display text, e.g. `$439,519.85`. */
+  text: string;
+  /** Exact machine value as a plain decimal string, for number cells. */
+  value?: string;
+  /** Provenance; absent for labels. */
+  sources?: SourceRef[];
+}
+
+export type GridRowKind = "body" | "total";
+
+export interface GridRow {
+  kind: GridRowKind;
+  cells: GridCell[];
+}
+
+export type NoticeLevel = "info" | "caution";
+
+export interface GridNotice {
+  level: NoticeLevel;
+  text: string;
+  rows?: number[];
+}
+
+export interface GridPayload {
+  title: string;
+  columns: GridColumn[];
+  rows: GridRow[];
+  notices: GridNotice[];
+  source_files: string[];
+}
+
+export type LiveAssistPayload =
+  | { type: "text"; text: string }
+  | ({ type: "grid" } & GridPayload)
+  | { type: "choice"; question: string; options: ChoiceOption[] };
+
+/** Milliseconds measured from `enqueued_at_unix_ms`. */
+export interface LiveAssistTiming {
+  enqueued_at_unix_ms: number;
+  /** Enqueue to holding response emitted. */
+  holding_ms?: number | null;
+  /** Enqueue to this revision emitted. */
+  emitted_ms?: number | null;
+  /** Time spent computing (excludes queueing). */
+  compute_ms?: number | null;
+}
+
+export interface LiveAssistResult {
+  contract_version: number;
+  result_id: string;
+  /** Ties the result to its turn: `{session}:them:{seq}` or `ask:ask:{n}`. */
+  correlation_id: string;
+  session_id: string;
+  context_id?: string | null;
+  /** Rises with every emission of the same `result_id`. */
+  revision: number;
+  kind: LiveAssistKind;
+  lifecycle: LiveAssistLifecycle;
+  question: string;
+  say_now?: string | null;
+  payload?: LiveAssistPayload | null;
+  timing: LiveAssistTiming;
+  /** Set when `lifecycle === "superseded"`: the newer result's id. */
+  superseded_by?: string | null;
+}
+
+/** Return value of `live_assist_submit`. */
+export interface LiveAssistAck {
+  /** False when the text is not a data request; hand it to Ally as usual. */
+  handled: boolean;
+  result_id?: string | null;
+}
+
+/** True once no further revision of a result is expected. */
+export function isFinalLifecycle(l: LiveAssistLifecycle): boolean {
+  return l !== "provisional" && l !== "needs_choice";
+}
+
 /** Mirror of `ipc.rs::ViewActionKind`. */
-export type ViewActionKind = "select" | "pin" | "elaborate" | "ask";
+export type ViewActionKind = "select" | "pin" | "elaborate" | "ask" | "choose";
 
 /** Mirror of `ipc.rs::ViewAction` — what the user did in View (4). */
 export interface ViewAction {

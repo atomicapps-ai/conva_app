@@ -31,6 +31,9 @@ export interface Capabilities {
   rag: {
     local: boolean;
     cloud: boolean;
+    /** Exact totals over CSV / XLSX documents (typed tables + the live-assist
+     *  coordinator). Desktop today; the web reports it as unavailable. */
+    tableAggregation: boolean;
   };
   /** Language model access. BYO keys need the OS keyring (desktop only). */
   llm: {
@@ -67,7 +70,7 @@ export interface Capabilities {
 export const DESKTOP_CAPABILITIES: Capabilities = {
   capture: { mic: true, systemAudio: "loopback" },
   asr: { local: true, gpuBackend: "cpu", hosted: false },
-  rag: { local: true, cloud: false },
+  rag: { local: true, cloud: false, tableAggregation: true },
   llm: { byoKeys: true, hosted: false, localOllama: true },
   overlay: { hud: true, incog: "unavailable" },
   system: {
@@ -88,7 +91,7 @@ export const DESKTOP_CAPABILITIES: Capabilities = {
 export const WEB_CAPABILITIES: Capabilities = {
   capture: { mic: true, systemAudio: "none" },
   asr: { local: false, gpuBackend: null, hosted: true },
-  rag: { local: false, cloud: true },
+  rag: { local: false, cloud: true, tableAggregation: false },
   llm: { byoKeys: false, hosted: true, localOllama: false },
   overlay: { hud: false, incog: "unavailable" },
   system: {

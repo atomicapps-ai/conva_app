@@ -1,0 +1,130 @@
+{
+  "description": "Replay cases for live-assist table answers. Each case attaches one spreadsheet (as CSV text) and replays heard turns through the coordinator. `expect.kind` is grid | choice | declined | ignore. Figures are exact decimal strings.",
+  "cases": [
+    {
+      "name": "district_sales_scenario",
+      "file_name": "Q3-district-sales.csv",
+      "csv": "District,Orders,Amount\nNorth,42,\"$128,430.50\"\nEast,37,\"$96,210.00\"\nSouth,51,\"$141,875.25\"\nWest,29,\"$73,004.10\"\n",
+      "turns": [
+        {
+          "text": "What's the total amount per district?",
+          "expect": {
+            "kind": "grid",
+            "lifecycles": ["provisional", "complete"],
+            "title": "Total Amount by District",
+            "total": "439519.85",
+            "groups": { "North": "128430.50", "East": "96210.00", "South": "141875.25", "West": "73004.10" },
+            "say_now": "The total amount is $439,519.85. South is the largest at $141,875.25."
+          }
+        }
+      ]
+    },
+    {
+      "name": "phrasings_reach_the_same_answer",
+      "file_name": "sales.csv",
+      "csv": "District,Amount\nNorth,10.10\nNorth,20.20\nEast,5.05\n",
+      "turns": [
+        { "text": "Can you give me the total amount by district", "expect": { "kind": "grid", "total": "35.35", "groups": { "North": "30.30", "East": "5.05" } } },
+        { "text": "sum of amount for each district", "expect": { "kind": "grid", "total": "35.35", "groups": { "North": "30.30", "East": "5.05" } } },
+        { "text": "add up the amounts by district please", "expect": { "kind": "grid", "total": "35.35", "groups": { "North": "30.30", "East": "5.05" } } },
+        { "text": "totals per district", "expect": { "kind": "grid", "total": "35.35", "groups": { "North": "30.30", "East": "5.05" } } },
+        { "text": "I need the combined amount across district", "expect": { "kind": "grid", "total": "35.35", "groups": { "North": "30.30", "East": "5.05" } } }
+      ]
+    },
+    {
+      "name": "floating_point_traps",
+      "file_name": "trap.csv",
+      "csv": "Region,Amount\nA,0.1\nA,0.2\nA,0.3\nB,1.1\nB,2.2\n",
+      "turns": [
+        { "text": "total amount per region", "expect": { "kind": "grid", "total": "3.9", "groups": { "A": "0.6", "B": "3.3" } } }
+      ]
+    },
+    {
+      "name": "currency_negatives_and_percent_free_text",
+      "file_name": "ledger.csv",
+      "csv": "Account,Amount\nCash,\"$1,000.00\"\nCash,(250.50)\nBank,\"€2,000\"\nBank,-$0.25\n",
+      "turns": [
+        { "text": "what is the total amount by account", "expect": { "kind": "grid", "groups": { "Cash": "749.50", "Bank": "1999.75" } } }
+      ]
+    },
+    {
+      "name": "blanks_malformed_and_duplicates_are_reported",
+      "file_name": "messy.csv",
+      "csv": "District,Amount\nNorth,10\nNorth,10\nNorth,\nNorth,12abc\nEast,5\nEast,6\nEast,7\nEast,8\nSouth,9\nWest,4\n",
+      "turns": [
+        {
+          "text": "total amount per district",
+          "expect": {
+            "kind": "grid",
+            "groups": { "North": "20", "East": "26", "South": "9", "West": "4" },
+            "total": "59",
+            "notices_contain": ["blank value", "not valid numbers", "exactly repeat"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "reordered_columns_and_rows",
+      "file_name": "reordered.csv",
+      "csv": "Amount,Notes,District\n\"$73,004.10\",x,West\n\"$141,875.25\",y,South\n\"$96,210.00\",z,East\n\"$128,430.50\",w,North\n",
+      "turns": [
+        {
+          "text": "What's the total amount per district?",
+          "expect": {
+            "kind": "grid",
+            "total": "439519.85",
+            "groups": { "North": "128430.50", "East": "96210.00", "South": "141875.25", "West": "73004.10" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "ambiguous_amount_column",
+      "file_name": "two-amounts.csv",
+      "csv": "District,Amount,Net amount\nNorth,10,8\nSouth,20,15\n",
+      "turns": [
+        {
+          "text": "what's the total per district",
+          "expect": { "kind": "choice", "options": ["Amount", "Net amount"] },
+          "then_choose": { "option": "Net amount", "expect": { "kind": "grid", "total": "23", "groups": { "North": "8", "South": "15" } } }
+        }
+      ]
+    },
+    {
+      "name": "merged_cells_are_unsupported",
+      "file_name": "report.xlsx",
+      "merged_cells": true,
+      "csv": "District,Amount\nNorth,10\n",
+      "turns": [
+        { "text": "total amount per district", "expect": { "kind": "declined", "text_contains": "merged cells" } }
+      ]
+    },
+    {
+      "name": "missing_column_is_explained",
+      "file_name": "sales.csv",
+      "csv": "District,Amount\nNorth,10\n",
+      "turns": [
+        { "text": "total budget per district", "expect": { "kind": "choice", "options": ["Amount"] } }
+      ]
+    },
+    {
+      "name": "subtotal_lines_do_not_double_count",
+      "file_name": "with-totals.csv",
+      "csv": "District,Amount\nNorth,10\nSouth,5\nTotal,15\n",
+      "turns": [
+        { "text": "total amount per district", "expect": { "kind": "grid", "total": "15", "groups": { "North": "10", "South": "5" } } }
+      ]
+    },
+    {
+      "name": "ordinary_conversation_is_ignored",
+      "file_name": "sales.csv",
+      "csv": "District,Amount\nNorth,10\n",
+      "turns": [
+        { "text": "Thanks for joining today", "expect": { "kind": "ignore" } },
+        { "text": "What time works for you on Thursday?", "expect": { "kind": "ignore" } },
+        { "text": "How many people are on your team?", "expect": { "kind": "ignore" } },
+        { "text": "We should total this up later", "expect": { "kind": "ignore" } }
+      ]
+    }
+  ]
+}

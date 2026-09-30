@@ -143,3 +143,28 @@ describe("available vs unsupported vs unimplemented", () => {
     expect(Object.values(s.operations).some((a) => isUsable(a))).toBe(false);
   });
 });
+
+describe("live assist (spreadsheet totals) capability", () => {
+  it("desktop reports table aggregation available, in the coarse descriptor and per operation", () => {
+    expect(DESKTOP_CAPABILITIES.rag.tableAggregation).toBe(true);
+    const ops = desktopSnapshot(DESKTOP_CAPABILITIES, chromeWindows).operations;
+    expect(ops["liveAssist.submit"].state).toBe("available");
+    expect(ops["liveAssist.choose"].state).toBe("available");
+  });
+
+  it("web reports it honestly as unimplemented, with a reason a person can read", () => {
+    expect(WEB_CAPABILITIES.rag.tableAggregation).toBe(false);
+    const ops = webOperations();
+    for (const op of ["liveAssist.submit", "liveAssist.choose"] as const) {
+      const a = ops[op];
+      expect(a.state).toBe("unimplemented");
+      expect("reason" in a && a.reason).toMatch(/desktop app/i);
+      expect(isUsable(a)).toBe(false);
+    }
+  });
+
+  it("both operations are in the completeness table", () => {
+    expect(ALL_OPERATIONS).toContain("liveAssist.submit");
+    expect(ALL_OPERATIONS).toContain("liveAssist.choose");
+  });
+});

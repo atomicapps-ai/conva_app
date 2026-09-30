@@ -70,6 +70,10 @@ tauri-plugin-deep-link = "2"
 # (a zip of XML — we unzip and strip tags ourselves).
 pdf-extract = "0.7"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# Spreadsheet ingestion: CSV/TSV and XLSX/XLSM readers. They only turn bytes
+# into cells; typing and arithmetic live in conva-core (exact decimals).
+csv = "1"
+calamine = { version = "0.36", default-features = false }
 # Native file-picker for the RAG library "Add documents" button.
 tauri-plugin-dialog = "2"
 fastembed = "4"

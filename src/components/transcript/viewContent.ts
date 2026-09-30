@@ -30,7 +30,9 @@ function splitBackground(text: string): { answer: string; background: string } {
 /** Up to two sentences of `paragraph`, capped at [`MAX_SAY_NOW`] chars. */
 function leadSentences(paragraph: string): { lead: string; rest: string } {
   const flat = paragraph.replace(/\s+/g, " ").trim();
-  const sentences = flat.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) ?? [flat];
+  // A terminator only ends a sentence when whitespace or the end follows it,
+  // so the dot in a file name ("sales.csv") or a number ("3.5") stays inside.
+  const sentences = flat.match(/.+?(?:[.!?]+(?=\s|$)|$)/g) ?? [flat];
   let lead = "";
   let used = 0;
   for (const raw of sentences) {

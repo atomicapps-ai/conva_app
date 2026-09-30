@@ -31,6 +31,7 @@ import type {
   ConversationContext,
   KnowledgeProfile,
   IngestReport,
+  LiveAssistAck,
   ModelInfo,
   PartnerPayload,
   ProviderId,
@@ -525,6 +526,27 @@ export function contextGenerateDossier(
 /** Reconstruct a library document's text (e.g. to show the prep dossier). */
 export function ragDocumentText(id: string): Promise<string | null> {
   return invoke<string | null>("rag_document_text", { id });
+}
+
+/**
+ * Offer a typed question to the live-assist coordinator. `handled: false`
+ * means it is not a data request for a spreadsheet attached to the active
+ * Context, so the caller asks Ally as usual. The answer arrives as
+ * `conva://live-assist` events, not as this command's result.
+ */
+export function liveAssistSubmit(text: string): Promise<LiveAssistAck> {
+  return invoke<LiveAssistAck>("live_assist_submit", { text });
+}
+
+/** Answer a live-assist question (which column, which file). */
+export function liveAssistChoose(
+  resultId: string,
+  optionId: string,
+): Promise<void> {
+  return invoke<void>("live_assist_choose", {
+    resultId,
+    optionId,
+  });
 }
 
 /** Generate 3 counterparty personas with the configured LLM. */

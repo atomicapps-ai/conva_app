@@ -704,3 +704,30 @@ describe("WebBackend — .cva archive (Checkpoint E: inspect + Context-scope exp
     expect(archiveWasm.registerLocalArchiveFile).toHaveBeenCalledWith(bytes);
   });
 });
+
+describe("WebBackend — live assist is honestly absent", () => {
+  it("answers a typed question with 'not mine' so it falls through to Ally, without any network call", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      const b = new WebBackend(chromeWindows);
+      await expect(b.liveAssist.submit("total amount per district")).resolves.toEqual({
+        handled: false,
+      });
+      expect(fetchSpy).not.toHaveBeenCalledWith(expect.stringContaining("live-assist"), expect.anything());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects a choice as not implemented, and says so in the capability snapshot", async () => {
+    const b = new WebBackend(chromeWindows);
+    await expect(b.liveAssist.choose("la-1", "1")).rejects.toMatchObject({
+      name: "UnimplementedOnWebError",
+    });
+    const ops = b.capabilityStore.snapshot().operations;
+    expect(ops["liveAssist.submit"].state).toBe("unimplemented");
+    expect(ops["liveAssist.choose"].state).toBe("unimplemented");
+    await expect(b.capabilities()).resolves.toMatchObject({ rag: { tableAggregation: false } });
+  });
+});

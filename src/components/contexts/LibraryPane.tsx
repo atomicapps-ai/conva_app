@@ -8,6 +8,7 @@ import {
   type LibraryFilter,
 } from "@/components/contexts/libraryFilter";
 import { Icon } from "@/components/ui/Icon";
+import { TableBadge } from "@/components/contexts/TableBadge";
 import { DocumentTypeIcon } from "@/components/ui/DocumentTypeIcon";
 import { isImageDocument } from "@/components/contexts/documentVisual";
 import { useBackend } from "@/lib/backend";
@@ -17,8 +18,11 @@ import { isTauri } from "@/lib/ipc";
 import { useConversationStore } from "@/state/conversation";
 
 const TEXT_SUPPORTED = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
+/** Spreadsheets carry a typed table for exact totals. Desktop only for now:
+ *  the hosted library stores text, so the web picker does not offer them. */
+const TABLE_SUPPORTED = ["csv", "tsv", "xlsx", "xlsm"];
 const IMAGE_SUPPORTED = ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tif", "tiff", "heic"];
-const DESKTOP_SUPPORTED = [...TEXT_SUPPORTED, ...IMAGE_SUPPORTED];
+const DESKTOP_SUPPORTED = [...TEXT_SUPPORTED, ...TABLE_SUPPORTED, ...IMAGE_SUPPORTED];
 /** The custom drag payload MIME a library row carries — read by ContextsPane
  * rows to attach the dragged document. Reinstated (owner decision,
  * 2026-08-16) now that Library sits next to Contexts on one screen again —
@@ -454,7 +458,7 @@ export function LibraryPane({
     const { open } = await import("@tauri-apps/plugin-dialog");
     const picked = await open({
       multiple: true,
-      filters: [{ name: "Documents and images", extensions: [...DESKTOP_SUPPORTED] }],
+      filters: [{ name: "Documents, spreadsheets and images", extensions: [...DESKTOP_SUPPORTED] }],
     });
     if (picked) void ingest(Array.isArray(picked) ? picked : [picked]);
   };
@@ -605,6 +609,7 @@ export function LibraryPane({
           >
             {doc.file_name}
           </span>
+          <TableBadge doc={doc} />
         </span>
 
         {page && (

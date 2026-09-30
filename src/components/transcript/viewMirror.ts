@@ -23,6 +23,9 @@ export function toViewItem(item: AllyFocusItem): ViewItem {
     tier: item.tier ?? null,
     kind: item.kind ?? null,
     facts: item.facts ?? [],
+    table: item.table ?? null,
+    choice: item.choice ?? null,
+    stale: item.stale ?? false,
   };
 }
 
@@ -40,6 +43,9 @@ export function fromViewItem(item: ViewItem): AllyFocusItem {
     ...(item.tier ? { tier: item.tier } : {}),
     ...(item.kind ? { kind: item.kind } : {}),
     ...(item.facts.length > 0 ? { facts: item.facts } : {}),
+    ...(item.table ? { table: item.table } : {}),
+    ...(item.choice ? { choice: item.choice } : {}),
+    ...(item.stale ? { stale: true } : {}),
   };
 }
 

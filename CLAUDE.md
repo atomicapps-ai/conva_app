@@ -86,7 +86,11 @@ swap a layer without asking the owner.**
 7. **RAG is best-effort hybrid.** Retrieval fuses BM25 + cosine (RRF) and
    **degrades to BM25-only** when the embedder isn't ready — hybrid is an
    upgrade, never a hard dependency. Text ingestion supports pdf/docx/md/txt/html
-   plus pasted text (stored as `.txt`). Common image formats are retained as
+   plus pasted text (stored as `.txt`) and CSV/TSV/XLSX/XLSM spreadsheets, which
+   are stored twice: as prose chunks (normal search) AND as a typed table
+   (`rag/tables/<id>.table`, `tables.rs`) so totals are computed by exact decimal
+   arithmetic in `conva-core` — **never by a language model, and never in f64**
+   (see `conva_core/docs/technical/faner-table-answers.md`). Common image formats are retained as
    visual Library assets with explicit non-searchable status until OCR/vision
    indexing is configured — never fake an image into text retrieval.
 8. **In-app HTML5 drag-and-drop (Library row → Contexts row) needs
@@ -211,6 +215,14 @@ swap a layer without asking the owner.**
       `HighlightedText`'s clickable term underlines REMAIN, capture chips
       remain in Terms, but no `FanerMark`-style inline capture underlines/
       popovers in bubbles — don't reintroduce them.
+    - **Computed answers (spreadsheet totals) also land in 4.** The
+      live-assist coordinator (`live_assist.rs`, `conva://live-assist`) emits a
+      holding response, then a source-linked grid under the same result id;
+      `itemFromLiveAssist` turns it into a View item (a heard question takes
+      its Questions row's identity, `found:q-<turn>`), `ViewPanel` draws it with
+      `GridAnswer`, and a which-column question is answered with a `choose`
+      `ViewAction`. The radar never also asks a model for the figures
+      (`RadarEvent.computed`).
     - The partner window IS the viewer (owner, 2026-08-22, restated
       2026-09-29): every "open in viewer" affordance routes to it
       (`openThread` focuses the item in View; `backend.partner.open(...)`

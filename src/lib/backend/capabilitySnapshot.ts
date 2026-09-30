@@ -135,6 +135,8 @@ export const ALL_OPERATIONS = [
   "providers.test",
   "providers.listModels",
   "ally.run",
+  "liveAssist.submit",
+  "liveAssist.choose",
   "audio.listDevices",
   "audio.listWhisperModels",
   "audio.setDeepgramKey",
@@ -357,6 +359,8 @@ const FILE_PATHS = "Takes a desktop file path; a browser-safe download/upload de
 const NO_KEYRING = "BYO keys need the OS keyring — the web uses hosted inference.";
 const NO_OS_WINDOW = "A browser tab cannot spawn or control an OS window.";
 const NO_FS = "No local file system in a browser tab.";
+const NO_TABLES =
+  "Spreadsheet totals need the typed-table pipeline, which only the desktop app has so far. The file's text is still searchable.";
 const NO_LOCAL_ASR = "Local whisper checkpoints are a desktop capability.";
 
 /**
@@ -441,6 +445,10 @@ export function webOperations(): OperationAvailability {
     "providers.listModels": unimplemented(M1),
     // Flipped at runtime by WebBackend from GET /api/live/status `ally` (M2 cp3).
     "ally.run": unimplemented(M1),
+    // Spreadsheet totals need the typed-table pipeline; the web library only
+    // stores text so far, so both operations say so instead of half-working.
+    "liveAssist.submit": unimplemented(NO_TABLES),
+    "liveAssist.choose": unimplemented(NO_TABLES),
     "audio.listDevices": unimplemented(M2),
     "audio.listWhisperModels": unsupported(NO_LOCAL_ASR),
     "audio.setDeepgramKey": unsupported("ASR keys are held server-side on the web."),

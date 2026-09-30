@@ -568,3 +568,89 @@ describe("PartnerWindow View (4) tab", () => {
     expect(screen.getByRole("tab", { name: "View" })).toBeInTheDocument();
   });
 });
+
+
+describe("PartnerWindow View (4) — live assist grid", () => {
+  const wireItem = (over: Partial<import("@/lib/ipc").ViewItem> = {}) => ({
+    id: "found:q-s1:them:4",
+    group: "question" as const,
+    question: "What's the total amount per district?",
+    answer: "The total amount is $439,519.85.",
+    source_label: "Table answer",
+    source_files: ["Q3-district-sales.csv"],
+    status: "ready" as const,
+    card_id: null,
+    found_id: "q-s1:them:4",
+    tier: null,
+    kind: null,
+    facts: [],
+    ...over,
+  });
+  const state = (item: ReturnType<typeof wireItem>) => ({
+    items: [item],
+    active_id: item.id,
+    pinned_ids: [] as string[],
+  });
+
+  beforeEach(() => {
+    useAllyStore.getState().clear();
+    for (const k of Object.keys(subscribers)) delete subscribers[k];
+    vi.clearAllMocks();
+    backend.partner.payload.mockResolvedValue(null);
+    backend.partner.locked.mockResolvedValue(true);
+    backend.rag.list.mockResolvedValue([]);
+  });
+
+  it("shows the holding response, then the grid when the main window pushes the finished result", async () => {
+    backend.partner.viewState.mockResolvedValue(
+      state(
+        wireItem({
+          answer: "One moment, I'm working that out from Q3-district-sales.csv.",
+          status: "streaming",
+        }),
+      ),
+    );
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Answering…");
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
+    const { DISTRICT_GRID } = await import("@/test/liveAssistFixtures");
+    await act(async () => {
+      subscribers["partnerViewState"]?.(state(wireItem({ table: DISTRICT_GRID })));
+    });
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getAllByText("$439,519.85").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status")).toHaveTextContent("Ready");
+  });
+
+  it("sends a tapped choice back to the main window as a 'choose' action", async () => {
+    backend.partner.viewState.mockResolvedValue(
+      state(
+        wireItem({
+          id: "assist:la-2",
+          found_id: null,
+          answer: "Let me check which one you mean.",
+          status: "instant",
+          choice: {
+            question: "Which column do you want to add up?",
+            options: [
+              { id: "1", label: "Amount", detail: "column 2" },
+              { id: "2", label: "Net amount", detail: "column 3" },
+            ],
+          },
+        }),
+      ),
+    );
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Net amount/ }));
+    expect(backend.partner.sendViewAction).toHaveBeenCalledWith({
+      kind: "choose",
+      id: "assist:la-2",
+      text: "2",
+    });
+  });
+});

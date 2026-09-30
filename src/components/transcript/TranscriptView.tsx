@@ -81,6 +81,7 @@ import {
   type SpeakerKind,
 } from "@/state/speakers";
 import { useCapabilities } from "@/lib/backend/context";
+import { useLiveAssistStore } from "@/state/liveAssist";
 import {
   useTranscriptStability,
   type StabilityUnit,
@@ -2171,9 +2172,20 @@ export function TranscriptView({
     () => Object.values(activeByType).filter((i): i is FoundItem => i != null),
     [activeByType],
   );
+  const assistResults = useLiveAssistStore((s) => s.results);
   const focusItems = useMemo(
-    () => buildAllyFocusItems(cards, activeItemsList),
-    [cards, activeItemsList],
+    () => buildAllyFocusItems(cards, activeItemsList, assistResults),
+    [cards, activeItemsList, assistResults],
+  );
+  // Answer a live-assist question (which column, which file). The continued
+  // result arrives as a new revision of the same result id.
+  const chooseFocus = useCallback(
+    (item: AllyFocusItem, optionId: string) => {
+      if (item.resultId) {
+        void backend.liveAssist.choose(item.resultId, optionId).catch(() => {});
+      }
+    },
+    [backend],
   );
 
   // Auto-select a freshly-created item so it's what the user sees — not just
@@ -2409,6 +2421,7 @@ export function TranscriptView({
     pin: (_id: string) => {},
     elaborate: (_item: AllyFocusItem) => {},
     ask: (_item: AllyFocusItem, _text: string) => {},
+    choose: (_item: AllyFocusItem, _optionId: string) => {},
     find: (_id: string): AllyFocusItem | undefined => undefined,
   });
   viewActionHandlers.current = {
@@ -2416,6 +2429,7 @@ export function TranscriptView({
     pin: toggleFocusPin,
     elaborate: refreshFocus,
     ask: askFocus,
+    choose: chooseFocus,
     find: (id) => focusItems.find((item) => item.id === id),
   };
   useEffect(() => {
@@ -2430,7 +2444,9 @@ export function TranscriptView({
         const item = h.find(action.id);
         if (!item) return;
         if (action.kind === "elaborate") h.elaborate(item);
-        else if (action.text) h.ask(item, action.text);
+        else if (action.kind === "choose") {
+          if (action.text) h.choose(item, action.text);
+        } else if (action.text) h.ask(item, action.text);
       })
       .then((un) => {
         if (alive) unsub = un;
@@ -2460,10 +2476,22 @@ export function TranscriptView({
   // Drop a selection into the Ask-Ally box so the user can build a question.
   const sendToAsk = useCallback((text: string) => setAsk(text), []);
 
+  const tableAggregation = Boolean(caps?.rag.tableAggregation);
   const submitAsk = () => {
     const q = ask.trim();
     if (!q) return;
     setAsk("");
+    // A data request for an attached spreadsheet is computed exactly (live
+    // assist), never answered by a model. Anything else goes to Ally as before.
+    if (tableAggregation) {
+      void backend.liveAssist
+        .submit(q)
+        .then((ack) => {
+          if (!ack.handled) void requestVisible("question", q);
+        })
+        .catch(() => void requestVisible("question", q));
+      return;
+    }
     void requestVisible("question", q);
   };
 
@@ -2915,6 +2943,7 @@ export function TranscriptView({
             setReasoningDefaultOpen={setReasoningDefaultOpen}
             clearAlly={() => {
               clearAlly();
+              useLiveAssistStore.getState().clear();
               setActiveByType({});
               setPinnedFocusIds(new Set());
             }}
@@ -2929,6 +2958,7 @@ export function TranscriptView({
                   onTogglePin={toggleFocusPin}
                   onRefresh={refreshFocus}
                   onAsk={askFocus}
+                  onChoose={chooseFocus}
                 />
               )
             }
