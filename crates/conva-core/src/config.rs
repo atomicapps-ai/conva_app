@@ -24,6 +24,10 @@ pub struct AppConfig {
     /// User acknowledged the recording-consent notice (§7.1). The app will
     /// not start a capture session while this is false.
     pub consent_acknowledged: bool,
+    /// The first-run "How should Ally think?" choice has been made or skipped.
+    /// False on a fresh install; the screen is shown once and never forced
+    /// again (Settings → Ally keeps the same controls).
+    pub ai_setup_completed: bool,
     /// Preferred microphone device name (`None` = system default; A3).
     pub input_device: Option<String>,
     /// Preferred loopback source — an OUTPUT device whose playback is
@@ -82,6 +86,7 @@ impl Default for AppConfig {
                 model: default_provider.default_fast_model.to_string(),
             }),
             consent_acknowledged: false,
+            ai_setup_completed: false,
             input_device: None,
             loopback_device: None,
             tracker_enabled: true,
@@ -113,7 +118,7 @@ mod tests {
         let cfg = AppConfig::default();
         assert_eq!(cfg.asr_engine, AsrEngineId::WhisperLocal);
         assert_eq!(cfg.llm_quality.provider, ProviderId::Anthropic);
-        assert_eq!(cfg.llm_quality.model, "claude-sonnet-5");
+        assert_eq!(cfg.llm_quality.model, "claude-sonnet-5-5");
         assert_eq!(cfg.fast_selection().model, "claude-haiku-4-5");
         assert!(!cfg.consent_acknowledged, "consent must be opt-in");
     }

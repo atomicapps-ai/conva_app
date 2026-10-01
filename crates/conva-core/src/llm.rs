@@ -49,7 +49,7 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
         ProviderInfo {
             id: ProviderId::Anthropic,
             name: "Anthropic Claude",
-            default_quality_model: "claude-sonnet-5",
+            default_quality_model: "claude-sonnet-5-5",
             default_fast_model: "claude-haiku-4-5",
             requires_api_key: true,
             is_local: false,

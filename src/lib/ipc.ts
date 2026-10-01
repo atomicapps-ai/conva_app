@@ -1018,6 +1018,8 @@ export interface AppConfig {
   llm_quality: ModelSelection;
   llm_fast: ModelSelection | null;
   consent_acknowledged: boolean;
+  /** The first-run "How should Ally think?" choice was made or skipped. */
+  ai_setup_completed: boolean;
   input_device: string | null;
   loopback_device: string | null;
   tracker_enabled: boolean;
