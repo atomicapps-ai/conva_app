@@ -144,6 +144,9 @@ pub fn classify_evidence(query: &str, chunks: &[ScoredChunk]) -> crate::bridge::
 
 /// The retrieval boundary used by the LLM orchestrator. Budget: <15 ms for
 /// `retrieve` at k=8 on a warm store (§2.5).
+// async_trait boxes each method's future and tags it `#[must_use]`; Rust 1.99's
+// clippy::double_must_use now flags that on the generated code. Not ours to fix.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait RagStore: Send + Sync {
     async fn ingest(&self, path: &str) -> Result<IngestReport, CoreError>;
