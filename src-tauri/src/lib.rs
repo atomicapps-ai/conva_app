@@ -459,7 +459,17 @@ async fn test_provider(provider: ProviderId, model: String) -> Result<u32, Strin
 async fn list_provider_models(provider: ProviderId) -> Result<Vec<ModelInfo>, String> {
     let key = resolve_key(provider)?;
     tauri::async_runtime::spawn_blocking(move || {
-        llm::list_models(provider, &key).map_err(|e| e.to_string())
+        let live = llm::list_models(provider, &key).map_err(|e| e.to_string())?;
+        // Chat models only, with the curated default first (so the pickers
+        // always preselect it, e.g. Sonnet 5.5 for Anthropic).
+        let default = provider_registry()
+            .into_iter()
+            .find(|p| p.id == provider)
+            .map(|p| p.default_quality_model)
+            .unwrap_or_default();
+        Ok(conva_core::model_catalog::build_catalog(
+            provider, default, live,
+        ))
     })
     .await
     .map_err(|e| e.to_string())?

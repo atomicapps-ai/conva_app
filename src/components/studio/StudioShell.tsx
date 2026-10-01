@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ConsentGate } from "@/components/ConsentGate";
+import { FirstRunAiGate } from "@/components/FirstRunAiGate";
 import { PreparingOverlay } from "@/components/PreparingOverlay";
 import { RehearsalBar } from "@/components/context/RehearsalBar";
 import { SaveConversationDialog } from "@/components/SaveConversationDialog";
@@ -148,6 +149,7 @@ export function StudioShell() {
       {/* Overlays — render above any view. */}
       <RehearsalBar />
       <ConsentGate />
+      <FirstRunAiGate />
       <PreparingOverlay />
       <SaveConversationDialog />
       <CommandPalette />

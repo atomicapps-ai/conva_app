@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
 import { useBackend } from "@/lib/backend";
-import type { ModelSelection, ProviderId } from "@/lib/ipc";
+import { mergeModelOptions, modelLabel } from "@/lib/firstRunAi";
+import type { ModelInfo, ModelSelection, ProviderId } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 
 /**
@@ -23,14 +24,12 @@ function SlotEditor({
   const backend = useBackend();
   const registry = useAppStore((s) => s.registry);
   const keyStatus = useAppStore((s) => s.keyStatus);
-  const [liveModels, setLiveModels] = useState<string[]>([]);
+  const [liveModels, setLiveModels] = useState<ModelInfo[]>([]);
   const provider = registry.find((p) => p.id === value.provider);
 
-  // Curated defaults always present; live list merges in when fetchable.
-  const curated = provider
-    ? [...new Set([provider.default_quality_model, provider.default_fast_model])]
-    : [];
-  const models = [...new Set([...curated, ...liveModels, value.model])];
+  // Curated defaults always present; the provider's live list (refetched
+  // whenever the key or provider changes) merges in when fetchable.
+  const models = provider ? mergeModelOptions(provider, liveModels, value.model) : [];
 
   useEffect(() => {
     setLiveModels([]);
@@ -38,7 +37,7 @@ function SlotEditor({
     let cancelled = false;
     backend.providers.listModels(value.provider)
       .then((list) => {
-        if (!cancelled) setLiveModels(list.map((m) => m.id));
+        if (!cancelled) setLiveModels(list);
       })
       .catch(() => {
         /* curated defaults remain */
@@ -79,8 +78,8 @@ function SlotEditor({
           onChange={(e) => onChange({ ...value, model: e.target.value })}
         >
           {models.map((m) => (
-            <option key={m} value={m}>
-              {m}
+            <option key={m.id} value={m.id}>
+              {modelLabel(m)}
             </option>
           ))}
         </select>

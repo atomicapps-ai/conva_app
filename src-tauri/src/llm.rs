@@ -66,22 +66,26 @@ pub fn validate_key(provider: ProviderId, api_key: &str, model: &str) -> Result<
     first.ok_or_else(|| CoreError::Llm("no tokens returned".into()))
 }
 
-/// Live model list where the provider offers one (§4.6). Errors and
-/// unsupported providers fall back to the curated defaults UI-side.
+/// Live model list from the provider's own API (§4.6), so new models appear
+/// without an app release. Callers pass the result through
+/// `conva_core::model_catalog::build_catalog`, which filters to chat models and
+/// keeps the curated default first; on any error the UI falls back to the
+/// curated defaults alone.
 pub fn list_models(provider: ProviderId, api_key: &str) -> Result<Vec<ModelInfo>, CoreError> {
     let (url, auth_header) = match provider {
         ProviderId::Anthropic => (
-            "https://api.anthropic.com/v1/models".to_string(),
+            "https://api.anthropic.com/v1/models?limit=100".to_string(),
             ("x-api-key", api_key.to_string()),
         ),
         ProviderId::Openai | ProviderId::Xai | ProviderId::Deepseek | ProviderId::OllamaLocal => (
             format!("{}/models", openai_base(provider)),
             ("Authorization", format!("Bearer {api_key}")),
         ),
-        ProviderId::Google => {
-            // Gemini's list API shape differs; curated defaults suffice.
-            return Err(CoreError::Llm("model list unsupported".into()));
-        }
+        // The key travels in a header, never in the URL, so it cannot land in logs.
+        ProviderId::Google => (
+            "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200".to_string(),
+            ("x-goog-api-key", api_key.to_string()),
+        ),
     };
 
     let mut req = ureq::get(&url).timeout(HTTP_TIMEOUT);
@@ -95,23 +99,61 @@ pub fn list_models(provider: ProviderId, api_key: &str) -> Result<Vec<ModelInfo>
         .into_json()
         .map_err(|e| CoreError::Llm(e.to_string()))?;
 
-    let models = body["data"]
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|m| m["id"].as_str())
-                .map(|id| ModelInfo {
-                    id: id.to_string(),
-                    display_name: id.to_string(),
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let models = parse_model_list(provider, &body);
     if models.is_empty() {
         return Err(CoreError::Llm("empty model list".into()));
     }
     Ok(models)
+}
+
+/// Pull `(id, display name)` pairs out of a provider's list response. Pure, so
+/// the three response shapes are unit-tested without a network.
+fn parse_model_list(provider: ProviderId, body: &Value) -> Vec<ModelInfo> {
+    match provider {
+        ProviderId::Google => body["models"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter(|m| {
+                        // Only models that can generate text; embedding and
+                        // retrieval models do not list `generateContent`.
+                        m["supportedGenerationMethods"]
+                            .as_array()
+                            .map(|a| a.iter().any(|x| x == "generateContent"))
+                            .unwrap_or(false)
+                    })
+                    .filter_map(|m| {
+                        let id = m["name"].as_str()?;
+                        let id = id.strip_prefix("models/").unwrap_or(id).to_string();
+                        let display_name = m["displayName"]
+                            .as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| id.clone());
+                        Some(ModelInfo { id, display_name })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => body["data"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|m| {
+                        let id = m["id"].as_str()?.to_string();
+                        // Anthropic returns a friendly `display_name`; the
+                        // OpenAI-compatible lists do not.
+                        let display_name = m["display_name"]
+                            .as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| id.clone());
+                        Some(ModelInfo { id, display_name })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
 }
 
 fn map_ureq(e: ureq::Error) -> CoreError {
@@ -152,6 +194,14 @@ fn for_each_sse_data(
 
 // ---------------------------------------------------------------- Anthropic
 
+/// Adds the model-specific `thinking` control (see
+/// [`conva_core::llm::anthropic_thinking_override`]) to a request body.
+fn apply_thinking_override(body: &mut Value, model: &str) {
+    if let Some(thinking) = conva_core::llm::anthropic_thinking_override(model) {
+        body["thinking"] = thinking;
+    }
+}
+
 fn anthropic_stream(
     api_key: &str,
     model: &str,
@@ -159,18 +209,20 @@ fn anthropic_stream(
     on_token: &mut dyn FnMut(&str),
     usage: &mut TokenUsage,
 ) -> Result<(), CoreError> {
+    let mut body = json!({
+        "model": model,
+        "max_tokens": request.max_tokens,
+        "system": request.system,
+        "messages": [{"role": "user", "content": request.user}],
+        "stream": true,
+    });
+    apply_thinking_override(&mut body, model);
     let response = ureq::post("https://api.anthropic.com/v1/messages")
         .timeout(HTTP_TIMEOUT)
         .set("x-api-key", api_key)
         .set("anthropic-version", "2023-06-01")
         .set("content-type", "application/json")
-        .send_json(json!({
-            "model": model,
-            "max_tokens": request.max_tokens,
-            "system": request.system,
-            "messages": [{"role": "user", "content": request.user}],
-            "stream": true,
-        }))
+        .send_json(body)
         .map_err(map_ureq)?;
 
     // Anthropic reports input tokens in `message_start` and the (cumulative)
@@ -248,6 +300,7 @@ pub fn anthropic_stream_with_tools(
             "messages": messages,
             "stream": true,
         });
+        apply_thinking_override(&mut body, model);
         if offer_tools {
             body["tools"] = tools.clone();
         }
@@ -534,5 +587,71 @@ pub fn resolve_key(provider: ProviderId) -> Result<String, CoreError> {
         Some(key) => Ok(key),
         None if !requires_key => Ok(String::new()),
         None => Err(CoreError::Llm("api_key_missing".into())),
+    }
+}
+
+#[cfg(test)]
+mod model_list_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn anthropic_list_keeps_the_friendly_name() {
+        let body = json!({"data": [
+            {"id": "claude-sonnet-5-5", "display_name": "Claude Sonnet 5.5", "type": "model"},
+            {"id": "claude-haiku-4-5", "display_name": "Claude Haiku 4.5"}
+        ]});
+        let got = parse_model_list(ProviderId::Anthropic, &body);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].id, "claude-sonnet-5-5");
+        assert_eq!(got[0].display_name, "Claude Sonnet 5.5");
+    }
+
+    #[test]
+    fn openai_list_falls_back_to_the_id_as_the_name() {
+        let body = json!({"data": [{"id": "gpt-5.2", "object": "model"}]});
+        let got = parse_model_list(ProviderId::Openai, &body);
+        assert_eq!(got[0].display_name, "gpt-5.2");
+    }
+
+    #[test]
+    fn gemini_list_keeps_only_generate_content_models_and_strips_the_prefix() {
+        let body = json!({"models": [
+            {"name": "models/gemini-3-pro", "displayName": "Gemini 3 Pro",
+             "supportedGenerationMethods": ["generateContent", "countTokens"]},
+            {"name": "models/text-embedding-004",
+             "supportedGenerationMethods": ["embedContent"]},
+            {"name": "models/no-methods"}
+        ]});
+        let got = parse_model_list(ProviderId::Google, &body);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, "gemini-3-pro");
+        assert_eq!(got[0].display_name, "Gemini 3 Pro");
+    }
+
+    #[test]
+    fn an_unexpected_shape_yields_an_empty_list_not_a_panic() {
+        assert!(parse_model_list(ProviderId::Openai, &json!({"oops": 1})).is_empty());
+        assert!(parse_model_list(ProviderId::Google, &json!([])).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod thinking_body_tests {
+    use super::*;
+
+    #[test]
+    fn sonnet_5_5_body_carries_between_tools() {
+        let mut body = json!({"model": "claude-sonnet-5-5", "max_tokens": 700});
+        apply_thinking_override(&mut body, "claude-sonnet-5-5");
+        assert_eq!(body["thinking"], json!({"type": "between_tools"}));
+        assert_eq!(body["max_tokens"], 700, "other fields are untouched");
+    }
+
+    #[test]
+    fn haiku_body_is_left_alone() {
+        let mut body = json!({"model": "claude-haiku-4-5", "max_tokens": 700});
+        apply_thinking_override(&mut body, "claude-haiku-4-5");
+        assert!(body.get("thinking").is_none());
     }
 }

@@ -33,6 +33,7 @@ pub mod lexicon;
 pub mod llm;
 pub mod meaning_frame;
 pub mod metering;
+pub mod model_catalog;
 pub mod phrase;
 pub mod phrase_eval;
 pub mod prepared_qa;
