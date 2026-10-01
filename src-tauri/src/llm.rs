@@ -194,6 +194,14 @@ fn for_each_sse_data(
 
 // ---------------------------------------------------------------- Anthropic
 
+/// Adds the model-specific `thinking` control (see
+/// [`conva_core::llm::anthropic_thinking_override`]) to a request body.
+fn apply_thinking_override(body: &mut Value, model: &str) {
+    if let Some(thinking) = conva_core::llm::anthropic_thinking_override(model) {
+        body["thinking"] = thinking;
+    }
+}
+
 fn anthropic_stream(
     api_key: &str,
     model: &str,
@@ -201,18 +209,20 @@ fn anthropic_stream(
     on_token: &mut dyn FnMut(&str),
     usage: &mut TokenUsage,
 ) -> Result<(), CoreError> {
+    let mut body = json!({
+        "model": model,
+        "max_tokens": request.max_tokens,
+        "system": request.system,
+        "messages": [{"role": "user", "content": request.user}],
+        "stream": true,
+    });
+    apply_thinking_override(&mut body, model);
     let response = ureq::post("https://api.anthropic.com/v1/messages")
         .timeout(HTTP_TIMEOUT)
         .set("x-api-key", api_key)
         .set("anthropic-version", "2023-06-01")
         .set("content-type", "application/json")
-        .send_json(json!({
-            "model": model,
-            "max_tokens": request.max_tokens,
-            "system": request.system,
-            "messages": [{"role": "user", "content": request.user}],
-            "stream": true,
-        }))
+        .send_json(body)
         .map_err(map_ureq)?;
 
     // Anthropic reports input tokens in `message_start` and the (cumulative)
@@ -290,6 +300,7 @@ pub fn anthropic_stream_with_tools(
             "messages": messages,
             "stream": true,
         });
+        apply_thinking_override(&mut body, model);
         if offer_tools {
             body["tools"] = tools.clone();
         }
@@ -622,5 +633,25 @@ mod model_list_tests {
     fn an_unexpected_shape_yields_an_empty_list_not_a_panic() {
         assert!(parse_model_list(ProviderId::Openai, &json!({"oops": 1})).is_empty());
         assert!(parse_model_list(ProviderId::Google, &json!([])).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod thinking_body_tests {
+    use super::*;
+
+    #[test]
+    fn sonnet_5_5_body_carries_between_tools() {
+        let mut body = json!({"model": "claude-sonnet-5-5", "max_tokens": 700});
+        apply_thinking_override(&mut body, "claude-sonnet-5-5");
+        assert_eq!(body["thinking"], json!({"type": "between_tools"}));
+        assert_eq!(body["max_tokens"], 700, "other fields are untouched");
+    }
+
+    #[test]
+    fn haiku_body_is_left_alone() {
+        let mut body = json!({"model": "claude-haiku-4-5", "max_tokens": 700});
+        apply_thinking_override(&mut body, "claude-haiku-4-5");
+        assert!(body.get("thinking").is_none());
     }
 }
