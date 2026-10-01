@@ -18,6 +18,7 @@ mod events_flush;
 mod faner_debug;
 mod feedback;
 mod hud;
+mod live_assist;
 mod llm;
 mod metering;
 mod models;
@@ -31,6 +32,8 @@ mod secrets;
 mod semantic;
 mod session;
 mod splash;
+mod table_import;
+mod tables;
 mod telemetry_events;
 mod trace;
 mod tracker;
@@ -107,6 +110,9 @@ struct AppState {
     /// between documents by `archive::export_*`/`import_*`; see
     /// `archive_cancel`/the `archive_*` commands below).
     archive_cancelled: Mutex<HashSet<String>>,
+    /// Live Intelligence Coordinator: spreadsheet totals and other computed
+    /// answers, run off the audio and UI paths (see `live_assist.rs`).
+    live_assist: live_assist::LiveAssist,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -2194,6 +2200,32 @@ fn rag_document_text(state: State<AppState>, id: String) -> Option<String> {
     state.rag.document_text(&id)
 }
 
+/// Answer a typed question with a computed grid when it is a data request for
+/// a spreadsheet attached to the active Context. `handled: false` means it is
+/// not one and the caller should ask Ally as usual. Never blocks the UI: the
+/// table lookup runs on a blocking thread and the work itself on the
+/// live-assist worker.
+#[tauri::command]
+async fn live_assist_submit(
+    app: AppHandle,
+    text: String,
+) -> Result<conva_core::ipc::LiveAssistAck, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        state.live_assist.submit(&app, &text)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The user picked one option of a live-assist question (which column, which
+/// file). Fire-and-forget: the continued result arrives as a new revision of
+/// the same result id on `conva://live-assist`.
+#[tauri::command]
+fn live_assist_choose(state: State<AppState>, result_id: String, option_id: String) {
+    state.live_assist.choose(result_id, option_id);
+}
+
 /// Generate 3 counterparty personas (Step 3) with the configured LLM, grounded
 /// in the Context's goal / type / job description. A favorited persona
 /// (owner, 2026-09-15) survives regeneration instead of being discarded with
@@ -3093,9 +3125,11 @@ pub fn run() {
                                     active_context_id: Mutex::new(None),
                                     active_lexicon: Mutex::new(None),
                                     archive_cancelled: Mutex::new(HashSet::new()),
+                                    live_assist: live_assist::LiveAssist::new(),
                                 }) {
                                     return Err("application state was already managed".into());
                                 }
+                                handle.state::<AppState>().live_assist.start(handle.clone());
 
                                 let cache_dir = data_dir.join("models");
                                 let _ = std::thread::Builder::new()
@@ -3239,6 +3273,8 @@ pub fn run() {
             context_load_profile,
             context_generate_dossier,
             rag_document_text,
+            live_assist_submit,
+            live_assist_choose,
             context_generate_personas,
             context_choose_persona,
             context_toggle_favorite_persona,

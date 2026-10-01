@@ -13,6 +13,7 @@ use conva_core::asr::TranscriptSegment;
 use conva_core::audio::StreamSide;
 use conva_core::bridge::bridge_response;
 use conva_core::ipc::{events, RadarEvent};
+use conva_core::live_assist::{looks_like_data_request, would_handle};
 use conva_core::prepared_qa::match_prepared_qa;
 use conva_core::radar::looks_like_question;
 use conva_core::rag::{classify_evidence, evidence_confidence};
@@ -78,6 +79,17 @@ fn run(
             sources.first().map(|source| source.text.as_str()),
         );
 
+        // A spreadsheet question is answered by exact arithmetic (live assist);
+        // flag it so the UI never asks a language model for the figures too.
+        // Same live table scope the coordinator uses, and the cheap textual gate
+        // first so ordinary questions never touch a table file.
+        let computed = looks_like_data_request(&segment.text) && {
+            let (tables, _) = crate::live_assist::active_tables(&app);
+            let table_refs: Vec<&conva_core::table::TableDataset> =
+                tables.iter().map(|t| t.as_ref()).collect();
+            would_handle(&segment.text, &table_refs)
+        };
+
         crate::trace::record(
             "faner_radar",
             started.elapsed().as_millis() as u64,
@@ -100,6 +112,7 @@ fn run(
                 confidence,
                 bridge,
                 sources,
+                computed,
             },
         );
     }

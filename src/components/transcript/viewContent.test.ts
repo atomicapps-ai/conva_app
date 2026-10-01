@@ -7,6 +7,24 @@ import {
   talkingPoints,
 } from "./viewContent";
 
+describe("splitAnswer — dots that do not end a sentence", () => {
+  it("keeps a file name inside its sentence", () => {
+    const r = splitAnswer("One moment, I'm working that out from Q3-district-sales.csv.");
+    expect(r.sayNow).toBe("One moment, I'm working that out from Q3-district-sales.csv.");
+    expect(r.points).toBe("");
+  });
+
+  it("keeps decimals and currency inside their sentence, and still splits real sentences", () => {
+    const r = splitAnswer(
+      "The total amount is $439,519.85. South is the largest at $141,875.25. A third sentence follows here.",
+    );
+    expect(r.sayNow).toBe(
+      "The total amount is $439,519.85. South is the largest at $141,875.25.",
+    );
+    expect(r.points).toBe("A third sentence follows here.");
+  });
+});
+
 describe("splitAnswer", () => {
   it("uses the first bullet as Say now and keeps the rest as points", () => {
     const r = splitAnswer("- **Retry** transient errors\n- Compensate per step\n- Alert on the rest");

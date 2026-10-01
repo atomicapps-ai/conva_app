@@ -478,6 +478,13 @@ export function PartnerWindow() {
                 text,
               })
             }
+            onChoose={(item, optionId) =>
+              void backend.partner.sendViewAction({
+                kind: "choose",
+                id: item.id,
+                text: optionId,
+              })
+            }
             onOpenSource={(file) => {
               const docId = docIdsByName.get(file);
               if (docId) openTab(documentTab(docId, file));

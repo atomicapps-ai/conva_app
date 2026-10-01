@@ -64,6 +64,22 @@ pub struct RagDocument {
     /// (`src/lib/formatBytes.ts`), never displays the raw number.
     #[serde(default)]
     pub size_bytes: u64,
+    /// Set for CSV / XLSX documents that also carry a typed table artifact
+    /// (`src-tauri/src/tables.rs`), so spreadsheet questions can be answered
+    /// by exact arithmetic. The prose chunks still exist for normal search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<TableInfo>,
+}
+
+/// What a document's typed table artifact holds — enough for the Library to
+/// show a "Table" badge and say honestly when a sheet can't be totalled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableInfo {
+    pub rows: u32,
+    pub columns: u32,
+    /// False when the sheet's structure can't be aggregated safely (merged
+    /// cells, no header row, ...). The document is still searchable as text.
+    pub supported: bool,
 }
 
 fn default_searchable() -> bool {

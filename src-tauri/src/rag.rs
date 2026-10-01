@@ -21,8 +21,11 @@ use serde::{Deserialize, Serialize};
 
 use conva_core::bm25::Bm25Index;
 use conva_core::chunk::chunk_text;
-use conva_core::rag::{DocSource, IngestReport, RagDocument, ScoredChunk};
+use conva_core::rag::{DocSource, IngestReport, RagDocument, ScoredChunk, TableInfo};
+use conva_core::table::TableDataset;
 use conva_core::CoreError;
+
+use crate::tables::TableStore;
 
 #[derive(Serialize, Deserialize)]
 struct StoredDocument {
@@ -49,6 +52,8 @@ struct CorpusEntry {
 pub struct RagStore {
     dir: PathBuf,
     inner: RwLock<Corpus>,
+    /// Typed table artifacts for CSV / XLSX documents (exact arithmetic).
+    tables: TableStore,
 }
 
 #[derive(Default)]
@@ -77,11 +82,20 @@ struct TextDocumentInput<'a> {
     size_bytes: u64,
     warnings: Vec<String>,
     indexable: bool,
+    /// The typed table read from a CSV / XLSX file, stored beside the prose.
+    table: Option<TableDataset>,
 }
 
 /// File extensions the ingestion pipeline understands (mirrors the UI's
 /// SUPPORTED list in RagPanel.tsx).
-const TEXT_EXTS: [&str; 7] = ["pdf", "docx", "md", "markdown", "txt", "html", "htm"];
+const TEXT_EXTS: [&str; 11] = [
+    "pdf", "docx", "md", "markdown", "txt", "html", "htm", "csv", "tsv", "xlsx", "xlsm",
+];
+
+/// Rows of a spreadsheet written into the searchable prose. The typed table
+/// artifact always keeps every row for exact arithmetic; only the text that
+/// feeds chunking and embeddings is capped.
+const TABLE_PROSE_MAX_ROWS: usize = 2_000;
 const IMAGE_EXTS: [&str; 10] = [
     "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tif", "tiff", "heic",
 ];
@@ -149,9 +163,11 @@ impl RagStore {
         // Originals live beside the chunk JSON so "download the file back"
         // works; missing dir on older stores is created here idempotently.
         fs::create_dir_all(dir.join("originals")).map_err(|e| CoreError::Rag(e.to_string()))?;
+        let tables = TableStore::open(&dir)?;
         Ok(Self {
             dir,
             inner: RwLock::new(Corpus::default()),
+            tables,
         })
     }
 
@@ -182,6 +198,11 @@ impl RagStore {
             let _ = self.set_enabled(&id, false);
         }
         let _ = fs::write(&marker, b"1");
+    }
+
+    /// Typed table artifacts (spreadsheet totals read from here).
+    pub fn tables(&self) -> &TableStore {
+        &self.tables
     }
 
     fn doc_path(&self, id: &str) -> PathBuf {
@@ -385,6 +406,10 @@ impl RagStore {
             return self.store_visual_asset(file_name, source, size_bytes);
         }
 
+        if crate::table_import::is_table_ext(&extension) {
+            return self.ingest_table(source, file_name, &extension);
+        }
+
         let (text, warnings) = extract_text(source)?;
         // The real on-disk file size, not the extracted text's byte length
         // — a PDF/DOCX's formatting/images make those meaningfully
@@ -401,6 +426,51 @@ impl RagStore {
             size_bytes,
             warnings,
             indexable: true,
+            table: None,
+        })
+    }
+
+    /// A CSV / XLSX file: keep the prose representation (so ordinary search
+    /// and Ally grounding still see it) AND store the typed table beside it
+    /// (so totals can be computed exactly, outside any model).
+    fn ingest_table(
+        &self,
+        source: &Path,
+        file_name: String,
+        extension: &str,
+    ) -> Result<IngestReport, CoreError> {
+        let dataset = crate::table_import::import_table(source, "pending", &file_name)
+            .map_err(CoreError::Rag)?;
+        if dataset.columns.is_empty() {
+            // Nothing readable at all (an empty sheet): there is no text to search either.
+            return Err(CoreError::Rag(format!("'{file_name}' has no data to read")));
+        }
+        let text = conva_core::table::table_prose(&dataset, TABLE_PROSE_MAX_ROWS);
+        let mut warnings = Vec::new();
+        if !dataset.is_supported() {
+            let why: Vec<&str> = dataset.unsupported.iter().map(|r| r.describe()).collect();
+            warnings.push(format!(
+                "stored for search only: totals are unavailable because {}",
+                why.join(" and ")
+            ));
+        }
+        if extension == "xlsx" || extension == "xlsm" {
+            for issue in &dataset.issues {
+                if issue.code == conva_core::table::IssueCode::OtherSheetsIgnored {
+                    warnings.push(issue.message.clone());
+                }
+            }
+        }
+        let size_bytes = fs::metadata(source).map(|m| m.len()).unwrap_or(0);
+        self.store_text_document(TextDocumentInput {
+            file_name,
+            text,
+            original: Original::File(source),
+            source: DocSource::File,
+            size_bytes,
+            warnings,
+            indexable: true,
+            table: Some(dataset),
         })
     }
 
@@ -422,6 +492,7 @@ impl RagStore {
             size_bytes,
             warnings: Vec::new(),
             indexable: true,
+            table: None,
         })
     }
 
@@ -449,6 +520,7 @@ impl RagStore {
             size_bytes,
             warnings: Vec::new(),
             indexable: true,
+            table: None,
         })?;
         self.attach_context(&report.document.id, context_id)?;
         report.document.context_ids = vec![context_id.to_string()];
@@ -476,6 +548,7 @@ impl RagStore {
             size_bytes: text.len() as u64,
             warnings: Vec::new(),
             indexable: false,
+            table: None,
         })?;
         self.attach_context(&report.document.id, context_id)?;
         report.document.context_ids = vec![context_id.to_string()];
@@ -497,6 +570,7 @@ impl RagStore {
             size_bytes,
             mut warnings,
             indexable,
+            table,
         } = input;
         let chunks = chunk_text(&text);
         if chunks.is_empty() {
@@ -525,6 +599,23 @@ impl RagStore {
         // many files at once) — a bare timestamp id collides and one
         // document would silently overwrite another.
         let id = next_document_id();
+        // Typed table first: if it can't be saved the document is still a
+        // perfectly good text document, and says so instead of promising totals.
+        let table_info = table.and_then(|mut t| {
+            t.doc_id = id.clone();
+            let info = TableInfo {
+                rows: t.rows.len() as u32,
+                columns: t.columns.len() as u32,
+                supported: t.is_supported(),
+            };
+            match self.tables.save(&t) {
+                Ok(()) => Some(info),
+                Err(e) => {
+                    warnings.push(format!("table data not saved — totals unavailable: {e}"));
+                    None
+                }
+            }
+        });
         let stored = StoredDocument {
             document: RagDocument {
                 id: id.clone(),
@@ -541,6 +632,7 @@ impl RagStore {
                 source,
                 context_ids: Vec::new(),
                 size_bytes,
+                table: table_info,
             },
             chunks: chunks
                 .into_iter()
@@ -591,6 +683,7 @@ impl RagStore {
                 source: DocSource::File,
                 context_ids: Vec::new(),
                 size_bytes,
+                table: None,
             },
             chunks: Vec::new(),
         };
@@ -671,6 +764,8 @@ impl RagStore {
         if let Some(original) = self.find_original(id) {
             let _ = fs::remove_file(original);
         }
+        // ...and the typed table artifact, if this was a spreadsheet.
+        self.tables.remove(id);
         self.reload()
     }
 
@@ -1084,6 +1179,157 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("conva-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    const SALES_CSV: &str = "District,Orders,Amount\nNorth,42,\"$128,430.50\"\nEast,37,\"$96,210.00\"\nSouth,51,\"$141,875.25\"\nWest,29,\"$73,004.10\"\n";
+
+    #[test]
+    fn spreadsheet_ingest_keeps_the_prose_and_stores_a_typed_table() {
+        let dir = temp_dir("sheet-ingest");
+        let csv = dir.join("Q3-district-sales.csv");
+        fs::write(&csv, SALES_CSV).unwrap();
+
+        let store = RagStore::open(&dir).unwrap();
+        let report = store.ingest(csv.to_str().unwrap()).unwrap();
+        let doc = report.document;
+        assert_eq!(
+            doc.table,
+            Some(TableInfo {
+                rows: 4,
+                columns: 3,
+                supported: true
+            })
+        );
+        assert!(doc.searchable && doc.chunk_count >= 1);
+
+        // Prose representation: ordinary search still finds the rows.
+        let text = store.document_text(&doc.id).unwrap();
+        assert!(
+            text.contains("Columns: District | Orders | Amount"),
+            "{text}"
+        );
+        store.set_enabled(&doc.id, true).unwrap();
+        assert!(!store.retrieve("North 128,430.50", 3).is_empty());
+
+        // Typed table: exact totals, scoped to the documents asked for.
+        assert!(store.tables().datasets_for(&[]).is_empty());
+        let scoped = store.tables().datasets_for(std::slice::from_ref(&doc.id));
+        assert_eq!(scoped.len(), 1);
+        let plan = match conva_core::table_query::plan_request(
+            &conva_core::table_query::parse_request("total amount per district").unwrap(),
+            &[scoped[0].as_ref()],
+        ) {
+            conva_core::table_query::PlanOutcome::Plan(p) => p,
+            other => panic!("{other:?}"),
+        };
+        let done = conva_core::live_assist::compute(&scoped[0], &plan).unwrap();
+        assert_eq!(done.grid.rows.last().unwrap().cells[1].text, "$439,519.85");
+
+        // The table info survives a reload from disk.
+        drop(store);
+        let reopened = RagStore::open(&dir).unwrap();
+        assert!(reopened
+            .list()
+            .iter()
+            .any(|d| d.id == doc.id && d.table.is_some()));
+
+        // Deleting the document deletes its table.
+        reopened.delete(&doc.id).unwrap();
+        assert!(reopened.tables().load(&doc.id).is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unsupported_sheet_stays_searchable_and_says_why() {
+        let dir = temp_dir("sheet-unsupported");
+        let csv = dir.join("numbers-only.csv");
+        // No heading row: the first row is all numbers.
+        fs::write(&csv, "1,2,3\n4,5,6\n").unwrap();
+        let store = RagStore::open(&dir).unwrap();
+        let report = store.ingest(csv.to_str().unwrap()).unwrap();
+        assert_eq!(
+            report.document.table.as_ref().map(|t| t.supported),
+            Some(false)
+        );
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.contains("totals are unavailable")),
+            "{:?}",
+            report.warnings
+        );
+        assert!(report.document.chunk_count >= 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_empty_sheet_is_refused_with_a_clear_reason() {
+        let dir = temp_dir("sheet-empty");
+        let csv = dir.join("empty.csv");
+        fs::write(&csv, "").unwrap();
+        let store = RagStore::open(&dir).unwrap();
+        let err = store.ingest(csv.to_str().unwrap()).unwrap_err();
+        assert!(err.to_string().contains("has no data to read"), "{err}");
+        assert!(store.list().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_huge_sheet_caps_its_prose_but_keeps_every_row_for_arithmetic() {
+        let dir = temp_dir("sheet-big");
+        let csv = dir.join("big.csv");
+        let mut body = String::from("District,Amount\n");
+        for i in 0..(TABLE_PROSE_MAX_ROWS + 500) {
+            body.push_str(&format!("D{},1.00\n", i % 7));
+        }
+        fs::write(&csv, body).unwrap();
+        let store = RagStore::open(&dir).unwrap();
+        let report = store.ingest(csv.to_str().unwrap()).unwrap();
+        let rows = (TABLE_PROSE_MAX_ROWS + 500) as u32;
+        assert_eq!(report.document.table.as_ref().map(|t| t.rows), Some(rows));
+        let text = store.document_text(&report.document.id).unwrap();
+        assert!(
+            text.contains("Showing the first"),
+            "prose should say it is capped"
+        );
+        let ds = store.tables().load(&report.document.id).unwrap();
+        assert_eq!(ds.rows.len() as u32, rows);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn documents_saved_before_tables_existed_still_load_without_one() {
+        let dir = temp_dir("sheet-legacy");
+        let store = RagStore::open(&dir).unwrap();
+        let legacy = serde_json::json!({
+            "document": {
+                "id": "doc-legacy-1", "file_name": "old.txt", "enabled": true,
+                "chunk_count": 1, "ingested_at_unix_ms": 1
+            },
+            "chunks": [{ "location": "p1", "text": "old note about warranty" }]
+        });
+        fs::write(
+            dir.join("rag").join("doc-legacy-1.json"),
+            legacy.to_string(),
+        )
+        .unwrap();
+        store.reload().unwrap();
+        let doc = store
+            .list()
+            .into_iter()
+            .find(|d| d.id == "doc-legacy-1")
+            .unwrap();
+        assert!(doc.table.is_none());
+        assert!(store.tables().load("doc-legacy-1").is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn ingest_text_stores_pasted_note_as_txt() {
         let dir = std::env::temp_dir().join(format!("conva-paste-test-{}", std::process::id()));
@@ -1283,6 +1529,7 @@ mod tests {
                 source: DocSource::File,
                 context_ids: Vec::new(),
                 size_bytes: 0,
+                table: None,
             },
             chunks: Vec::new(),
         };

@@ -39,6 +39,7 @@ import type {
   ConversationContext,
   KnowledgeProfile,
   IngestReport,
+  LiveAssistAck,
   ModelInfo,
   PartnerPayload,
   ViewAction,
@@ -128,6 +129,21 @@ export interface ConvaBackend {
       question: string | null,
       segments: TranscriptSegment[],
     ): Promise<void>;
+  };
+
+  /**
+   * Live assist: answers that need real computation, starting with exact
+   * spreadsheet totals over CSV / XLSX documents attached to the active
+   * Context. Results stream back as `liveAssist` events (a holding response,
+   * then the finished grid, under one `result_id`). Desktop only for now: the
+   * web reports both operations as `unimplemented`.
+   */
+  liveAssist: {
+    /** Offer a typed question. `handled: false` means it is not a data
+     *  request for any attached table; ask Ally as usual. */
+    submit(text: string): Promise<LiveAssistAck>;
+    /** Answer a `needs_choice` result (which column, which file). */
+    choose(resultId: string, optionId: string): Promise<void>;
   };
 
   /** Audio devices + ASR models. Layer 4 (local) on desktop. */

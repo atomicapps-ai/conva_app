@@ -9,6 +9,7 @@ import {
 } from "@/lib/ipc";
 import { hasTranscribedContent } from "@/lib/turns";
 import { useAllyStore } from "@/state/ally";
+import { useLiveAssistStore } from "@/state/liveAssist";
 import { useGroundingStore } from "@/state/grounding";
 import { useLiveTermsStore } from "@/state/liveTerms";
 import { useTranscriptStore, withLiveArchived } from "@/state/transcript";
@@ -91,6 +92,7 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
   discard: () => {
     get().newConversation();
     useAllyStore.getState().clear();
+    useLiveAssistStore.getState().clear();
     set({ savePromptOpen: false, pendingNew: false, notice: null });
   },
   setNotice: (notice) => set({ notice }),

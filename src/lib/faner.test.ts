@@ -62,3 +62,24 @@ describe("shouldAutoRefineRadar", () => {
     expect(shouldAutoRefineRadar(event("prepared_hit"))).toBe(false);
   });
 });
+
+describe("shouldAutoRefineRadar — computed answers", () => {
+  const miss: RadarEvent = {
+    turn_id: "session-1:them:4",
+    source_key: "inbound-4",
+    question: "What's the total amount per district?",
+    outcome: "miss",
+    confidence: 0,
+    bridge: { kind: "boundary", text: "I don't want to guess." },
+    sources: [],
+  };
+
+  it("never asks a model for figures that live assist is computing", () => {
+    expect(shouldAutoRefineRadar({ ...miss, computed: true })).toBe(false);
+  });
+
+  it("treats an event from an older emitter (no flag) as before", () => {
+    expect(shouldAutoRefineRadar(miss)).toBe(true);
+    expect(shouldAutoRefineRadar({ ...miss, computed: false })).toBe(true);
+  });
+});

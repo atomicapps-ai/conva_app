@@ -1,4 +1,5 @@
 import type { FoundItem } from "@/components/transcript/foundGroups";
+import type { GridPayload, LiveAssistResult, ViewChoice } from "@/lib/ipc";
 import type { PanelSectionId } from "@/components/transcript/panelSections";
 import { uniqueSourceFiles, type AllyCard } from "@/state/ally";
 
@@ -45,6 +46,16 @@ export interface AllyFocusItem {
   kind?: "concept" | "problem";
   /** Labelled facts (a commitment's who / when). */
   facts?: AllyFocusFact[];
+  /** A computed grid answer (spreadsheet totals). `answer` still holds the
+   *  speakable Say-now line, so anything that ignores `table` degrades to text. */
+  table?: GridPayload;
+  /** A question waiting on the user's pick (which column, which file). */
+  choice?: ViewChoice;
+  /** A newer question replaced this live-assist result. */
+  stale?: boolean;
+  /** The live-assist result behind this item, when there is one. Main window
+   *  only: the partner window answers a choice by item id instead. */
+  resultId?: string;
 }
 
 export function isTermDefinitionCard(
@@ -144,6 +155,58 @@ function itemFromFoundItem(item: FoundItem): AllyFocusItem | null {
   return null;
 }
 
+const ASSIST_STATUS: Record<LiveAssistResult["lifecycle"], AllyFocusStatus> = {
+  provisional: "streaming",
+  needs_choice: "instant",
+  complete: "ready",
+  declined: "ready",
+  failed: "error",
+  superseded: "ready",
+};
+
+/**
+ * The View item for a live-assist result. Heard questions take the identity
+ * of their Questions-list row (`found:q-<turn id>`, the radar's own turn id),
+ * so clicking that row shows the grid instead of the radar bridge; typed
+ * questions get their own `assist:` item.
+ */
+export function itemFromLiveAssist(result: LiveAssistResult): AllyFocusItem {
+  const payload = result.payload ?? null;
+  const heard = result.correlation_id.includes(":them:");
+  const text = payload?.type === "text" ? payload.text : "";
+  const sayNow = result.say_now?.trim() ?? "";
+  // Say now first; any longer explanation follows as the body.
+  const answer =
+    result.lifecycle === "failed" || result.lifecycle === "declined"
+      ? [sayNow, text].filter(Boolean).join("\n\n")
+      : result.lifecycle === "provisional"
+        ? [sayNow, text].filter(Boolean).join("\n\n")
+        : sayNow;
+  let table: GridPayload | undefined;
+  if (payload?.type === "grid") {
+    const { type: _type, ...grid } = payload;
+    table = grid;
+  }
+  const choice: ViewChoice | undefined =
+    payload?.type === "choice"
+      ? { question: payload.question, options: payload.options }
+      : undefined;
+  return {
+    id: heard ? `found:q-${result.correlation_id}` : `assist:${result.result_id}`,
+    group: "question",
+    question: result.question,
+    answer,
+    sourceLabel: "Table answer",
+    sourceFiles: table?.source_files ?? [],
+    status: ASSIST_STATUS[result.lifecycle],
+    ...(heard ? { foundId: `q-${result.correlation_id}` } : {}),
+    ...(table ? { table } : {}),
+    ...(choice ? { choice } : {}),
+    ...(result.lifecycle === "superseded" ? { stale: true } : {}),
+    resultId: result.result_id,
+  };
+}
+
 /**
  * All material eligible for the View panel — Questions, Terms, and Tracking
  * alike (owner, 2026-09-28; term definitions used to be excluded here and
@@ -159,9 +222,20 @@ function itemFromFoundItem(item: FoundItem): AllyFocusItem | null {
 export function buildAllyFocusItems(
   cards: readonly AllyCard[],
   activeItems: readonly FoundItem[],
+  assist: readonly LiveAssistResult[] = [],
 ): AllyFocusItem[] {
   const items: AllyFocusItem[] = [];
   const seen = new Set<string>();
+
+  // Computed answers first (newest first, like cards). A heard question's
+  // result shares its id with that question's radar item, so the radar item
+  // below is skipped and the row shows the grid.
+  for (const result of [...assist].reverse()) {
+    const item = itemFromLiveAssist(result);
+    if (seen.has(item.id)) continue;
+    items.push(item);
+    seen.add(item.id);
+  }
 
   for (const card of cards) {
     const item = itemFromCard(card);

@@ -11,6 +11,11 @@ import {
   splitAnswer,
   talkingPoints,
 } from "@/components/transcript/viewContent";
+import {
+  ChoicePrompt,
+  GridAnswer,
+  gridAsText,
+} from "@/components/transcript/GridAnswer";
 import { Icon } from "@/components/ui/Icon";
 import { AnswerBody, inlineMd } from "@/lib/allyMarkdown";
 
@@ -74,6 +79,7 @@ export function ViewPanel({
   onOpenSource,
   canOpenSource = () => true,
   onAsk,
+  onChoose,
 }: {
   items: readonly AllyFocusItem[];
   activeId: string | null;
@@ -88,6 +94,8 @@ export function ViewPanel({
   canOpenSource?: (fileName: string) => boolean;
   /** Follow-up question about the active item — omitted = no composer. */
   onAsk?: (item: AllyFocusItem, text: string) => void;
+  /** Answer a live-assist question (which column, which file). */
+  onChoose?: (item: AllyFocusItem, optionId: string) => void;
 }) {
   const [raw, setRaw] = useState(false);
   const [ask, setAsk] = useState("");
@@ -134,8 +142,11 @@ export function ViewPanel({
   const facts = active.facts ?? [];
 
   const copy = () => {
+    const text = [talkingPoints(parts) || active.answer, active.table ? gridAsText(active.table) : ""]
+      .filter(Boolean)
+      .join("\n\n");
     void navigator.clipboard
-      ?.writeText(talkingPoints(parts) || active.answer)
+      ?.writeText(text)
       .then(() => {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1200);
@@ -282,7 +293,7 @@ export function ViewPanel({
         <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pb-3 pt-2">
           {isError ? (
             <p className="text-[0.95em] leading-relaxed text-rec">{active.answer}</p>
-          ) : !active.answer ? (
+          ) : !active.answer && !active.table && !active.choice ? (
             <p className="text-[0.95em] text-fg-muted">Ally is preparing the response…</p>
           ) : raw ? (
             <div>
@@ -296,8 +307,16 @@ export function ViewPanel({
             </div>
           ) : (
             <>
+              {active.stale && (
+                <p
+                  role="status"
+                  className="rounded-md border border-dashed border-border-strong px-2.5 py-1.5 text-[0.84em] text-fg-muted"
+                >
+                  A newer question replaced this one before it finished.
+                </p>
+              )}
               {parts.sayNow && (
-                <div>
+                <div className={active.stale ? "opacity-60" : undefined}>
                   <div className="flex items-center">
                     <Eyebrow>{sayNowLabel(active)}</Eyebrow>
                     <RawToggle raw={raw} onToggle={() => setRaw(true)} />
@@ -320,6 +339,18 @@ export function ViewPanel({
                     </div>
                   ))}
                 </dl>
+              )}
+              {active.choice && (
+                <ChoicePrompt
+                  question={active.choice.question}
+                  options={active.choice.options}
+                  onChoose={onChoose ? (optionId) => onChoose(active, optionId) : undefined}
+                />
+              )}
+              {active.table && (
+                <div className={active.stale ? "opacity-60" : undefined}>
+                  <GridAnswer grid={active.table} />
+                </div>
               )}
               {parts.points && (
                 <div>

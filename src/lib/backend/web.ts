@@ -50,6 +50,7 @@ import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
 import type { SocketLike } from "@/lib/live/liveClient";
 import type {
+  LiveAssistAck,
   AllyKind,
   AppConfig,
   ArchiveExportEstimate,
@@ -377,6 +378,15 @@ export class WebBackend implements ConvaBackend {
     keyStatus: (): Promise<ProviderKeyStatus[]> => Promise.resolve([]),
     test: (): Promise<number> => unsupported("providers.test (BYO keys)"),
     listModels: (): Promise<ModelInfo[]> => todo("GET /v1/models"),
+  };
+
+  // Spreadsheet totals need the typed-table pipeline, which the hosted library
+  // does not have yet (both operations report `unimplemented`). `submit`
+  // answers "not mine" so a typed question always falls through to Ally.
+  liveAssist = {
+    submit: (): Promise<LiveAssistAck> => Promise.resolve({ handled: false }),
+    choose: (): Promise<void> =>
+      Promise.reject(new UnimplementedOnWebError("liveAssist.choose")),
   };
 
   ally = {

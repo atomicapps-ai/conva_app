@@ -2,7 +2,13 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AllyFocusItem } from "@/components/transcript/allyFocus";
+import { itemFromLiveAssist } from "@/components/transcript/allyFocus";
 import { ViewPanel } from "@/components/transcript/ViewPanel";
+import {
+  assistResult,
+  choiceResult,
+  completedResult,
+} from "@/test/liveAssistFixtures";
 
 afterEach(cleanup);
 
@@ -194,5 +200,80 @@ describe("ViewPanel", () => {
   it("shows an empty state when nothing is open", () => {
     panel({ items: [], activeId: null });
     expect(screen.getByText(/Pick something in Ally/)).toBeInTheDocument();
+  });
+});
+
+describe("ViewPanel — live assist answers", () => {
+  const holding = itemFromLiveAssist(assistResult());
+  const done = itemFromLiveAssist(completedResult());
+
+  function props(item: AllyFocusItem) {
+    return {
+      items: [item],
+      activeId: item.id,
+      pinnedIds: new Set<string>(),
+      onSelect: vi.fn(),
+      onTogglePin: vi.fn(),
+      onRefresh: vi.fn(),
+    };
+  }
+
+  it("progresses from a holding response to a readable grid in the same tab", () => {
+    const { rerender } = render(<ViewPanel {...props(holding)} />);
+    // Holding: the speakable line and an honest status, no grid yet.
+    expect(screen.getByRole("status")).toHaveTextContent("Answering…");
+    expect(screen.getByText(/One moment, I'm working that out/)).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    const tabsBefore = screen.getAllByRole("tab");
+    expect(tabsBefore).toHaveLength(1);
+
+    // The completed revision arrives under the same item id.
+    expect(done.id).toBe(holding.id);
+    rerender(<ViewPanel {...props(done)} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Ready");
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByText("$439,519.85")).toBeInTheDocument();
+    expect(screen.getByText(/South is the largest at \$141,875\.25/)).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    // Provenance stays reachable, and the source file is listed.
+    expect(screen.getByText("From your documents")).toBeInTheDocument();
+    expect(screen.getByText("Q3-district-sales.csv")).toBeInTheDocument();
+  });
+
+  it("shows a choice and reports the pick against the item", () => {
+    const item = itemFromLiveAssist(choiceResult());
+    const onChoose = vi.fn();
+    render(<ViewPanel {...props(item)} onChoose={onChoose} />);
+    expect(screen.getByText("Which column do you want to add up?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Net amount/ }));
+    expect(onChoose).toHaveBeenCalledWith(item, "2");
+  });
+
+  it("marks a replaced answer instead of silently keeping it live", () => {
+    const stale = itemFromLiveAssist({ ...completedResult(), lifecycle: "superseded" });
+    render(<ViewPanel {...props(stale)} />);
+    expect(screen.getByText(/replaced this one before it finished/)).toBeInTheDocument();
+    // Still readable.
+    expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
+  it("copies the speakable line and the grid together", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    render(<ViewPanel {...props(done)} />);
+    fireEvent.click(screen.getByRole("button", { name: "Copy as talking points" }));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const text = writeText.mock.calls[0]![0] as string;
+    expect(text).toContain("The total amount is $439,519.85.");
+    expect(text).toContain("North\t$128,430.50\t1");
+  });
+
+  it("still renders every non-table item exactly as before", () => {
+    panel();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByText("Key points")).toBeInTheDocument();
   });
 });

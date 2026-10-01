@@ -380,6 +380,10 @@ export class FakeBackend implements ConvaBackend {
     listModels: nc("providers.listModels"),
   };
   ally = { run: nc("ally.run") };
+  liveAssist = {
+    submit: nc("liveAssist.submit"),
+    choose: nc("liveAssist.choose"),
+  };
   audio = {
     listDevices: nc("audio.listDevices"),
     listWhisperModels: nc("audio.listWhisperModels"),

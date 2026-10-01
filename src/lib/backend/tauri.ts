@@ -131,6 +131,11 @@ export class TauriBackend implements ConvaBackend {
     run: cmd.ally,
   };
 
+  liveAssist = {
+    submit: cmd.liveAssistSubmit,
+    choose: cmd.liveAssistChoose,
+  };
+
   audio = {
     listDevices: cmd.listAudioDevices,
     listWhisperModels: cmd.listWhisperModels,

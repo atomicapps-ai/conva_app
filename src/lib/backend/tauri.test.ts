@@ -63,6 +63,11 @@ vi.mock("@/lib/commands", () => {
       bytes: 42,
     })),
     archiveCancel: vi.fn(async () => undefined),
+    liveAssistSubmit: vi.fn(async (text: string) => ({
+      handled: text.includes("total"),
+      result_id: null,
+    })),
+    liveAssistChoose: vi.fn(async () => undefined),
   };
   // `then` must stay undefined or the module namespace becomes a thenable
   // and `await import()` never resolves; symbols/default likewise.
@@ -239,5 +244,29 @@ describe("TauriBackend — M0 additions", () => {
   it(".cva archive cancel delegates to the real Tauri command (Checkpoints B/C/D)", async () => {
     const b = new TauriBackend(windows);
     await expect(b.archive.cancel("op-1")).resolves.toBeUndefined();
+  });
+});
+
+describe("TauriBackend — live assist", () => {
+  it("delegates typed questions and choices to the shell commands", async () => {
+    const cmd = await import("@/lib/commands");
+    const b = new TauriBackend(windows);
+    await expect(b.liveAssist.submit("total amount per district")).resolves.toEqual({
+      handled: true,
+      result_id: null,
+    });
+    await expect(b.liveAssist.submit("see you tomorrow")).resolves.toMatchObject({
+      handled: false,
+    });
+    await b.liveAssist.choose("la-1", "2");
+    expect(cmd.liveAssistChoose).toHaveBeenCalledWith("la-1", "2");
+  });
+
+  it("binds the live-assist event to its own conva:// channel", async () => {
+    const b = new TauriBackend(windows);
+    const handler = vi.fn();
+    await b.subscribe("liveAssist", handler);
+    emit("conva://live-assist", { result_id: "la-1", revision: 1 });
+    expect(handler).toHaveBeenCalledWith({ result_id: "la-1", revision: 1 });
   });
 });
