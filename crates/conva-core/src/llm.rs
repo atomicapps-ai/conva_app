@@ -147,6 +147,9 @@ impl TokenUsage {
 
 /// A streaming LLM provider. Implementations live in `src-tauri` (one file
 /// per provider) and normalize each provider's SSE schema into `LlmChunk`s.
+// async_trait boxes each method's future and tags it `#[must_use]`; Rust 1.99's
+// clippy::double_must_use now flags that on the generated code. Not ours to fix.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     fn id(&self) -> ProviderId;
