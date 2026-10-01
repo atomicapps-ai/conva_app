@@ -1,0 +1,9 @@
+# The one Rust version every machine and CI job uses. Bumping it is a deliberate
+# PR (change `channel` here and the `toolchain:` lines in .github/workflows;
+# scripts/toolchain-pin.test.mjs fails if they disagree), so a new stable
+# release can no longer turn CI red overnight (1.98 and 1.99 both did).
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
