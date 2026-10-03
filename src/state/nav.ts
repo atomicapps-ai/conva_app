@@ -17,6 +17,7 @@ export type View =
   | "whatsnew"
   | "releases"
   | "about"
+  | "models"
   | "settings"
   | "profile";
 
