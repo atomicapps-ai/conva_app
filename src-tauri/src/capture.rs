@@ -138,9 +138,10 @@ fn run_pass(
         &request,
         &mut |token| reply.push_str(token),
     );
-    let Ok(usage) = result else {
+    let Ok(outcome) = result else {
         return; // best-effort: skip this pass
     };
+    let usage = outcome.usage;
     crate::trace::record(
         "llm",
         t0.elapsed().as_millis() as u64,
@@ -153,6 +154,14 @@ fn run_pass(
         }),
     );
     let Some(extraction) = parse_capture_reply(&reply) else {
+        // The pass was billed but produced nothing usable; count it so a
+        // silently skipped pass shows up in Settings → Usage.
+        crate::metering::record_unusable_reply(
+            app,
+            "capture",
+            selection.provider,
+            &selection.model,
+        );
         return;
     };
     // The prompt asks for the longest complete term, but never trust it alone:

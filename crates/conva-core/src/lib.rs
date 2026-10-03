@@ -46,6 +46,7 @@ pub mod research;
 pub mod screenshot;
 pub mod semantic_extraction;
 pub mod source_policy;
+pub mod stop_reason;
 pub mod table;
 pub mod table_aggregate;
 pub mod table_query;

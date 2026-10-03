@@ -57,6 +57,26 @@ pub struct LlmFeatureUsage {
     /// count — the provider billed whatever streamed before the failure.
     #[serde(default)]
     pub failed_requests: u64,
+    /// Replies that ended because they hit the output cap (a successful
+    /// stream whose text is cut off). Answer-integrity check C3.
+    #[serde(default)]
+    pub cut_off_requests: u64,
+    /// Replies the provider declined or filtered.
+    #[serde(default)]
+    pub refused_requests: u64,
+    /// Replies that streamed fine but could not be used (a structured pass
+    /// whose JSON did not parse), so the work was silently skipped before.
+    #[serde(default)]
+    pub unusable_replies: u64,
+}
+
+/// A completed call that still went wrong in a way the plain `ok` flag cannot
+/// show (answer-integrity check C3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallProblem {
+    CutOff,
+    Refused,
+    Unusable,
 }
 
 impl LlmFeatureUsage {
@@ -69,6 +89,9 @@ impl LlmFeatureUsage {
             output_tokens: 0,
             requests: 0,
             failed_requests: 0,
+            cut_off_requests: 0,
+            refused_requests: 0,
+            unusable_replies: 0,
         }
     }
 }
@@ -162,6 +185,41 @@ impl UsageLedger {
         if !ok {
             bucket.failed_requests = bucket.failed_requests.saturating_add(1);
         }
+    }
+
+    /// Count one integrity problem against the same `feature` × `provider` ×
+    /// `model` bucket [`Self::record_llm`] uses. Call it after `record_llm` for
+    /// the same attempt; a bucket that does not exist yet is created, so the
+    /// count is never lost.
+    pub fn record_problem(
+        &mut self,
+        feature: &str,
+        provider: ProviderId,
+        model: &str,
+        problem: CallProblem,
+        now_unix_ms: u64,
+    ) {
+        self.start_window(now_unix_ms);
+        let bucket = match self
+            .llm_features
+            .iter_mut()
+            .find(|b| b.feature == feature && b.provider == provider && b.model == model)
+        {
+            Some(b) => b,
+            None => {
+                self.llm_features
+                    .push(LlmFeatureUsage::new(feature, provider, model));
+                self.llm_features
+                    .last_mut()
+                    .expect("just pushed a feature bucket")
+            }
+        };
+        let counter = match problem {
+            CallProblem::CutOff => &mut bucket.cut_off_requests,
+            CallProblem::Refused => &mut bucket.refused_requests,
+            CallProblem::Unusable => &mut bucket.unusable_replies,
+        };
+        *counter = counter.saturating_add(1);
     }
 
     /// Count `count` research-provider searches (one per bounded research query issued).
@@ -388,6 +446,72 @@ mod tests {
         assert_eq!(bucket.input_tokens, 40);
         assert_eq!(bucket.output_tokens, 12);
         assert_eq!(sum.total_requests, 1);
+    }
+
+    #[test]
+    fn integrity_problems_are_counted_per_bucket_without_adding_requests() {
+        let mut led = UsageLedger::default();
+        led.record_llm(
+            "context_qa",
+            ProviderId::Anthropic,
+            "claude-haiku-4-5",
+            tok(100, 3000),
+            true,
+            1,
+        );
+        led.record_problem(
+            "context_qa",
+            ProviderId::Anthropic,
+            "claude-haiku-4-5",
+            CallProblem::CutOff,
+            2,
+        );
+        led.record_problem(
+            "tracker",
+            ProviderId::Anthropic,
+            "claude-haiku-4-5",
+            CallProblem::Unusable,
+            3,
+        );
+        led.record_problem(
+            "ally_question",
+            ProviderId::Openai,
+            "gpt-5.4-mini",
+            CallProblem::Refused,
+            4,
+        );
+        let sum = led.summary();
+        let qa = sum
+            .llm_features
+            .iter()
+            .find(|b| b.feature == "context_qa")
+            .unwrap();
+        assert_eq!(qa.requests, 1, "a problem is not a request");
+        assert_eq!(qa.cut_off_requests, 1);
+        assert_eq!(qa.failed_requests, 0, "a cut-off reply is not a failed one");
+        let tracker = sum
+            .llm_features
+            .iter()
+            .find(|b| b.feature == "tracker")
+            .unwrap();
+        assert_eq!(tracker.unusable_replies, 1);
+        assert_eq!(tracker.requests, 0, "record_problem alone creates a bucket");
+        let ally = sum
+            .llm_features
+            .iter()
+            .find(|b| b.feature == "ally_question")
+            .unwrap();
+        assert_eq!(ally.refused_requests, 1);
+    }
+
+    #[test]
+    fn an_old_bucket_without_problem_counters_still_parses() {
+        let json = r#"{"feature":"tracker","provider":"anthropic","model":"m","input_tokens":1,"output_tokens":2,"requests":3}"#;
+        let bucket: LlmFeatureUsage = serde_json::from_str(json).unwrap();
+        assert_eq!(bucket.failed_requests, 0);
+        assert_eq!(bucket.cut_off_requests, 0);
+        assert_eq!(bucket.refused_requests, 0);
+        assert_eq!(bucket.unusable_replies, 0);
     }
 
     #[test]

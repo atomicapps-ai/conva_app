@@ -244,7 +244,8 @@ fn respond(
         },
     );
     match result {
-        Ok(usage) => {
+        Ok(outcome) => {
+            let usage = outcome.usage;
             let total_ms = t0.elapsed().as_millis() as u64;
             crate::trace::record(
                 "llm",

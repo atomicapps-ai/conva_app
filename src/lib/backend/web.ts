@@ -46,6 +46,7 @@ import { buildContextArchiveForDownload } from "@/lib/live/archiveExport";
 import { importContextArchive } from "@/lib/live/archiveImport";
 import { DEFAULT_CONTEXT_ID } from "@/lib/ipc";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
+import { stopReasonFromHosted } from "@/lib/stopReason";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
 import type { SocketLike } from "@/lib/live/liveClient";
@@ -411,7 +412,7 @@ export class WebBackend implements ConvaBackend {
             this.emit("allyChunk", { request_id: requestId, token: line.token, done: false, error: null });
             break;
           case "done":
-            this.emit("allyChunk", { request_id: requestId, token: "", done: true, error: null });
+            this.emit("allyChunk", { request_id: requestId, token: "", done: true, error: null, stop_reason: stopReasonFromHosted(line.stop_reason) });
             break;
           case "error":
             outcome = "error";
