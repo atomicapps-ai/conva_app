@@ -94,6 +94,25 @@ function AboutSection() {
   );
 }
 
+/** Entry to the model comparison view (Settings → Compare models). Shown on
+ *  desktop under the Ally group and on the hosted web app, where it is read-only. */
+function CompareModelsSection() {
+  return (
+    <Section
+      title="Compare models"
+      description="See how each model trades speed, quality and cost on Conva's own call types before you choose."
+    >
+      <button
+        type="button"
+        onClick={() => useNavStore.getState().setView("models")}
+        className="btn"
+      >
+        Compare models →
+      </button>
+    </Section>
+  );
+}
+
 function DeviceSelect({
   side,
   label,
@@ -1278,6 +1297,7 @@ export function SettingsPanel() {
             hosted backend. Manage your account on the website.
           </Notice>
         </Section>
+        <CompareModelsSection />
         <AboutSection />
       </ViewShell>
     );
@@ -1371,6 +1391,8 @@ export function SettingsPanel() {
         <AllySettings />
       </Section>
       )}
+
+      {group === "ally" && <CompareModelsSection />}
 
       {group === "privacy" && (
       <Section
