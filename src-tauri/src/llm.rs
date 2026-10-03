@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use conva_core::llm::{LlmRequest, ModelInfo, ProviderId, TokenUsage};
+use conva_core::stop_reason::StopReason;
 use conva_core::CoreError;
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(120);
@@ -23,6 +24,11 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(120);
 /// local endpoints) — an out-param rather than a return value so that a
 /// mid-stream error still leaves the tokens billed up to that point in
 /// `usage` for honest metering.
+///
+/// On success returns **why the stream ended** ([`StopReason`]): a reply that
+/// hit the output cap comes back `Ok(StopReason::Truncated)`, not a plain
+/// `Ok`, so callers can tell a cut-off answer from a finished one. A stream
+/// that ends without any terminal signal is `Unknown`.
 pub fn stream_completion(
     provider: ProviderId,
     api_key: &str,
@@ -30,7 +36,7 @@ pub fn stream_completion(
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
     usage: &mut TokenUsage,
-) -> Result<(), CoreError> {
+) -> Result<StopReason, CoreError> {
     match provider {
         ProviderId::Anthropic => anthropic_stream(api_key, model, request, on_token, usage),
         ProviderId::Openai | ProviderId::Xai | ProviderId::Deepseek | ProviderId::OllamaLocal => {
@@ -208,7 +214,7 @@ fn anthropic_stream(
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
     usage: &mut TokenUsage,
-) -> Result<(), CoreError> {
+) -> Result<StopReason, CoreError> {
     let mut body = json!({
         "model": model,
         "max_tokens": request.max_tokens,
@@ -228,6 +234,7 @@ fn anthropic_stream(
     // Anthropic reports input tokens in `message_start` and the (cumulative)
     // output count in each `message_delta` — keep the latest of each, written
     // straight into the out-param so an aborted stream keeps its partial count.
+    let mut raw_stop: Option<String> = None;
     for_each_sse_data(response.into_reader(), |value| {
         match value["type"].as_str() {
             Some("content_block_delta") => {
@@ -248,6 +255,9 @@ fn anthropic_stream(
                 if let Some(n) = value["usage"]["output_tokens"].as_u64() {
                     usage.output_tokens = n;
                 }
+                if let Some(sr) = value["delta"]["stop_reason"].as_str() {
+                    raw_stop = Some(sr.to_string());
+                }
             }
             // A mid-stream failure (e.g. overloaded_error) used to fall into
             // the catch-all below and vanish -- the caller saw `Ok` with
@@ -260,7 +270,10 @@ fn anthropic_stream(
             _ => {}
         }
         Ok(())
-    })
+    })?;
+    Ok(raw_stop
+        .as_deref()
+        .map_or(StopReason::Unknown, StopReason::from_anthropic))
 }
 
 /// Anthropic streaming **with tool use** — the Ally web-search loop. Streams
@@ -284,10 +297,12 @@ pub fn anthropic_stream_with_tools(
     run_tool: &mut dyn FnMut(&str, &Value) -> String,
     max_rounds: usize,
     usage: &mut TokenUsage,
-) -> Result<(), CoreError> {
+) -> Result<StopReason, CoreError> {
     use std::collections::HashMap;
 
     let mut messages: Vec<Value> = vec![json!({"role": "user", "content": request.user})];
+    // Why the FINAL round stopped; earlier rounds ended in `tool_use`.
+    let mut final_stop = StopReason::Unknown;
 
     for round in 0..=max_rounds {
         // Offer tools only while another round remains; the final round forces a
@@ -395,6 +410,11 @@ pub fn anthropic_stream_with_tools(
 
         // No tool requested → this round's text is the final answer.
         if stop_reason != "tool_use" || tool_blocks.is_empty() {
+            final_stop = if stop_reason.is_empty() {
+                StopReason::Unknown
+            } else {
+                StopReason::from_anthropic(&stop_reason)
+            };
             break;
         }
 
@@ -419,7 +439,7 @@ pub fn anthropic_stream_with_tools(
         messages.push(json!({"role": "user", "content": tool_results}));
     }
 
-    Ok(())
+    Ok(final_stop)
 }
 
 // ------------------------------------------------------- OpenAI-compatible
@@ -441,7 +461,7 @@ fn openai_compatible_stream(
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
     usage: &mut TokenUsage,
-) -> Result<(), CoreError> {
+) -> Result<StopReason, CoreError> {
     let url = format!("{}/chat/completions", openai_base(provider));
     let mut req = ureq::post(&url)
         .timeout(HTTP_TIMEOUT)
@@ -464,6 +484,7 @@ fn openai_compatible_stream(
         }))
         .map_err(map_ureq)?;
 
+    let mut raw_stop: Option<String> = None;
     for_each_sse_data(response.into_reader(), |value| {
         // OpenAI-shaped mid-stream failures arrive as a bare
         // `{"error": {"message": ..., "type": ...}}` chunk instead of a
@@ -476,6 +497,9 @@ fn openai_compatible_stream(
         if let Some(text) = value["choices"][0]["delta"]["content"].as_str() {
             on_token(text);
         }
+        if let Some(reason) = openai_finish_reason(value) {
+            raw_stop = Some(reason.to_string());
+        }
         // The final chunk (empty `choices`) carries cumulative usage.
         let u = &value["usage"];
         if let Some(n) = u["prompt_tokens"].as_u64() {
@@ -485,7 +509,21 @@ fn openai_compatible_stream(
             usage.output_tokens = n;
         }
         Ok(())
-    })
+    })?;
+    Ok(raw_stop
+        .as_deref()
+        .map_or(StopReason::Unknown, StopReason::from_openai))
+}
+
+/// The `finish_reason` an OpenAI-shaped chunk carries, if any. It is `null` on
+/// every delta except the last content chunk. Pure, so it is unit-tested.
+fn openai_finish_reason(chunk: &Value) -> Option<&str> {
+    chunk["choices"][0]["finish_reason"].as_str()
+}
+
+/// The `finishReason` a Gemini chunk carries, if any (set on the last chunk).
+fn gemini_finish_reason(chunk: &Value) -> Option<&str> {
+    chunk["candidates"][0]["finishReason"].as_str()
 }
 
 // ------------------------------------------------------------------ Gemini
@@ -496,7 +534,7 @@ fn gemini_stream(
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
     usage: &mut TokenUsage,
-) -> Result<(), CoreError> {
+) -> Result<StopReason, CoreError> {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
     );
@@ -512,6 +550,7 @@ fn gemini_stream(
         .map_err(map_ureq)?;
 
     // Gemini reports cumulative `usageMetadata` on each chunk — keep the latest.
+    let mut raw_stop: Option<String> = None;
     for_each_sse_data(response.into_reader(), |value| {
         // Gemini reports a mid-stream failure as a top-level `error` object
         // rather than a `candidates` entry -- same silent-truncation risk as
@@ -527,6 +566,9 @@ fn gemini_stream(
                 }
             }
         }
+        if let Some(reason) = gemini_finish_reason(value) {
+            raw_stop = Some(reason.to_string());
+        }
         let meta = &value["usageMetadata"];
         if let Some(n) = meta["promptTokenCount"].as_u64() {
             usage.input_tokens = n;
@@ -535,7 +577,10 @@ fn gemini_stream(
             usage.output_tokens = n;
         }
         Ok(())
-    })
+    })?;
+    Ok(raw_stop
+        .as_deref()
+        .map_or(StopReason::Unknown, StopReason::from_gemini))
 }
 
 // -------------------------------------------------------------- key vault
@@ -653,5 +698,33 @@ mod thinking_body_tests {
         let mut body = json!({"model": "claude-haiku-4-5", "max_tokens": 700});
         apply_thinking_override(&mut body, "claude-haiku-4-5");
         assert!(body.get("thinking").is_none());
+    }
+}
+
+#[cfg(test)]
+mod finish_reason_tests {
+    use super::*;
+
+    #[test]
+    fn openai_finish_reason_is_read_from_the_last_content_chunk_only() {
+        let delta = json!({"choices": [{"delta": {"content": "hi"}, "finish_reason": null}]});
+        assert_eq!(openai_finish_reason(&delta), None);
+        let last = json!({"choices": [{"delta": {}, "finish_reason": "length"}]});
+        assert_eq!(openai_finish_reason(&last), Some("length"));
+        // The trailing usage chunk has an empty `choices`.
+        let usage_chunk = json!({"choices": [], "usage": {"prompt_tokens": 3}});
+        assert_eq!(openai_finish_reason(&usage_chunk), None);
+    }
+
+    #[test]
+    fn gemini_finish_reason_is_read_from_the_candidate() {
+        let mid = json!({"candidates": [{"content": {"parts": [{"text": "a"}]}}]});
+        assert_eq!(gemini_finish_reason(&mid), None);
+        let last = json!({"candidates": [{"finishReason": "MAX_TOKENS"}]});
+        assert_eq!(gemini_finish_reason(&last), Some("MAX_TOKENS"));
+        assert_eq!(
+            StopReason::from_gemini(gemini_finish_reason(&last).unwrap()),
+            StopReason::Truncated
+        );
     }
 }

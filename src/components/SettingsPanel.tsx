@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AllySettings } from "@/components/AllySettings";
 import { SubscriptionSettings } from "@/components/SubscriptionSettings";
+import { usageProblemTitle } from "@/lib/usageProblems";
 import {
   DEFAULT_SETTINGS_GROUP,
   groupForKey,
@@ -751,15 +752,20 @@ function UsageSettings() {
                     </td>
                     <td
                       className="py-1.5 pl-2 pr-3 text-right font-mono tabular-nums text-fg-muted"
-                      title={
-                        b.failed_requests > 0
-                          ? `${fmt(b.failed_requests)} failed (partial tokens still billed)`
-                          : undefined
-                      }
+                      title={usageProblemTitle(b)}
                     >
                       {fmt(b.requests)}
                       {b.failed_requests > 0 && (
                         <span className="text-rec"> ·{fmt(b.failed_requests)}✗</span>
+                      )}
+                      {(b.cut_off_requests ?? 0) > 0 && (
+                        <span className="text-notice"> ·{fmt(b.cut_off_requests ?? 0)}✂</span>
+                      )}
+                      {((b.refused_requests ?? 0) + (b.unusable_replies ?? 0)) > 0 && (
+                        <span className="text-notice">
+                          {" "}
+                          ·{fmt((b.refused_requests ?? 0) + (b.unusable_replies ?? 0))}!
+                        </span>
                       )}
                     </td>
                   </tr>

@@ -203,9 +203,10 @@ fn run_pass(app: &AppHandle, selection: &ModelSelection, api_key: &str, state: &
         &request,
         &mut |token| reply.push_str(token),
     );
-    let Ok(usage) = result else {
+    let Ok(outcome) = result else {
         return;
     };
+    let usage = outcome.usage;
     crate::trace::record(
         "llm",
         t0.elapsed().as_millis() as u64,

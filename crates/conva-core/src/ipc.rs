@@ -648,6 +648,12 @@ pub struct AllyChunkEvent {
     pub done: bool,
     /// Set (with `done: true`) when the request failed mid-stream.
     pub error: Option<String>,
+    /// Set with `done: true` on a stream that finished: why the model
+    /// stopped (`complete`, `truncated`, `refused`, `other`, `unknown` — see
+    /// `stop_reason::StopReason`). `None` on token chunks and on errors, and
+    /// from older peers; the UI treats a missing value as complete.
+    #[serde(default)]
+    pub stop_reason: Option<crate::stop_reason::StopReason>,
 }
 
 // ── `.cva` archive operation contract (checkpoint A) ────────────────────────

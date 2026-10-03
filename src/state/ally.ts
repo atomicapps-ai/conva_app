@@ -12,6 +12,7 @@ import type {
   TrackerEvent,
 } from "@/lib/ipc";
 import { CLAIM_SNAPSHOT_CONTRACT_VERSION } from "@/lib/ipc";
+import { settleFinishedAnswer } from "@/lib/stopReason";
 import { useTranscriptStore } from "@/state/transcript";
 
 export interface AllyCard {
@@ -271,16 +272,17 @@ export const useAllyStore = create<AllyState>((set, get) => ({
     }
     set((s) => ({
       busy: chunk.done ? false : s.busy,
-      cards: s.cards.map((c) =>
-        c.id === chunk.request_id
-          ? {
-              ...c,
-              text: c.text + chunk.token,
-              done: chunk.done,
-              error: chunk.error != null ? friendlyAllyError(chunk.error) : chunk.error,
-            }
-          : c,
-      ),
+      cards: s.cards.map((c) => {
+        if (c.id !== chunk.request_id) return c;
+        const text = c.text + chunk.token;
+        const error = chunk.error != null ? friendlyAllyError(chunk.error) : chunk.error;
+        // On the final chunk, say plainly when the answer was cut off, empty
+        // or refused instead of leaving a blank or half-finished card.
+        const settled = chunk.done
+          ? settleFinishedAnswer(text, error, chunk.stop_reason)
+          : { text, error };
+        return { ...c, text: settled.text, done: chunk.done, error: settled.error };
+      }),
     }));
   },
 

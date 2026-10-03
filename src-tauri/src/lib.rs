@@ -17,6 +17,7 @@ mod embed;
 mod events_flush;
 mod faner_debug;
 mod feedback;
+mod generation;
 mod hud;
 mod live_assist;
 mod llm;
@@ -354,21 +355,17 @@ fn analyze_conversation(
         .llm_quality
         .clone();
     let key = resolve_key(selection.provider)?;
-    let mut buf = String::new();
-    metering::metered_stream(
-        &app,
-        "analyze_conversation",
-        &selection,
-        &key,
-        &request,
-        &mut |t| buf.push_str(t),
-    )
-    .map_err(|e| e.to_string())?;
-    let text = buf.trim().to_string();
-    if text.is_empty() {
+    let generated =
+        generation::generate_document(&app, "analyze_conversation", &selection, &key, &request)
+            .map_err(|e| e.to_string())?;
+    if generated.text.is_empty() {
         return Err("Ally returned an empty analysis.".into());
     }
-    Ok(text)
+    Ok(if generated.truncated {
+        conva_core::stop_reason::mark_incomplete(&generated.text)
+    } else {
+        generated.text
+    })
 }
 
 #[tauri::command]
@@ -1979,23 +1976,24 @@ fn context_generate_dossier_blocking(
         if !research_sources.is_empty() {
             let request =
                 conva_core::context::research_findings_prompt(&session, &research_sources);
-            let mut buffer = String::new();
-            metering::metered_stream(
+            let generated = generation::generate_document(
                 app,
                 "context_research_findings",
                 &selection,
                 &key,
                 &request,
-                &mut |text| buffer.push_str(text),
             )
             .map_err(|e| format!("Research was found, but Ally could not summarize it: {e}"))?;
-            let text = buffer.trim().to_string();
-            if text.is_empty() {
+            if generated.text.is_empty() {
                 return Err(
                     "Research was found, but Ally returned an empty research brief.".into(),
                 );
             }
-            research_text = Some(text);
+            research_text = Some(if generated.truncated {
+                conva_core::stop_reason::mark_incomplete(&generated.text)
+            } else {
+                generated.text
+            });
         }
     }
     // Stage 2 — category-aware prepared Q&A. Every Context receives this.
@@ -2038,20 +2036,26 @@ fn context_generate_dossier_blocking(
         session.deep_qa_enabled
             && session.category == conva_core::context::ContextCategory::Interview,
     );
-    let mut qa_buffer = String::new();
-    metering::metered_stream(
-        app,
-        "context_qa",
-        &selection,
-        &key,
-        &qa_request,
-        &mut |text| qa_buffer.push_str(text),
-    )
-    .map_err(|e| format!("Ally could not generate prepared Q&A: {e}"))?;
-    let qa_text = qa_buffer.trim().to_string();
-    if qa_text.is_empty() {
+    let qa_generated =
+        generation::generate_document(app, "context_qa", &selection, &key, &qa_request)
+            .map_err(|e| format!("Ally could not generate prepared Q&A: {e}"))?;
+    if qa_generated.text.is_empty() {
         return Err("Ally returned an empty prepared Q&A resource.".into());
     }
+    let qa_text = if qa_generated.truncated {
+        // Still cut off after the retry: the last pair is a question with a
+        // half-written answer, which the zero-LLM prepared-answer path would
+        // serve verbatim. Drop it, then say the document is incomplete.
+        let trimmed = conva_core::stop_reason::drop_cut_off_qa_tail(&qa_generated.text);
+        let base = if trimmed.trim().is_empty() {
+            qa_generated.text.as_str()
+        } else {
+            trimmed.as_str()
+        };
+        conva_core::stop_reason::mark_incomplete(base)
+    } else {
+        qa_generated.text
+    };
 
     // Stage 3 — synthesize the briefing, then compile it with the exact Q&A
     // and provenance into one indexed Context Intelligence Pack.
@@ -2064,20 +2068,22 @@ fn context_generate_dossier_blocking(
     );
     let knowledge_request =
         conva_core::context::knowledge_prompt(&session, &qa_sources, &chunks, 3000);
-    let mut knowledge_buffer = String::new();
-    metering::metered_stream(
+    let knowledge_generated = generation::generate_document(
         app,
         "context_knowledge",
         &selection,
         &key,
         &knowledge_request,
-        &mut |text| knowledge_buffer.push_str(text),
     )
     .map_err(|e| format!("Ally could not generate Context Intelligence: {e}"))?;
-    let knowledge_text = knowledge_buffer.trim().to_string();
-    if knowledge_text.is_empty() {
+    if knowledge_generated.text.is_empty() {
         return Err("Ally returned an empty Context Intelligence briefing.".into());
     }
+    let knowledge_text = if knowledge_generated.truncated {
+        conva_core::stop_reason::mark_incomplete(&knowledge_generated.text)
+    } else {
+        knowledge_generated.text
+    };
     let pack_text = conva_core::context::compile_intelligence_pack(
         &session,
         &knowledge_text,
@@ -2860,17 +2866,22 @@ fn ally(
     std::thread::Builder::new()
         .name("ally".into())
         .spawn(move || {
-            let emit = |token: &str, done: bool, error: Option<String>| {
-                let _ = app.emit(
-                    events::ALLY_CHUNK,
-                    AllyChunkEvent {
-                        request_id: request_id.clone(),
-                        token: token.to_string(),
-                        done,
-                        error,
-                    },
-                );
-            };
+            let emit =
+                |token: &str,
+                 done: bool,
+                 error: Option<String>,
+                 stop_reason: Option<conva_core::stop_reason::StopReason>| {
+                    let _ = app.emit(
+                        events::ALLY_CHUNK,
+                        AllyChunkEvent {
+                            request_id: request_id.clone(),
+                            token: token.to_string(),
+                            done,
+                            error,
+                            stop_reason,
+                        },
+                    );
+                };
             // Web search is offered to Ally only when the default provider
             // (Anthropic) is active AND a Tavily key exists AND the active
             // Context's source policy allows open-web research. The model
@@ -2897,7 +2908,7 @@ fn ally(
                     &tools,
                     &mut |token| {
                         first_ms.get_or_insert_with(|| t0.elapsed().as_millis() as u64);
-                        emit(token, false, None);
+                        emit(token, false, None, None);
                     },
                     &mut run_tool,
                     2,
@@ -2911,7 +2922,7 @@ fn ally(
                     &request,
                     &mut |token| {
                         first_ms.get_or_insert_with(|| t0.elapsed().as_millis() as u64);
-                        emit(token, false, None);
+                        emit(token, false, None, None);
                     },
                     &mut usage,
                 )
@@ -2927,10 +2938,11 @@ fn ally(
                 &selection.model,
                 usage,
                 result.is_ok(),
+                result.as_ref().ok().copied(),
                 t0.elapsed().as_millis() as u64,
             );
             match result {
-                Ok(()) => {
+                Ok(stop) => {
                     let total_ms = t0.elapsed().as_millis() as u64;
                     trace::record(
                         "llm",
@@ -2944,9 +2956,9 @@ fn ally(
                             "out": usage.output_tokens,
                         }),
                     );
-                    emit("", true, None)
+                    emit("", true, None, Some(stop))
                 }
-                Err(e) => emit("", true, Some(e.to_string())),
+                Err(e) => emit("", true, Some(e.to_string()), None),
             }
         })
         .map_err(|e| e.to_string())?;

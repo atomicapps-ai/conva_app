@@ -6,6 +6,8 @@
  * mirror later in Phase 1).
  */
 
+import type { StopReason } from "./stopReason";
+
 /**
  * Legacy two-side model. The versioned capture/source/event contract (browser
  * product architecture M0) lives in `@/lib/capture/contract` — mirror of
@@ -85,6 +87,10 @@ export interface AllyChunkEvent {
   token: string;
   done: boolean;
   error: string | null;
+  /** Set with `done: true` on a stream that finished: why the model stopped.
+   *  Absent on token chunks, errors and older peers; a missing value is
+   *  treated as complete. Mirror of `AllyChunkEvent.stop_reason`. */
+  stop_reason?: StopReason | null;
 }
 
 /** Mirror of conva-core prompt::AllyKind. */
@@ -1225,6 +1231,12 @@ export interface LlmFeatureUsage {
   output_tokens: number;
   requests: number;
   failed_requests: number;
+  /** Replies that hit the output cap (successful stream, cut-off text). */
+  cut_off_requests?: number;
+  /** Replies the provider declined or filtered. */
+  refused_requests?: number;
+  /** Replies that streamed but could not be used (unparseable JSON). */
+  unusable_replies?: number;
 }
 
 /** Usage snapshot with cross-provider running totals. */

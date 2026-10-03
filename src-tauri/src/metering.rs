@@ -30,7 +30,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 use conva_core::llm::{LlmRequest, ModelSelection, ProviderId, TokenUsage};
-use conva_core::metering::{UsageLedger, UsageSummary};
+use conva_core::metering::{CallProblem, UsageLedger, UsageSummary};
+use conva_core::stop_reason::StopReason;
 use conva_core::CoreError;
 
 use crate::session::now_unix_ms;
@@ -57,6 +58,7 @@ fn append_event(
     model: &str,
     usage: &TokenUsage,
     ok: bool,
+    stop: Option<StopReason>,
 ) {
     let Some(path) = events_path(app) else {
         return;
@@ -72,6 +74,9 @@ fn append_event(
         "in": usage.input_tokens,
         "out": usage.output_tokens,
         "ok": ok,
+        // Why the stream ended (`complete`, `truncated`, ...); absent on a
+        // failed attempt. Counts and labels only, never content.
+        "stop": stop.map(StopReason::as_str),
     })
     .to_string();
     match fs::OpenOptions::new().create(true).append(true).open(&path) {
@@ -109,11 +114,20 @@ fn persist(app: &AppHandle, ledger: &UsageLedger) {
     }
 }
 
+/// What a metered completion returned: the billed usage and why it stopped.
+#[derive(Debug, Clone, Copy)]
+pub struct StreamOutcome {
+    pub usage: TokenUsage,
+    pub stop: StopReason,
+}
+
 /// Stream one completion and record its usage **atomically** — the enforced
 /// metering path for feature call sites: stream + attribution can't be
 /// separated, so a new call site can't forget to report. Returns the
 /// provider-reported usage on success; on error the partial usage billed
-/// before the failure is already recorded when the error propagates.
+/// before the failure is already recorded when the error propagates. A reply
+/// that stopped for a reason other than finishing (`Truncated`, `Refused`) is
+/// counted in the ledger here, so no call site can forget to.
 ///
 /// The one documented exception is Ally's web-search tool loop
 /// (`lib.rs::ally`), which chooses between two transport functions and
@@ -125,7 +139,7 @@ pub fn metered_stream(
     api_key: &str,
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
-) -> Result<TokenUsage, CoreError> {
+) -> Result<StreamOutcome, CoreError> {
     let mut usage = TokenUsage::default();
     let t0 = std::time::Instant::now();
     let result = crate::llm::stream_completion(
@@ -143,9 +157,10 @@ pub fn metered_stream(
         &selection.model,
         usage,
         result.is_ok(),
+        result.as_ref().ok().copied(),
         t0.elapsed().as_millis() as u64,
     );
-    result.map(|()| usage)
+    result.map(|stop| StreamOutcome { usage, stop })
 }
 
 /// Attribute one completion attempt's tokens to `provider` and its
@@ -155,6 +170,11 @@ pub fn metered_stream(
 /// (docs/platform/15-events-implementation.md §9: this is the local
 /// usage/metering ledger's own precursor of that taxonomy event — the SAME
 /// call site, two sinks, not two instrumentation systems). Best-effort.
+///
+/// `stop` is why a *successful* stream ended (`None` for a failed attempt): a
+/// truncated or refused reply is counted against the same bucket (answer
+/// integrity check C3) and noted in the event row.
+#[allow(clippy::too_many_arguments)]
 pub fn record_llm(
     app: &AppHandle,
     feature: &str,
@@ -162,12 +182,26 @@ pub fn record_llm(
     model: &str,
     usage: TokenUsage,
     ok: bool,
+    stop: Option<StopReason>,
     latency_ms: u64,
 ) {
-    append_event(app, feature, provider, model, &usage, ok);
+    append_event(app, feature, provider, model, &usage, ok, stop);
     let state = app.state::<AppState>();
     let mut ledger = state.usage.lock().expect("usage lock");
     ledger.record_llm(feature, provider, model, usage, ok, now_unix_ms());
+    match stop {
+        Some(StopReason::Truncated) => {
+            ledger.record_problem(feature, provider, model, CallProblem::CutOff, now_unix_ms())
+        }
+        Some(StopReason::Refused) => ledger.record_problem(
+            feature,
+            provider,
+            model,
+            CallProblem::Refused,
+            now_unix_ms(),
+        ),
+        _ => {}
+    }
     persist(app, &ledger);
     drop(ledger);
     crate::telemetry_events::append(
@@ -184,6 +218,22 @@ pub fn record_llm(
         }),
         None,
     );
+}
+
+/// Count a reply that streamed fine but could not be used (a structured pass
+/// whose JSON did not parse), so a silently skipped pass shows up in
+/// Settings → Usage instead of vanishing. Best-effort.
+pub fn record_unusable_reply(app: &AppHandle, feature: &str, provider: ProviderId, model: &str) {
+    let state = app.state::<AppState>();
+    let mut ledger = state.usage.lock().expect("usage lock");
+    ledger.record_problem(
+        feature,
+        provider,
+        model,
+        CallProblem::Unusable,
+        now_unix_ms(),
+    );
+    persist(app, &ledger);
 }
 
 /// Count `count` research-provider searches, then persist. Also pushes a
