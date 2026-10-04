@@ -111,6 +111,17 @@ describe("completeWithKeyPatch", () => {
       ai_setup_completed: true,
     });
   });
+  it("uses the picked fast model, and falls back to the provider's fast default", () => {
+    expect(completeWithKeyPatch(anthropic, "claude-sonnet-5-5", "claude-sonnet-5-5")).toEqual({
+      llm_quality: { provider: "anthropic", model: "claude-sonnet-5-5" },
+      llm_fast: { provider: "anthropic", model: "claude-sonnet-5-5" },
+      ai_setup_completed: true,
+    });
+    expect(completeWithKeyPatch(anthropic, "claude-sonnet-5-5", "").llm_fast).toEqual({
+      provider: "anthropic",
+      model: "claude-haiku-4-5",
+    });
+  });
   it("skipping only records that the choice was offered", () => {
     expect(SKIP_PATCH).toEqual({ ai_setup_completed: true });
   });

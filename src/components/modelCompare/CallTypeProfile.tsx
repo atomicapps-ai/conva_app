@@ -8,8 +8,8 @@ import {
 } from "@/lib/modelCompare/compare";
 
 const W = 720;
-const H = 400;
-const PAD = { left: 48, right: 16, top: 34, bottom: 110 };
+const H = 372;
+const PAD = { left: 48, right: 16, top: 34, bottom: 94 };
 const Y_DOMAIN: [number, number] = [55, 100];
 
 /**

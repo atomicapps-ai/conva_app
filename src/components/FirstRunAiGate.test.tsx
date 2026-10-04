@@ -105,6 +105,48 @@ describe("FirstRunAiGate", () => {
     expect([...provider.options].map((o) => o.value)).toEqual(["anthropic", "openai"]);
   });
 
+  it("shows the measured speed and cost for the selected quality and fast models", async () => {
+    mount(backend());
+    await screen.findByRole("heading", { name: "How should Ally think?" });
+    expect(screen.getByTestId("quality-facts")).toHaveTextContent("about 0.89 s");
+    expect(screen.getByTestId("quality-facts")).toHaveTextContent("$0.0097");
+    expect(screen.getByTestId("fast-facts")).toHaveTextContent("about 0.50 s");
+    // Haiku starts inside the live budget, so no warning.
+    expect(screen.queryByTestId("fast-warning")).toBeNull();
+  });
+
+  it("lets the user pick the fast model separately, defaulting to the provider's recommended one", async () => {
+    mount(backend());
+    await screen.findByRole("heading", { name: "How should Ally think?" });
+    const fast = screen.getByLabelText(/Fast model/) as HTMLSelectElement;
+    expect(fast.value).toBe("claude-haiku-4-5");
+    expect(fast.selectedOptions[0].textContent).toMatch(/recommended/);
+  });
+
+  it("warns when the chosen fast model starts slower than the live budget, and saves that choice", async () => {
+    const b = backend();
+    mount(b);
+    await screen.findByRole("heading", { name: "How should Ally think?" });
+    fireEvent.change(screen.getByLabelText(/Fast model/), { target: { value: "claude-sonnet-5-5" } });
+    expect(screen.getByTestId("fast-warning")).toHaveTextContent(/slower than 0\.6 s/);
+    fireEvent.change(screen.getByPlaceholderText("Paste API key…"), { target: { value: "sk-test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save key and continue" }));
+    await waitFor(() => expect(updateConfig).toHaveBeenCalled());
+    expect(updateConfig).toHaveBeenCalledWith({
+      llm_quality: { provider: "anthropic", model: "claude-sonnet-5-5" },
+      llm_fast: { provider: "anthropic", model: "claude-sonnet-5-5" },
+      ai_setup_completed: true,
+    });
+  });
+
+  it("shows no facts for a model we have not measured", async () => {
+    mount(backend());
+    await screen.findByRole("heading", { name: "How should Ally think?" });
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "openai" } });
+    expect(screen.queryByTestId("quality-facts")).toBeNull();
+    expect(screen.queryByTestId("fast-facts")).toBeNull();
+  });
+
   it("saves the key, tests it, then completes setup with the chosen model", async () => {
     const b = backend();
     mount(b);
