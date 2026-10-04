@@ -15,8 +15,8 @@ export const MODEL_COLORS = [
   "var(--color-ai)",
   "var(--color-inbound)",
   "var(--color-outbound)",
-  "var(--color-iris)",
   "var(--color-notice)",
+  "var(--color-fg)",
   "var(--color-fg-muted)",
 ] as const;
 
@@ -33,6 +33,26 @@ export const PROVIDER_NAMES: Partial<Record<ProviderId, string>> = {
 export function modelColor(models: readonly BenchmarkModel[], id: string): string {
   const i = Math.max(0, models.findIndex((m) => m.id === id));
   return MODEL_COLORS[i % MODEL_COLORS.length] as string;
+}
+
+/** The benchmark entry for a model Conva sends to `provider` as `modelId`. */
+export function benchmarkFor(
+  models: readonly BenchmarkModel[],
+  provider: ProviderId,
+  modelId: string,
+): BenchmarkModel | undefined {
+  return models.find((m) => m.provider === provider && m.id === modelId);
+}
+
+export function formatCost(usd: number): string {
+  return `$${usd.toFixed(4)}`;
+}
+
+/** One line of measured facts for a model picker, e.g.
+ *  "Measured: starts answering in about 0.89 s, about $0.0097 an answer." */
+export function modelFacts(m: BenchmarkModel): string {
+  const cost = `${formatCost(m.costPerAnswerUsd)} an answer${m.costAssumed ? " (price assumed)" : ""}`;
+  return `Measured in our tests: starts answering in about ${m.firstTokenMedianS.toFixed(2)} s, about ${cost}.`;
 }
 
 /** Starts answering inside the live budget (median first token <= 0.6 s). */
@@ -118,10 +138,6 @@ export function linear(
 export function dotRadius(costUsd: number, maxCostUsd: number): number {
   if (maxCostUsd <= 0) return 8;
   return 6 + Math.sqrt(Math.max(0, costUsd) / maxCostUsd) * 8;
-}
-
-export function formatCost(usd: number): string {
-  return `$${usd.toFixed(4)}`;
 }
 
 /**

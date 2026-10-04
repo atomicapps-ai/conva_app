@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { BENCHMARK_MODELS, MEASURES } from "./benchmarkData";
 import {
+  benchmarkFor,
   callTypeGroups,
+  modelFacts,
   dotRadius,
   labelOffsets,
   linear,
@@ -158,10 +160,32 @@ describe("modelColor / callTypeGroups", () => {
     expect(new Set(colours).size).toBe(colours.length);
   });
 
+  it("no two models share a colour, and the two Anthropic/OpenAI near neighbours differ", () => {
+    // Regression: gpt-6.1-sol used the same blue as Claude Haiku 4.5.
+    expect(modelColor(BENCHMARK_MODELS, "gpt-6.1-sol")).not.toBe(
+      modelColor(BENCHMARK_MODELS, "claude-haiku-4-5"),
+    );
+  });
+
   it("groups contiguous call types by product area", () => {
     const groups = callTypeGroups(byId("claude-haiku-4-5").callTypes!);
     expect(groups.map((g) => g.name)).toEqual(["Fast slot", "Live", "Accuracy", "Generation", "Long"]);
     expect(groups[0]).toEqual({ name: "Fast slot", from: 0, to: 2 });
     expect(groups.at(-1)).toEqual({ name: "Long", from: 14, to: 14 });
+  });
+});
+
+describe("benchmarkFor / modelFacts", () => {
+  it("finds a model by provider and id, and not by id alone across providers", () => {
+    expect(benchmarkFor(BENCHMARK_MODELS, "anthropic", "claude-sonnet-5-5")?.name).toBe("Claude Sonnet 5.5");
+    expect(benchmarkFor(BENCHMARK_MODELS, "openai", "claude-sonnet-5-5")).toBeUndefined();
+    expect(benchmarkFor(BENCHMARK_MODELS, "openai", "gpt-5.2")).toBeUndefined();
+  });
+
+  it("states the measured speed and cost, and flags an assumed price", () => {
+    expect(modelFacts(byId("claude-sonnet-5-5"))).toBe(
+      "Measured in our tests: starts answering in about 0.89 s, about $0.0097 an answer.",
+    );
+    expect(modelFacts(byId("gpt-5.4-mini"))).toContain("(price assumed)");
   });
 });
