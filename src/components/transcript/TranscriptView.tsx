@@ -24,6 +24,7 @@ import type {
 } from "@/lib/ipc";
 import type { HighlightOrigin } from "@/lib/ipc";
 import { isTauri } from "@/lib/ipc";
+import { effectivePanelWidth as effectivePanelWidthFor } from "@/lib/panelWidth";
 import { AnswerBody } from "@/lib/allyMarkdown";
 import { useAppStore } from "@/state/app";
 import {
@@ -1525,7 +1526,7 @@ function AllyPanel({
               }}
               className="w-[5px] shrink-0 cursor-col-resize border-x border-border bg-bg-2 hover:bg-panel-raised"
             />
-            <div className="flex min-h-0 flex-1 flex-col border-y border-r border-border bg-panel">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden border-y border-r border-border bg-panel">
               {embeddedView}
             </div>
           </>
@@ -1899,13 +1900,6 @@ export function TranscriptView({
   }, []);
   const drawer = width > 0 && width < 640;
   const [drawerOpen, setDrawerOpen] = useState(false);
-  // Never let the panel squeeze the conversation below ~320px on a narrow
-  // window; the 640px drawer breakpoint takes over before this can push
-  // under the 280 floor (spec A.2).
-  const effectivePanelWidth =
-    width > 0
-      ? Math.min(panelWidthPx, Math.max(280, width - 320))
-      : panelWidthPx;
 
   // Conversation-header responsiveness (owner, 2026-08-21: the text-size /
   // expand controls bled over the right panel at narrow widths) — measure the
@@ -1941,6 +1935,15 @@ export function TranscriptView({
   // Focus is the immediate answer surface. On narrow layouts the Ally drawer
   // still has to open.
   const partnerView = Boolean(caps?.system.partnerWindow);
+  // Web fallback embeds View inside the panel, so the panel needs more room
+  // than the desktop accordion-only 340px (see lib/panelWidth.ts). The window
+  // clamp there keeps the conversation >=320px; the 640px drawer breakpoint
+  // takes over before it can push under the 280 floor (spec A.2).
+  const effectivePanelWidth = effectivePanelWidthFor({
+    panelWidthPx,
+    windowWidthPx: width,
+    embeddedView: !partnerView,
+  });
   const ensureAllyVisible = useCallback(() => {
     if (drawer) setDrawerOpen(true);
     // View (4) is the separate attached window — bring it up beside the app

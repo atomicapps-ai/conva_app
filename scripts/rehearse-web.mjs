@@ -176,10 +176,16 @@ try {
   const viewText = askVisible
     ? await page.getByRole("region", { name: "View", exact: true }).first().innerText().catch(() => "(no View region)")
     : "";
+  // Layout guard: the embedded View must sit fully inside the window. At the 340px
+  // desktop panel width it was clipped at the right edge (Say-now and Pin/Copy cut off).
+  const viewBox = askVisible ? await page.getByRole("region", { name: "View", exact: true }).first().boundingBox().catch(() => null) : null;
+  const elaborateBox = askVisible ? await page.getByRole("region", { name: "View", exact: true }).first().getByRole("button", { name: /^elaborate$/i }).first().boundingBox().catch(() => null) : null;
+  const viewInViewport = viewBox !== null && viewBox.x >= 0 && viewBox.x + viewBox.width <= 1280 + 0.5
+    && elaborateBox !== null && elaborateBox.x + elaborateBox.width <= viewBox.x + viewBox.width + 0.5;
   const allyReq = cloud.stats.ally[0] ?? null;
   // A stream that ended badly shows on the card as "(stream_truncated)" / "(stream_interrupted)".
   const cardError = /stream_truncated|stream_interrupted|\(network\)/.test(await bodyText(page));
-  await record(8, "Ask → streamed, cited answer", askVisible && answerMs !== null && cited && !cardError && allyReq !== null && allyReq.sources > 0 && (!contextActivated || allyReq.context_id), { ask_box: askVisible, answer_ms: answerMs, citation_shown: cited, view_text: viewText.slice(0, 300), card_error: cardError, request: allyReq });
+  await record(8, "Ask → streamed, cited answer", askVisible && answerMs !== null && cited && !cardError && allyReq !== null && allyReq.sources > 0 && (!contextActivated || allyReq.context_id) && viewInViewport, { view_in_viewport: viewInViewport, view_box: viewBox && { x: Math.round(viewBox.x), width: Math.round(viewBox.width) }, ask_box: askVisible, answer_ms: answerMs, citation_shown: cited, view_text: viewText.slice(0, 300), card_error: cardError, request: allyReq });
 
   // ── 10: End → stop reaches the gateway, telemetry posted.
   const stop = page.getByRole("button", { name: /^end\b/i }).first();
