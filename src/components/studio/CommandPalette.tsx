@@ -66,6 +66,7 @@ export function CommandPalette() {
       // Off the rail (owner decision, 2026-08-16 — see navItems.ts) but still
       // real views; keep them one keystroke away via the palette.
       go("about", "Go to About & extras", "sparkle"),
+      go("models", "Compare models", "target"),
     ];
     if (!isTauri()) return nav;
 
