@@ -60,16 +60,18 @@ export function modelLabel(m: ModelInfo): string {
 
 /**
  * The config patch that completes setup with a working key: both slots move to
- * the chosen provider (quality = the picked model, fast = that provider's fast
- * default) so a provider change never leaves a slot pointing at another vendor.
+ * the chosen provider so a provider change never leaves a slot pointing at
+ * another vendor. Quality = the picked model; fast = the picked fast model, or
+ * that provider's fast default when none was picked.
  */
 export function completeWithKeyPatch(
   provider: ProviderInfo,
   model: string,
+  fastModel?: string,
 ): Partial<AppConfig> {
   return {
     llm_quality: { provider: provider.id, model },
-    llm_fast: { provider: provider.id, model: provider.default_fast_model },
+    llm_fast: { provider: provider.id, model: fastModel || provider.default_fast_model },
     ai_setup_completed: true,
   };
 }

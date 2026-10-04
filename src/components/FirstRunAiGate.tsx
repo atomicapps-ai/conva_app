@@ -11,6 +11,8 @@ import {
   SKIP_PATCH,
 } from "@/lib/firstRunAi";
 import type { ModelInfo, ProviderId } from "@/lib/ipc";
+import { BENCHMARK_MODELS } from "@/lib/modelCompare/benchmarkData";
+import { LIVE_TARGET, benchmarkFor, meetsLiveTarget, modelFacts } from "@/lib/modelCompare/compare";
 import { useAppStore } from "@/state/app";
 
 type Choice = "key" | "later";
@@ -34,6 +36,7 @@ export function FirstRunAiGate() {
   const [choice, setChoice] = useState<Choice>("key");
   const [providerId, setProviderId] = useState<ProviderId>("anthropic");
   const [model, setModel] = useState<string | null>(null);
+  const [fastModel, setFastModel] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
   const [live, setLive] = useState<ModelInfo[]>([]);
   const [busy, setBusy] = useState(false);
@@ -45,10 +48,17 @@ export function FirstRunAiGate() {
   const provider = providers.find((p) => p.id === providerId) ?? providers[0];
   const options = provider ? mergeModelOptions(provider, live, model ?? undefined) : [];
   const selectedModel = model ?? provider?.default_quality_model ?? "";
+  const fastOptions = provider
+    ? mergeModelOptions(provider, live, fastModel ?? undefined)
+    : [];
+  const selectedFast = fastModel ?? provider?.default_fast_model ?? "";
+  const qualityFacts = provider ? benchmarkFor(BENCHMARK_MODELS, provider.id, selectedModel) : undefined;
+  const fastFacts = provider ? benchmarkFor(BENCHMARK_MODELS, provider.id, selectedFast) : undefined;
 
   // Reset the model when the provider changes; the list is re-fetched below.
   useEffect(() => {
     setModel(null);
+    setFastModel(null);
     setLive([]);
     setStatus(null);
   }, [providerId]);
@@ -90,7 +100,7 @@ export function FirstRunAiGate() {
       await refreshKeyStatus();
       const ms = await backend.providers.test(provider.id, selectedModel);
       setStatus(`✓ Connected — first answer in ${ms} ms`);
-      await updateConfig(completeWithKeyPatch(provider, selectedModel));
+      await updateConfig(completeWithKeyPatch(provider, selectedModel, selectedFast));
       setInFlow(false);
     } catch (e) {
       setStatus(String(e));
@@ -171,6 +181,42 @@ export function FirstRunAiGate() {
                     ))}
                   </select>
                 </label>
+                {qualityFacts && (
+                  <p className="-mt-1 text-[11px] text-fg-faint" data-testid="quality-facts">
+                    {modelFacts(qualityFacts)}
+                  </p>
+                )}
+                <label className="field">
+                  Fast model (runs all call long)
+                  <select
+                    className="select"
+                    value={selectedFast}
+                    onChange={(e) => setFastModel(e.target.value)}
+                  >
+                    {fastOptions.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {modelLabel(m)}
+                        {m.id === provider.default_fast_model ? " — recommended" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="-mt-1 text-[11px] text-fg-faint">
+                  The quality model writes your answers and documents. The fast
+                  model tracks commitments and spots terms during the call, so
+                  it should start answering inside {LIVE_TARGET.toS} s.
+                </p>
+                {fastFacts && (
+                  <p className="text-[11px] text-fg-faint" data-testid="fast-facts">
+                    {modelFacts(fastFacts)}
+                  </p>
+                )}
+                {fastFacts && !meetsLiveTarget(fastFacts) && (
+                  <p role="status" className="text-[11px] text-notice" data-testid="fast-warning">
+                    This model starts slower than {LIVE_TARGET.toS} s, so tracking and
+                    term capture will lag behind the conversation.
+                  </p>
+                )}
                 <label className="field">
                   {provider.name} API key
                   <input
