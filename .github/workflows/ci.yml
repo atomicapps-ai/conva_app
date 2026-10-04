@@ -152,16 +152,26 @@ jobs:
       # real web build against the certification gateway + the in-memory cloud stub
       # (M2 cp19). Gating: a step that stops working here would stop the owner's run.
       - name: Rehearse — mic
-        run: npm run rehearse:web -- --duration 13 --out rehearsal-ci
+        run: npm run rehearse:web -- --duration 13 --out rehearsal-ci --record
       # Informational: the same with "Share call audio" (step 7) through the auto-accept flags.
       - name: Rehearse — mic+share (informational)
         continue-on-error: true
-        run: npm run rehearse:web -- --duration 13 --share --out rehearsal-ci
+        run: npm run rehearse:web -- --duration 13 --share --out rehearsal-ci --record
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: web-rehearsal-rows
           path: rehearsal-ci/*.json
+          if-no-files-found: warn
+      # The watchable evidence: per run a video, a Playwright trace (npx playwright
+      # show-trace trace.zip) and one screenshot per checklist step. Synthetic fixtures
+      # only — see scripts/certify/recorder.mjs. Kept 14 days, not committed.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-rehearsal-recordings
+          path: rehearsal-ci/*/
+          retention-days: 14
           if-no-files-found: warn
 
   shell-windows:

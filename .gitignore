@@ -41,3 +41,8 @@ Thumbs.db
 # Tauri generated artifacts
 src-tauri/gen/
 .superpowers/
+
+# Test recordings (video, trace, screenshots) written by `--record`; the committed
+# evidence is the JSON row beside them, never the recordings.
+/rehearsal/*/
+/certification/*/

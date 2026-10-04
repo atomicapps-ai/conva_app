@@ -25,7 +25,11 @@
  *   npm run build:web
  *   npm run rehearse:web                      # pre-installed Chromium (Linux/CI)
  *   npm run rehearse:web -- --browser chrome  # installed Google Chrome (Windows/macOS)
- *   options: --executable <path> --headed --duration <s> --out <dir> --share
+ *   options: --executable <path> --headed --duration <s> --out <dir> --share --record
+ *
+ * `--record` also writes a video, a Playwright trace and one screenshot per step
+ * to <out>/<run>/ (see scripts/certify/recorder.mjs) — the watchable evidence for
+ * the feature verification matrix (conva_core/docs/product/…feature-verification-matrix).
  *
  * Needs `playwright-core` (devDependency; it never downloads a browser). */
 import { createRequire } from "node:module";
@@ -35,6 +39,7 @@ import os from "node:os";
 import { startGateway } from "./certify/gateway.mjs";
 import { synthWav, EXPECTED_FINALS } from "./certify/lib.mjs";
 import { REHEARSAL_CONTEXT, REHEARSAL_DOC, REHEARSAL_FACT, REHEARSAL_QUESTION, createCloudStub } from "./certify/cloud.mjs";
+import { createRecorder } from "./certify/recorder.mjs";
 import { DEFAULT_CHROMIUM, acknowledgeNotice, attachListeners, cliOptions, launchOptions, probeEnvironment, summarizeTelemetry, waitFor } from "./certify/driver.mjs";
 
 const require = createRequire(import.meta.url);
@@ -46,6 +51,7 @@ const outDir = resolve(opt("out", "rehearsal"));
 const distDir = resolve(opt("dist", "dist-web"));
 const headed = flag("headed");
 const tryShare = flag("share");
+const recordRun = flag("record");
 const executable = opt("executable", process.env.CONVA_CERTIFY_CHROMIUM || (browserName === "chromium" ? DEFAULT_CHROMIUM : undefined));
 const CONVERSATION_TITLE = "Rehearsal conversation";
 
@@ -63,10 +69,14 @@ writeFileSync(wavPath, synthWav({ sampleRate: 48_000, seconds: duration + 2 }));
 const cloud = createCloudStub();
 const gw = await startGateway({ distDir, cloud, sessionId: "live_rehearsal" });
 const startedAt = new Date();
+const recorder = createRecorder({ enabled: recordRun, dir: outDir, name: `${startedAt.toISOString().replace(/[:.]/g, "-")}-${browserName}-${tryShare ? "mic-share" : "mic"}-rehearsal` });
+let recording = null;
+let context;
 const steps = [];
 /** One checklist step's verdict; `detail` is content-free (timings, counts, what was shown). */
-const record = (step, name, ok, detail = {}) => {
+const record = async (step, name, ok, detail = {}) => {
   steps.push({ step, name, ok: !!ok, ...detail });
+  await recorder.shot(step, name, !!ok);
   return !!ok;
 };
 const bodyText = (page) => page.evaluate(() => document.body.innerText);
@@ -77,8 +87,9 @@ let pageErrors = [];
 let failedRequests = [];
 try {
   browser = await chromium.launch(launchOptions({ headed, wavPath, share: tryShare, executable, browserName }));
-  const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, permissions: ["microphone"] });
+  context = await browser.newContext({ viewport: { width: 1280, height: 860 }, permissions: ["microphone"], ...recorder.contextOptions });
   const page = await context.newPage();
+  await recorder.start(context, page);
   ({ consoleErrors, pageErrors, failedRequests } = attachListeners(page));
 
   await page.goto(`${gw.origin}/app/`, { waitUntil: "load" });
@@ -113,7 +124,7 @@ try {
       contextActivated = (await waitFor(page, async () => (await bodyText(page)).includes(REHEARSAL_CONTEXT.title), 5000)) !== null;
     }
   }
-  record("5a", "Context activated (grounding picker)", contextActivated, { chip_shown: chipShown, include_shown: includeShown, picker_closed: pickerClosed, title_shown: contextActivated });
+  await record("5a", "Context activated (grounding picker)", contextActivated, { chip_shown: chipShown, include_shown: includeShown, picker_closed: pickerClosed, title_shown: contextActivated });
 
   // ── 5: Start → hosted-processing notice → microphone (first audio at the gateway).
   const startButton = page.getByRole("button", { name: /start (listening|session)|^start$|listen/i }).first();
@@ -122,7 +133,7 @@ try {
   await startButton.click();
   const noticeAck = await acknowledgeNotice(page, /start listening/i);
   const firstAudioMs = await waitFor(page, async () => [...gw.stats.sources.values()].some((s) => s.frames > 0), 15_000);
-  record(5, "Start → notice → microphone", noticeAck !== null && firstAudioMs !== null, { notice: noticeAck, first_audio_ms: firstAudioMs });
+  await record(5, "Start → notice → microphone", noticeAck !== null && firstAudioMs !== null, { notice: noticeAck, first_audio_ms: firstAudioMs });
 
   // ── 7: Share call audio → scope notice → chooser (auto-accepted by the launch flags).
   let shareAck = null;
@@ -134,7 +145,7 @@ try {
       shareAck = await acknowledgeNotice(page, /share call audio/i);
     }
     const remoteAttached = await waitFor(page, async () => [...gw.stats.sources.values()].some((s) => s.channel === "remote_mix"), 8000);
-    record(7, "Share call audio → notice → chooser", visible && shareAck !== null && remoteAttached !== null, { notice: shareAck, remote_attached_ms: remoteAttached });
+    await record(7, "Share call audio → notice → chooser", visible && shareAck !== null && remoteAttached !== null, { notice: shareAck, remote_attached_ms: remoteAttached });
   }
 
   // ── 6: the fixture plays out; the finals must be on the page.
@@ -143,7 +154,7 @@ try {
   const expected = EXPECTED_FINALS.filter((f) => attachedChannels.has(f.channel));
   const afterFixture = await bodyText(page);
   const seen = expected.map((f) => ({ channel: f.channel, shown: afterFixture.includes(f.text) }));
-  record(6, "Finals shown per attached channel", expected.length > 0 && seen.every((s) => s.shown), { expected: expected.length, shown: seen.filter((s) => s.shown).length, channels: [...attachedChannels] });
+  await record(6, "Finals shown per attached channel", expected.length > 0 && seen.every((s) => s.shown), { expected: expected.length, shown: seen.filter((s) => s.shown).length, channels: [...attachedChannels] });
 
   // ── 8: Ask box → streamed answer citing the document.
   const ask = page.getByRole("textbox", { name: /^ask ally$/i }).first();
@@ -168,14 +179,14 @@ try {
   const allyReq = cloud.stats.ally[0] ?? null;
   // A stream that ended badly shows on the card as "(stream_truncated)" / "(stream_interrupted)".
   const cardError = /stream_truncated|stream_interrupted|\(network\)/.test(await bodyText(page));
-  record(8, "Ask → streamed, cited answer", askVisible && answerMs !== null && cited && !cardError && allyReq !== null && allyReq.sources > 0 && (!contextActivated || allyReq.context_id), { ask_box: askVisible, answer_ms: answerMs, citation_shown: cited, view_text: viewText.slice(0, 300), card_error: cardError, request: allyReq });
+  await record(8, "Ask → streamed, cited answer", askVisible && answerMs !== null && cited && !cardError && allyReq !== null && allyReq.sources > 0 && (!contextActivated || allyReq.context_id), { ask_box: askVisible, answer_ms: answerMs, citation_shown: cited, view_text: viewText.slice(0, 300), card_error: cardError, request: allyReq });
 
   // ── 10: End → stop reaches the gateway, telemetry posted.
   const stop = page.getByRole("button", { name: /^end\b/i }).first();
   const stopVisible = await stop.isVisible().catch(() => false);
   if (stopVisible) await stop.click().catch(() => {});
   const ended = await waitFor(page, async () => gw.stats.bye_sent && gw.stats.telemetry.length > 0, 8000);
-  record(10, "End → bye + telemetry", stopVisible && ended !== null, { end_control: stopVisible, settle_ms: ended, telemetry_posts: gw.stats.telemetry.length });
+  await record(10, "End → bye + telemetry", stopVisible && ended !== null, { end_control: stopVisible, settle_ms: ended, telemetry_posts: gw.stats.telemetry.length });
 
   // ── 11: Save conversation → listed in History → reopens with its transcript.
   // End is a plain stop now (owner, 2026-09-15) — it no longer opens this
@@ -206,7 +217,7 @@ try {
       }
     }
   }
-  record(11, "Save conversation → in History → reopens", saveOffered && saved && listed && reopened, { save_offered: saveOffered, saved, listed, reopened });
+  await record(11, "Save conversation → in History → reopens", saveOffered && saved && listed && reopened, { save_offered: saveOffered, saved, listed, reopened });
 
   // ── 12: delete it → gone from the list and from the store.
   let deleted = false;
@@ -217,7 +228,7 @@ try {
       deleted = (await waitFor(page, async () => cloud.snapshot().conversations === 0 && !(await page.getByRole("button", { name: CONVERSATION_TITLE, exact: true }).first().isVisible().catch(() => false)), 6000)) !== null;
     }
   }
-  record(12, "Delete conversation → gone", deleted, { deleted });
+  await record(12, "Delete conversation → gone", deleted, { deleted });
 
   const summary = gw.summary();
   const reasons = steps.filter((s) => !s.ok).map((s) => `step ${s.step} failed: ${s.name}`);
@@ -248,12 +259,15 @@ try {
     failed_requests_informational: failedRequests.filter((r) => r.includes("/api/live/ally") && r.includes("ERR_ABORTED")),
     verdict: reasons.length ? "fail" : "pass",
     reasons,
+    recording: null, // filled after the context closes (the video only finalises then)
   };
 } finally {
+  if (recorder.enabled && context) recording = await recorder.finish(context).catch(() => null);
   await browser?.close().catch(() => {});
   await gw.close();
 }
 
+if (recording) row.recording = { dir: recording.dir.split("/").slice(-1)[0], trace: "trace.zip", video: recording.video ? "session.webm" : null, screenshots: recording.screenshots };
 const stamp = startedAt.toISOString().slice(0, 10);
 const safe = (s) => String(s).replace(/[^A-Za-z0-9.-]+/g, "_");
 const file = join(outDir, `${stamp}-${safe(row.browser.requested)}-${safe(row.os.platform)}-${row.capture_mode}-rehearsal.json`);
