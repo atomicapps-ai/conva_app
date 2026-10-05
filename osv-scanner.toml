@@ -1,0 +1,69 @@
+# osv-scanner configuration (used by .github/workflows/dependency-audit.yml).
+# Every entry is a reviewed decision: what it is, why it is acceptable for now,
+# and a date after which the scan fails again so the decision is re-made, not forgotten.
+# Added 2026-10-05 from the pre-release security audit
+# (conva_core docs/technical/2026-10-pre-release-security-audit.md).
+
+# --- Vulnerabilities we cannot fix yet --------------------------------------
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0187"
+ignoreUntil = 2027-01-05
+reason = "lopdf 0.34 (via pdf-extract 0.7): stack overflow on deeply nested PDF objects. A crafted PDF added to the Library can crash the app; no data exposure. No compatible update: needs a pdf-extract major upgrade."
+
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+ignoreUntil = 2027-01-05
+reason = "braces 3.0.3 via patch-package -> find-yarn-workspace-root -> micromatch (dev only): stack exhaustion on deeply nested glob patterns. Runs only at install time on a developer machine; npm's suggested fix is a downgrade of patch-package."
+
+[[IgnoredVulns]]
+id = "GHSA-wrw7-89jp-8q8g"
+ignoreUntil = 2027-01-05
+reason = "glib 0.18.5 (unsound iterator; also RUSTSEC-2024-0429): only built for Linux/GTK; not in the Windows or macOS app. Tracked for any Linux build."
+
+# --- 'Unmaintained' notices (no known vulnerability) ------------------------
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0370"
+ignoreUntil = 2027-01-05
+reason = "proc-macro-error is unmaintained (compile-time macro crate pulled in by the Tauri stack). No exploit."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+ignoreUntil = 2027-01-05
+reason = "paste is unmaintained (compile-time macro crate). No exploit."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0119"
+ignoreUntil = 2027-01-05
+reason = "number_prefix is unmaintained (via the model-download progress bar). No exploit."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0134"
+ignoreUntil = 2027-01-05
+reason = "rustls-pemfile is unmaintained (via reqwest). No exploit; upstream is migrating off it."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0075"
+ignoreUntil = 2027-01-05
+reason = "unic-char-range is unmaintained (Tauri/fastembed stack). No exploit."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0080"
+ignoreUntil = 2027-01-05
+reason = "unic-common is unmaintained (Tauri/fastembed stack). No exploit."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0081"
+ignoreUntil = 2027-01-05
+reason = "unic-char-property is unmaintained (Tauri/fastembed stack). No exploit."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0098"
+ignoreUntil = 2027-01-05
+reason = "unic-ucd-version is unmaintained (Tauri/fastembed stack). No exploit."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0100"
+ignoreUntil = 2027-01-05
+reason = "unic-ucd-ident is unmaintained (Tauri/fastembed stack). No exploit."
