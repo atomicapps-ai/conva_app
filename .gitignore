@@ -47,3 +47,4 @@ src-tauri/gen/
 /rehearsal/*/
 /certification/*/
 /demo-preview/
+/scenario-runs/

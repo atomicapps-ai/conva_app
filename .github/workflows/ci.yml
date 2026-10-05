@@ -157,6 +157,20 @@ jobs:
       - name: Rehearse — mic+share (informational)
         continue-on-error: true
         run: npm run rehearse:web -- --duration 13 --share --out rehearsal-ci --record
+      # The recorded app flows (R1-R8: Library, Contexts, Conversations, Settings, product
+      # pages, cockpit layout, live fallbacks) against the demo workspace. Gating: an
+      # unexpected failure, or a known failure that now passes (remove its marker). Each
+      # scenario is recorded but a clean pass keeps nothing; failures keep video (and a
+      # trace only when unexpected). See scripts/scenarios/lib.mjs.
+      - name: Scenarios — recorded app flows
+        run: npm run scenarios:web -- --out scenario-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-scenarios
+          path: scenario-ci/
+          retention-days: 14
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:

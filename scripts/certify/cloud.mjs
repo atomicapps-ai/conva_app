@@ -351,7 +351,8 @@ export function createCloudStub({ now = () => Date.now(), seed = true, dataset =
       const d = id ? documents.get(id) : null;
       if (!d || d.deleted) return finish(refuse(404, "not_found", "That document no longer exists."));
       if (method === "GET" && sub === "text") return finish(ok({ text: d.text }));
-      if (method === "GET" && sub === "original") return finish(ok({ text: d.text }));
+      // Like the Worker: the original's bytes with a Content-Disposition, not JSON. `raw` tells the gateway to send it as-is.
+      if (method === "GET" && sub === "original") return finish({ status: 200, raw: d.text, file_name: d.record.file_name });
       if (method === "PATCH" && !sub) {
         if (!body || typeof body !== "object") return finish(refuse(400, "invalid_json"));
         if (typeof body.enabled === "boolean") d.record.enabled = body.enabled;
