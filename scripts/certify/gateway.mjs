@@ -91,6 +91,10 @@ export function startGateway({ distDir, port = 0, sessionId = "live_certify", lo
       const raw = await readBody(req);
       const isUpload = p === "/api/live/library/upload";
       const r = cloud.handle({ method: req.method, path: p.slice("/api/live".length), body: isUpload ? raw : raw.length ? parseJson(raw) : null, headers: req.headers });
+      if (typeof r.raw === "string") {
+        res.writeHead(r.status, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(r.file_name ?? "document")}` });
+        return res.end(r.raw);
+      }
       return json(res, r.status, r.body);
     }
     // Cloud stores: empty and healthy, so console errors stay a real signal.

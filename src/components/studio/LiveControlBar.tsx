@@ -1,4 +1,5 @@
 import { Core, coreStateFrom } from "@/components/ui/Core";
+import { useOperationAvailability } from "@/lib/backend";
 import { Icon } from "@/components/ui/Icon";
 import { ResponsiveLabel } from "@/components/ui/ResponsiveLabel";
 import { useAppStore } from "@/state/app";
@@ -88,6 +89,15 @@ export function LiveControlBar({
   const recording = useAppStore((s) => s.recording);
   const startRecording = useAppStore((s) => s.startRecording);
   const stopRecording = useAppStore((s) => s.stopRecording);
+  // The control only exists on every platform; whether it WORKS is the
+  // capability snapshot's call (null = snapshot not loaded yet → trust the
+  // session state alone, as before). Web: no pause, no stereo recording.
+  const pauseAvailability = useOperationAvailability("session.pause");
+  const recordAvailability = useOperationAvailability("recording.start");
+  const pauseBlocked =
+    pauseAvailability && pauseAvailability.state !== "available" ? pauseAvailability : null;
+  const recordBlocked =
+    recordAvailability && recordAvailability.state !== "available" ? recordAvailability : null;
   // Keeps ticking through a pause (matches the backend: resume() re-emits
   // Listening with the ORIGINAL start time, not now) — resetting to 00:00
   // on every pause/resume would read as "did this start a new session?".
@@ -160,11 +170,13 @@ export function LiveControlBar({
         <>
           <button
             type="button"
-            disabled={!listening && !paused}
+            disabled={(!listening && !paused) || pauseBlocked !== null}
             onClick={() => void (paused ? resume() : pause())}
             aria-pressed={paused}
             title={
-              paused
+              pauseBlocked
+                ? `Pause isn't available here — ${pauseBlocked.reason}`
+                : paused
                 ? "Resume — mic was idle, nothing was transcribed while paused"
                 : "Pause — the mic stays connected; nothing is transcribed or recorded until you resume"
             }
@@ -196,11 +208,13 @@ export function LiveControlBar({
 
       <button
         type="button"
-        disabled={!listening}
+        disabled={!listening || (recordBlocked !== null && !recording)}
         onClick={() => void (recording ? stopRecording() : startRecording())}
         aria-pressed={recording}
         title={
-          !listening
+          recordBlocked && !recording
+            ? `Recording isn't available here — ${recordBlocked.reason}`
+            : !listening
             ? "Start listening first to record"
             : recording
               ? "Stop recording"

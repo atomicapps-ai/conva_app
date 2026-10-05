@@ -41,7 +41,8 @@
     "env:print:prod": "node env/cli.mjs print prod",
     "certify:web": "node scripts/certify-web.mjs",
     "rehearse:web": "node scripts/rehearse-web.mjs",
-    "demo:preview": "node scripts/demo-preview.mjs"
+    "demo:preview": "node scripts/demo-preview.mjs",
+    "scenarios:web": "node scripts/scenarios-web.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.13",

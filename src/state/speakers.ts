@@ -84,12 +84,14 @@ export function defaultLabelFor(kind: SpeakerKind, ordinal: number): string {
 const VOICE_COLORS = [
   "var(--color-inbound)",
   "#E0B84C",
-  "#9D7DC4",
-  "#6C5CE7",
-  "#67C6C5",
   "#4CC2E0",
   "#C48D7D",
+  "#67C6C5",
   "#8FB86C",
+  // Violets last: "You" is lavender (--color-outbound, #b79cff), so a violet
+  // among the first voices reads as You (found by scenario R9).
+  "#6C5CE7",
+  "#9D7DC4",
 ];
 
 export function colorForOrdinal(ordinal: number): string {
