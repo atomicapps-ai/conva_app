@@ -25,6 +25,7 @@ import { synthWav } from "./certify/lib.mjs";
 import { DEMO_ACCOUNT, loadDemoDataset } from "./certify/demoDataset.mjs";
 import { DEFAULT_CHROMIUM, cliOptions, launchOptions } from "./certify/driver.mjs";
 import { runIsGreen, runScenario } from "./scenarios/lib.mjs";
+import { renderReport } from "./scenarios/report.mjs";
 
 const require = createRequire(import.meta.url);
 const { opt, flag } = cliOptions(process.argv.slice(2));
@@ -85,7 +86,8 @@ const report = {
 };
 const file = join(outDir, `${startedAt.toISOString().slice(0, 10)}-${browserName}-${process.platform}-scenarios.json`);
 writeFileSync(file, JSON.stringify(report, null, 2) + "\n");
+writeFileSync(join(outDir, "report.html"), renderReport(report, { standalone: true, videoSrc: (r) => (r.recording?.video ? `${r.recording.dir}/${r.recording.video}` : null) }));
 const counts = ["pass", "known-failing", "fail", "unexpected-pass"].map((o) => `${results.filter((r) => r.outcome === o).length} ${o}`).join(", ");
-console.log(`\n${green ? "PASS" : "FAIL"} — ${counts}\n${file}`);
+console.log(`\n${green ? "PASS" : "FAIL"} — ${counts}\n${file}\nOpen ${join(outDir, "report.html")} in a browser to watch the recordings and read each step.`);
 for (const r of stale) console.log(`A known failure now passes in ${r.id}: remove its { known } marker so it is gated from here on.`);
 process.exit(green ? 0 : 1);
