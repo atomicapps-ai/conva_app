@@ -41,6 +41,24 @@ describe("colorForOrdinal (owner: each new voice defaults to its own color)", ()
     expect(new Set(colors).size).toBe(4);
   });
 
+  it("keeps the first voices well away from the lavender used for 'you'", () => {
+    const hue = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
+      const max = Math.max(r, g, b);
+      const d = max - Math.min(r, g, b);
+      if (d === 0) return 0;
+      const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (h * 60 + 360) % 360;
+    };
+    const youHue = hue("#b79cff");
+    for (let ordinal = 1; ordinal <= 6; ordinal += 1) {
+      const c = colorForOrdinal(ordinal);
+      if (!c.startsWith("#")) continue;
+      const diff = Math.abs(hue(c) - youHue);
+      expect(Math.min(diff, 360 - diff), `voice ${ordinal} (${c}) is too close to You`).toBeGreaterThanOrEqual(30);
+    }
+  });
+
   it("cycles once the palette is exhausted rather than throwing", () => {
     expect(() => colorForOrdinal(50)).not.toThrow();
     expect(typeof colorForOrdinal(50)).toBe("string");
