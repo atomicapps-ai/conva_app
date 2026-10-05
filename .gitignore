@@ -46,3 +46,4 @@ src-tauri/gen/
 # evidence is the JSON row beside them, never the recordings.
 /rehearsal/*/
 /certification/*/
+/demo-preview/
