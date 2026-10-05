@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
 
 import { FilterPopover } from "@/components/contexts/FilterPopover";
 import {
@@ -116,8 +116,32 @@ function LibraryRowMenu({
   onDelete: () => void;
 }) {
   const [view, setView] = useState<"menu" | "attach" | null>(null);
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  // `y` is the preferred top (just under the ⋮ button); `anchorTop` lets the
+  // menu flip above the button once its real height is known.
+  const [pos, setPos] = useState<{ x: number; y: number; anchorTop: number } | null>(null);
+  const [fitY, setFitY] = useState<number | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const entries = Object.entries(contextTitles);
+
+  // The menu is fixed-positioned under its button, so for the last rows it
+  // ran off the bottom of the window with Download/Delete unreachable (#394).
+  // Measure it after render (and when it switches between the action list and
+  // the context picker) and flip above the button, or clamp, if it would not fit.
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!view || !pos || !el) {
+      setFitY(null);
+      return;
+    }
+    const h = el.offsetHeight;
+    const MARGIN = 8;
+    if (pos.y + h <= window.innerHeight - MARGIN) {
+      setFitY(null);
+      return;
+    }
+    const above = pos.anchorTop - 4 - h;
+    setFitY(above >= MARGIN ? above : Math.max(MARGIN, window.innerHeight - MARGIN - h));
+  }, [view, pos]);
 
   useEffect(() => {
     if (!view) return;
@@ -146,7 +170,7 @@ function LibraryRowMenu({
           const MARGIN = 8;
           const MENU_W = 220;
           const x = Math.max(MARGIN, Math.min(r.right - MENU_W, window.innerWidth - MENU_W - MARGIN));
-          setPos({ x, y: r.bottom + 4 });
+          setPos({ x, y: r.bottom + 4, anchorTop: r.top });
           setView((v) => (v ? null : "menu"));
         }}
         title="More actions"
@@ -162,7 +186,8 @@ function LibraryRowMenu({
           role="menu"
           aria-label={`Actions for ${doc.file_name}`}
           onClick={(e) => e.stopPropagation()}
-          style={{ position: "fixed", left: pos.x, top: pos.y, zIndex: 60 }}
+          ref={menuRef}
+          style={{ position: "fixed", left: pos.x, top: fitY ?? pos.y, zIndex: 60 }}
           className="glass-raised max-h-[320px] min-w-[180px] max-w-[220px] overflow-y-auto rounded-lg border border-border p-1 shadow-[var(--shadow-lg)]"
         >
           {view === "menu" ? (

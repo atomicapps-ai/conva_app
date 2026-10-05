@@ -72,7 +72,7 @@ export default {
       const height = page.viewportSize().height;
       await page.keyboard.press("Escape");
       check(last && last.y + last.height <= height, `the menu's last item ends at ${last ? Math.round(last.y + last.height) : "?"}px in a ${height}px window`);
-    }, { known: "#394: the row menu opens downward and is cut off at the bottom of the window for the last rows" });
+    });
     await step("Narrow the list to the file so its menu is fully on screen", async () => {
       await page.getByPlaceholder(/search files/i).fill("spokane");
       await rowFor(page, FILE).waitFor({ state: "visible", timeout: 5000 });

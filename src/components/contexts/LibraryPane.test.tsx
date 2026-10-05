@@ -236,6 +236,46 @@ describe("LibraryRowMenu", () => {
     expect(deleteDoc).toHaveBeenCalledWith("d1");
   });
 
+  describe("menu placement near the bottom of the window (#394)", () => {
+    const openMenuAt = async (buttonTop: number, menuHeight: number) => {
+      vi.spyOn(window, "innerHeight", "get").mockReturnValue(600);
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(menuHeight);
+      renderPane([doc()]);
+      await screen.findByText("resume.pdf");
+      const button = screen.getByRole("button", { name: /more actions for resume\.pdf/i });
+      vi.spyOn(button, "getBoundingClientRect").mockReturnValue({
+        top: buttonTop,
+        bottom: buttonTop + 24,
+        left: 300,
+        right: 324,
+        width: 24,
+        height: 24,
+        x: 300,
+        y: buttonTop,
+        toJSON: () => ({}),
+      });
+      fireEvent.click(button);
+      return screen.getByRole("menu");
+    };
+    afterEach(() => vi.restoreAllMocks());
+
+    it("opens below the button when there is room", async () => {
+      const menu = await openMenuAt(100, 120);
+      expect(menu.style.top).toBe("128px");
+    });
+
+    it("flips above the button when it would run off the bottom", async () => {
+      const menu = await openMenuAt(560, 120);
+      // button top 560 − 4 gap − 120 tall
+      expect(menu.style.top).toBe("436px");
+    });
+
+    it("clamps inside the window when it fits neither below nor above", async () => {
+      const menu = await openMenuAt(100, 590);
+      expect(menu.style.top).toBe("8px");
+    });
+  });
+
   it("shows Link to the open conversation, toggling on click", async () => {
     useConversationStore.setState({ openId: "conv1", title: "Weekly sync", linkedDocs: [] });
     try {
