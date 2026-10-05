@@ -30,9 +30,7 @@ export default {
       await press(page, /^save$/i);
       await rowFor(page, NOTE).waitFor({ state: "visible", timeout: 8000 });
     });
-    await step("The header count rises to 31 without leaving the page", () => seeText(page, "31 documents", 3000), {
-      known: "#393: LibraryView does not reload its count when the pane adds or deletes a document",
-    });
+    await step("The header count rises to 31 without leaving the page", () => seeText(page, "31 documents", 3000));
     await step("The Pasted filter shows the note", async () => {
       await press(page, /^pasted$/i);
       await rowFor(page, NOTE).waitFor({ state: "visible", timeout: 5000 });

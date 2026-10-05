@@ -168,6 +168,40 @@ describe("LibraryPane row", () => {
   });
 });
 
+describe("LibraryPane onDocumentsChange (#393)", () => {
+  it("reports the fresh list after the initial load and after a refresh", async () => {
+    const onDocumentsChange = vi.fn();
+    const backend = fakeBackend([doc({ id: "d1", file_name: "a.pdf" })]);
+    const view = render(
+      <BackendProvider backend={backend}>
+        <LibraryPane contextTitles={{}} onAttach={noop} onDocumentsChange={onDocumentsChange} />
+      </BackendProvider>,
+    );
+    await screen.findByText("a.pdf");
+    expect(onDocumentsChange).toHaveBeenLastCalledWith([expect.objectContaining({ id: "d1" })]);
+
+    vi.mocked(backend.rag.list).mockResolvedValue([
+      doc({ id: "d1", file_name: "a.pdf" }),
+      doc({ id: "d2", file_name: "b.pdf" }),
+    ]);
+    view.rerender(
+      <BackendProvider backend={backend}>
+        <LibraryPane
+          contextTitles={{}}
+          onAttach={noop}
+          onDocumentsChange={onDocumentsChange}
+          refreshToken={1}
+        />
+      </BackendProvider>,
+    );
+    await screen.findByText("b.pdf");
+    expect(onDocumentsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: "d1" }),
+      expect.objectContaining({ id: "d2" }),
+    ]);
+  });
+});
+
 describe("LibraryRowMenu", () => {
   it("Attach to a context… opens the context picker, which calls onAttach and closes", async () => {
     const onAttach = vi.fn();

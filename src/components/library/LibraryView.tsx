@@ -102,6 +102,7 @@ export function LibraryView() {
             onAttach={(docId, contextId) => void attach(docId, contextId)}
             refreshToken={refreshToken}
             quickAction={quickAction}
+            onDocumentsChange={setDocuments}
           />
         </div>
       )}

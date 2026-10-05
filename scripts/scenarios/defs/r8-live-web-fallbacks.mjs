@@ -6,7 +6,7 @@ import { nav, openApp, press, seeText, waitVisible } from "../ui.mjs";
 /** A control-bar button by its accessible name (aria-label, else its visible label). */
 const control = (page, name) => page.getByRole("button", { name }).first();
 /** The Record button's accessible name is its tooltip-driven state; address it by the title it carries in each state. */
-const recordButton = (page) => page.locator('button[title^="Record the call"], button[title^="Start listening first"], button[title^="Stop recording"]').first();
+const recordButton = (page) => page.locator('button[title^="Record the call"], button[title^="Start listening first"], button[title^="Stop recording"], button[title^="Recording isn\'t available"]').first();
 
 export default {
   id: "R8-live-web-fallbacks",
@@ -24,7 +24,7 @@ export default {
       const rec = recordButton(page);
       await waitVisible(rec, "the Record button");
       check(await rec.isDisabled(), "Record should be disabled until listening");
-      check(/start listening first/i.test((await rec.getAttribute("title")) ?? ""), "Record does not say why it is disabled");
+      check(/start listening first|isn't available/i.test((await rec.getAttribute("title")) ?? ""), "Record does not say why it is disabled");
     });
     await step("Start listening: the hosted-processing notice comes first, then the strip says you only", async () => {
       await press(page, /^start listening$/i);
@@ -33,15 +33,16 @@ export default {
       await control(page, /^end\b/i).waitFor({ state: "visible", timeout: 10000 });
       await seeText(page, /you only/i, 5000);
     });
-    await step("Pause either works or is not offered; it never shows a raw internal error", async () => {
+    await step("Pause is not offered on the web, says why, and never shows a raw internal error", async () => {
       const pause = control(page, /^pause$/i);
       await waitVisible(pause, "the Pause button");
-      if (await pause.isEnabled()) await pause.click();
-      await page.waitForTimeout(600);
+      const title = (await pause.getAttribute("title")) ?? "";
+      check(await pause.isDisabled(), "Pause is enabled on the web, where it is unsupported");
+      check(/isn't available|not available/i.test(title), `Pause is disabled without an honest reason (title: "${title}")`);
       await shot("after-pause");
       const text = await page.evaluate(() => document.body.innerText);
-      check(!/UnsupportedOnWebError|session\.pause/i.test(text), "a raw UnsupportedOnWebError is shown in the control bar after Pause");
-    }, { known: "#395: Pause is enabled on the web, and clicking it shows `UnsupportedOnWebError: session.pause…` in the control bar" });
+      check(!/UnsupportedOnWebError|session\.pause/i.test(text), "a raw UnsupportedOnWebError is shown in the control bar");
+    });
     await step("Share call audio opens its own scope notice before anything is shared", async () => {
       await press(page, /share call audio/i);
       const dialog = page.getByRole("dialog");
@@ -57,7 +58,7 @@ export default {
       const disabled = await rec.isDisabled().catch(() => false);
       await shot("record-control");
       check(disabled || /desktop|not (yet )?available|unsupported/i.test(title), `Record is enabled on the web and says "${title}" although recording is desktop-only`);
-    }, { known: "#396: the Record button is enabled on the web with desktop wording; recording.start is unsupported there" });
+    });
     await step("End the session; the control bar returns to Start listening", async () => {
       await control(page, /^end\b/i).click();
       await page.getByRole("button", { name: /^start listening$/i }).waitFor({ state: "visible", timeout: 8000 });

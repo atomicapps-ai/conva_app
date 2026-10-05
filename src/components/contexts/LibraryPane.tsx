@@ -309,6 +309,7 @@ export function LibraryPane({
   quickAction,
   selectedContextId,
   variant = "dock",
+  onDocumentsChange,
 }: {
   contextTitles: Record<string, string>;
   /** Attach `docId` to `contextId` — the real mutation
@@ -337,6 +338,10 @@ export function LibraryPane({
    * can't drift between the two.
    */
   variant?: "dock" | "page";
+  /** Called with the fresh document list after every refresh, so a parent
+   *  that shows its own count (the Library page subtitle) never goes stale
+   *  after an upload or delete. */
+  onDocumentsChange?: (docs: RagDocument[]) => void;
 }) {
   const backend = useBackend();
   const caps = useCapabilities();
@@ -366,11 +371,13 @@ export function LibraryPane({
 
   const refresh = useCallback(async () => {
     try {
-      setDocuments(await backend.rag.list());
+      const docs = await backend.rag.list();
+      setDocuments(docs);
+      onDocumentsChange?.(docs);
     } catch (e) {
       setNotice(String(e));
     }
-  }, [backend]);
+  }, [backend, onDocumentsChange]);
 
   useEffect(() => {
     void refresh();
