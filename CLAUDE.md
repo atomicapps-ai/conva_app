@@ -323,6 +323,7 @@ then on the other machine set the same env var and the keys load on startup.
 | UI typecheck + build | `npm run build` |
 | Browser certification (web build, any OS with Chrome/Edge/Chromium) | `npm run build:web` · `npm run certify:web` (`-- --browser chrome` / `msedge` on Windows; writes a support-matrix row to `certification/`, see `conva_core/docs/technical/browser-support-matrix.md`) |
 | First-run rehearsal (web build; the checklist's app steps against a stubbed cloud slice) | `npm run build:web` · `npm run rehearse:web` (same browser flags; `--share` adds step 7; `--record` also writes a video, a Playwright trace and a screenshot per step beside the row — CI uploads them as `web-rehearsal-recordings`; writes a row to `rehearsal/`, see `conva_core/docs/technical/2026-09-beta-first-run-checklist.md` "Rehearsal") |
+| Demo workspace preview (web build; the fictional `demo/` dataset planted in the cloud stub, screenshots of Home, Contexts, Library, Conversations) | `npm run build:web` · `npm run demo:preview` (writes `demo-preview/`, git-ignored; `-- --list` prints control names). The dataset is `demo/` + `scripts/certify/demoDataset.mjs`; `demoDataset.test.mjs` enforces fictional-only content and cross-file consistency |
 
 CI (`.github/workflows/ci.yml`) runs core lint+test on ubuntu, UI typecheck+build
 on ubuntu, and the shell clippy `-D warnings` on windows-latest. Clippy runs with

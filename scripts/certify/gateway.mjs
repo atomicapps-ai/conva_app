@@ -38,14 +38,14 @@ const parseJson = (buf) => {
 /** Delay between streamed NDJSON lines so the client really streams (ms). */
 const ALLY_TOKEN_DELAY_MS = 20;
 
-export function startGateway({ distDir, port = 0, sessionId = "live_certify", log = () => {}, cloud = null }) {
+export function startGateway({ distDir, port = 0, sessionId = "live_certify", log = () => {}, cloud = null, email = "certify@example.invalid" }) {
   const root = resolve(distDir);
   const stats = { sessions_created: 0, consent: null, sockets: 0, hello: null, sources: new Map(), telemetry: [], ally_requests: 0, control_frames: 0, bad_frames: 0, bye_sent: false, closed_by_client: false, protocol_errors: [] };
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     const p = url.pathname;
-    if (p === "/api/app/session") return json(res, 200, { signed_in: true, configured: true, email: "certify@example.invalid", user_id: "certify-user", provider: "google", expires_at_unix: Math.floor(Date.now() / 1000) + 3600, last_sign_in_at: null, beta_access: true, beta_status: "active" });
+    if (p === "/api/app/session") return json(res, 200, { signed_in: true, configured: true, email, user_id: "certify-user", provider: "google", expires_at_unix: Math.floor(Date.now() / 1000) + 3600, last_sign_in_at: null, beta_access: true, beta_status: "active" });
     if (p === "/api/live/status") return json(res, 200, { configured: true, provider: "certify", max_sources: 2, sample_rate_hz: 16000, ally: cloud ? { configured: true, provider: "rehearsal", model: "rehearsal-stub", reason: null } : { configured: false, provider: null, model: null, reason: "The certification gateway has no model provider." }, limits: { max_minutes_per_day: 180, max_concurrent_sessions: 1, max_duration_s: 10800, ally_max_requests_per_day: 200 }, library: { embeddings: { configured: false, provider: null, model: null, dim: 384, reason: "certification gateway" } }, terms: { asr: { provider: "certify", region: "us", mip_opt_out: true }, ally: null }, notice: { id: "hosted-v1" } });
     if (p === "/api/live/sessions" && req.method === "POST") {
       stats.sessions_created += 1;

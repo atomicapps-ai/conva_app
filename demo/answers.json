@@ -1,0 +1,205 @@
+{
+  "answers": [
+    {
+      "context": "larkspur",
+      "questions": [
+        "What is the deadline to change the contract?",
+        "When is the notice deadline?",
+        "How much notice do we need before renewal?"
+      ],
+      "answer": "**The deadline is 1 October: 60 days before the 30 November renewal.**\n\n---\n\n- The master services terms require 60 days' written notice to change or end the agreement.\n- After that, renewal runs a further year on the current terms.\n- Price increases are capped at 7% a year.",
+      "docs": [
+        "master-services-terms.md",
+        "larkspur-account-overview.md"
+      ]
+    },
+    {
+      "context": "larkspur",
+      "questions": [
+        "How much has the mis-pick rate improved?",
+        "What is the mis-pick rate now?",
+        "How have mis-picks changed this year?"
+      ],
+      "answer": "**Mis-picks are down from 5.8% in January to 3.4% in September.**\n\n---\n\n- Priya's goal was to halve the rate; it is most of the way there.\n- Handoffs logged rose from 9,420 to 11,490 a month over the same period.\n- Support tickets fell from 14 to 6 a month.",
+      "docs": [
+        "larkspur-usage-2026.csv",
+        "larkspur-account-overview.md"
+      ]
+    },
+    {
+      "context": "larkspur",
+      "questions": [
+        "What does the expansion to Spokane and Boise cost?",
+        "How much are the new sites?",
+        "What is the expansion price?"
+      ],
+      "answer": "**The 120 new seats are about $53,222 a year after the 12% discount, plus a $4,200 one-time onboarding fee.**\n\n---\n\n- 120 seats at $42 a month for 12 months is $60,480 before discount.\n- The Audit Pack is a separate line at $1,500 a month, $18,000 a year.",
+      "docs": [
+        "larkspur-renewal-quote.csv",
+        "larkspur-call-qa.md"
+      ]
+    },
+    {
+      "context": "larkspur",
+      "questions": [
+        "Why should we pay more than Quill?",
+        "How does Quill compare?",
+        "Why is Brightwater more expensive than Quill Analytics?"
+      ],
+      "answer": "**Compare the total cost, not the seat price: Quill needs a three-year lock-in and charges for offline use and migration.**\n\n---\n\n- Quill quoted $31 per seat on a three-year term; Brightwater is $42 on a one-year term.\n- Quill has no structured handoff workflow, which is why Larkspur bought Brightwater.\n- Larkspur's own pilot estimate for switching was 10 weeks.",
+      "docs": [
+        "quill-analytics-battle-card.md",
+        "larkspur-account-overview.md"
+      ]
+    },
+    {
+      "context": "designer",
+      "questions": [
+        "What is the salary range for the role?",
+        "What is the base salary?",
+        "What compensation can we offer?"
+      ],
+      "answer": "**The base range is $148,000 to $176,000, plus equity and a $2,500 learning budget.**\n\n---\n\n- Elena asked about equity and the learning budget in the interview.\n- The range is in the job description.",
+      "docs": [
+        "senior-product-designer-job-description.md"
+      ]
+    },
+    {
+      "context": "designer",
+      "questions": [
+        "What did Elena build at Harborview?",
+        "What has Elena designed before?",
+        "Summarise Elena's experience."
+      ],
+      "answer": "**Elena led the dispatcher console redesign and the offline patterns for the driver tablet app at Harborview Freight Systems.**\n\n---\n\n- The console redesign cut average dispatch time by 19%.\n- She built a 90-component design system adopted by four squads.\n- Earlier she ran 40 contextual interviews across warehouses.",
+      "docs": [
+        "elena-voss-resume.md"
+      ]
+    },
+    {
+      "context": "designer",
+      "questions": [
+        "How is the interview scored?",
+        "What does the rubric score?",
+        "What are the scoring dimensions?"
+      ],
+      "answer": "**Six dimensions, each scored 1 to 4: a hire needs an average of 3 or more and nothing below 2.**\n\n---\n\n- Problem framing, offline and edge cases, accessibility, collaboration, use of data and craft.\n- Weakest areas to probe for Elena: business trade-offs.",
+      "docs": [
+        "design-interview-rubric.md"
+      ]
+    },
+    {
+      "context": "q4",
+      "questions": [
+        "What was Q3 revenue?",
+        "How did Q3 go?",
+        "What were the Q3 results?"
+      ],
+      "answer": "**Q3 revenue was $11.8 million, up 22% on last year, with net revenue retention at 117%.**\n\n---\n\n- 38 new customers against a plan of 35.\n- Gross margin 78%, down from 80% on hosting costs.\n- Cash $19.4 million; runway about 31 months.",
+      "docs": [
+        "q3-results-summary.md"
+      ]
+    },
+    {
+      "context": "q4",
+      "questions": [
+        "When is the Audit Pack available?",
+        "When does 3.0 release?",
+        "What are the Q4 milestones?"
+      ],
+      "answer": "**3.0 ships 20 October, the status page 31 October and the Audit Pack 15 November.**\n\n---\n\n- Two senior designers by 15 December; the Larkspur renewal on 30 November.\n- Risk: Cedarline instability could delay the status page.",
+      "docs": [
+        "roadmap-q4.md",
+        "q4-okrs.md"
+      ]
+    },
+    {
+      "context": "q4",
+      "questions": [
+        "What did we decide last month?",
+        "What were the decisions in the September meeting?",
+        "What did we decide in September?"
+      ],
+      "answer": "**September: approve the Q4 hiring plan, delay the Enterprise price change to January, and commit to a public status page by end of October.**\n\n---\n\n- Actions: 3.0 template list, hosting cost report, Larkspur renewal plan.",
+      "docs": [
+        "prior-minutes-sept-leadership.md"
+      ]
+    },
+    {
+      "context": "launch",
+      "questions": [
+        "Does 3.0 cost more?",
+        "Is 3.0 more expensive?",
+        "What does 3.0 cost?"
+      ],
+      "answer": "**No. Team stays at $24 per seat per month and Business at $42; the Audit Pack is an add-on.**\n\n---\n\n- The Audit Pack is $1,500 a month and is available from 15 November.",
+      "docs": [
+        "launch-faq.md"
+      ]
+    },
+    {
+      "context": "launch",
+      "questions": [
+        "What is the availability commitment?",
+        "What uptime do we promise?",
+        "What is the uptime guarantee?"
+      ],
+      "answer": "**99.9% monthly on all paid plans.**\n\n---\n\n- Data is stored in the United States.\n- Offline mode 2.0 keeps teams working through connection drops.",
+      "docs": [
+        "launch-faq.md",
+        "talking-points-flow-3.md"
+      ]
+    },
+    {
+      "context": "launch",
+      "questions": [
+        "How long does setup take?",
+        "How long does it take to set up a new site?",
+        "What is the setup time for a site?"
+      ],
+      "answer": "**A new site can be live in two weeks, down from six.**\n\n---\n\n- Marlow's own rollout took about two weeks.\n- Most sites finish a spreadsheet import in a day.",
+      "docs": [
+        "talking-points-flow-3.md",
+        "launch-faq.md"
+      ]
+    },
+    {
+      "context": "cedarline",
+      "questions": [
+        "What caused the outage?",
+        "What was the cause of the incident?",
+        "Why did the connector fail?"
+      ],
+      "answer": "**Our integration partner changed an authentication token format without notice.**\n\n---\n\n- The cause was found at 07:05 and a workaround deployed at 07:30.\n- 1,860 queued updates were replayed in order by 08:10; no data was lost.",
+      "docs": [
+        "incident-timeline-oct-2.md"
+      ]
+    },
+    {
+      "context": "cedarline",
+      "questions": [
+        "Do we get service credits?",
+        "Are we owed service credits?",
+        "Is there compensation for the outage?"
+      ],
+      "answer": "**Partner outages are excluded from the 99.9% commitment, so credits do not apply here.**\n\n---\n\n- We committed to notify within 3 hours of detection and did so at 09:00.\n- Credits are 5% of the monthly fee per 0.1% below the commitment, up to 25%, when the cause is on our side.",
+      "docs": [
+        "sla-terms-summary.md",
+        "incident-timeline-oct-2.md"
+      ]
+    },
+    {
+      "context": "cedarline",
+      "questions": [
+        "How do we stop this happening again?",
+        "What changes are you making?",
+        "What are the follow-ups?"
+      ],
+      "answer": "**Three changes: a 14-day change-notice with the partner, a contract test for the token format, and a status page entry for every incident.**\n\n---\n\n- The public status page goes live on 31 October.",
+      "docs": [
+        "incident-timeline-oct-2.md",
+        "support-runbook-escalations.md"
+      ]
+    }
+  ]
+}
