@@ -628,6 +628,13 @@ pub fn resolve_key(provider: ProviderId) -> Result<String, CoreError> {
         .find(|p| p.id == provider)
         .map(|p| p.requires_api_key)
         .unwrap_or(true);
+    // "Send nothing to an AI provider": refuse before touching the vault, so
+    // a stored key is never even read for a remote provider.
+    if !conva_core::config::remote_call_allowed(crate::offline::is_offline(), requires_key) {
+        return Err(CoreError::Llm(
+            conva_core::config::OFFLINE_MODE_ERROR.into(),
+        ));
+    }
     match load_api_key(provider)? {
         Some(key) => Ok(key),
         None if !requires_key => Ok(String::new()),

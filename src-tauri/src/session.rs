@@ -314,7 +314,9 @@ impl SessionManager {
         // Engine choice: Deepgram cloud streaming when opted in and a key is
         // stored (conversation-speed interims, ~100–300 ms); local whisper
         // otherwise. Whisper stays the fallback if the cloud connect fails.
-        let deepgram_key = if config.asr_engine == AsrEngineId::DeepgramCloud {
+        let deepgram_key = if config.asr_engine == AsrEngineId::DeepgramCloud
+            && crate::offline::remote_allowed()
+        {
             crate::asr_deepgram::load_api_key()
         } else {
             None

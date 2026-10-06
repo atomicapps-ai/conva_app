@@ -36,7 +36,8 @@ export function ConsentGate() {
           to the provider you chose while you listen, to answer your questions
           and to pick out terms, questions and commitments. You can switch off
           part of that in Settings → Ally (Conversation intelligence); to stop
-          all of it, clear the key.
+          all of it, turn on &ldquo;Send nothing to an AI provider&rdquo; in the
+          same place, or clear the key.
         </p>
         <button
           type="button"

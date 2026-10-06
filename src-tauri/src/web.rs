@@ -20,6 +20,7 @@ pub fn tavily_search(
     query: &str,
     max_results: usize,
 ) -> Result<Vec<ResearchSource>, CoreError> {
+    crate::offline::guard_remote()?;
     let body = serde_json::json!({
         "api_key": api_key,
         "query": query,

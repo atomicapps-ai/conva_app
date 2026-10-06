@@ -121,6 +121,12 @@ describe("friendlyAllyError", () => {
     );
   });
 
+  it("explains offline_mode refusals instead of showing the raw code", () => {
+    expect(friendlyAllyError("offline_mode")).toBe(
+      "Offline mode is on, so nothing is sent to an AI provider. Turn it off in Settings → Ally to use this.",
+    );
+  });
+
   it("passes unrecognized errors through unchanged", () => {
     expect(friendlyAllyError("stream read: connection reset")).toBe(
       "stream read: connection reset",
