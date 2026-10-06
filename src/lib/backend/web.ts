@@ -79,6 +79,7 @@ import type {
   SessionSummary,
   StartRehearsalResult,
   TranscriptSegment,
+  TelemetryStatus,
   UsageSummary,
   WhisperModelInfo,
 } from "@/lib/ipc";
@@ -666,6 +667,8 @@ export class WebBackend implements ConvaBackend {
       fetchLiveUsage((input, init) => fetch(input, init)).then((u) => toUsageSummary(u, this.allyModel)),
     // The ledger is server-side and per UTC day — nothing local to clear.
     reset: (): Promise<UsageSummary> => unsupported("usage.reset (hosted ledger resets daily)"),
+    // Desktop-only: the desktop app's own event queue has no web counterpart.
+    telemetryStatus: (): Promise<TelemetryStatus> => unsupported("usage.telemetryStatus"),
   };
 
   sessions = {

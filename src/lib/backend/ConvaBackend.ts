@@ -53,6 +53,7 @@ import type {
   SessionSummary,
   StartRehearsalResult,
   TranscriptSegment,
+  TelemetryStatus,
   UsageSummary,
   WhisperModelInfo,
 } from "@/lib/ipc";
@@ -359,6 +360,9 @@ export interface ConvaBackend {
     summary(): Promise<UsageSummary>;
     /** Clear all counters; returns the emptied snapshot. */
     reset(): Promise<UsageSummary>;
+    /** Desktop-only: is usage-event collection on, and is the switch locked
+     *  by beta terms? (Settings → Privacy.) */
+    telemetryStatus(): Promise<TelemetryStatus>;
   };
 
   /** Auto-persisted session transcripts + export. */

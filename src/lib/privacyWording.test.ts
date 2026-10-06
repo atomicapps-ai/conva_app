@@ -49,4 +49,9 @@ describe("privacy wording in shipped strings", () => {
     expect(read("src-tauri/src/asr_deepgram.rs")).toMatch(/offline::guard_remote\(\)/);
     expect(read("src-tauri/src/research/mod.rs")).toMatch(/offline::remote_allowed\(\)/);
   });
+
+  it("usage events are only queued and sent through the collection gate", () => {
+    expect(read("src-tauri/src/telemetry_events.rs")).toMatch(/pub fn append[\s\S]{0,200}if !collecting\(app\)/);
+    expect(read("src-tauri/src/events_flush.rs")).toMatch(/fn flush_once[\s\S]{0,300}telemetry_events::collecting\(app\)/);
+  });
 });

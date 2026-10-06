@@ -47,6 +47,7 @@ import type {
   StartRehearsalResult,
   TelemetryEvent,
   TranscriptSegment,
+  TelemetryStatus,
   UsageSummary,
   WhisperModelInfo,
 } from "@/lib/ipc";
@@ -619,6 +620,11 @@ export function firecrawlKeyStatus(): Promise<boolean> {
 /** Usage snapshot (LLM tokens per provider + research-provider searches) for Settings. */
 export function usageSummary(): Promise<UsageSummary> {
   return invoke<UsageSummary>("usage_summary");
+}
+
+/** Settings → Privacy: is usage-event collection on, and is it locked on by beta terms? */
+export function telemetryStatus(): Promise<TelemetryStatus> {
+  return invoke<TelemetryStatus>("telemetry_status");
 }
 
 /** Clear all usage counters; returns the emptied snapshot. */

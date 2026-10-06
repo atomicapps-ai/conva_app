@@ -73,6 +73,7 @@ describe("available vs unsupported vs unimplemented", () => {
     expect(ops["ally.run"].state).toBe("unimplemented");
     expect(ops["usage.summary"].state).toBe("unimplemented");
     expect(ops["usage.reset"].state).toBe("unsupported");
+    expect(ops["usage.telemetryStatus"].state).toBe("unsupported");
     expect(ops["capture.recover"].state).toBe("unimplemented");
     expect(ops["sessions.exportTranscript"].state).toBe("available"); // browser download (M2 cp6)
     expect(ops["sessions.writeTextFile"].state).toBe("available");

@@ -207,6 +207,7 @@ export const ALL_OPERATIONS = [
   "context.researchKeyStatus",
   "usage.summary",
   "usage.reset",
+  "usage.telemetryStatus",
   "sessions.list",
   "sessions.load",
   "sessions.delete",
@@ -537,6 +538,7 @@ export function webOperations(): OperationAvailability {
     // Flipped at runtime by WebBackend when the gateway's session backend answers (M2 cp4).
     "usage.summary": unimplemented(M1),
     "usage.reset": unsupported("The hosted usage ledger is server-side and resets every UTC day; there is nothing to clear locally."),
+    "usage.telemetryStatus": unsupported("The desktop app's local usage-event queue has no web counterpart."),
     "sessions.list": unimplemented(M1),
     "sessions.load": unimplemented(M1),
     "sessions.delete": unimplemented(M1),

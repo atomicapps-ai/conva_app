@@ -194,7 +194,9 @@ fn import_config(
     let config: AppConfig = serde_json::from_str(&content).map_err(|e| e.to_string())?;
     persist_config(&app, &config)?;
     offline::set(config.offline_mode);
+    let was_enabled = state.config.lock().expect("config lock").telemetry_enabled;
     *state.config.lock().expect("config lock") = config.clone();
+    on_telemetry_setting(&app, was_enabled, config.telemetry_enabled);
     Ok(config)
 }
 
@@ -216,8 +218,33 @@ fn get_config(state: State<AppState>) -> AppConfig {
 fn save_config(app: AppHandle, state: State<AppState>, config: AppConfig) -> Result<(), String> {
     persist_config(&app, &config)?;
     offline::set(config.offline_mode);
+    let was_enabled = state.config.lock().expect("config lock").telemetry_enabled;
+    let now_enabled = config.telemetry_enabled;
     *state.config.lock().expect("config lock") = config;
+    on_telemetry_setting(&app, was_enabled, now_enabled);
     Ok(())
+}
+
+/// Switching usage events off deletes the unsent queue, unless the server has
+/// marked this account as bound by beta terms (then collection continues and
+/// the queue is kept).
+fn on_telemetry_setting(app: &AppHandle, was_enabled: bool, now_enabled: bool) {
+    if was_enabled && !now_enabled && !telemetry_events::required(app) {
+        telemetry_events::purge(app);
+    }
+}
+
+/// Settings → Privacy: is usage data being collected, and is the switch locked?
+#[tauri::command]
+fn telemetry_status(app: AppHandle, state: State<AppState>) -> conva_core::ipc::TelemetryStatus {
+    let enabled = state.config.lock().expect("config lock").telemetry_enabled;
+    let required = telemetry_events::required(&app);
+    conva_core::ipc::TelemetryStatus {
+        enabled,
+        required,
+        collecting: conva_core::config::telemetry_may_collect(enabled, required),
+        log_path: telemetry_events::log_path(&app),
+    }
 }
 
 #[tauri::command]
@@ -3311,6 +3338,7 @@ pub fn run() {
             usage_summary,
             usage_reset,
             telemetry_device_id,
+            telemetry_status,
             telemetry_append_event,
             telemetry_read_batch,
             telemetry_advance_cursor,

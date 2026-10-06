@@ -1202,3 +1202,18 @@ mod tests {
         assert_eq!(options.include_document_ids, ["doc-1"]);
     }
 }
+
+/// Settings → Privacy: whether usage events are being collected, and why.
+/// Mirrored in `src/lib/ipc.ts` as `TelemetryStatus`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TelemetryStatus {
+    /// The user's setting (`AppConfig::telemetry_enabled`).
+    pub enabled: bool,
+    /// The server says this account's beta terms require usage data, so the
+    /// setting cannot switch collection off.
+    pub required: bool,
+    /// What is actually happening: `enabled || required`.
+    pub collecting: bool,
+    /// The local, inspectable event log, when the app-data dir is known.
+    pub log_path: Option<String>,
+}

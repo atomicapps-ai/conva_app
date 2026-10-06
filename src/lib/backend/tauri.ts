@@ -272,6 +272,7 @@ export class TauriBackend implements ConvaBackend {
   usage = {
     summary: cmd.usageSummary,
     reset: cmd.usageReset,
+    telemetryStatus: cmd.telemetryStatus,
   };
 
   sessions = {
