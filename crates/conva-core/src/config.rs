@@ -80,7 +80,8 @@ pub struct AppConfig {
 
 /// May usage events be collected right now? `enabled` is the user's setting;
 /// `required` is the server's "this account is a beta participant" flag
-/// (`telemetry_required` in the `/api/events` reply), which overrides it.
+/// (`telemetry_required`, read from `GET /api/entitlements` at sign-in and echoed in
+/// the `/api/events` reply), which overrides it.
 pub fn telemetry_may_collect(enabled: bool, required: bool) -> bool {
     enabled || required
 }

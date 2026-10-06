@@ -924,6 +924,8 @@ fn handle_auth_deep_link(handle: AppHandle, url: String) {
         let payload = match auth::complete_sign_in(&url, &dir) {
             Ok(Some(status)) => {
                 eprintln!("[auth] sign-in completed via deep link");
+                // Learn the beta usage-data lock now, not from the first events reply.
+                events_flush::sync_required_in_background(&handle);
                 auth::AuthChangedEvent {
                     status: Some(status),
                     error: None,
@@ -981,7 +983,10 @@ async fn auth_signin_password(
 ) -> Result<auth::AuthStatus, String> {
     let dir = auth_dir(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        auth::sign_in_password(email.trim(), &password, &dir)
+        let status = auth::sign_in_password(email.trim(), &password, &dir)?;
+        // Learn the beta usage-data lock now, not from the first events reply.
+        events_flush::sync_required_in_background(&app);
+        Ok(status)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -997,7 +1002,10 @@ async fn auth_signup_password(
 ) -> Result<auth::AuthStatus, String> {
     let dir = auth_dir(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        auth::sign_up_password(email.trim(), &password, &dir)
+        let status = auth::sign_up_password(email.trim(), &password, &dir)?;
+        // Learn the beta usage-data lock now, not from the first events reply.
+        events_flush::sync_required_in_background(&app);
+        Ok(status)
     })
     .await
     .map_err(|e| e.to_string())?
