@@ -1321,6 +1321,24 @@ export interface AppConfig {
    *  goes to a remote provider (LLM, cloud transcription, cloud speech, web
    *  research). Local providers stay allowed. Default off. */
   offline_mode: boolean;
+  /** Content-free usage events (counts and feature use, never audio,
+   *  transcripts or documents). Default on; off stops collection and deletes
+   *  the unsent queue, unless the server marks the account as a beta
+   *  participant (`TelemetryStatus.required`). */
+  telemetry_enabled: boolean;
+}
+
+/** Mirror of the shell's `telemetry_status` command. */
+export interface TelemetryStatus {
+  /** The user's setting. */
+  enabled: boolean;
+  /** The server says this account's beta terms require usage data; the
+   *  switch is locked on. */
+  required: boolean;
+  /** What is actually happening: `enabled || required`. */
+  collecting: boolean;
+  /** Absolute path of the local, inspectable event log, when known. */
+  log_path: string | null;
 }
 
 /** Error string a remote call refused by `offline_mode` carries. */

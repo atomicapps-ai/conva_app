@@ -69,6 +69,20 @@ pub struct AppConfig {
     /// local whisper is used. Local providers (Ollama) stay allowed. Sign-in,
     /// update checks and model downloads are unaffected. Default off.
     pub offline_mode: bool,
+    /// Content-free usage events (counts and feature use, never audio,
+    /// transcripts or documents) queued locally and, while signed in, sent to
+    /// Conva. Default on. Switching it off stops collection and deletes the
+    /// unsent queue — unless the server has marked this account as a beta
+    /// participant, whose terms make usage data required
+    /// ([`telemetry_may_collect`]). Settings → Privacy.
+    pub telemetry_enabled: bool,
+}
+
+/// May usage events be collected right now? `enabled` is the user's setting;
+/// `required` is the server's "this account is a beta participant" flag
+/// (`telemetry_required` in the `/api/events` reply), which overrides it.
+pub fn telemetry_may_collect(enabled: bool, required: bool) -> bool {
+    enabled || required
 }
 
 /// Error string a refused remote call carries (the shell returns it verbatim
@@ -115,6 +129,7 @@ impl Default for AppConfig {
             research_provider: DEFAULT_RESEARCH_PROVIDER,
             idle_stop_minutes: Some(5),
             offline_mode: false,
+            telemetry_enabled: true,
         }
     }
 }
@@ -224,5 +239,23 @@ mod tests {
         assert!(back.offline_mode);
         let old: AppConfig = serde_json::from_str(r#"{"tracker_enabled": true}"#).unwrap();
         assert!(!old.offline_mode);
+    }
+
+    #[test]
+    fn telemetry_is_on_by_default_and_required_overrides_off() {
+        assert!(AppConfig::default().telemetry_enabled);
+        assert!(telemetry_may_collect(true, false));
+        assert!(telemetry_may_collect(true, true));
+        assert!(!telemetry_may_collect(false, false));
+        assert!(
+            telemetry_may_collect(false, true),
+            "beta terms override the switch"
+        );
+    }
+
+    #[test]
+    fn old_configs_without_the_telemetry_field_keep_it_on() {
+        let old: AppConfig = serde_json::from_str(r#"{"offline_mode": true}"#).unwrap();
+        assert!(old.telemetry_enabled);
     }
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AllySettings } from "@/components/AllySettings";
+import { UsageDataSettings } from "@/components/UsageDataSettings";
 import { SubscriptionSettings } from "@/components/SubscriptionSettings";
 import { usageProblemTitle } from "@/lib/usageProblems";
 import {
@@ -1393,6 +1394,15 @@ export function SettingsPanel() {
       )}
 
       {group === "ally" && <CompareModelsSection />}
+
+      {group === "privacy" && isTauri() && (
+      <Section
+        title="Usage data"
+        description="Counts and feature use only — never audio, transcripts or documents."
+      >
+        <UsageDataSettings />
+      </Section>
+      )}
 
       {group === "privacy" && (
       <Section

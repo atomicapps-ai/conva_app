@@ -449,7 +449,11 @@ export class FakeBackend implements ConvaBackend {
     setResearchKey: nc("context.setResearchKey"),
     researchKeyStatus: nc("context.researchKeyStatus"),
   };
-  usage = { summary: nc("usage.summary"), reset: nc("usage.reset") };
+  usage = {
+    summary: nc("usage.summary"),
+    reset: nc("usage.reset"),
+    telemetryStatus: nc("usage.telemetryStatus"),
+  };
   sessions = {
     list: nc("sessions.list"),
     load: nc("sessions.load"),

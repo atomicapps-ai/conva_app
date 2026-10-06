@@ -46,6 +46,10 @@ fn web_api_base() -> String {
 /// advance the cursor only once the server has confirmed them. Never panics,
 /// never propagates — every failure is logged and left for the next tick.
 fn flush_once(app: &AppHandle) {
+    // Switched off (and not required by beta terms): send nothing.
+    if !telemetry_events::collecting(app) {
+        return;
+    }
     let dir = match auth_dir(app) {
         Ok(d) => d,
         Err(e) => {
@@ -76,7 +80,21 @@ fn flush_once(app: &AppHandle) {
         .set("Content-Type", "application/json")
         .send_json(body)
     {
-        Ok(_) => telemetry_events::advance_cursor(app, last_seq),
+        Ok(resp) => {
+            telemetry_events::advance_cursor(app, last_seq);
+            // The server may say this account's beta terms require usage
+            // data (`config.telemetry_required`); absent = no change.
+            if let Some(required) = resp
+                .into_json::<serde_json::Value>()
+                .ok()
+                .as_ref()
+                .and_then(required_flag)
+            {
+                if let Some(uid) = auth::status(&dir).user_id {
+                    telemetry_events::set_required(app, &uid, required);
+                }
+            }
+        }
         Err(ureq::Error::Status(code, resp)) => {
             let hint = resp.into_string().unwrap_or_default();
             eprintln!("[telemetry] flush rejected ({code}): {hint}");
@@ -85,6 +103,12 @@ fn flush_once(app: &AppHandle) {
             eprintln!("[telemetry] flush: transport error: {t}");
         }
     }
+}
+
+/// `config.telemetry_required` from an accepted `/api/events` reply, if the
+/// server sent it as a boolean.
+fn required_flag(body: &serde_json::Value) -> Option<bool> {
+    body.get("config")?.get("telemetry_required")?.as_bool()
 }
 
 /// Start the flush loop on a dedicated background thread. Call once, after
@@ -106,7 +130,29 @@ pub fn spawn(app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::web_api_base;
+    use super::{required_flag, web_api_base};
+
+    #[test]
+    fn required_flag_reads_only_a_boolean_under_config() {
+        let j = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
+        assert_eq!(
+            required_flag(&j(r#"{"config":{"telemetry_required":true}}"#)),
+            Some(true)
+        );
+        assert_eq!(
+            required_flag(&j(r#"{"config":{"telemetry_required":false}}"#)),
+            Some(false)
+        );
+        assert_eq!(
+            required_flag(&j(r#"{"config":{"flush_interval_s":60}}"#)),
+            None
+        );
+        assert_eq!(
+            required_flag(&j(r#"{"config":{"telemetry_required":"yes"}}"#)),
+            None
+        );
+        assert_eq!(required_flag(&j(r#"{}"#)), None);
+    }
 
     // One test, not three: `cargo test` runs tests in parallel threads within
     // the same process, and this env var is process-global — interleaved
