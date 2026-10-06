@@ -232,7 +232,10 @@ export function AllySettings() {
           Keys are stored in the Windows Credential Manager, never in files.
           Transcript text is sent to the selected provider when you ask Ally,
           for live FANER routing, and periodically while conversation
-          intelligence is enabled. Claim detection does not run web research.
+          intelligence is enabled. Turning conversation intelligence off stops
+          only the periodic extraction; live suggestions still use your key, so
+          to stop all of it, clear the key. Claim detection does not run web
+          research.
         </p>
       </div>
     </div>

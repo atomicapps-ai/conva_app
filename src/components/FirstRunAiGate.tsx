@@ -146,6 +146,8 @@ export function FirstRunAiGate() {
                 <span className="block text-xs text-fg-muted">
                   Best answers. Your key goes straight to the provider and is
                   stored in your computer&apos;s credential vault, never in a file.
+                  While you listen, the conversation text from both sides is
+                  sent to that provider, so its terms apply to it.
                 </span>
               </span>
             </label>

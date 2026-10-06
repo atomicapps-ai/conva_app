@@ -33,7 +33,7 @@
     "targets": "all",
     "category": "Productivity",
     "shortDescription": "Real-time strategic intelligence ally",
-    "longDescription": "conva is a strategic intelligence ally — it transcribes both sides of a call live and grounds Ally's answers in your own reference library, all on your machine.",
+    "longDescription": "conva is a strategic intelligence ally — it transcribes both sides of a call live on your computer and grounds Ally's answers in your own reference library. If you add an AI key, conversation text is sent to the AI provider you choose.",
     "icon": [
       "icons/desktop/icons/conva-icon-32.png",
       "icons/desktop/icons/conva-icon-128.png",

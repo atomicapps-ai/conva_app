@@ -29,6 +29,15 @@ export function ConsentGate() {
           for obtaining it. A red REC indicator is always visible while a
           session is live.
         </p>
+        <p className="mt-3 text-sm leading-relaxed text-fg-muted" data-testid="consent-ai-disclosure">
+          <strong className="text-fg">What leaves this computer.</strong> Until
+          you add an AI key, conversation text is not sent to any AI provider.
+          Once you add one, conva sends the conversation text, from both sides,
+          to the provider you chose while you listen, to answer your questions
+          and to pick out terms, questions and commitments. You can switch off
+          part of that in Settings → Ally (Conversation intelligence); to stop
+          all of it, clear the key.
+        </p>
         <button
           type="button"
           onClick={() => void acknowledge()}
