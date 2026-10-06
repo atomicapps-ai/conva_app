@@ -60,4 +60,13 @@ describe("privacy wording in shipped strings", () => {
     expect(ld).toMatch(/fs::remove_file\(&marker_path\)[\s\S]{0,200}not erasing/);
     expect(read("src-tauri/src/lib.rs")).toMatch(/local_data::run_pending_erase\(&handle\);[\s\S]{0,400}trace::init/);
   });
+
+  it("account deletion makes no promise the product cannot keep: no email, no scheduled deletion, no number for backups", () => {
+    const dialog = read("src/components/profile/DeleteAccountDialog.tsx");
+    expect(dialog).not.toMatch(/email you|we.ll email|confirmation email/i); // there is no mailer
+    expect(dialog).not.toMatch(/within 30 days|scheduled/i); // deletion is immediate
+    expect(dialog).toMatch(/backupSentence\(\)/); // the backup length comes from one place, null until known
+    expect(read("src/components/profile/ProfileView.tsx")).not.toMatch(/coming soon/i);
+    expect(read("src/lib/accountDeletion.ts")).toMatch(/BACKUP_WINDOW_DAYS: number \| null = null/);
+  });
 });

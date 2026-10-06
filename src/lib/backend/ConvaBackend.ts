@@ -54,6 +54,7 @@ import type {
   StartRehearsalResult,
   TranscriptSegment,
   TelemetryStatus,
+  DeleteAccountResult,
   LocalDataSummary,
   RecordingInfo,
   DeleteRecordingsReport,
@@ -286,6 +287,16 @@ export interface ConvaBackend {
     avatarUrl(nonce: number): Promise<string | null>;
     avatarUpload(blob: Blob): Promise<{ ok: boolean; error?: string }>;
     avatarDelete(): Promise<boolean>;
+
+    /**
+     * Delete the account and everything Conva holds for it, then end the
+     * session. The caller must have asked for a FRESH sign-in first (the server
+     * refuses a stale one with `recent_sign_in_required`). Rejects with a stable
+     * code (`recent_sign_in_required`, `signed_out`, `quota_exceeded`,
+     * `unprovisioned`, `storage_cleanup_failed`, `upstream`, `network`).
+     * Data on this computer is not touched.
+     */
+    deleteAccount(): Promise<DeleteAccountResult>;
   };
 
   /** Named conversations with append semantics. Local on desktop; cloud on web. */

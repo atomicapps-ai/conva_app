@@ -1379,6 +1379,12 @@ export interface EraseReport {
   finished_unix_ms: number;
 }
 
+/** Result of a successful account deletion; `reference` is the short code
+ *  (`DEL-XXXX-XXXX`) the person can quote. */
+export interface DeleteAccountResult {
+  reference: string | null;
+}
+
 /** Mirror of the shell's `telemetry_status` command. */
 export interface TelemetryStatus {
   /** The user's setting. */

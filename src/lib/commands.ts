@@ -48,6 +48,7 @@ import type {
   TelemetryEvent,
   TranscriptSegment,
   TelemetryStatus,
+  DeleteAccountResult,
   LocalDataSummary,
   RecordingInfo,
   DeleteRecordingsReport,
@@ -625,6 +626,11 @@ export function firecrawlKeyStatus(): Promise<boolean> {
 /** Usage snapshot (LLM tokens per provider + research-provider searches) for Settings. */
 export function usageSummary(): Promise<UsageSummary> {
   return invoke<UsageSummary>("usage_summary");
+}
+
+/** Delete the account on Conva's servers, then clear the local sign-in. Rejects with a stable code. */
+export function authDeleteAccount(): Promise<DeleteAccountResult> {
+  return invoke<DeleteAccountResult>("auth_delete_account");
 }
 
 /** Settings → Privacy → Your data on this computer. */

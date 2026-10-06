@@ -1009,6 +1009,20 @@ fn auth_status(app: AppHandle) -> Result<auth::AuthStatus, String> {
     Ok(auth::status(&auth_dir(&app)?))
 }
 
+/// Delete the account on Conva's servers (the UI has already asked for a fresh
+/// sign-in and a typed confirmation), then clear the local sign-in.
+#[tauri::command]
+async fn auth_delete_account(
+    app: AppHandle,
+) -> Result<conva_core::ipc::DeleteAccountResult, String> {
+    let dir = auth_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        auth::delete_account(&dir, &events_flush::web_api_base())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Revoke server-side (best-effort) and clear local tokens + metadata.
 #[tauri::command]
 async fn auth_signout(app: AppHandle) -> Result<(), String> {
@@ -3355,6 +3369,7 @@ pub fn run() {
             avatar_upload,
             avatar_download,
             avatar_delete,
+            auth_delete_account,
             save_debug_log,
             screenshot_trace,
             save_screenshot,

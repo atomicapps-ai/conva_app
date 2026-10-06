@@ -80,6 +80,7 @@ import type {
   StartRehearsalResult,
   TranscriptSegment,
   TelemetryStatus,
+  DeleteAccountResult,
   LocalDataSummary,
   RecordingInfo,
   DeleteRecordingsReport,
@@ -576,6 +577,7 @@ export class WebBackend implements ConvaBackend {
       Promise.resolve(`${webAuth.avatarUrl()}?v=${nonce}`),
     avatarUpload: webAuth.uploadAvatar,
     avatarDelete: (): Promise<boolean> => webAuth.deleteAvatar(),
+    deleteAccount: (): Promise<DeleteAccountResult> => webAuth.deleteAccount(),
   };
 
   // Cloud Conversations (M2 cp8): a hosted session is ephemeral — only an
