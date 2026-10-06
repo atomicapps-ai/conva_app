@@ -15,13 +15,11 @@ use tauri::{AppHandle, Emitter, Manager};
 use conva_core::ipc::{events, ModelStatusEvent};
 use conva_core::CoreError;
 
-/// ggml checkpoints published by the whisper.cpp project.
-const MODEL_BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
-
 /// Names accepted in `AppConfig.whisper_model`, with approximate sizes.
 /// The `-q5_1` / `-q8_0` variants are quantized (compressed) checkpoints —
 /// smaller downloads and faster CPU decode at a small accuracy cost. All are
-/// published as `ggml-<name>.bin` at `MODEL_BASE_URL`.
+/// published as `ggml-<name>.bin` — see `conva_core::asr::whisper_model_url`
+/// for where each one is downloaded from (`distil-small.en` is the exception).
 pub const KNOWN_MODELS: &[(&str, u64)] = &[
     ("tiny.en-q5_1", 33_000_000),
     ("tiny.en", 78_000_000),
@@ -214,7 +212,7 @@ pub fn ensure_model(app: &AppHandle, model: &str) -> Result<PathBuf, CoreError> 
 }
 
 fn download(app: &AppHandle, model: &str) -> Result<(), CoreError> {
-    let url = format!("{MODEL_BASE_URL}/ggml-{model}.bin");
+    let url = conva_core::asr::whisper_model_url(model);
     let final_path = model_path(app, model)?;
     let part_path = final_path.with_extension("bin.part");
 

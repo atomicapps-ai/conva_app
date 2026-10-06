@@ -83,6 +83,24 @@ pub fn sanitize_transcript_text(raw: &str) -> String {
     out.trim_end().to_string()
 }
 
+/// Where the whisper.cpp project publishes its ggml checkpoints.
+pub const WHISPER_CPP_MODEL_BASE_URL: &str =
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
+
+/// Download URL of a whisper ggml checkpoint by its `AppConfig.whisper_model`
+/// name. Almost all are published as `ggml-<name>.bin` by the whisper.cpp
+/// project; `distil-small.en` is published by the distil-whisper project
+/// instead, and the whisper.cpp path 404s for it (issue 407).
+pub fn whisper_model_url(model: &str) -> String {
+    match model {
+        "distil-small.en" => {
+            "https://huggingface.co/distil-whisper/distil-small.en/resolve/main/ggml-distil-small.en.bin"
+                .to_string()
+        }
+        _ => format!("{WHISPER_CPP_MODEL_BASE_URL}/ggml-{model}.bin"),
+    }
+}
+
 #[cfg(test)]
 mod sanitize_tests {
     use super::sanitize_transcript_text;
@@ -97,5 +115,32 @@ mod sanitize_tests {
         assert_eq!(sanitize_transcript_text("P99 metrics ?"), "P99 metrics?");
         assert_eq!(sanitize_transcript_text("| | |"), "");
         assert_eq!(sanitize_transcript_text(""), "");
+    }
+}
+
+#[cfg(test)]
+mod model_url_tests {
+    use super::whisper_model_url;
+
+    #[test]
+    fn whisper_cpp_models_use_the_whisper_cpp_repo() {
+        assert_eq!(
+            whisper_model_url("base.en-q5_1"),
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin"
+        );
+        assert_eq!(
+            whisper_model_url("small.en"),
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"
+        );
+    }
+
+    #[test]
+    fn distil_small_comes_from_the_distil_whisper_repo() {
+        // The whisper.cpp repo returns 404 for this file (issue 407).
+        assert_eq!(
+            whisper_model_url("distil-small.en"),
+            "https://huggingface.co/distil-whisper/distil-small.en/resolve/main/ggml-distil-small.en.bin"
+        );
+        assert!(!whisper_model_url("distil-small.en").contains("ggerganov"));
     }
 }
