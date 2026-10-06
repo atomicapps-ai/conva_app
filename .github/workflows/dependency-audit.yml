@@ -1,0 +1,41 @@
+name: Dependency audit
+
+# Fails on a known vulnerability in package-lock.json or Cargo.lock that is not
+# listed, with a reason and an expiry date, in osv-scanner.toml. Pull requests run
+# it only when a dependency file changes (so a newly published advisory never
+# blocks an unrelated PR); pushes to main/dev and a weekly run catch new advisories.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    paths:
+      - package.json
+      - package-lock.json
+      - Cargo.lock
+      - "**/Cargo.toml"
+      - osv-scanner.toml
+      - .github/workflows/dependency-audit.yml
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  osv:
+    name: Dependency audit (osv-scanner)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned by version and checksum (from the project's own SHA256SUMS).
+      - name: Install osv-scanner 2.6.0
+        run: |
+          set -euo pipefail
+          V=2.6.0
+          curl -sSfL -o osv-scanner "https://github.com/google/osv-scanner/releases/download/v${V}/osv-scanner_linux_amd64"
+          echo "ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108  osv-scanner" | sha256sum -c -
+          sudo install -m 0755 osv-scanner /usr/local/bin/osv-scanner
+          osv-scanner --version
+      - name: Scan the lock files
+        run: osv-scanner scan source --config osv-scanner.toml --lockfile package-lock.json --lockfile Cargo.lock
