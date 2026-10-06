@@ -208,6 +208,7 @@ export class TauriBackend implements ConvaBackend {
     signupPassword: cmd.authSignupPassword,
     status: cmd.authStatus,
     signout: cmd.authSignout,
+    deleteAccount: cmd.authDeleteAccount,
     openUrl: cmd.openUrl,
     // The one real exception to this file's "no new behavior" rule: the
     // Tauri IPC boundary needs base64 (avatar_upload/download's wire

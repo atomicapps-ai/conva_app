@@ -1281,3 +1281,10 @@ pub struct EraseReport {
     pub keys_removed: bool,
     pub finished_unix_ms: u64,
 }
+
+/// Result of a successful account deletion. `reference` is the short code
+/// (`DEL-XXXX-XXXX`) the person can quote. Mirrored in `src/lib/ipc.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteAccountResult {
+    pub reference: Option<String>,
+}

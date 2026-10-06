@@ -30,7 +30,7 @@ const BATCH_LIMIT: usize = 50;
 /// `tauri dev` against any deployment) beats a compile-time one (CI can bake
 /// a dev installer to point at dev.getconva.com the same way it bakes
 /// `CONVA_SUPABASE_URL`), beats the default of live production.
-fn web_api_base() -> String {
+pub(crate) fn web_api_base() -> String {
     std::env::var("CONVA_WEB_API_URL")
         .ok()
         .filter(|s| !s.trim().is_empty())

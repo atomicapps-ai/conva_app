@@ -563,6 +563,34 @@ pub fn status(auth_dir: &Path) -> AuthStatus {
     }
 }
 
+/// Delete the signed-in user's account on Conva's servers
+/// (`DELETE {base}/api/account`, conva_web `src/live/account.js`), then clear the
+/// local sign-in. The server removes the person's stored files and then the
+/// account in one step; it refuses unless the latest sign-in is recent, so the UI
+/// asks for a fresh one first. Errors are stable codes (`conva_core::account`),
+/// never a raw body. The local data on this computer is NOT touched here.
+pub fn delete_account(
+    auth_dir: &Path,
+    base_url: &str,
+) -> Result<conva_core::ipc::DeleteAccountResult, String> {
+    let token = access_token(auth_dir).map_err(|_| "signed_out".to_string())?;
+    let url = format!("{}/api/account", base_url.trim_end_matches('/'));
+    let (status, body) = match ureq::delete(&url)
+        .timeout(std::time::Duration::from_secs(60))
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()
+    {
+        Ok(resp) => (resp.status(), resp.into_string().unwrap_or_default()),
+        Err(ureq::Error::Status(code, resp)) => (code, resp.into_string().unwrap_or_default()),
+        Err(ureq::Error::Transport(_)) => return Err("network".into()),
+    };
+    let result = conva_core::account::interpret_delete_response(status, &body)?;
+    // The account is gone. Clearing the local session also tries a server-side
+    // logout, which will fail for a deleted user and is ignored.
+    let _ = sign_out(auth_dir);
+    Ok(result)
+}
+
 /// Revoke server-side (best-effort) and clear all local tokens + metadata.
 pub fn sign_out(auth_dir: &Path) -> Result<(), String> {
     let key = anon_key();

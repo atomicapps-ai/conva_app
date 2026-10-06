@@ -82,6 +82,7 @@ describe("available vs unsupported vs unimplemented", () => {
     expect(ops["partner.open"].state).toBe("unsupported");
     expect(ops["providers.setKey"].state).toBe("unsupported");
     expect(ops["auth.signinPassword"].state).toBe("available");
+    expect(ops["auth.deleteAccount"].state).toBe("available");
     expect(ops["auth.status"].state).toBe("available");
     // the audit's "misleading scaffold successes" are NOT available
     expect(ops["rag.analyzeTerms"].state).toBe("unimplemented");

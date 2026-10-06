@@ -7,6 +7,7 @@ import { GateView, useAccessGate } from "@/components/web/GateView";
 import { HostedNoticeGate } from "@/components/web/HostedNoticeGate";
 import { WebSiteNav } from "@/components/web/WebSiteNav";
 import { WebTopNav } from "@/components/web/WebTopNav";
+import { hasResume } from "@/lib/accountDeletion";
 import { useNavStore } from "@/state/nav";
 
 /**
@@ -20,6 +21,12 @@ export function WebShell() {
   const togglePalette = useNavStore((s) => s.togglePalette);
   // Beta allowlist: signed in without access → the gate replaces the product.
   const gated = useAccessGate();
+
+  // Back from the sign-in that "Delete account" asked for: land on Profile,
+  // where the dialog reopens at its confirm step (see ProfileView).
+  useEffect(() => {
+    if (hasResume(Date.now())) useNavStore.getState().setView("profile");
+  }, []);
 
   // ⌘K / Ctrl+K → command palette (shared affordance).
   useEffect(() => {

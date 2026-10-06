@@ -335,6 +335,32 @@ export async function uploadAvatar(file: Blob): Promise<{ ok: boolean; error?: A
   }
 }
 
+/**
+ * Delete the account (`DELETE /api/live/account`, conva_web src/live/account.js):
+ * the Worker removes the person's stored files and then the account in one
+ * step, and clears the session cookie only on success. Rejects with a stable
+ * code string the dialog words (`recent_sign_in_required`, `signed_out`,
+ * `quota_exceeded`, `unprovisioned`, `storage_cleanup_failed`, `upstream`,
+ * `network`); never a raw body.
+ */
+export async function deleteAccount(): Promise<{ reference: string | null }> {
+  let res: Response;
+  try {
+    res = await fetch("/api/live/account", { method: "DELETE", credentials: "same-origin" });
+  } catch {
+    throw new WebAuthError("network");
+  }
+  const body = (await res.json().catch(() => ({}))) as { deleted?: boolean; reference?: string; error?: string };
+  if (res.ok && body.deleted === true) {
+    // The Worker already ended the server-side session; flip the local view.
+    setCurrent({ ...SIGNED_OUT });
+    return { reference: typeof body.reference === "string" ? body.reference : null };
+  }
+  const known = ["recent_sign_in_required", "signed_out", "quota_exceeded", "unprovisioned", "storage_cleanup_failed", "unconfigured", "upstream", "cross_origin"];
+  const code = body.error && known.includes(body.error) ? body.error : res.status === 401 ? "signed_out" : res.status === 403 ? "recent_sign_in_required" : res.status === 429 ? "quota_exceeded" : "upstream";
+  throw new WebAuthError(code);
+}
+
 export async function deleteAvatar(): Promise<boolean> {
   try {
     const res = await fetch(`${BFF_BASE}/profile/avatar`, { method: "DELETE", credentials: "same-origin" });

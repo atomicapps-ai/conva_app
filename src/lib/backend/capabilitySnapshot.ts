@@ -182,6 +182,7 @@ export const ALL_OPERATIONS = [
   "auth.avatarUrl",
   "auth.avatarUpload",
   "auth.avatarDelete",
+  "auth.deleteAccount",
   "conversations.save",
   "conversations.list",
   "conversations.load",
@@ -513,6 +514,7 @@ export function webOperations(): OperationAvailability {
     "auth.avatarUrl": AVAILABLE,
     "auth.avatarUpload": AVAILABLE,
     "auth.avatarDelete": AVAILABLE,
+    "auth.deleteAccount": AVAILABLE,
     // Cloud Conversations (M2 cp8): WebBackend flips these to `available` once
     // the gateway's session backend answers; an unapplied migration 0006 is a
     // per-call `unprovisioned` error, not a probe-time guess.
