@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { LicencesSection } from "@/components/about/LicencesSection";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { useBackend } from "@/lib/backend";
@@ -120,6 +121,8 @@ export function AboutMoreView() {
           />
         </div>
       </Section>
+
+      <LicencesSection />
     </ViewShell>
   );
 }

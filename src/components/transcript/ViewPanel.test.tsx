@@ -83,6 +83,16 @@ describe("ViewPanel", () => {
     expect(screen.getByText("Deeper background text.")).toBeInTheDocument();
   });
 
+  it("tells the reader to check figures, dates and names under a written answer, but not on a commitment", () => {
+    panel();
+    expect(screen.getByTestId("answer-check-notice")).toHaveTextContent(
+      /check figures, dates and names/i,
+    );
+    cleanup();
+    panel({ items: [commitment], activeId: "found:c-you-runbook" });
+    expect(screen.queryByTestId("answer-check-notice")).not.toBeInTheDocument();
+  });
+
   it("keeps the source as a tooltip icon, not a heading", () => {
     panel();
     const icon = screen.getByRole("img", {

@@ -16,6 +16,7 @@ import {
   GridAnswer,
   gridAsText,
 } from "@/components/transcript/GridAnswer";
+import { AnswerCheckNotice } from "@/components/transcript/AnswerCheckNotice";
 import { Icon } from "@/components/ui/Icon";
 import { AnswerBody, inlineMd } from "@/lib/allyMarkdown";
 
@@ -368,6 +369,9 @@ export function ViewPanel({
                     <AnswerBody text={parts.background} />
                   </div>
                 </div>
+              )}
+              {active.group !== "commitment" && (parts.points || parts.background) && (
+                <AnswerCheckNotice />
               )}
             </>
           )}

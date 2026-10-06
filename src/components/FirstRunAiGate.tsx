@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useBackend, useCapabilities } from "@/lib/backend";
 import {
   completeWithKeyPatch,
+  keyHelp,
   keyProviders,
   LOCAL_CARD,
   mergeModelOptions,
@@ -168,6 +169,11 @@ export function FirstRunAiGate() {
                     ))}
                   </select>
                 </label>
+                {keyHelp(provider.id) && (
+                  <p className="-mt-1 text-[11px] text-fg-faint" data-testid="key-help">
+                    {keyHelp(provider.id)}
+                  </p>
+                )}
                 <label className="field">
                   Model
                   <select

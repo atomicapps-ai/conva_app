@@ -15,6 +15,7 @@ import { ViewPanel } from "@/components/transcript/ViewPanel";
 import { fromViewItem } from "@/components/transcript/viewMirror";
 import { Icon } from "@/components/ui/Icon";
 import { MarkdownDocument } from "@/components/ui/MarkdownDocument";
+import { AnswerCheckNotice } from "@/components/transcript/AnswerCheckNotice";
 import { AnswerBody } from "@/lib/allyMarkdown";
 import { useBackend } from "@/lib/backend";
 import type { ViewState } from "@/lib/ipc";
@@ -564,8 +565,11 @@ export function PartnerWindow() {
                     {answerText}
                   </pre>
                 ) : (
-                  <div className="text-[0.9em] leading-relaxed text-fg-muted">
-                    <AnswerBody text={answerText} />
+                  <div className="flex flex-col gap-2">
+                    <div className="text-[0.9em] leading-relaxed text-fg-muted">
+                      <AnswerBody text={answerText} />
+                    </div>
+                    {!busy && <AnswerCheckNotice />}
                   </div>
                 )
               ) : (

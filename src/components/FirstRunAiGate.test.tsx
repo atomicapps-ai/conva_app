@@ -105,6 +105,14 @@ describe("FirstRunAiGate", () => {
     expect([...provider.options].map((o) => o.value)).toEqual(["anthropic", "openai"]);
   });
 
+  it("tells a person with no key where to create one, following the provider choice", async () => {
+    mount(backend());
+    await screen.findByRole("heading", { name: "How should Ally think?" });
+    expect(screen.getByTestId("key-help")).toHaveTextContent(/console\.anthropic\.com/);
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "openai" } });
+    expect(screen.getByTestId("key-help")).toHaveTextContent(/platform\.openai\.com/);
+  });
+
   it("shows the measured speed and cost for the selected quality and fast models", async () => {
     mount(backend());
     await screen.findByRole("heading", { name: "How should Ally think?" });
