@@ -449,6 +449,15 @@ export class FakeBackend implements ConvaBackend {
     setResearchKey: nc("context.setResearchKey"),
     researchKeyStatus: nc("context.researchKeyStatus"),
   };
+  localData = {
+    summary: nc("localData.summary"),
+    recordings: nc("localData.recordings"),
+    deleteRecordings: nc("localData.deleteRecordings"),
+    revealRecording: nc("localData.revealRecording"),
+    openDataFolder: nc("localData.openDataFolder"),
+    erase: nc("localData.erase"),
+    takeEraseReport: nc("localData.takeEraseReport"),
+  };
   usage = {
     summary: nc("usage.summary"),
     reset: nc("usage.reset"),

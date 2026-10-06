@@ -33,6 +33,7 @@ pub mod ipc;
 pub mod lexicon;
 pub mod live_assist;
 pub mod llm;
+pub mod local_data;
 pub mod meaning_frame;
 pub mod metering;
 pub mod model_catalog;

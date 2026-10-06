@@ -269,6 +269,16 @@ export class TauriBackend implements ConvaBackend {
       provider === "firecrawl" ? cmd.firecrawlKeyStatus() : cmd.tavilyKeyStatus(),
   };
 
+  localData = {
+    summary: cmd.localDataSummary,
+    recordings: cmd.listRecordings,
+    deleteRecordings: cmd.deleteRecordings,
+    revealRecording: cmd.revealRecording,
+    openDataFolder: cmd.openDataFolder,
+    erase: cmd.eraseLocalData,
+    takeEraseReport: cmd.takeEraseReport,
+  };
+
   usage = {
     summary: cmd.usageSummary,
     reset: cmd.usageReset,

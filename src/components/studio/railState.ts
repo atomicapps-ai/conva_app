@@ -28,7 +28,7 @@ const SUBVIEW_PARENT: Partial<Record<View, View>> = {
 };
 
 /** Account surfaces — reached from the account block, never the rail. */
-const ACCOUNT_VIEWS: ReadonlySet<View> = new Set<View>(["settings", "profile", "about", "models"]);
+const ACCOUNT_VIEWS: ReadonlySet<View> = new Set<View>(["settings", "profile", "about", "models", "recordings"]);
 
 /**
  * The rail row to light for `view`, or `null` when none should be

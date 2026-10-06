@@ -21,6 +21,7 @@ mod generation;
 mod hud;
 mod live_assist;
 mod llm;
+mod local_data;
 mod metering;
 mod models;
 mod offline;
@@ -232,6 +233,66 @@ fn on_telemetry_setting(app: &AppHandle, was_enabled: bool, now_enabled: bool) {
     if was_enabled && !now_enabled && !telemetry_events::required(app) {
         telemetry_events::purge(app);
     }
+}
+
+/// Settings → Privacy → Your data on this computer: what is stored here.
+#[tauri::command]
+async fn local_data_summary(app: AppHandle) -> Result<conva_core::ipc::LocalDataSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || local_data::summary(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn list_recordings(app: AppHandle) -> Result<Vec<conva_core::ipc::RecordingInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || local_data::list_recordings(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Delete call recordings by id. Refused while a recording is being written.
+#[tauri::command]
+async fn delete_recordings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<conva_core::ipc::DeleteRecordingsReport, String> {
+    if state.session.is_recording() {
+        return Err("Stop recording before deleting recordings.".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || local_data::delete_recordings(&app, &ids))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn reveal_recording(app: AppHandle, id: String) -> Result<(), String> {
+    local_data::reveal_recording(&app, &id)
+}
+
+#[tauri::command]
+fn open_data_folder(app: AppHandle) -> Result<(), String> {
+    local_data::open_data_folder(&app)
+}
+
+/// Queue "Erase everything on this computer" for the next start; the UI
+/// relaunches the app right after. Refused while a session is live.
+#[tauri::command]
+fn erase_local_data(
+    app: AppHandle,
+    state: State<AppState>,
+    options: conva_core::ipc::EraseOptions,
+) -> Result<(), String> {
+    if state.session.is_active() {
+        return Err("Stop listening before erasing.".into());
+    }
+    local_data::request_erase(&app, options)
+}
+
+/// The result of the last erase, once (read after the restart).
+#[tauri::command]
+fn take_erase_report(app: AppHandle) -> Option<conva_core::ipc::EraseReport> {
+    local_data::take_erase_report(&app)
 }
 
 /// Settings → Privacy: is usage data being collected, and is the switch locked?
@@ -3132,6 +3193,9 @@ pub fn run() {
                                 let data_dir = handle.path().app_data_dir().map_err(|e| {
                                     format!("could not resolve app data directory: {e}")
                                 })?;
+                                // A queued "Erase everything on this computer" runs
+                                // here, before any store, ledger or log is opened.
+                                local_data::run_pending_erase(&handle);
                                 let config = load_config(&handle);
                                 offline::set(config.offline_mode);
                                 trace::init(data_dir.join("perf.jsonl"));
@@ -3339,6 +3403,13 @@ pub fn run() {
             usage_reset,
             telemetry_device_id,
             telemetry_status,
+            local_data_summary,
+            list_recordings,
+            delete_recordings,
+            reveal_recording,
+            open_data_folder,
+            erase_local_data,
+            take_erase_report,
             telemetry_append_event,
             telemetry_read_batch,
             telemetry_advance_cursor,

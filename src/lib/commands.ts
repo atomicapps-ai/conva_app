@@ -48,6 +48,11 @@ import type {
   TelemetryEvent,
   TranscriptSegment,
   TelemetryStatus,
+  LocalDataSummary,
+  RecordingInfo,
+  DeleteRecordingsReport,
+  EraseOptions,
+  EraseReport,
   UsageSummary,
   WhisperModelInfo,
 } from "@/lib/ipc";
@@ -620,6 +625,37 @@ export function firecrawlKeyStatus(): Promise<boolean> {
 /** Usage snapshot (LLM tokens per provider + research-provider searches) for Settings. */
 export function usageSummary(): Promise<UsageSummary> {
   return invoke<UsageSummary>("usage_summary");
+}
+
+/** Settings → Privacy → Your data on this computer. */
+export function localDataSummary(): Promise<LocalDataSummary> {
+  return invoke<LocalDataSummary>("local_data_summary");
+}
+
+export function listRecordings(): Promise<RecordingInfo[]> {
+  return invoke<RecordingInfo[]>("list_recordings");
+}
+
+export function deleteRecordings(ids: string[]): Promise<DeleteRecordingsReport> {
+  return invoke<DeleteRecordingsReport>("delete_recordings", { ids });
+}
+
+export function revealRecording(id: string): Promise<void> {
+  return invoke("reveal_recording", { id });
+}
+
+export function openDataFolder(): Promise<void> {
+  return invoke("open_data_folder");
+}
+
+/** Queue "Erase everything on this computer" for the next start. The caller relaunches the app. */
+export function eraseLocalData(options: EraseOptions): Promise<void> {
+  return invoke("erase_local_data", { options });
+}
+
+/** The result of the last erase, once. */
+export function takeEraseReport(): Promise<EraseReport | null> {
+  return invoke<EraseReport | null>("take_erase_report");
 }
 
 /** Settings → Privacy: is usage-event collection on, and is it locked on by beta terms? */

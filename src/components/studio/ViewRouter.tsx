@@ -9,6 +9,7 @@ import { FeaturesView } from "@/components/product/FeaturesView";
 import { WhatsComingView } from "@/components/product/WhatsComingView";
 import { WhatsNewView } from "@/components/product/WhatsNewView";
 import { ProfileView } from "@/components/profile/ProfileView";
+import { RecordingsView } from "@/components/privacy/RecordingsView";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { TranscriptView } from "@/components/transcript/TranscriptView";
 import { useNavStore } from "@/state/nav";
@@ -41,6 +42,7 @@ export function ViewRouter() {
       {view === "coaching" && <CoachingView />}
       {view === "about" && <AboutMoreView />}
       {view === "models" && <ModelsView />}
+      {view === "recordings" && <RecordingsView />}
     </>
   );
 }
