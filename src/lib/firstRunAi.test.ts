@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   completeWithKeyPatch,
+  keyHelp,
   keyProviders,
   LOCAL_CARD,
   mergeModelOptions,
@@ -69,6 +70,14 @@ describe("shouldShowFirstRunAi", () => {
 describe("keyProviders", () => {
   it("offers only providers that take a key", () => {
     expect(keyProviders([anthropic, ollama]).map((p) => p.id)).toEqual(["anthropic"]);
+  });
+});
+
+describe("keyHelp", () => {
+  it("names the provider's own site for creating a key, and nothing for a local provider", () => {
+    expect(keyHelp("anthropic")).toMatch(/console\.anthropic\.com/);
+    expect(keyHelp("openai")).toMatch(/platform\.openai\.com/);
+    expect(keyHelp("ollama_local")).toBeNull();
   });
 });
 

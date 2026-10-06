@@ -31,6 +31,12 @@ describe("privacy wording in shipped strings", () => {
     }
   });
 
+  it("the README does not describe the product without saying conversation text goes to the AI provider once a key is added", () => {
+    const readme = read("README.md");
+    expect(readme).not.toMatch(/all on your machine|never leaves your computer|stays on your machine/i);
+    expect(readme).toMatch(/If you add an AI key, the conversation text is sent to that AI provider/i);
+  });
+
   it("the first-run key card says the conversation text goes to the provider", () => {
     expect(read("src/components/FirstRunAiGate.tsx")).toMatch(/conversation text from both sides is\s+sent to that provider/i);
   });

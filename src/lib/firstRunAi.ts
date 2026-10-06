@@ -28,6 +28,25 @@ export function keyProviders(registry: ProviderInfo[]): ProviderInfo[] {
 }
 
 /**
+ * Where a person without a key creates one, by provider. Shown as plain text
+ * (the key is created on the provider's own site, in the person's own account).
+ * A provider not listed here shows no hint.
+ */
+const KEY_CONSOLE: Partial<Record<ProviderId, string>> = {
+  anthropic: "console.anthropic.com",
+  openai: "platform.openai.com",
+  google: "aistudio.google.com",
+  xai: "console.x.ai",
+  deepseek: "platform.deepseek.com",
+};
+
+/** "Create one at console.anthropic.com", or null when we don't know the site. */
+export function keyHelp(providerId: ProviderId): string | null {
+  const host = KEY_CONSOLE[providerId];
+  return host ? `No key yet? Create one in your account at ${host}.` : null;
+}
+
+/**
  * Dropdown options: the curated defaults, then the provider's live list. The
  * shell already puts the curated default first and drops non-chat models; this
  * keeps the UI correct if it is handed a raw list or an empty one, and always
