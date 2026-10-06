@@ -34,4 +34,19 @@ describe("privacy wording in shipped strings", () => {
   it("the first-run key card says the conversation text goes to the provider", () => {
     expect(read("src/components/FirstRunAiGate.tsx")).toMatch(/conversation text from both sides is\s+sent to that provider/i);
   });
+
+  it("the offline switch is worded the same in Settings and the consent notice", () => {
+    expect(read("src/components/AllySettings.tsx")).toMatch(/Send nothing to an AI provider/);
+    expect(read("src/components/ConsentGate.tsx")).toMatch(/Send nothing to an AI provider/);
+  });
+
+  it("every remote path checks offline mode (so a new caller can't skip it)", () => {
+    // The choke points named in src-tauri/src/offline.rs.
+    expect(read("src-tauri/src/llm.rs")).toMatch(/remote_call_allowed\(crate::offline::is_offline\(\)/);
+    expect(read("src-tauri/src/session.rs")).toMatch(/offline::remote_allowed\(\)/);
+    expect(read("src-tauri/src/tts.rs")).toMatch(/offline::guard_remote\(\)/);
+    expect(read("src-tauri/src/web.rs")).toMatch(/offline::guard_remote\(\)/);
+    expect(read("src-tauri/src/asr_deepgram.rs")).toMatch(/offline::guard_remote\(\)/);
+    expect(read("src-tauri/src/research/mod.rs")).toMatch(/offline::remote_allowed\(\)/);
+  });
 });

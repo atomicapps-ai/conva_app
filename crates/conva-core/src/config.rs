@@ -63,6 +63,23 @@ pub struct AppConfig {
     /// `None` disables it. Settings → Devices offers presets + a custom
     /// value; the default matches the 5-minute preset.
     pub idle_stop_minutes: Option<u32>,
+    /// "Send nothing to an AI provider": when true, no conversation or
+    /// library content leaves the device for a remote provider — LLM calls,
+    /// cloud transcription, cloud speech and web research are all refused and
+    /// local whisper is used. Local providers (Ollama) stay allowed. Sign-in,
+    /// update checks and model downloads are unaffected. Default off.
+    pub offline_mode: bool,
+}
+
+/// Error string a refused remote call carries (the shell returns it verbatim
+/// and the UI maps it to friendly copy, like `api_key_missing`).
+pub const OFFLINE_MODE_ERROR: &str = "offline_mode";
+
+/// The single decision every remote path asks: may this call go out?
+/// `needs_remote` is true for anything that talks to a third party (a hosted
+/// LLM, Deepgram, Firecrawl, Tavily) and false for local-only providers.
+pub fn remote_call_allowed(offline_mode: bool, needs_remote: bool) -> bool {
+    !offline_mode || !needs_remote
 }
 
 impl Default for AppConfig {
@@ -97,6 +114,7 @@ impl Default for AppConfig {
             profile_role: None,
             research_provider: DEFAULT_RESEARCH_PROVIDER,
             idle_stop_minutes: Some(5),
+            offline_mode: false,
         }
     }
 }
@@ -182,5 +200,29 @@ mod tests {
         };
         let back: AppConfig = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
         assert_eq!(back.idle_stop_minutes, None);
+    }
+
+    #[test]
+    fn offline_mode_is_off_by_default_and_only_blocks_remote_calls() {
+        assert!(!AppConfig::default().offline_mode);
+        assert!(remote_call_allowed(false, true));
+        assert!(remote_call_allowed(false, false));
+        assert!(!remote_call_allowed(true, true));
+        assert!(
+            remote_call_allowed(true, false),
+            "local providers stay allowed"
+        );
+    }
+
+    #[test]
+    fn offline_mode_round_trips_and_old_configs_load_with_it_off() {
+        let cfg = AppConfig {
+            offline_mode: true,
+            ..Default::default()
+        };
+        let back: AppConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert!(back.offline_mode);
+        let old: AppConfig = serde_json::from_str(r#"{"tracker_enabled": true}"#).unwrap();
+        assert!(!old.offline_mode);
     }
 }

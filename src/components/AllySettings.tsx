@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useBackend } from "@/lib/backend";
 import { mergeModelOptions, modelLabel } from "@/lib/firstRunAi";
+import { isTauri } from "@/lib/ipc";
 import type { ModelInfo, ModelSelection, ProviderId } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 
@@ -139,6 +140,37 @@ export function AllySettings() {
         Ally — answers &amp; suggestions
       </h3>
       <div className="flex flex-col gap-2">
+        {isTauri() && (
+          <div
+            className="rounded-md border border-border bg-panel-raised p-3"
+            data-testid="offline-mode-setting"
+          >
+            <label className="flex items-start gap-2 text-xs text-fg">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={config.offline_mode}
+                onChange={(e) =>
+                  void updateConfig({ offline_mode: e.target.checked })
+                }
+              />
+              <span>
+                <span className="font-medium">
+                  Send nothing to an AI provider
+                </span>
+                <span className="mt-1 block text-[11px] text-fg-muted">
+                  Turns off everything that needs an online AI model: Ally&apos;s
+                  written answers, automatic commitment and term extraction,
+                  web research, cloud transcription and rehearsal voice.
+                  Transcription stays on this device. A model you run yourself
+                  (Ollama) still works. Takes effect
+                  immediately. Sign-in, update checks, speech-model downloads
+                  and content-free usage counts still use the internet.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
         <SlotEditor
           label="Quality slot (on-demand Ally answers)"
           value={quality}
@@ -234,7 +266,8 @@ export function AllySettings() {
           for live FANER routing, and periodically while conversation
           intelligence is enabled. Turning conversation intelligence off stops
           only the periodic extraction; live suggestions still use your key, so
-          to stop all of it, clear the key. Claim detection does not run web
+          to stop all of it, turn on &ldquo;Send nothing to an AI provider&rdquo;
+          above or clear the key. Claim detection does not run web
           research.
         </p>
       </div>

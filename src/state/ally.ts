@@ -106,6 +106,9 @@ export function friendlyAllyError(raw: string): string {
   if (/^api_key_missing$/i.test(raw.trim())) {
     return "No API key is set for your LLM provider. Add one in Settings → LLM, then try again.";
   }
+  if (/\boffline_mode\b/.test(raw)) {
+    return "Offline mode is on, so nothing is sent to an AI provider. Turn it off in Settings → Ally to use this.";
+  }
   return raw;
 }
 

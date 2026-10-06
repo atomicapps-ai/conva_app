@@ -14,8 +14,10 @@ describe("ConsentGate", () => {
     expect(note).toHaveTextContent(/until you add an ai key, conversation text is not sent to any ai provider/i);
     expect(note).toHaveTextContent(/both sides/i);
     expect(note).toHaveTextContent(/clear the key/i);
-    // It must not claim a full off switch exists in Settings.
     expect(note).toHaveTextContent(/switch off part of that/i);
+    // The full off switch exists (offline_mode) and the text must name it as
+    // it appears in Settings → Ally.
+    expect(note).toHaveTextContent(/send nothing to an ai provider/i);
   });
 
   it("renders nothing once consent is acknowledged", () => {

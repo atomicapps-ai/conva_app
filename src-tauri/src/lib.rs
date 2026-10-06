@@ -23,6 +23,7 @@ mod live_assist;
 mod llm;
 mod metering;
 mod models;
+mod offline;
 mod partner;
 mod radar_worker;
 mod rag;
@@ -192,6 +193,7 @@ fn import_config(
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let config: AppConfig = serde_json::from_str(&content).map_err(|e| e.to_string())?;
     persist_config(&app, &config)?;
+    offline::set(config.offline_mode);
     *state.config.lock().expect("config lock") = config.clone();
     Ok(config)
 }
@@ -213,6 +215,7 @@ fn get_config(state: State<AppState>) -> AppConfig {
 #[tauri::command]
 fn save_config(app: AppHandle, state: State<AppState>, config: AppConfig) -> Result<(), String> {
     persist_config(&app, &config)?;
+    offline::set(config.offline_mode);
     *state.config.lock().expect("config lock") = config;
     Ok(())
 }
@@ -441,7 +444,11 @@ fn provider_key_status() -> Vec<ProviderKeyStatus> {
 
 fn resolve_key(provider: ProviderId) -> Result<String, String> {
     llm::resolve_key(provider).map_err(|e| match e {
-        conva_core::CoreError::Llm(msg) if msg == "api_key_missing" => msg,
+        conva_core::CoreError::Llm(msg)
+            if msg == "api_key_missing" || msg == conva_core::config::OFFLINE_MODE_ERROR =>
+        {
+            msg
+        }
         other => other.to_string(),
     })
 }
@@ -2346,7 +2353,7 @@ async fn context_start_rehearsal(
     let selection = config.llm_quality.clone();
     let llm_key = resolve_key(selection.provider)?;
     // Aura reuses the Deepgram key; without one the rehearsal is text-only.
-    let tts_key = asr_deepgram::load_api_key();
+    let tts_key = asr_deepgram::load_api_key().filter(|_| offline::remote_allowed());
     let voice_enabled = tts_key.is_some();
 
     // Activate this context's highlight terms for the rehearsal (Phase 3c):
@@ -2762,6 +2769,9 @@ fn run_web_tool(app: &AppHandle, name: &str, input: &serde_json::Value) -> Strin
     if query.is_empty() {
         return "No query provided.".into();
     }
+    if !offline::remote_allowed() {
+        return "Web search is off: offline mode is on.".into();
+    }
     let Some(key) = context::load_tavily_key() else {
         return "Web search is unavailable: no Tavily key is configured.".into();
     };
@@ -3096,6 +3106,7 @@ pub fn run() {
                                     format!("could not resolve app data directory: {e}")
                                 })?;
                                 let config = load_config(&handle);
+                                offline::set(config.offline_mode);
                                 trace::init(data_dir.join("perf.jsonl"));
 
                                 let rag = Arc::new(

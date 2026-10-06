@@ -128,6 +128,8 @@ impl Drop for DeepgramEngine {
 type DgSocket = WebSocket<MaybeTlsStream<TcpStream>>;
 
 fn connect(api_key: &str) -> Result<DgSocket, CoreError> {
+    // Also stops mid-session reconnects if offline mode is switched on.
+    crate::offline::guard_remote()?;
     let mut request = DG_URL
         .into_client_request()
         .map_err(|e| CoreError::Asr(e.to_string()))?;

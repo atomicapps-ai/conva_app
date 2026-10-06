@@ -1317,7 +1317,14 @@ export interface AppConfig {
    *  and finalizes any recording instead of burning resources unattended.
    *  `null` disables it. Settings → Devices offers presets + a custom value. */
   idle_stop_minutes: number | null;
+  /** "Send nothing to an AI provider": no conversation or library content
+   *  goes to a remote provider (LLM, cloud transcription, cloud speech, web
+   *  research). Local providers stay allowed. Default off. */
+  offline_mode: boolean;
 }
+
+/** Error string a remote call refused by `offline_mode` carries. */
+export const OFFLINE_MODE_ERROR = "offline_mode";
 
 /** Mirror of conva-core audio::AudioDevice. */
 export interface AudioDevice {
