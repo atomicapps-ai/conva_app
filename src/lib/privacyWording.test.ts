@@ -54,4 +54,10 @@ describe("privacy wording in shipped strings", () => {
     expect(read("src-tauri/src/telemetry_events.rs")).toMatch(/pub fn append[\s\S]{0,200}if !collecting\(app\)/);
     expect(read("src-tauri/src/events_flush.rs")).toMatch(/fn flush_once[\s\S]{0,300}telemetry_events::collecting\(app\)/);
   });
+
+  it("the local-data erase only runs at the next start, marker first, so a stuck marker can never wipe data every launch", () => {
+    const ld = read("src-tauri/src/local_data.rs");
+    expect(ld).toMatch(/fs::remove_file\(&marker_path\)[\s\S]{0,200}not erasing/);
+    expect(read("src-tauri/src/lib.rs")).toMatch(/local_data::run_pending_erase\(&handle\);[\s\S]{0,400}trace::init/);
+  });
 });

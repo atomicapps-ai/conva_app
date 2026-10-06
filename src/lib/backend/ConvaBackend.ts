@@ -54,6 +54,11 @@ import type {
   StartRehearsalResult,
   TranscriptSegment,
   TelemetryStatus,
+  LocalDataSummary,
+  RecordingInfo,
+  DeleteRecordingsReport,
+  EraseOptions,
+  EraseReport,
   UsageSummary,
   WhisperModelInfo,
 } from "@/lib/ipc";
@@ -363,6 +368,23 @@ export interface ConvaBackend {
     /** Desktop-only: is usage-event collection on, and is the switch locked
      *  by beta terms? (Settings → Privacy.) */
     telemetryStatus(): Promise<TelemetryStatus>;
+  };
+
+  /**
+   * What the desktop app keeps on this computer, and removing it (Settings →
+   * Privacy → Your data on this computer). Desktop-only: the web build has no
+   * local store beyond the sign-in.
+   */
+  localData: {
+    summary(): Promise<LocalDataSummary>;
+    recordings(): Promise<RecordingInfo[]>;
+    deleteRecordings(ids: string[]): Promise<DeleteRecordingsReport>;
+    revealRecording(id: string): Promise<void>;
+    openDataFolder(): Promise<void>;
+    /** Queue the erase for the next start; the caller relaunches the app. */
+    erase(options: EraseOptions): Promise<void>;
+    /** The result of the last erase, once (read after the restart). */
+    takeEraseReport(): Promise<EraseReport | null>;
   };
 
   /** Auto-persisted session transcripts + export. */

@@ -80,6 +80,11 @@ import type {
   StartRehearsalResult,
   TranscriptSegment,
   TelemetryStatus,
+  LocalDataSummary,
+  RecordingInfo,
+  DeleteRecordingsReport,
+  EraseOptions,
+  EraseReport,
   UsageSummary,
   WhisperModelInfo,
 } from "@/lib/ipc";
@@ -658,6 +663,17 @@ export class WebBackend implements ConvaBackend {
     setResearchKey: (): Promise<void> =>
       unsupported("context.setResearchKey (server-side on web)"),
     researchKeyStatus: () => Promise.resolve(false),
+  };
+
+  // Desktop-only: the browser build keeps nothing on this computer beyond the sign-in.
+  localData = {
+    summary: (): Promise<LocalDataSummary> => unsupported("localData.summary"),
+    recordings: (): Promise<RecordingInfo[]> => unsupported("localData.recordings"),
+    deleteRecordings: (_ids: string[]): Promise<DeleteRecordingsReport> => unsupported("localData.deleteRecordings"),
+    revealRecording: (_id: string): Promise<void> => unsupported("localData.revealRecording"),
+    openDataFolder: (): Promise<void> => unsupported("localData.openDataFolder"),
+    erase: (_options: EraseOptions): Promise<void> => unsupported("localData.erase"),
+    takeEraseReport: (): Promise<EraseReport | null> => unsupported("localData.takeEraseReport"),
   };
 
   usage = {

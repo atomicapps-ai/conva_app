@@ -720,6 +720,11 @@ impl SessionManager {
         Ok(rec.map(|r| r.stop().display().to_string()))
     }
 
+    /// Is a session (live or rehearsal) running right now?
+    pub fn is_active(&self) -> bool {
+        self.active.lock().expect("active lock").is_some()
+    }
+
     pub fn is_recording(&self) -> bool {
         self.recording.lock().expect("recording lock").is_some()
     }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AllySettings } from "@/components/AllySettings";
+import { LocalDataSettings } from "@/components/privacy/LocalDataSettings";
 import { UsageDataSettings } from "@/components/UsageDataSettings";
 import { SubscriptionSettings } from "@/components/SubscriptionSettings";
 import { usageProblemTitle } from "@/lib/usageProblems";
@@ -8,6 +9,7 @@ import {
   DEFAULT_SETTINGS_GROUP,
   groupForKey,
   SETTINGS_GROUPS,
+  toSettingsGroup,
   type SettingsGroup,
 } from "@/components/settingsNav";
 import { Notice, Section, ViewShell } from "@/components/studio/ViewShell";
@@ -1404,6 +1406,12 @@ export function SettingsPanel() {
       </Section>
       )}
 
+      {group === "privacy" && isTauri() && (
+      <Section title="Your data on this computer">
+        <LocalDataSettings />
+      </Section>
+      )}
+
       {group === "privacy" && (
       <Section
         title="Updates"
@@ -1480,7 +1488,15 @@ function SettingsShell({
 }: {
   children: (group: SettingsGroup) => React.ReactNode;
 }) {
-  const [group, setGroup] = useState<SettingsGroup>(DEFAULT_SETTINGS_GROUP);
+  // A sub-view (Recordings) sends the user back to the group it came from.
+  const [group, setGroup] = useState<SettingsGroup>(() =>
+    toSettingsGroup(useNavStore.getState().pendingSettingsGroup ?? DEFAULT_SETTINGS_GROUP),
+  );
+  useEffect(() => {
+    if (useNavStore.getState().pendingSettingsGroup !== null) {
+      useNavStore.setState({ pendingSettingsGroup: null });
+    }
+  }, []);
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   const label = SETTINGS_GROUPS.find((g) => g.id === group)?.label ?? "Settings";
 

@@ -1217,3 +1217,67 @@ pub struct TelemetryStatus {
     /// The local, inspectable event log, when the app-data dir is known.
     pub log_path: Option<String>,
 }
+
+/// A count and total size for one kind of data kept on this computer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalDataCategory {
+    pub count: u32,
+    pub bytes: u64,
+}
+
+/// Settings → Privacy → Your data on this computer. Mirrored in
+/// `src/lib/ipc.ts` as `LocalDataSummary`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalDataSummary {
+    /// The app-data folder, when known (shown so the user can open it).
+    pub data_dir: Option<String>,
+    pub recordings: LocalDataCategory,
+    pub conversations: LocalDataCategory,
+    pub session_logs: LocalDataCategory,
+    /// Library documents: `count` is documents, `bytes` includes the originals.
+    pub library: LocalDataCategory,
+    pub contexts: LocalDataCategory,
+    /// Usage counts and the diagnostics log: `count` is files.
+    pub diagnostics: LocalDataCategory,
+    /// Downloaded speech and embedding models. Not personal; kept on erase.
+    pub models: LocalDataCategory,
+}
+
+/// One call recording. `id` is the file name (`call-<epoch ms>.wav`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordingInfo {
+    pub id: String,
+    pub started_unix_ms: u64,
+    pub duration_ms: Option<u64>,
+    pub size_bytes: u64,
+}
+
+/// Result of deleting recordings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteRecordingsReport {
+    pub deleted: u32,
+    pub freed_bytes: u64,
+    /// Ids that could not be deleted (invalid, already gone, or in use).
+    pub failed: Vec<String>,
+}
+
+/// What the user asked "Erase everything on this computer" to include
+/// beyond the always-erased data.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EraseOptions {
+    /// Also remove the API keys held in the OS credential store. Off by
+    /// default: erasing data should not make someone re-enter their keys.
+    pub include_keys: bool,
+}
+
+/// What an erase did, shown once after the app restarts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EraseReport {
+    pub removed_files: u64,
+    pub removed_bytes: u64,
+    /// Paths (relative to the app-data folder) that could not be removed.
+    pub failed: Vec<String>,
+    pub keys_removed: bool,
+    pub finished_unix_ms: u64,
+}

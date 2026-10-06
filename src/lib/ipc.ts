@@ -1328,6 +1328,57 @@ export interface AppConfig {
   telemetry_enabled: boolean;
 }
 
+/** Count and total size for one kind of data kept on this computer. */
+export interface LocalDataCategory {
+  count: number;
+  bytes: number;
+}
+
+/** Mirror of conva-core `ipc::LocalDataSummary` (Settings → Privacy → Your data on this computer). */
+export interface LocalDataSummary {
+  data_dir: string | null;
+  recordings: LocalDataCategory;
+  conversations: LocalDataCategory;
+  session_logs: LocalDataCategory;
+  /** `count` is documents; `bytes` includes the originals. */
+  library: LocalDataCategory;
+  contexts: LocalDataCategory;
+  /** Usage counts and the diagnostics log; `count` is files. */
+  diagnostics: LocalDataCategory;
+  /** Downloaded speech and embedding models. Not personal; kept on erase. */
+  models: LocalDataCategory;
+}
+
+/** One call recording. `id` is the file name (`call-<epoch ms>.wav`). */
+export interface RecordingInfo {
+  id: string;
+  started_unix_ms: number;
+  duration_ms: number | null;
+  size_bytes: number;
+}
+
+export interface DeleteRecordingsReport {
+  deleted: number;
+  freed_bytes: number;
+  /** Ids that could not be deleted (invalid, already gone, or in use). */
+  failed: string[];
+}
+
+export interface EraseOptions {
+  /** Also remove API keys from the OS credential store. Off by default. */
+  include_keys: boolean;
+}
+
+/** What an erase did; read once after the app restarts. */
+export interface EraseReport {
+  removed_files: number;
+  removed_bytes: number;
+  /** Paths (relative to the app-data folder) that could not be removed. */
+  failed: string[];
+  keys_removed: boolean;
+  finished_unix_ms: number;
+}
+
 /** Mirror of the shell's `telemetry_status` command. */
 export interface TelemetryStatus {
   /** The user's setting. */
