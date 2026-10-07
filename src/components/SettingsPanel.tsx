@@ -1617,16 +1617,19 @@ function ProfileSettings() {
     >
       <div className="mb-4 flex items-center gap-4">
         <span
-          className="grid h-14 w-14 shrink-0 place-items-center rounded-full border-[1.5px] border-primary/50 bg-[radial-gradient(120%_120%_at_50%_25%,#1a2742,#0c1424)] text-lg font-extrabold text-fg-muted"
+          className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full border-[1.5px] border-primary/50 bg-[radial-gradient(120%_120%_at_50%_25%,#1a2742,#0c1424)] text-lg font-extrabold text-fg-muted"
           aria-hidden
         >
-          {account.initials}
+          {account.avatarUrl ? (
+            <img src={account.avatarUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            account.initials
+          )}
         </span>
-        <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-fg-muted">
-          Your initials are the avatar everywhere in the app — the rail, Home
-          and here. A photo isn&apos;t stored anywhere yet, so there&apos;s
-          nothing to upload; the monogram is the real avatar, not a placeholder
-          for one.
+        <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-fg-muted" data-testid="avatar-note">
+          {account.signedIn
+            ? "Your photo is your avatar everywhere in the app: the rail, Home and here. Change or remove it on your Profile page (account menu). Without a photo, your initials are used."
+            : "Sign in to use a profile photo. Until then your initials are your avatar."}
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">

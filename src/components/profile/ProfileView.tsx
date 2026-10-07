@@ -4,6 +4,7 @@ import { AvatarEditor } from "@/components/profile/AvatarEditor";
 import { DeleteAccountDialog } from "@/components/profile/DeleteAccountDialog";
 import { YourDataOnConva } from "@/components/profile/YourDataOnConva";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
+import { notifyAvatarChanged } from "@/lib/avatarSignal";
 import { useBackend } from "@/lib/backend";
 import { isTauriRuntime } from "@/lib/backend/detect";
 import * as webAuth from "@/lib/backend/webAuth";
@@ -209,6 +210,7 @@ export function ProfileView() {
       const res = await backend.auth.avatarUpload(blob);
       if (res.ok) {
         setAvatarNonce((n) => n + 1); // re-triggers the avatarUrl() effect above
+        notifyAvatarChanged(); // and the rail / Home / Settings copies
         setEditingFile(null);
       } else {
         setAvatarError(AVATAR_ERROR_COPY[res.error ?? "unknown"] ?? "Couldn't upload that image — try again.");
@@ -224,6 +226,7 @@ export function ProfileView() {
     try {
       await backend.auth.avatarDelete();
       setAvatarNonce((n) => n + 1);
+      notifyAvatarChanged();
     } finally {
       setUploadingAvatar(false);
     }
