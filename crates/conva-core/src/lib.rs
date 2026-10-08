@@ -9,6 +9,7 @@
 //! Architecture reference: docs/phase-1-design-and-spec.md §3 (module
 //! boundaries) and §2.4 (threading & data-flow contract).
 
+pub mod account;
 pub mod archive;
 pub mod archive_conversation;
 pub mod archive_payload;
@@ -23,15 +24,22 @@ pub mod claim;
 pub mod config;
 pub mod context;
 pub mod context_snapshot;
+pub mod decimal;
 pub mod dsp;
 pub mod error;
 pub mod evidence;
 pub mod fuse;
 pub mod highlight;
 pub mod ipc;
+pub mod lexicon;
+pub mod live_assist;
 pub mod llm;
+pub mod local_data;
 pub mod meaning_frame;
 pub mod metering;
+pub mod model_catalog;
+pub mod phrase;
+pub mod phrase_eval;
 pub mod prepared_qa;
 pub mod prompt;
 pub mod radar;
@@ -40,9 +48,14 @@ pub mod research;
 pub mod screenshot;
 pub mod semantic_extraction;
 pub mod source_policy;
+pub mod stop_reason;
+pub mod table;
+pub mod table_aggregate;
+pub mod table_query;
 pub mod telemetry_events;
 pub mod tracker;
 pub mod vad;
 pub mod verification;
+pub mod voice_eval;
 
 pub use error::CoreError;

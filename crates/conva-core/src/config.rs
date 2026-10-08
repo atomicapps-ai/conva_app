@@ -24,6 +24,10 @@ pub struct AppConfig {
     /// User acknowledged the recording-consent notice (§7.1). The app will
     /// not start a capture session while this is false.
     pub consent_acknowledged: bool,
+    /// The first-run "How should Ally think?" choice has been made or skipped.
+    /// False on a fresh install; the screen is shown once and never forced
+    /// again (Settings → Ally keeps the same controls).
+    pub ai_setup_completed: bool,
     /// Preferred microphone device name (`None` = system default; A3).
     pub input_device: Option<String>,
     /// Preferred loopback source — an OUTPUT device whose playback is
@@ -59,6 +63,38 @@ pub struct AppConfig {
     /// `None` disables it. Settings → Devices offers presets + a custom
     /// value; the default matches the 5-minute preset.
     pub idle_stop_minutes: Option<u32>,
+    /// "Send nothing to an AI provider": when true, no conversation or
+    /// library content leaves the device for a remote provider — LLM calls,
+    /// cloud transcription, cloud speech and web research are all refused and
+    /// local whisper is used. Local providers (Ollama) stay allowed. Sign-in,
+    /// update checks and model downloads are unaffected. Default off.
+    pub offline_mode: bool,
+    /// Content-free usage events (counts and feature use, never audio,
+    /// transcripts or documents) queued locally and, while signed in, sent to
+    /// Conva. Default on. Switching it off stops collection and deletes the
+    /// unsent queue — unless the server has marked this account as a beta
+    /// participant, whose terms make usage data required
+    /// ([`telemetry_may_collect`]). Settings → Privacy.
+    pub telemetry_enabled: bool,
+}
+
+/// May usage events be collected right now? `enabled` is the user's setting;
+/// `required` is the server's "this account is a beta participant" flag
+/// (`telemetry_required`, read from `GET /api/entitlements` at sign-in and echoed in
+/// the `/api/events` reply), which overrides it.
+pub fn telemetry_may_collect(enabled: bool, required: bool) -> bool {
+    enabled || required
+}
+
+/// Error string a refused remote call carries (the shell returns it verbatim
+/// and the UI maps it to friendly copy, like `api_key_missing`).
+pub const OFFLINE_MODE_ERROR: &str = "offline_mode";
+
+/// The single decision every remote path asks: may this call go out?
+/// `needs_remote` is true for anything that talks to a third party (a hosted
+/// LLM, Deepgram, Firecrawl, Tavily) and false for local-only providers.
+pub fn remote_call_allowed(offline_mode: bool, needs_remote: bool) -> bool {
+    !offline_mode || !needs_remote
 }
 
 impl Default for AppConfig {
@@ -82,6 +118,7 @@ impl Default for AppConfig {
                 model: default_provider.default_fast_model.to_string(),
             }),
             consent_acknowledged: false,
+            ai_setup_completed: false,
             input_device: None,
             loopback_device: None,
             tracker_enabled: true,
@@ -92,6 +129,8 @@ impl Default for AppConfig {
             profile_role: None,
             research_provider: DEFAULT_RESEARCH_PROVIDER,
             idle_stop_minutes: Some(5),
+            offline_mode: false,
+            telemetry_enabled: true,
         }
     }
 }
@@ -113,7 +152,7 @@ mod tests {
         let cfg = AppConfig::default();
         assert_eq!(cfg.asr_engine, AsrEngineId::WhisperLocal);
         assert_eq!(cfg.llm_quality.provider, ProviderId::Anthropic);
-        assert_eq!(cfg.llm_quality.model, "claude-sonnet-5");
+        assert_eq!(cfg.llm_quality.model, "claude-sonnet-5-5");
         assert_eq!(cfg.fast_selection().model, "claude-haiku-4-5");
         assert!(!cfg.consent_acknowledged, "consent must be opt-in");
     }
@@ -177,5 +216,47 @@ mod tests {
         };
         let back: AppConfig = serde_json::from_str(&serde_json::to_string(&off).unwrap()).unwrap();
         assert_eq!(back.idle_stop_minutes, None);
+    }
+
+    #[test]
+    fn offline_mode_is_off_by_default_and_only_blocks_remote_calls() {
+        assert!(!AppConfig::default().offline_mode);
+        assert!(remote_call_allowed(false, true));
+        assert!(remote_call_allowed(false, false));
+        assert!(!remote_call_allowed(true, true));
+        assert!(
+            remote_call_allowed(true, false),
+            "local providers stay allowed"
+        );
+    }
+
+    #[test]
+    fn offline_mode_round_trips_and_old_configs_load_with_it_off() {
+        let cfg = AppConfig {
+            offline_mode: true,
+            ..Default::default()
+        };
+        let back: AppConfig = serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert!(back.offline_mode);
+        let old: AppConfig = serde_json::from_str(r#"{"tracker_enabled": true}"#).unwrap();
+        assert!(!old.offline_mode);
+    }
+
+    #[test]
+    fn telemetry_is_on_by_default_and_required_overrides_off() {
+        assert!(AppConfig::default().telemetry_enabled);
+        assert!(telemetry_may_collect(true, false));
+        assert!(telemetry_may_collect(true, true));
+        assert!(!telemetry_may_collect(false, false));
+        assert!(
+            telemetry_may_collect(false, true),
+            "beta terms override the switch"
+        );
+    }
+
+    #[test]
+    fn old_configs_without_the_telemetry_field_keep_it_on() {
+        let old: AppConfig = serde_json::from_str(r#"{"offline_mode": true}"#).unwrap();
+        assert!(old.telemetry_enabled);
     }
 }

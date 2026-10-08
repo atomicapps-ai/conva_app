@@ -31,12 +31,13 @@ function fakeBackend(
     capabilities: unknown;
     partnerOpen: ReturnType<typeof vi.fn>;
     deleteDoc: ReturnType<typeof vi.fn>;
+    setEnabled: ReturnType<typeof vi.fn>;
   }> = {},
 ): ConvaBackend {
   return {
     rag: {
       list: vi.fn().mockResolvedValue(docs),
-      setEnabled: vi.fn().mockResolvedValue(undefined),
+      setEnabled: overrides.setEnabled ?? vi.fn().mockResolvedValue(undefined),
       delete: overrides.deleteDoc ?? vi.fn().mockResolvedValue(undefined),
     },
     partner: {
@@ -59,34 +60,47 @@ function renderPane(
 }
 
 describe("LibraryPane row", () => {
-  it("labels an image as a visual asset and disables the misleading retrieval toggle", async () => {
-    renderPane([doc({ file_name: "scene.png", enabled: false, chunk_count: 0 })]);
-    await screen.findByText("scene.png");
-    expect(
-      screen.getByRole("checkbox", { name: /scene\.png is a visual asset and is not text-searchable/i }),
-    ).toBeDisabled();
-  });
-
-  it("disables retrieval for a generated review-only resource", async () => {
+  it("shows no selected documents by default, regardless of the global retrieval flag", async () => {
     renderPane([
-      doc({
-        file_name: "Nolan Wells — Research findings.txt",
-        source: "generated",
-        enabled: false,
-        searchable: false,
-      }),
+      doc({ id: "d1", file_name: "enabled.pdf", enabled: true }),
+      doc({ id: "d2", file_name: "disabled.pdf", enabled: false }),
     ]);
-    await screen.findByText("Nolan Wells — Research findings.txt");
-    expect(
-      screen.getByRole("checkbox", { name: /review-only resource/i }),
-    ).toBeDisabled();
+    await screen.findByText("enabled.pdf");
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getByText(/select a context to add or remove documents/i)).toBeInTheDocument();
   });
 
-  it("shows checkbox, source icon, and name — no drag-handle icon or generated-by badge", async () => {
-    renderPane([doc({ source: "generated" })]);
+  it("keeps global retrieval as an explicit top-level Library action, not a selection checkbox", async () => {
+    const setEnabled = vi.fn().mockResolvedValue(undefined);
+    renderPane([doc({ enabled: true })], { variant: "page" }, { setEnabled });
     await screen.findByText("resume.pdf");
-    expect(screen.getByRole("checkbox", { name: /include resume\.pdf in retrieval/i })).toBeInTheDocument();
-    expect(screen.queryByText("conva")).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /more actions for resume\.pdf/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /exclude from general retrieval/i }));
+    expect(setEnabled).toHaveBeenCalledWith("d1", false);
+  });
+
+  it("does not offer general retrieval for an image or review-only resource", async () => {
+    renderPane(
+      [
+        doc({ id: "image", file_name: "scene.png", enabled: false, chunk_count: 0 }),
+        doc({
+          id: "review",
+          file_name: "Nolan Wells — Research findings.txt",
+          source: "generated",
+          enabled: false,
+          searchable: false,
+        }),
+      ],
+      { variant: "page" },
+    );
+    await screen.findByText("scene.png");
+    fireEvent.click(screen.getByRole("button", { name: /more actions for scene\.png/i }));
+    expect(screen.queryByRole("menuitem", { name: /general retrieval/i })).toBeNull();
+    fireEvent.click(document.body);
+    fireEvent.click(screen.getByRole("button", { name: /more actions for nolan wells/i }));
+    expect(screen.queryByRole("menuitem", { name: /general retrieval/i })).toBeNull();
   });
 
   it("shows a context icon with a hover title naming the attached context(s), only when attached", async () => {
@@ -100,24 +114,25 @@ describe("LibraryPane row", () => {
     expect(screen.queryByTitle("Acme interview")).toBeNull();
   });
 
-  it("focusContextId pins that context's documents to the top with a checkbox, without hiding the rest", async () => {
+  it("selectedContextId groups attached documents first and uses one checkbox only for attachment", async () => {
     const onAttach = vi.fn();
     const onDetach = vi.fn();
-    const onClearFocus = vi.fn();
     renderPane(
       [
-        doc({ id: "d1", file_name: "cover-letter.pdf", context_ids: [] }),
-        doc({ id: "d2", file_name: "resume.pdf", context_ids: ["c1"] }),
+        doc({ id: "d1", file_name: "cover-letter.pdf", context_ids: [], enabled: true }),
+        doc({ id: "d2", file_name: "resume.pdf", context_ids: ["c1"], enabled: false }),
       ],
-      { contextTitles: { c1: "Acme interview" }, focusContextId: "c1", onAttach, onDetach, onClearFocus },
+      { contextTitles: { c1: "Acme interview" }, selectedContextId: "c1", onAttach, onDetach },
     );
     await screen.findByText("resume.pdf");
-    // Nothing is hidden — the unattached doc is still there, just below the pinned one.
+    expect(screen.getByText("In this context · 1")).toBeInTheDocument();
+    expect(screen.getByText("Other documents")).toBeInTheDocument();
     expect(screen.getByText("cover-letter.pdf")).toBeInTheDocument();
     const rows = screen.getAllByRole("listitem").map((li) => li.textContent ?? "");
     expect(rows[0]).toContain("resume.pdf");
     expect(rows[1]).toContain("cover-letter.pdf");
     expect(screen.getByText("Acme interview")).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
 
     const checked = screen.getByRole("checkbox", { name: /remove resume\.pdf from acme interview/i });
     expect(checked).toBeChecked();
@@ -128,9 +143,19 @@ describe("LibraryPane row", () => {
     expect(unchecked).not.toBeChecked();
     fireEvent.click(unchecked);
     expect(onAttach).toHaveBeenCalledWith("d1", "c1");
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: /clear filter/i }));
-    expect(onClearFocus).toHaveBeenCalled();
+  it("allows visual assets to be attached to the selected context", async () => {
+    const onAttach = vi.fn();
+    renderPane(
+      [doc({ file_name: "scene.png", enabled: false, chunk_count: 0 })],
+      { contextTitles: { c1: "Acme interview" }, selectedContextId: "c1", onAttach },
+    );
+    await screen.findByText("scene.png");
+    const checkbox = screen.getByRole("checkbox", { name: /add scene\.png to acme interview/i });
+    expect(checkbox).toBeEnabled();
+    fireEvent.click(checkbox);
+    expect(onAttach).toHaveBeenCalledWith("d1", "c1");
   });
 
   it("the overflow menu shows only Delete when nothing else applies (no contexts, no partner window, no open conversation)", async () => {
@@ -140,6 +165,40 @@ describe("LibraryPane row", () => {
     expect(screen.getByRole("menuitem", { name: /delete/i })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /attach to a context/i })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /^view$/i })).toBeNull();
+  });
+});
+
+describe("LibraryPane onDocumentsChange (#393)", () => {
+  it("reports the fresh list after the initial load and after a refresh", async () => {
+    const onDocumentsChange = vi.fn();
+    const backend = fakeBackend([doc({ id: "d1", file_name: "a.pdf" })]);
+    const view = render(
+      <BackendProvider backend={backend}>
+        <LibraryPane contextTitles={{}} onAttach={noop} onDocumentsChange={onDocumentsChange} />
+      </BackendProvider>,
+    );
+    await screen.findByText("a.pdf");
+    expect(onDocumentsChange).toHaveBeenLastCalledWith([expect.objectContaining({ id: "d1" })]);
+
+    vi.mocked(backend.rag.list).mockResolvedValue([
+      doc({ id: "d1", file_name: "a.pdf" }),
+      doc({ id: "d2", file_name: "b.pdf" }),
+    ]);
+    view.rerender(
+      <BackendProvider backend={backend}>
+        <LibraryPane
+          contextTitles={{}}
+          onAttach={noop}
+          onDocumentsChange={onDocumentsChange}
+          refreshToken={1}
+        />
+      </BackendProvider>,
+    );
+    await screen.findByText("b.pdf");
+    expect(onDocumentsChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: "d1" }),
+      expect.objectContaining({ id: "d2" }),
+    ]);
   });
 });
 
@@ -175,6 +234,46 @@ describe("LibraryRowMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: /more actions for resume\.pdf/i }));
     fireEvent.click(screen.getByRole("menuitem", { name: /delete/i }));
     expect(deleteDoc).toHaveBeenCalledWith("d1");
+  });
+
+  describe("menu placement near the bottom of the window (#394)", () => {
+    const openMenuAt = async (buttonTop: number, menuHeight: number) => {
+      vi.spyOn(window, "innerHeight", "get").mockReturnValue(600);
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(menuHeight);
+      renderPane([doc()]);
+      await screen.findByText("resume.pdf");
+      const button = screen.getByRole("button", { name: /more actions for resume\.pdf/i });
+      vi.spyOn(button, "getBoundingClientRect").mockReturnValue({
+        top: buttonTop,
+        bottom: buttonTop + 24,
+        left: 300,
+        right: 324,
+        width: 24,
+        height: 24,
+        x: 300,
+        y: buttonTop,
+        toJSON: () => ({}),
+      });
+      fireEvent.click(button);
+      return screen.getByRole("menu");
+    };
+    afterEach(() => vi.restoreAllMocks());
+
+    it("opens below the button when there is room", async () => {
+      const menu = await openMenuAt(100, 120);
+      expect(menu.style.top).toBe("128px");
+    });
+
+    it("flips above the button when it would run off the bottom", async () => {
+      const menu = await openMenuAt(560, 120);
+      // button top 560 − 4 gap − 120 tall
+      expect(menu.style.top).toBe("436px");
+    });
+
+    it("clamps inside the window when it fits neither below nor above", async () => {
+      const menu = await openMenuAt(100, 590);
+      expect(menu.style.top).toBe("8px");
+    });
   });
 
   it("shows Link to the open conversation, toggling on click", async () => {

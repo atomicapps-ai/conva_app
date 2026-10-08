@@ -4,6 +4,7 @@ import { useBackend } from "@/lib/backend";
 import { shouldAutoRefineRadar } from "@/lib/faner";
 import { useAppStore } from "@/state/app";
 import { useAllyStore } from "@/state/ally";
+import { useLiveAssistStore } from "@/state/liveAssist";
 import { useRehearsalStore } from "@/state/rehearsal";
 import { useConversationStore } from "@/state/conversation";
 import { useTranscriptStore } from "@/state/transcript";
@@ -27,6 +28,7 @@ export function useIpcBridge(): void {
   const applyCapture = useAllyStore((s) => s.applyCapture);
   const applyClaimSnapshot = useAllyStore((s) => s.applyClaimSnapshot);
   const applyRehearsalPhase = useRehearsalStore((s) => s.applyPhase);
+  const applyLiveAssist = useLiveAssistStore((s) => s.apply);
   const recordSession = useConversationStore((s) => s.recordSession);
   const recordClaimSnapshot = useConversationStore((s) => s.recordClaimSnapshot);
 
@@ -80,6 +82,7 @@ export function useIpcBridge(): void {
           }
         }),
         backend.subscribe("rehearsalState", applyRehearsalPhase),
+        backend.subscribe("liveAssist", applyLiveAssist),
       ]);
       if (cancelled) {
         subs.forEach((un) => un());
@@ -105,6 +108,7 @@ export function useIpcBridge(): void {
     applyCapture,
     applyClaimSnapshot,
     applyRehearsalPhase,
+    applyLiveAssist,
     recordSession,
     recordClaimSnapshot,
   ]);

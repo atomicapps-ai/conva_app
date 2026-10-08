@@ -144,6 +144,29 @@ describe("TranscriptBubbleHeader — speaker naming/correction (doc §6.4/§6.6)
     expect(btn.className).toMatch(/italic/);
   });
 
+  it("renders the editor outside the turn (portal) so later turns cannot paint over it", () => {
+    const view = render(
+      <TranscriptBubbleHeader
+        speakerLabel="New voice"
+        speakerTone="inbound"
+        timeLabel="00:42"
+        timeTitle=""
+        isFinal
+        collapsed={false}
+        busy={false}
+        onToggleCollapse={vi.fn()}
+        onResearch={vi.fn()}
+        speaker={NEW_VOICE}
+        onRename={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /name or correct speaker/i }));
+    const dialog = screen.getByRole("dialog");
+    expect(view.container.contains(dialog)).toBe(false);
+    expect(document.body.contains(dialog)).toBe(true);
+    expect(dialog.style.position).toBe("fixed");
+  });
+
   it("clicking the label opens the naming editor with a blank, placeholder-prefilled field for an anonymous voice", () => {
     renderHeader({ speakerLabel: "New voice", speaker: NEW_VOICE, onRename: vi.fn() });
     fireEvent.click(screen.getByRole("button", { name: /name or correct speaker/i }));

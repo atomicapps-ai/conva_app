@@ -1,0 +1,19 @@
+# gitleaks configuration (scripts: .github/workflows/secret-scan.yml).
+# Start from the built-in rules, then allow only what has been reviewed.
+title = "conva gitleaks"
+
+[extend]
+useDefault = true
+
+# The Supabase *anon* key is a public client key by design (role claim "anon"):
+# it ships inside every build and is safe only because Row Level Security guards
+# the tables. It is allowed in exactly these files. A service_role key, or a
+# JWT in any other file, still fails the scan.
+[[allowlists]]
+description = "Supabase anon (public) client key in the env templates and auth defaults"
+targetRules = ["jwt"]
+paths = [
+  '''^\.env\.(dev|prod)\.example$''',
+  '''^src-tauri/src/auth\.rs$''',
+  '''^src/lib/backend/webAuth\.ts$''',
+]

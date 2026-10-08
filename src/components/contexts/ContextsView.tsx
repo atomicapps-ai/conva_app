@@ -53,10 +53,9 @@ export function ContextsView() {
   const [mode, setMode] = useState<Mode>(
     quickAction === "new_context" ? { k: "setup", initial: null } : { k: "list" },
   );
-  /** The context Pane B is showing. Selecting a row only changes THIS. */
+  /** Single source of truth for both Pane B and Pane C. The Library always
+   *  attaches to the same Context whose details are visible in the middle. */
   const [workspaceId, setWorkspaceId] = useState<string | null>(quickOpenId);
-  /** Library's "In this Context" scope — the doc-count control in Pane A. */
-  const [focusId, setFocusId] = useState<string | null>(null);
   const leftWidthPx = useUiPrefs((s) => s.contextsLeftWidthPx);
   const setLeftWidthPx = useUiPrefs((s) => s.setContextsLeftWidthPx);
   const dockWidthPx = useUiPrefs((s) => s.libraryDockWidthPx);
@@ -143,7 +142,6 @@ export function ContextsView() {
   const remove = async (id: string) => {
     try {
       await backend.context.delete(id);
-      if (focusId === id) setFocusId(null);
       if (workspaceId === id) setWorkspaceId(null);
       refresh();
     } catch {
@@ -380,8 +378,8 @@ export function ContextsView() {
           >
           <ContextsPane
             items={items}
-            selectedId={focusId}
-            onSelect={(id) => setFocusId((cur) => (cur === id ? null : id))}
+            selectedId={workspaceId}
+            onSelect={setWorkspaceId}
             onOpen={(id) => setWorkspaceId(id)}
             onNew={() => setMode({ k: "setup", initial: null })}
             onEdit={(id) => void edit(id)}
@@ -470,8 +468,7 @@ export function ContextsView() {
                 onDetach={(docId, contextId) => void detach(docId, contextId)}
                 refreshToken={libraryRefreshToken}
                 quickAction={quickAction === "upload" || quickAction === "paste" ? quickAction : null}
-                focusContextId={focusId}
-                onClearFocus={() => setFocusId(null)}
+                selectedContextId={workspaceId}
               />
             </div>
           ) : dockOpen ? (
@@ -495,8 +492,7 @@ export function ContextsView() {
                   quickAction={
                     quickAction === "upload" || quickAction === "paste" ? quickAction : null
                   }
-                  focusContextId={focusId}
-                  onClearFocus={() => setFocusId(null)}
+                  selectedContextId={workspaceId}
                 />
               </div>
             </>

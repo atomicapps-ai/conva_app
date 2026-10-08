@@ -46,10 +46,12 @@ import { buildContextArchiveForDownload } from "@/lib/live/archiveExport";
 import { importContextArchive } from "@/lib/live/archiveImport";
 import { DEFAULT_CONTEXT_ID } from "@/lib/ipc";
 import { LiveSessionRunner, browserMedia } from "@/lib/live/runner";
+import { stopReasonFromHosted } from "@/lib/stopReason";
 import type { CapturePrepare, CaptureStatus } from "@/lib/capture/pal";
 import type { CaptureSourceCapability, CaptureSourceKind } from "@/lib/capture/contract";
 import type { SocketLike } from "@/lib/live/liveClient";
 import type {
+  LiveAssistAck,
   AllyKind,
   AppConfig,
   ArchiveExportEstimate,
@@ -67,6 +69,7 @@ import type {
   KnowledgeProfile,
   ConversationContext,
   ContextSummary,
+  HighlightTerm,
   IngestReport,
   ModelInfo,
   ProviderInfo,
@@ -76,6 +79,13 @@ import type {
   SessionSummary,
   StartRehearsalResult,
   TranscriptSegment,
+  TelemetryStatus,
+  DeleteAccountResult,
+  LocalDataSummary,
+  RecordingInfo,
+  DeleteRecordingsReport,
+  EraseOptions,
+  EraseReport,
   UsageSummary,
   WhisperModelInfo,
 } from "@/lib/ipc";
@@ -378,6 +388,15 @@ export class WebBackend implements ConvaBackend {
     listModels: (): Promise<ModelInfo[]> => todo("GET /v1/models"),
   };
 
+  // Spreadsheet totals need the typed-table pipeline, which the hosted library
+  // does not have yet (both operations report `unimplemented`). `submit`
+  // answers "not mine" so a typed question always falls through to Ally.
+  liveAssist = {
+    submit: (): Promise<LiveAssistAck> => Promise.resolve({ handled: false }),
+    choose: (): Promise<void> =>
+      Promise.reject(new UnimplementedOnWebError("liveAssist.choose")),
+  };
+
   ally = {
     // POST /api/live/ally (same-origin cookie auth, server-side model key):
     // the NDJSON answer stream is replayed as the legacy `allySources` then
@@ -400,7 +419,7 @@ export class WebBackend implements ConvaBackend {
             this.emit("allyChunk", { request_id: requestId, token: line.token, done: false, error: null });
             break;
           case "done":
-            this.emit("allyChunk", { request_id: requestId, token: "", done: true, error: null });
+            this.emit("allyChunk", { request_id: requestId, token: "", done: true, error: null, stop_reason: stopReasonFromHosted(line.stop_reason) });
             break;
           case "error":
             outcome = "error";
@@ -518,7 +537,7 @@ export class WebBackend implements ConvaBackend {
       downloadBlobFile(downloadName(dest, fileName ?? "document"), blob);
     },
     syncLibrary: (): Promise<string> => unsupported("rag.syncLibrary (git)"),
-    analyzeTerms: (): Promise<string[]> => Promise.resolve([]),
+    analyzeTerms: (): Promise<HighlightTerm[]> => Promise.resolve([]),
     recordHighlightFeedback: (): Promise<void> => Promise.resolve(),
     recordTermPick: (): Promise<void> => Promise.resolve(),
     documentText: (id: string): Promise<string | null> => documentText({ fetch: (i, o) => fetch(i, o) }, id),
@@ -558,6 +577,7 @@ export class WebBackend implements ConvaBackend {
       Promise.resolve(`${webAuth.avatarUrl()}?v=${nonce}`),
     avatarUpload: webAuth.uploadAvatar,
     avatarDelete: (): Promise<boolean> => webAuth.deleteAvatar(),
+    deleteAccount: (): Promise<DeleteAccountResult> => webAuth.deleteAccount(),
   };
 
   // Cloud Conversations (M2 cp8): a hosted session is ephemeral — only an
@@ -647,6 +667,17 @@ export class WebBackend implements ConvaBackend {
     researchKeyStatus: () => Promise.resolve(false),
   };
 
+  // Desktop-only: the browser build keeps nothing on this computer beyond the sign-in.
+  localData = {
+    summary: (): Promise<LocalDataSummary> => unsupported("localData.summary"),
+    recordings: (): Promise<RecordingInfo[]> => unsupported("localData.recordings"),
+    deleteRecordings: (_ids: string[]): Promise<DeleteRecordingsReport> => unsupported("localData.deleteRecordings"),
+    revealRecording: (_id: string): Promise<void> => unsupported("localData.revealRecording"),
+    openDataFolder: (): Promise<void> => unsupported("localData.openDataFolder"),
+    erase: (_options: EraseOptions): Promise<void> => unsupported("localData.erase"),
+    takeEraseReport: (): Promise<EraseReport | null> => unsupported("localData.takeEraseReport"),
+  };
+
   usage = {
     // Today's hosted counters for the signed-in account (GET /api/live/usage,
     // M2 cp4) folded into the legacy summary the Settings panel renders.
@@ -654,6 +685,8 @@ export class WebBackend implements ConvaBackend {
       fetchLiveUsage((input, init) => fetch(input, init)).then((u) => toUsageSummary(u, this.allyModel)),
     // The ledger is server-side and per UTC day — nothing local to clear.
     reset: (): Promise<UsageSummary> => unsupported("usage.reset (hosted ledger resets daily)"),
+    // Desktop-only: the desktop app's own event queue has no web counterpart.
+    telemetryStatus: (): Promise<TelemetryStatus> => unsupported("usage.telemetryStatus"),
   };
 
   sessions = {
@@ -705,6 +738,10 @@ export class WebBackend implements ConvaBackend {
     close: (): Promise<void> => unsupported("partner.close"),
     redock: (): Promise<void> => unsupported("partner.redock"),
     payload: () => Promise.resolve(null),
+    ensureOpen: (): Promise<void> => unsupported("partner.ensureOpen"),
+    publishView: (): Promise<void> => Promise.resolve(),
+    viewState: () => Promise.resolve(null),
+    sendViewAction: (): Promise<void> => Promise.resolve(),
     setLocked: (): Promise<void> => Promise.resolve(),
     locked: (): Promise<boolean> => Promise.resolve(false),
   };

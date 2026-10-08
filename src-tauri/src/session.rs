@@ -314,7 +314,9 @@ impl SessionManager {
         // Engine choice: Deepgram cloud streaming when opted in and a key is
         // stored (conversation-speed interims, ~100–300 ms); local whisper
         // otherwise. Whisper stays the fallback if the cloud connect fails.
-        let deepgram_key = if config.asr_engine == AsrEngineId::DeepgramCloud {
+        let deepgram_key = if config.asr_engine == AsrEngineId::DeepgramCloud
+            && crate::offline::remote_allowed()
+        {
             crate::asr_deepgram::load_api_key()
         } else {
             None
@@ -422,10 +424,13 @@ impl SessionManager {
             .lock()
             .expect("ctx lock")
             .clone();
-        let ctx = conva_core::capture::PreparedContext {
-            role: String::new(),
-            terms,
-        };
+        let snapshot = app
+            .state::<crate::AppState>()
+            .active_context_snapshot
+            .lock()
+            .expect("ctx lock")
+            .clone();
+        let ctx = conva_core::capture::PreparedContext::from_snapshot(snapshot.as_ref(), terms);
         let capture_tx = crate::llm::resolve_key(selection.provider)
             .ok()
             .map(|key| crate::capture::spawn_capture(app.clone(), selection, key, ctx));
@@ -442,6 +447,9 @@ impl SessionManager {
         let radar_tx =
             crate::radar_worker::spawn_radar(app.clone(), rag, radar_scope, session_id.clone())
                 .map_err(|e| CoreError::Audio(format!("spawn Question Radar: {e}")))?;
+        // The Live Intelligence Coordinator lives for the whole run; a session
+        // only borrows a sender so finalized inbound turns can be queued.
+        let live_tx = app.state::<crate::AppState>().live_assist.sender();
 
         // Neural VAD (Silero) when enabled and the model is present; the
         // segmenter falls back to the energy gate otherwise. Sensitivity maps
@@ -479,9 +487,13 @@ impl SessionManager {
                     app.clone(),
                     session_file.clone(),
                     radar_tx.clone(),
-                    tracker_tx.clone(),
-                    capture_tx.clone(),
-                    semantic_tx.clone(),
+                    FinalTargets {
+                        tracker: tracker_tx.clone(),
+                        capture: capture_tx.clone(),
+                        semantic: semantic_tx.clone(),
+                        live: live_tx.clone(),
+                        session_id: session_id.clone(),
+                    },
                     if side == StreamSide::Outbound {
                         reh_tx.clone()
                     } else {
@@ -708,6 +720,11 @@ impl SessionManager {
         Ok(rec.map(|r| r.stop().display().to_string()))
     }
 
+    /// Is a session (live or rehearsal) running right now?
+    pub fn is_active(&self) -> bool {
+        self.active.lock().expect("active lock").is_some()
+    }
+
     pub fn is_recording(&self) -> bool {
         self.recording.lock().expect("recording lock").is_some()
     }
@@ -764,17 +781,33 @@ fn make_frame_sink(
     })
 }
 
+/// Worker queues a finalized segment is offered to besides the Question
+/// Radar. Every send is a non-blocking channel send.
+struct FinalTargets {
+    tracker: Option<Sender<TranscriptSegment>>,
+    capture: Option<Sender<TranscriptSegment>>,
+    semantic: Option<Sender<TranscriptSegment>>,
+    /// The Live Intelligence Coordinator (spreadsheet totals).
+    live: Sender<crate::live_assist::LiveMsg>,
+    session_id: String,
+}
+
 /// Transcript sink: broadcast segments to the UI, persist finals to the
 /// session file (U3), and queue Question Radar work without blocking ASR.
 fn make_transcript_sink(
     app: AppHandle,
     session_file: Arc<Mutex<fs::File>>,
     radar_tx: Sender<TranscriptSegment>,
-    tracker_tx: Option<Sender<TranscriptSegment>>,
-    capture_tx: Option<Sender<TranscriptSegment>>,
-    semantic_tx: Option<Sender<TranscriptSegment>>,
+    targets: FinalTargets,
     rehearsal_tx: Option<Sender<TranscriptSegment>>,
 ) -> Box<dyn FnMut(TranscriptSegment) + Send> {
+    let FinalTargets {
+        tracker: tracker_tx,
+        capture: capture_tx,
+        semantic: semantic_tx,
+        live: live_tx,
+        session_id,
+    } = targets;
     Box::new(move |segment| {
         if segment.is_final {
             if let Ok(json) = serde_json::to_string(&segment) {
@@ -792,6 +825,18 @@ fn make_transcript_sink(
                 let _ = semantic.send(segment.clone());
             }
             let _ = radar_tx.send(segment.clone());
+            // Heard speech from the other party may be a request to add up a
+            // spreadsheet; queue it without blocking. The coordinator decides.
+            if segment.side == StreamSide::Inbound {
+                let _ = live_tx.send(crate::live_assist::LiveMsg::Turn(
+                    crate::live_assist::LiveTurn {
+                        session_id: session_id.clone(),
+                        correlation_id: format!("{session_id}:them:{}", segment.seq),
+                        text: segment.text.clone(),
+                        enqueued_at_unix_ms: now_unix_ms(),
+                    },
+                ));
+            }
             // Rehearsal: hand finalized user (outbound) turns to the worker.
             if segment.side == StreamSide::Outbound {
                 if let Some(reh) = &rehearsal_tx {

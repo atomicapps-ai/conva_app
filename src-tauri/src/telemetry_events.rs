@@ -59,6 +59,12 @@ fn state_path(app: &AppHandle) -> Option<PathBuf> {
 pub struct QueueState {
     next_seq: u64,
     device_id: String,
+    /// The signed-in user id the server last told us (`telemetry_required` in
+    /// the `/api/events` reply) is bound by beta terms that make usage data
+    /// required. Tied to the user so a shared machine never locks the next
+    /// account in.
+    #[serde(default)]
+    required_for: Option<String>,
 }
 
 fn new_device_id() -> String {
@@ -86,6 +92,7 @@ pub fn load_state(app: &AppHandle) -> QueueState {
     QueueState {
         next_seq: 1,
         device_id: new_device_id(),
+        required_for: None,
     }
 }
 
@@ -117,10 +124,77 @@ pub fn device_id(app: &AppHandle) -> String {
     id
 }
 
+/// The signed-in user's id, if any.
+fn current_user_id(app: &AppHandle) -> Option<String> {
+    let dir = crate::auth_dir(app).ok()?;
+    crate::auth::status(&dir).user_id
+}
+
+/// Does the server say the signed-in account's beta terms require usage data?
+pub fn required(app: &AppHandle) -> bool {
+    let Some(uid) = current_user_id(app) else {
+        return false;
+    };
+    let state = app.state::<AppState>();
+    let qs = state.telemetry.lock().expect("telemetry lock");
+    qs.required_for.as_deref() == Some(uid.as_str())
+}
+
+/// Record the server's answer for this user: `true` locks the switch on,
+/// `false` unlocks it. Called by the flush loop from the `/api/events` reply.
+pub fn set_required(app: &AppHandle, user_id: &str, is_required: bool) {
+    let state = app.state::<AppState>();
+    let mut qs = state.telemetry.lock().expect("telemetry lock");
+    let now = if is_required {
+        Some(user_id.to_string())
+    } else if qs.required_for.as_deref() == Some(user_id) {
+        None
+    } else {
+        qs.required_for.clone()
+    };
+    if now != qs.required_for {
+        qs.required_for = now;
+        persist_state(app, &qs);
+    }
+}
+
+/// May usage events be collected right now? The user's setting, unless the
+/// server's beta flag overrides it ([`conva_core::config::telemetry_may_collect`]).
+/// Checks the setting first so the common case (on) never touches the keyring.
+pub fn collecting(app: &AppHandle) -> bool {
+    let enabled = app
+        .state::<AppState>()
+        .config
+        .lock()
+        .expect("config lock")
+        .telemetry_enabled;
+    enabled || conva_core::config::telemetry_may_collect(enabled, required(app))
+}
+
+/// Delete the unsent queue (switching collection off). The seq counter and
+/// cursor are kept, so a later re-enable continues cleanly.
+pub fn purge(app: &AppHandle) {
+    if let Some(path) = events_path(app) {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => eprintln!("[telemetry] could not delete events.jsonl: {e}"),
+        }
+    }
+}
+
+/// The local event log's path, for Settings to show.
+pub fn log_path(app: &AppHandle) -> Option<String> {
+    events_path(app).map(|p| p.to_string_lossy().into_owned())
+}
+
 /// Append one taxonomy event to the queue. Best-effort: a validation failure
 /// or I/O error is logged and the call returns without side effects — the
 /// caller (a metering call site) must never be broken by this.
 pub fn append(app: &AppHandle, ev: &str, fields: serde_json::Value, session_id: Option<String>) {
+    if !collecting(app) {
+        return;
+    }
     let event = TelemetryEvent {
         ev: ev.to_string(),
         seq: 0, // assigned below, once we hold the lock

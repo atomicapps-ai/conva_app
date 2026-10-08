@@ -5,8 +5,10 @@
 //! finals, or ≥2 finals and ≥45 s since the last pass). Results merge into
 //! a session-scoped deduped state, re-emitted as a full TRACKER event.
 //!
-//! Everything is best-effort: an extraction failure skips silently — the
-//! tracker is an enhancement, never a blocker.
+//! Everything is best-effort — the tracker is an enhancement, never a blocker —
+//! but a failed pass is no longer lost silently: the batch it was working on is
+//! kept and retried once (with a larger output cap) before it is dropped, and an
+//! unusable reply is counted in Settings → Usage (answer-integrity check C3).
 
 use std::collections::HashSet;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
@@ -17,6 +19,7 @@ use tauri::{AppHandle, Emitter};
 use conva_core::asr::TranscriptSegment;
 use conva_core::ipc::{events, TrackerEvent};
 use conva_core::llm::ModelSelection;
+use conva_core::stop_reason::escalated_cap;
 use conva_core::tracker::{
     build_tracker_request, parse_tracker_reply, TrackedCommitment, TrackedEntity,
 };
@@ -31,6 +34,10 @@ const IDLE_AFTER: Duration = Duration::from_secs(45);
 /// `MAX_CONTEXT_SEGMENTS` and `conversations.rs`'s `MAX_SOURCE_SESSIONS` do
 /// for their own unbounded-in-theory Vecs. Evicts oldest first.
 const MAX_TRACKED_ITEMS: usize = 500;
+/// A batch is tried this many times (the first attempt plus one retry) before
+/// it is dropped. Retries wait for the next poll or segment, so a persistent
+/// failure (a bad key, a provider outage) cannot hammer the API.
+const MAX_ATTEMPTS: u8 = 2;
 
 /// Spawn the worker; returns the sender for finalized segments. Dropping
 /// every sender (session stop) triggers one last pass and shuts it down.
@@ -102,6 +109,7 @@ fn worker(
     let mut buffer: Vec<TranscriptSegment> = Vec::new();
     let mut state = TrackerState::new();
     let mut last_run = Instant::now();
+    let mut failed_attempts: u8 = 0;
 
     loop {
         let disconnected = match rx.recv_timeout(POLL) {
@@ -120,7 +128,27 @@ fn worker(
             || (disconnected && !buffer.is_empty());
 
         if due {
-            run_extraction(&app, &selection, &api_key, &mut buffer, &mut state);
+            if run_extraction(
+                &app,
+                &selection,
+                &api_key,
+                &mut buffer,
+                &mut state,
+                failed_attempts,
+            ) {
+                failed_attempts = 0;
+            } else {
+                failed_attempts += 1;
+                if failed_attempts >= MAX_ATTEMPTS {
+                    // Give up on this batch rather than carry it forever.
+                    eprintln!(
+                        "[tracker] dropping {} segments after {MAX_ATTEMPTS} failed passes",
+                        buffer.len()
+                    );
+                    buffer.clear();
+                    failed_attempts = 0;
+                }
+            }
             last_run = Instant::now();
         }
         if disconnected {
@@ -129,17 +157,26 @@ fn worker(
     }
 }
 
+/// Run one extraction pass over the buffered segments. Returns `true` when the
+/// batch is finished with (merged, or nothing to send) and `false` when the
+/// pass failed or its reply was unusable, in which case **the buffer is kept**
+/// so the caller can retry it. `attempt` is how many passes already failed for
+/// this batch; a retry gets a larger output cap.
 fn run_extraction(
     app: &AppHandle,
     selection: &ModelSelection,
     api_key: &str,
     buffer: &mut Vec<TranscriptSegment>,
     state: &mut TrackerState,
-) {
-    let request = build_tracker_request(buffer);
-    buffer.clear();
+    attempt: u8,
+) -> bool {
+    let mut request = build_tracker_request(buffer);
     if request.user.trim().is_empty() {
-        return;
+        buffer.clear();
+        return true;
+    }
+    if attempt > 0 {
+        request.max_tokens = escalated_cap(request.max_tokens);
     }
 
     let mut reply = String::new();
@@ -153,9 +190,10 @@ fn run_extraction(
         &request,
         &mut |token| reply.push_str(token),
     );
-    let Ok(usage) = result else {
-        return; // best-effort: skip this pass
+    let Ok(outcome) = result else {
+        return false; // best-effort: keep the batch for one retry
     };
+    let usage = outcome.usage;
     crate::trace::record(
         "llm",
         t0.elapsed().as_millis() as u64,
@@ -168,8 +206,15 @@ fn run_extraction(
         }),
     );
     let Some(extraction) = parse_tracker_reply(&reply) else {
-        return;
+        crate::metering::record_unusable_reply(
+            app,
+            "tracker",
+            selection.provider,
+            &selection.model,
+        );
+        return false;
     };
+    buffer.clear();
     if state.merge(extraction) {
         let _ = app.emit(
             events::TRACKER,
@@ -179,6 +224,7 @@ fn run_extraction(
             },
         );
     }
+    true
 }
 
 #[cfg(test)]

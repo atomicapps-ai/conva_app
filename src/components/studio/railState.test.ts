@@ -57,6 +57,7 @@ describe("activeRailView", () => {
     expect(activeRailView("settings")).toBeNull();
     expect(activeRailView("profile")).toBeNull();
     expect(activeRailView("about")).toBeNull();
+    expect(activeRailView("models")).toBeNull();
   });
 
   it("lights Home for the Conversations sub-view", () => {

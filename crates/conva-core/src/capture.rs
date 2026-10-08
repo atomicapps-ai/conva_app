@@ -21,16 +21,47 @@ use serde::{Deserialize, Serialize};
 
 use crate::asr::TranscriptSegment;
 use crate::audio::StreamSide;
+use crate::context_snapshot::ContextSnapshot;
 use crate::llm::LlmRequest;
 
-/// The prepared context the capture pass is grounded in — the user's role and
-/// the terms already on their résumé. A term IN `terms` that the other party
-/// references routes to RECALL; a term NOT in it routes to EXPLAIN.
+/// The prepared context the capture pass is grounded in. A term IN `terms`
+/// that the other party references routes to RECALL; a term NOT in it routes
+/// to EXPLAIN. The conversation type, lens, and goal tell the model what is
+/// common knowledge and what help has marginal value for this exact session.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PreparedContext {
+    #[serde(default)]
+    pub conversation_type: String,
+    #[serde(default)]
+    pub participation_lens: String,
+    #[serde(default)]
+    pub goal: String,
+    #[serde(default)]
     pub role: String,
     #[serde(default)]
     pub terms: Vec<String>,
+}
+
+impl PreparedContext {
+    pub fn from_snapshot(snapshot: Option<&ContextSnapshot>, terms: Vec<String>) -> Self {
+        match snapshot {
+            Some(snapshot) => {
+                let lens = snapshot.participation_lens.label().to_string();
+                Self {
+                    conversation_type: snapshot.category.label().to_string(),
+                    participation_lens: lens.clone(),
+                    goal: snapshot.purpose.clone(),
+                    role: lens,
+                    terms,
+                }
+            }
+            None => Self {
+                conversation_type: "general conversation".to_string(),
+                terms,
+                ..Self::default()
+            },
+        }
+    }
 }
 
 /// What in the other party's speech triggered a capture.
@@ -114,7 +145,8 @@ pub struct CaptureExtraction {
 /// `faner-capture-algorithm.md` §"The LLM rubric" and `scripts/faner-eval.mjs`.
 pub const CAPTURE_SYSTEM_PROMPT: &str = "You assist a user during a live \
 conversation. You receive the OTHER party's latest utterance plus the user's \
-PREPARED CONTEXT (their role and the terms already on their résumé). Decide \
+PREPARED CONTEXT (conversation type, participation lens, goal, role, and \
+known terms or interests). Decide \
 what to surface to help the user answer right now.\n\
 For the utterance:\n\
 1. Find the QUESTIONS first — a question is the clearest signal of what the \
@@ -125,6 +157,12 @@ inside a detected question — scene-setting sentences carry real terms too \
 ('In high-throughput, event-driven systems...' has two gap terms before any \
 question starts). Emit ONE capture per distinct term — never bundle several \
 terms into one capture's arguments.\n\
+   TERM SHAPE: an argument is the LONGEST semantically complete term or noun \
+phrase actually spoken — 'API Gateway', never the bare fragment 'API'; \
+'AWS Lambda', never 'AWS' and 'Lambda' separately. Never extend a term with \
+words that were not spoken. When a spoken term matches a KNOWN TERM from the \
+prepared context (ignoring capitalization), reproduce that known term \
+EXACTLY as written there — known terms are canonical.\n\
 3. For each item choose an ACTION by its relationship to the prepared \
 context: a term NOT in the prepared context (a gap) -> EXPLAIN; a term IN the \
 prepared context, referenced back ('on your résumé', 'you mentioned') -> \
@@ -160,8 +198,20 @@ several bundled together. tier/kind are null for RECALL/ASSIST/SYNTHESIZE \
 /// the prepared context. THEM lines are the other party, YOU lines the user.
 pub fn build_capture_request(segments: &[TranscriptSegment], ctx: &PreparedContext) -> LlmRequest {
     let mut user = String::from("PREPARED CONTEXT\n");
+    user.push_str(&format!(
+        "conversation type: {}\n",
+        ctx.conversation_type.trim()
+    ));
+    user.push_str(&format!(
+        "participation lens: {}\n",
+        ctx.participation_lens.trim()
+    ));
+    user.push_str(&format!("goal or purpose: {}\n", ctx.goal.trim()));
     user.push_str(&format!("role: {}\n", ctx.role.trim()));
-    user.push_str(&format!("résumé terms: {}\n\n", ctx.terms.join(", ")));
+    user.push_str(&format!(
+        "known terms and interests: {}\n\n",
+        ctx.terms.join(", ")
+    ));
     user.push_str("OTHER PARTY SAID:\n");
     for segment in segments.iter().filter(|s| s.is_final) {
         let speaker = match segment.side {
@@ -192,6 +242,192 @@ pub fn parse_capture_reply(reply: &str) -> Option<CaptureExtraction> {
         return None;
     }
     serde_json::from_str(&reply[start..=end]).ok()
+}
+
+// ── Deterministic argument resolution ───────────────────────────────────────
+//
+// The prompt asks for the longest complete term and exact known-term spelling,
+// but a model can still return the fragment ("API") when the transcript holds
+// a known phrase ("API Gateway"). `resolve_capture_arguments` is the
+// mandatory, non-LLM backstop, using the same phrase policy as the
+// highlighter (`crate::phrase`).
+
+/// What happened to one capture argument.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArgumentTrace {
+    /// Index of the capture in the raw extraction.
+    pub capture_index: usize,
+    /// The model's argument, verbatim.
+    pub raw: String,
+    /// The final argument (empty when `outcome` is `dropped`).
+    pub resolved: String,
+    /// `kept`, `canonicalized` (known-term spelling), `rewritten` (widened to
+    /// a known phrase that contains it), `unverified` (not in the transcript;
+    /// left alone, never expanded), or `dropped`.
+    pub outcome: String,
+    pub reason: String,
+    /// The known phrase that contained the raw argument, if any.
+    pub container: Option<String>,
+    /// The transcript text the decision was based on.
+    pub matched_text: Option<String>,
+}
+
+/// Captures after deterministic resolution, with the per-argument trace.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct CaptureResolution {
+    pub extraction: CaptureExtraction,
+    pub trace: Vec<ArgumentTrace>,
+}
+
+/// Resolve each capture argument against the transcript and the known terms.
+///
+/// * The argument is located in the transcript as a word-token sequence.
+/// * If **every** occurrence sits inside a strictly longer known phrase that is
+///   also spoken there, the argument becomes that known phrase (longest wins).
+///   A standalone occurrence keeps the raw argument.
+/// * An argument equal to a known term (any casing) takes the known spelling.
+/// * An argument absent from the transcript is never expanded.
+/// * `EXPLAIN` arguments with no content-bearing token are dropped.
+/// * Captures made identical by resolution are merged (first wins).
+pub fn resolve_capture_arguments(
+    extraction: CaptureExtraction,
+    transcript_lines: &[String],
+    known_terms: &[String],
+) -> CaptureResolution {
+    use crate::highlight::has_content_bearing_token;
+    use crate::phrase::{find_occurrences, normalize_key, tokenize, Span};
+
+    let lines: Vec<(&str, Vec<crate::phrase::PhraseToken>)> = transcript_lines
+        .iter()
+        .map(|l| (l.as_str(), tokenize(l)))
+        .collect();
+    let known: Vec<(&str, String)> = known_terms
+        .iter()
+        .map(|t| t.trim())
+        .filter(|t| !t.is_empty())
+        .map(|t| (t, normalize_key(t)))
+        .collect();
+
+    let mut trace: Vec<ArgumentTrace> = Vec::new();
+    let mut out: Vec<Capture> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for (ci, mut capture) in extraction.captures.into_iter().enumerate() {
+        let had_args = !capture.arguments.is_empty();
+        let mut resolved_args: Vec<String> = Vec::new();
+        for raw in std::mem::take(&mut capture.arguments) {
+            let raw_trim = raw.trim();
+            let mk = |outcome: &str,
+                      resolved: &str,
+                      reason: &str,
+                      container: Option<&str>,
+                      m: Option<&str>| {
+                ArgumentTrace {
+                    capture_index: ci,
+                    raw: raw.clone(),
+                    resolved: resolved.to_string(),
+                    outcome: outcome.into(),
+                    reason: reason.into(),
+                    container: container.map(str::to_string),
+                    matched_text: m.map(str::to_string),
+                }
+            };
+            if raw_trim.is_empty() {
+                resolved_args.push(raw);
+                continue;
+            }
+            if capture.action == Action::Explain && !has_content_bearing_token(raw_trim) {
+                trace.push(mk(
+                    "dropped",
+                    "",
+                    "no content-bearing token (stopword/noise only)",
+                    None,
+                    None,
+                ));
+                continue;
+            }
+            let raw_key = normalize_key(raw_trim);
+            let exact_known = known.iter().find(|(_, k)| *k == raw_key).map(|(t, _)| *t);
+
+            // Locate the argument in the transcript.
+            let mut found: Vec<(usize, Span)> = Vec::new();
+            for (li, (_, toks)) in lines.iter().enumerate() {
+                for span in find_occurrences(toks, raw_trim) {
+                    found.push((li, span));
+                }
+            }
+            if found.is_empty() {
+                let (resolved, outcome, reason) = match exact_known {
+                    Some(t) if t != raw_trim => (
+                        t,
+                        "canonicalized",
+                        "known-term spelling (not located in the transcript)",
+                    ),
+                    _ => (
+                        raw_trim,
+                        "unverified",
+                        "argument not found in the transcript; left unchanged, never expanded",
+                    ),
+                };
+                trace.push(mk(outcome, resolved, reason, None, None));
+                resolved_args.push(resolved.to_string());
+                continue;
+            }
+
+            // For each occurrence, the longest known phrase strictly containing it.
+            let mut containers: Vec<Option<(&str, String)>> = Vec::new();
+            for (li, span) in &found {
+                let (text, toks) = &lines[*li];
+                let mut best: Option<(usize, &str, String)> = None;
+                for (term, _) in &known {
+                    for ks in find_occurrences(toks, term) {
+                        if ks.strictly_contains(span)
+                            && best.as_ref().is_none_or(|(l, _, _)| ks.len() > *l)
+                        {
+                            best = Some((ks.len(), *term, text[ks.start..ks.end].to_string()));
+                        }
+                    }
+                }
+                containers.push(best.map(|(_, t, spoken)| (t, spoken)));
+            }
+            let (li0, sp0) = found[0];
+            let matched = lines[li0].0[sp0.start..sp0.end].to_string();
+            if containers.iter().all(Option::is_some) {
+                let (term, spoken) = containers[0].clone().expect("checked");
+                trace.push(mk(
+                    "rewritten",
+                    term,
+                    "every occurrence is inside a longer known phrase that was spoken",
+                    Some(term),
+                    Some(&spoken),
+                ));
+                resolved_args.push(term.to_string());
+            } else {
+                let (resolved, outcome, reason) = match exact_known {
+                    Some(t) if t != raw_trim => (t, "canonicalized", "known-term spelling"),
+                    _ if containers.iter().any(Option::is_some) => (
+                        raw_trim,
+                        "kept",
+                        "a standalone occurrence exists outside the longer known phrase",
+                    ),
+                    _ => (raw_trim, "kept", "no longer known phrase contains it"),
+                };
+                trace.push(mk(outcome, resolved, reason, None, Some(&matched)));
+                resolved_args.push(resolved.to_string());
+            }
+        }
+        if resolved_args.is_empty() && had_args {
+            continue; // every argument dropped
+        }
+        capture.arguments = resolved_args;
+        if seen.insert(CaptureState::key(&capture)) {
+            out.push(capture);
+        }
+    }
+    CaptureResolution {
+        extraction: CaptureExtraction { captures: out },
+        trace,
+    }
 }
 
 /// Session-scoped dedup of routed captures, mirroring the tracker's merge: the
@@ -260,6 +496,9 @@ mod tests {
     #[test]
     fn request_includes_context_and_them_line() {
         let ctx = PreparedContext {
+            conversation_type: "job interview".into(),
+            participation_lens: "interviewee".into(),
+            goal: "Demonstrate infrastructure expertise".into(),
             role: "Software Engineer".into(),
             terms: vec!["AWS".into(), "Terraform".into()],
         };
@@ -270,6 +509,11 @@ mod tests {
             )],
             &ctx,
         );
+        assert!(req.user.contains("conversation type: job interview"));
+        assert!(req.user.contains("participation lens: interviewee"));
+        assert!(req
+            .user
+            .contains("goal or purpose: Demonstrate infrastructure expertise"));
         assert!(req.user.contains("role: Software Engineer"));
         assert!(req.user.contains("Terraform"));
         assert!(req
@@ -286,6 +530,29 @@ mod tests {
         let req = build_capture_request(&[seg(StreamSide::Outbound, "my answer"), partial], &ctx);
         assert!(req.user.contains("YOU: my answer"));
         assert!(!req.user.contains("partial words"));
+    }
+
+    #[test]
+    fn prepared_context_uses_the_active_conversation_snapshot() {
+        let snapshot = crate::context_snapshot::ContextSnapshot::new(
+            crate::context::ContextCategory::SalesCall,
+            crate::context_snapshot::ParticipationLens::Seller,
+            "Qualify the account and understand its security constraints",
+        )
+        .unwrap();
+        let prepared = PreparedContext::from_snapshot(
+            Some(&snapshot),
+            vec!["data residency".into(), "SOC 2".into()],
+        );
+
+        assert_eq!(prepared.conversation_type, "sales call");
+        assert_eq!(prepared.participation_lens, "seller");
+        assert_eq!(prepared.role, "seller");
+        assert_eq!(
+            prepared.goal,
+            "Qualify the account and understand its security constraints"
+        );
+        assert_eq!(prepared.terms, ["data residency", "SOC 2"]);
     }
 
     #[test]

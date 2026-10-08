@@ -401,9 +401,9 @@ export function ContextsPane({
 }: {
   items: ContextSummary[];
   selectedId: string | null;
-  /** Focus this context in the library pane (filter) — does not navigate. */
+  /** Select this Context in both the middle workspace and Library dock. */
   onSelect: (id: string) => void;
-  /** Drill into the context's detail (personas / rehearse). */
+  /** Open this Context in the middle workspace (the Library follows it). */
   onOpen: (id: string) => void;
   onNew: () => void;
   onEdit: (id: string) => void;

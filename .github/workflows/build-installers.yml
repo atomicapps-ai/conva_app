@@ -79,13 +79,26 @@ jobs:
             args: --features gpu-metal
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.platform }}
+    env:
+      # Vulkan SDK the Windows leg installs (see the install step). Lives at job
+      # level because the rust-cache key below must change when it does.
+      VULKAN_SDK_VERSION: "1.4.321.1"
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          # The restored target/ holds whisper-rs-sys's CMake build dir, and its
+          # CMakeCache.txt remembers where Vulkan was found (find_library results
+          # are cached). After an SDK version change that path no longer exists,
+          # and CMake fails with 'Imported target "Vulkan::Vulkan" includes
+          # non-existent path C:/VulkanSDK/<old>/include' (dev-build, 2026-09-29).
+          # Keying the Windows cache on the SDK version makes a bump start clean.
+          key: ${{ matrix.platform == 'windows-latest' && format('vulkan-{0}', env.VULKAN_SDK_VERSION) || '' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -104,19 +117,30 @@ jobs:
       - name: Install Vulkan SDK (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
+        # Pinned (VULKAN_SDK_VERSION, job env above), not LunarG's "latest" alias, so
+        # the SDK only changes when someone bumps it, and the rust-cache key with it.
+        # 1.4.321.1 is the version whisper.cpp's own CI builds against. LunarG keeps
+        # old versions at the same URL shape; if one ever 404s, the size guard below
+        # fails the step with a clear message.
         run: |
-          # LunarG's "latest" alias — pinned version URLs rot as releases
-          # cycle (a stale pin returns a tiny error body, not an installer).
-          $url = "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe"
+          $url = "https://sdk.lunarg.com/sdk/download/$env:VULKAN_SDK_VERSION/windows/vulkan_sdk.exe"
           $exe = "$env:RUNNER_TEMP\vulkan_sdk.exe"
           curl.exe --retry 3 -L -o $exe $url
           $size = (Get-Item $exe).Length
-          if ($size -lt 50MB) { throw "Vulkan SDK download looks wrong ($size bytes) — not an installer" }
+          if ($size -lt 50MB) { throw "Vulkan SDK $env:VULKAN_SDK_VERSION download looks wrong ($size bytes) - not an installer" }
           Start-Process -FilePath $exe `
             -ArgumentList "--accept-licenses","--default-answer","--confirm-command","install" -Wait
           $sdk = (Get-ChildItem "C:\VulkanSDK" -Directory | Sort-Object Name | Select-Object -Last 1).FullName
           if (-not $sdk) { throw "Vulkan SDK install dir not found under C:\VulkanSDK" }
-          Write-Host "Vulkan SDK at $sdk"
+          # Fail here, with a clear message, instead of ~10 minutes later inside
+          # ggml-vulkan's CMake: the SDK must provide headers and the shader compiler.
+          foreach ($need in @("Include\vulkan\vulkan.h", "Bin\glslc.exe", "Lib\vulkan-1.lib")) {
+            if (-not (Test-Path (Join-Path $sdk $need))) {
+              Get-ChildItem $sdk | ForEach-Object { Write-Host "  found: $($_.Name)" }
+              throw "Vulkan SDK at $sdk is missing $need (version $env:VULKAN_SDK_VERSION)"
+            }
+          }
+          Write-Host "Vulkan SDK $env:VULKAN_SDK_VERSION at $sdk"
           Add-Content $env:GITHUB_ENV "VULKAN_SDK=$sdk"
           Add-Content $env:GITHUB_PATH "$sdk\Bin"
 

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   DEFAULT_INBOUND_SPEAKER_ID,
   YOU_SPEAKER_ID,
+  colorForOrdinal,
   defaultLabelFor,
   fixtureVoiceId,
   mergeSpeakers,
@@ -23,6 +24,44 @@ describe("defaultLabelFor", () => {
   it("labels later anonymous voices 'Voice N'", () => {
     expect(defaultLabelFor("anonymous", 2)).toBe("Voice 2");
     expect(defaultLabelFor("anonymous", 3)).toBe("Voice 3");
+  });
+});
+
+describe("colorForOrdinal (owner: each new voice defaults to its own color)", () => {
+  it("gives 'you' (ordinal 0) the fixed outbound lavender", () => {
+    expect(colorForOrdinal(0)).toBe("var(--color-outbound)");
+  });
+
+  it("gives the first inbound voice today's unchanged inbound green", () => {
+    expect(colorForOrdinal(1)).toBe("var(--color-inbound)");
+  });
+
+  it("gives later voices distinct, non-repeating colors", () => {
+    const colors = [1, 2, 3, 4].map(colorForOrdinal);
+    expect(new Set(colors).size).toBe(4);
+  });
+
+  it("keeps the first voices well away from the lavender used for 'you'", () => {
+    const hue = (hex: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
+      const max = Math.max(r, g, b);
+      const d = max - Math.min(r, g, b);
+      if (d === 0) return 0;
+      const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (h * 60 + 360) % 360;
+    };
+    const youHue = hue("#b79cff");
+    for (let ordinal = 1; ordinal <= 6; ordinal += 1) {
+      const c = colorForOrdinal(ordinal);
+      if (!c.startsWith("#")) continue;
+      const diff = Math.abs(hue(c) - youHue);
+      expect(Math.min(diff, 360 - diff), `voice ${ordinal} (${c}) is too close to You`).toBeGreaterThanOrEqual(30);
+    }
+  });
+
+  it("cycles once the palette is exhausted rather than throwing", () => {
+    expect(() => colorForOrdinal(50)).not.toThrow();
+    expect(typeof colorForOrdinal(50)).toBe("string");
   });
 });
 
@@ -110,17 +149,32 @@ describe("useSpeakerStore", () => {
   it("ensureSpeaker creates 'you' at ordinal 0 and is idempotent", () => {
     const a = useSpeakerStore.getState().ensureSpeaker(YOU_SPEAKER_ID, "you");
     const b = useSpeakerStore.getState().ensureSpeaker(YOU_SPEAKER_ID, "you");
-    expect(a).toEqual({ id: "you", kind: "you", label: "You", ordinal: 0, namedByUser: false });
+    expect(a).toEqual({
+      id: "you",
+      kind: "you",
+      label: "You",
+      ordinal: 0,
+      namedByUser: false,
+      color: "var(--color-outbound)",
+    });
     expect(b).toBe(a);
   });
 
-  it("ensureSpeaker assigns increasing ordinals to non-'you' voices", () => {
+  it("ensureSpeaker assigns increasing ordinals to non-'you' voices, each its own color", () => {
     const first = useSpeakerStore.getState().ensureSpeaker("voice-unknown", "anonymous");
     const second = useSpeakerStore.getState().createSpeaker();
     expect(first.ordinal).toBe(1);
     expect(first.label).toBe("New voice");
+    expect(first.color).toBe("var(--color-inbound)");
     expect(second.ordinal).toBe(2);
     expect(second.label).toBe("Voice 2");
+    expect(second.color).not.toBe(first.color);
+  });
+
+  it("a voice's color survives a rename (only the label/kind change)", () => {
+    const before = useSpeakerStore.getState().ensureSpeaker("voice-unknown", "anonymous");
+    useSpeakerStore.getState().renameSpeaker("voice-unknown", "Alex");
+    expect(useSpeakerStore.getState().speakers["voice-unknown"]?.color).toBe(before.color);
   });
 
   it("renameSpeaker sets a user label, flips kind to 'named', and sticks", () => {

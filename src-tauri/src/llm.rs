@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use conva_core::llm::{LlmRequest, ModelInfo, ProviderId, TokenUsage};
+use conva_core::stop_reason::StopReason;
 use conva_core::CoreError;
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(120);
@@ -23,6 +24,11 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(120);
 /// local endpoints) — an out-param rather than a return value so that a
 /// mid-stream error still leaves the tokens billed up to that point in
 /// `usage` for honest metering.
+///
+/// On success returns **why the stream ended** ([`StopReason`]): a reply that
+/// hit the output cap comes back `Ok(StopReason::Truncated)`, not a plain
+/// `Ok`, so callers can tell a cut-off answer from a finished one. A stream
+/// that ends without any terminal signal is `Unknown`.
 pub fn stream_completion(
     provider: ProviderId,
     api_key: &str,
@@ -30,7 +36,7 @@ pub fn stream_completion(
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
     usage: &mut TokenUsage,
-) -> Result<(), CoreError> {
+) -> Result<StopReason, CoreError> {
     match provider {
         ProviderId::Anthropic => anthropic_stream(api_key, model, request, on_token, usage),
         ProviderId::Openai | ProviderId::Xai | ProviderId::Deepseek | ProviderId::OllamaLocal => {
@@ -66,22 +72,26 @@ pub fn validate_key(provider: ProviderId, api_key: &str, model: &str) -> Result<
     first.ok_or_else(|| CoreError::Llm("no tokens returned".into()))
 }
 
-/// Live model list where the provider offers one (§4.6). Errors and
-/// unsupported providers fall back to the curated defaults UI-side.
+/// Live model list from the provider's own API (§4.6), so new models appear
+/// without an app release. Callers pass the result through
+/// `conva_core::model_catalog::build_catalog`, which filters to chat models and
+/// keeps the curated default first; on any error the UI falls back to the
+/// curated defaults alone.
 pub fn list_models(provider: ProviderId, api_key: &str) -> Result<Vec<ModelInfo>, CoreError> {
     let (url, auth_header) = match provider {
         ProviderId::Anthropic => (
-            "https://api.anthropic.com/v1/models".to_string(),
+            "https://api.anthropic.com/v1/models?limit=100".to_string(),
             ("x-api-key", api_key.to_string()),
         ),
         ProviderId::Openai | ProviderId::Xai | ProviderId::Deepseek | ProviderId::OllamaLocal => (
             format!("{}/models", openai_base(provider)),
             ("Authorization", format!("Bearer {api_key}")),
         ),
-        ProviderId::Google => {
-            // Gemini's list API shape differs; curated defaults suffice.
-            return Err(CoreError::Llm("model list unsupported".into()));
-        }
+        // The key travels in a header, never in the URL, so it cannot land in logs.
+        ProviderId::Google => (
+            "https://generativelanguage.googleapis.com/v1beta/models?pageSize=200".to_string(),
+            ("x-goog-api-key", api_key.to_string()),
+        ),
     };
 
     let mut req = ureq::get(&url).timeout(HTTP_TIMEOUT);
@@ -95,23 +105,61 @@ pub fn list_models(provider: ProviderId, api_key: &str) -> Result<Vec<ModelInfo>
         .into_json()
         .map_err(|e| CoreError::Llm(e.to_string()))?;
 
-    let models = body["data"]
-        .as_array()
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|m| m["id"].as_str())
-                .map(|id| ModelInfo {
-                    id: id.to_string(),
-                    display_name: id.to_string(),
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let models = parse_model_list(provider, &body);
     if models.is_empty() {
         return Err(CoreError::Llm("empty model list".into()));
     }
     Ok(models)
+}
+
+/// Pull `(id, display name)` pairs out of a provider's list response. Pure, so
+/// the three response shapes are unit-tested without a network.
+fn parse_model_list(provider: ProviderId, body: &Value) -> Vec<ModelInfo> {
+    match provider {
+        ProviderId::Google => body["models"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter(|m| {
+                        // Only models that can generate text; embedding and
+                        // retrieval models do not list `generateContent`.
+                        m["supportedGenerationMethods"]
+                            .as_array()
+                            .map(|a| a.iter().any(|x| x == "generateContent"))
+                            .unwrap_or(false)
+                    })
+                    .filter_map(|m| {
+                        let id = m["name"].as_str()?;
+                        let id = id.strip_prefix("models/").unwrap_or(id).to_string();
+                        let display_name = m["displayName"]
+                            .as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| id.clone());
+                        Some(ModelInfo { id, display_name })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => body["data"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|m| {
+                        let id = m["id"].as_str()?.to_string();
+                        // Anthropic returns a friendly `display_name`; the
+                        // OpenAI-compatible lists do not.
+                        let display_name = m["display_name"]
+                            .as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(|| id.clone());
+                        Some(ModelInfo { id, display_name })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
 }
 
 fn map_ureq(e: ureq::Error) -> CoreError {
@@ -152,30 +200,41 @@ fn for_each_sse_data(
 
 // ---------------------------------------------------------------- Anthropic
 
+/// Adds the model-specific `thinking` control (see
+/// [`conva_core::llm::anthropic_thinking_override`]) to a request body.
+fn apply_thinking_override(body: &mut Value, model: &str) {
+    if let Some(thinking) = conva_core::llm::anthropic_thinking_override(model) {
+        body["thinking"] = thinking;
+    }
+}
+
 fn anthropic_stream(
     api_key: &str,
     model: &str,
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
     usage: &mut TokenUsage,
-) -> Result<(), CoreError> {
+) -> Result<StopReason, CoreError> {
+    let mut body = json!({
+        "model": model,
+        "max_tokens": request.max_tokens,
+        "system": request.system,
+        "messages": [{"role": "user", "content": request.user}],
+        "stream": true,
+    });
+    apply_thinking_override(&mut body, model);
     let response = ureq::post("https://api.anthropic.com/v1/messages")
         .timeout(HTTP_TIMEOUT)
         .set("x-api-key", api_key)
         .set("anthropic-version", "2023-06-01")
         .set("content-type", "application/json")
-        .send_json(json!({
-            "model": model,
-            "max_tokens": request.max_tokens,
-            "system": request.system,
-            "messages": [{"role": "user", "content": request.user}],
-            "stream": true,
-        }))
+        .send_json(body)
         .map_err(map_ureq)?;
 
     // Anthropic reports input tokens in `message_start` and the (cumulative)
     // output count in each `message_delta` — keep the latest of each, written
     // straight into the out-param so an aborted stream keeps its partial count.
+    let mut raw_stop: Option<String> = None;
     for_each_sse_data(response.into_reader(), |value| {
         match value["type"].as_str() {
             Some("content_block_delta") => {
@@ -196,6 +255,9 @@ fn anthropic_stream(
                 if let Some(n) = value["usage"]["output_tokens"].as_u64() {
                     usage.output_tokens = n;
                 }
+                if let Some(sr) = value["delta"]["stop_reason"].as_str() {
+                    raw_stop = Some(sr.to_string());
+                }
             }
             // A mid-stream failure (e.g. overloaded_error) used to fall into
             // the catch-all below and vanish -- the caller saw `Ok` with
@@ -208,7 +270,10 @@ fn anthropic_stream(
             _ => {}
         }
         Ok(())
-    })
+    })?;
+    Ok(raw_stop
+        .as_deref()
+        .map_or(StopReason::Unknown, StopReason::from_anthropic))
 }
 
 /// Anthropic streaming **with tool use** — the Ally web-search loop. Streams
@@ -232,10 +297,12 @@ pub fn anthropic_stream_with_tools(
     run_tool: &mut dyn FnMut(&str, &Value) -> String,
     max_rounds: usize,
     usage: &mut TokenUsage,
-) -> Result<(), CoreError> {
+) -> Result<StopReason, CoreError> {
     use std::collections::HashMap;
 
     let mut messages: Vec<Value> = vec![json!({"role": "user", "content": request.user})];
+    // Why the FINAL round stopped; earlier rounds ended in `tool_use`.
+    let mut final_stop = StopReason::Unknown;
 
     for round in 0..=max_rounds {
         // Offer tools only while another round remains; the final round forces a
@@ -248,6 +315,7 @@ pub fn anthropic_stream_with_tools(
             "messages": messages,
             "stream": true,
         });
+        apply_thinking_override(&mut body, model);
         if offer_tools {
             body["tools"] = tools.clone();
         }
@@ -342,6 +410,11 @@ pub fn anthropic_stream_with_tools(
 
         // No tool requested → this round's text is the final answer.
         if stop_reason != "tool_use" || tool_blocks.is_empty() {
+            final_stop = if stop_reason.is_empty() {
+                StopReason::Unknown
+            } else {
+                StopReason::from_anthropic(&stop_reason)
+            };
             break;
         }
 
@@ -366,7 +439,7 @@ pub fn anthropic_stream_with_tools(
         messages.push(json!({"role": "user", "content": tool_results}));
     }
 
-    Ok(())
+    Ok(final_stop)
 }
 
 // ------------------------------------------------------- OpenAI-compatible
@@ -388,7 +461,7 @@ fn openai_compatible_stream(
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
     usage: &mut TokenUsage,
-) -> Result<(), CoreError> {
+) -> Result<StopReason, CoreError> {
     let url = format!("{}/chat/completions", openai_base(provider));
     let mut req = ureq::post(&url)
         .timeout(HTTP_TIMEOUT)
@@ -411,6 +484,7 @@ fn openai_compatible_stream(
         }))
         .map_err(map_ureq)?;
 
+    let mut raw_stop: Option<String> = None;
     for_each_sse_data(response.into_reader(), |value| {
         // OpenAI-shaped mid-stream failures arrive as a bare
         // `{"error": {"message": ..., "type": ...}}` chunk instead of a
@@ -423,6 +497,9 @@ fn openai_compatible_stream(
         if let Some(text) = value["choices"][0]["delta"]["content"].as_str() {
             on_token(text);
         }
+        if let Some(reason) = openai_finish_reason(value) {
+            raw_stop = Some(reason.to_string());
+        }
         // The final chunk (empty `choices`) carries cumulative usage.
         let u = &value["usage"];
         if let Some(n) = u["prompt_tokens"].as_u64() {
@@ -432,7 +509,21 @@ fn openai_compatible_stream(
             usage.output_tokens = n;
         }
         Ok(())
-    })
+    })?;
+    Ok(raw_stop
+        .as_deref()
+        .map_or(StopReason::Unknown, StopReason::from_openai))
+}
+
+/// The `finish_reason` an OpenAI-shaped chunk carries, if any. It is `null` on
+/// every delta except the last content chunk. Pure, so it is unit-tested.
+fn openai_finish_reason(chunk: &Value) -> Option<&str> {
+    chunk["choices"][0]["finish_reason"].as_str()
+}
+
+/// The `finishReason` a Gemini chunk carries, if any (set on the last chunk).
+fn gemini_finish_reason(chunk: &Value) -> Option<&str> {
+    chunk["candidates"][0]["finishReason"].as_str()
 }
 
 // ------------------------------------------------------------------ Gemini
@@ -443,7 +534,7 @@ fn gemini_stream(
     request: &LlmRequest,
     on_token: &mut dyn FnMut(&str),
     usage: &mut TokenUsage,
-) -> Result<(), CoreError> {
+) -> Result<StopReason, CoreError> {
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
     );
@@ -459,6 +550,7 @@ fn gemini_stream(
         .map_err(map_ureq)?;
 
     // Gemini reports cumulative `usageMetadata` on each chunk — keep the latest.
+    let mut raw_stop: Option<String> = None;
     for_each_sse_data(response.into_reader(), |value| {
         // Gemini reports a mid-stream failure as a top-level `error` object
         // rather than a `candidates` entry -- same silent-truncation risk as
@@ -474,6 +566,9 @@ fn gemini_stream(
                 }
             }
         }
+        if let Some(reason) = gemini_finish_reason(value) {
+            raw_stop = Some(reason.to_string());
+        }
         let meta = &value["usageMetadata"];
         if let Some(n) = meta["promptTokenCount"].as_u64() {
             usage.input_tokens = n;
@@ -482,7 +577,10 @@ fn gemini_stream(
             usage.output_tokens = n;
         }
         Ok(())
-    })
+    })?;
+    Ok(raw_stop
+        .as_deref()
+        .map_or(StopReason::Unknown, StopReason::from_gemini))
 }
 
 // -------------------------------------------------------------- key vault
@@ -530,9 +628,110 @@ pub fn resolve_key(provider: ProviderId) -> Result<String, CoreError> {
         .find(|p| p.id == provider)
         .map(|p| p.requires_api_key)
         .unwrap_or(true);
+    // "Send nothing to an AI provider": refuse before touching the vault, so
+    // a stored key is never even read for a remote provider.
+    if !conva_core::config::remote_call_allowed(crate::offline::is_offline(), requires_key) {
+        return Err(CoreError::Llm(
+            conva_core::config::OFFLINE_MODE_ERROR.into(),
+        ));
+    }
     match load_api_key(provider)? {
         Some(key) => Ok(key),
         None if !requires_key => Ok(String::new()),
         None => Err(CoreError::Llm("api_key_missing".into())),
+    }
+}
+
+#[cfg(test)]
+mod model_list_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn anthropic_list_keeps_the_friendly_name() {
+        let body = json!({"data": [
+            {"id": "claude-sonnet-5-5", "display_name": "Claude Sonnet 5.5", "type": "model"},
+            {"id": "claude-haiku-4-5", "display_name": "Claude Haiku 4.5"}
+        ]});
+        let got = parse_model_list(ProviderId::Anthropic, &body);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].id, "claude-sonnet-5-5");
+        assert_eq!(got[0].display_name, "Claude Sonnet 5.5");
+    }
+
+    #[test]
+    fn openai_list_falls_back_to_the_id_as_the_name() {
+        let body = json!({"data": [{"id": "gpt-5.2", "object": "model"}]});
+        let got = parse_model_list(ProviderId::Openai, &body);
+        assert_eq!(got[0].display_name, "gpt-5.2");
+    }
+
+    #[test]
+    fn gemini_list_keeps_only_generate_content_models_and_strips_the_prefix() {
+        let body = json!({"models": [
+            {"name": "models/gemini-3-pro", "displayName": "Gemini 3 Pro",
+             "supportedGenerationMethods": ["generateContent", "countTokens"]},
+            {"name": "models/text-embedding-004",
+             "supportedGenerationMethods": ["embedContent"]},
+            {"name": "models/no-methods"}
+        ]});
+        let got = parse_model_list(ProviderId::Google, &body);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, "gemini-3-pro");
+        assert_eq!(got[0].display_name, "Gemini 3 Pro");
+    }
+
+    #[test]
+    fn an_unexpected_shape_yields_an_empty_list_not_a_panic() {
+        assert!(parse_model_list(ProviderId::Openai, &json!({"oops": 1})).is_empty());
+        assert!(parse_model_list(ProviderId::Google, &json!([])).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod thinking_body_tests {
+    use super::*;
+
+    #[test]
+    fn sonnet_5_5_body_carries_between_tools() {
+        let mut body = json!({"model": "claude-sonnet-5-5", "max_tokens": 700});
+        apply_thinking_override(&mut body, "claude-sonnet-5-5");
+        assert_eq!(body["thinking"], json!({"type": "between_tools"}));
+        assert_eq!(body["max_tokens"], 700, "other fields are untouched");
+    }
+
+    #[test]
+    fn haiku_body_is_left_alone() {
+        let mut body = json!({"model": "claude-haiku-4-5", "max_tokens": 700});
+        apply_thinking_override(&mut body, "claude-haiku-4-5");
+        assert!(body.get("thinking").is_none());
+    }
+}
+
+#[cfg(test)]
+mod finish_reason_tests {
+    use super::*;
+
+    #[test]
+    fn openai_finish_reason_is_read_from_the_last_content_chunk_only() {
+        let delta = json!({"choices": [{"delta": {"content": "hi"}, "finish_reason": null}]});
+        assert_eq!(openai_finish_reason(&delta), None);
+        let last = json!({"choices": [{"delta": {}, "finish_reason": "length"}]});
+        assert_eq!(openai_finish_reason(&last), Some("length"));
+        // The trailing usage chunk has an empty `choices`.
+        let usage_chunk = json!({"choices": [], "usage": {"prompt_tokens": 3}});
+        assert_eq!(openai_finish_reason(&usage_chunk), None);
+    }
+
+    #[test]
+    fn gemini_finish_reason_is_read_from_the_candidate() {
+        let mid = json!({"candidates": [{"content": {"parts": [{"text": "a"}]}}]});
+        assert_eq!(gemini_finish_reason(&mid), None);
+        let last = json!({"candidates": [{"finishReason": "MAX_TOKENS"}]});
+        assert_eq!(gemini_finish_reason(&last), Some("MAX_TOKENS"));
+        assert_eq!(
+            StopReason::from_gemini(gemini_finish_reason(&last).unwrap()),
+            StopReason::Truncated
+        );
     }
 }

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 
 import { useBackend } from "@/lib/backend";
-import type { ModelSelection, ProviderId } from "@/lib/ipc";
+import { mergeModelOptions, modelLabel } from "@/lib/firstRunAi";
+import { isTauri } from "@/lib/ipc";
+import type { ModelInfo, ModelSelection, ProviderId } from "@/lib/ipc";
 import { useAppStore } from "@/state/app";
 
 /**
@@ -23,14 +25,12 @@ function SlotEditor({
   const backend = useBackend();
   const registry = useAppStore((s) => s.registry);
   const keyStatus = useAppStore((s) => s.keyStatus);
-  const [liveModels, setLiveModels] = useState<string[]>([]);
+  const [liveModels, setLiveModels] = useState<ModelInfo[]>([]);
   const provider = registry.find((p) => p.id === value.provider);
 
-  // Curated defaults always present; live list merges in when fetchable.
-  const curated = provider
-    ? [...new Set([provider.default_quality_model, provider.default_fast_model])]
-    : [];
-  const models = [...new Set([...curated, ...liveModels, value.model])];
+  // Curated defaults always present; the provider's live list (refetched
+  // whenever the key or provider changes) merges in when fetchable.
+  const models = provider ? mergeModelOptions(provider, liveModels, value.model) : [];
 
   useEffect(() => {
     setLiveModels([]);
@@ -38,7 +38,7 @@ function SlotEditor({
     let cancelled = false;
     backend.providers.listModels(value.provider)
       .then((list) => {
-        if (!cancelled) setLiveModels(list.map((m) => m.id));
+        if (!cancelled) setLiveModels(list);
       })
       .catch(() => {
         /* curated defaults remain */
@@ -79,8 +79,8 @@ function SlotEditor({
           onChange={(e) => onChange({ ...value, model: e.target.value })}
         >
           {models.map((m) => (
-            <option key={m} value={m}>
-              {m}
+            <option key={m.id} value={m.id}>
+              {modelLabel(m)}
             </option>
           ))}
         </select>
@@ -140,6 +140,37 @@ export function AllySettings() {
         Ally — answers &amp; suggestions
       </h3>
       <div className="flex flex-col gap-2">
+        {isTauri() && (
+          <div
+            className="rounded-md border border-border bg-panel-raised p-3"
+            data-testid="offline-mode-setting"
+          >
+            <label className="flex items-start gap-2 text-xs text-fg">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={config.offline_mode}
+                onChange={(e) =>
+                  void updateConfig({ offline_mode: e.target.checked })
+                }
+              />
+              <span>
+                <span className="font-medium">
+                  Send nothing to an AI provider
+                </span>
+                <span className="mt-1 block text-[11px] text-fg-muted">
+                  Turns off everything that needs an online AI model: Ally&apos;s
+                  written answers, automatic commitment and term extraction,
+                  web research, cloud transcription and rehearsal voice.
+                  Transcription stays on this device. A model you run yourself
+                  (Ollama) still works. Takes effect
+                  immediately. Sign-in, update checks, speech-model downloads
+                  and content-free usage counts still use the internet.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
         <SlotEditor
           label="Quality slot (on-demand Ally answers)"
           value={quality}
@@ -233,7 +264,11 @@ export function AllySettings() {
           Keys are stored in the Windows Credential Manager, never in files.
           Transcript text is sent to the selected provider when you ask Ally,
           for live FANER routing, and periodically while conversation
-          intelligence is enabled. Claim detection does not run web research.
+          intelligence is enabled. Turning conversation intelligence off stops
+          only the periodic extraction; live suggestions still use your key, so
+          to stop all of it, turn on &ldquo;Send nothing to an AI provider&rdquo;
+          above or clear the key. Claim detection does not run web
+          research.
         </p>
       </div>
     </div>

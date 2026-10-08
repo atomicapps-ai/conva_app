@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AvatarEditor } from "@/components/profile/AvatarEditor";
+import { DeleteAccountDialog } from "@/components/profile/DeleteAccountDialog";
+import { YourDataOnConva } from "@/components/profile/YourDataOnConva";
 import { Section, ViewShell } from "@/components/studio/ViewShell";
+import { notifyAvatarChanged } from "@/lib/avatarSignal";
 import { useBackend } from "@/lib/backend";
 import { isTauriRuntime } from "@/lib/backend/detect";
 import * as webAuth from "@/lib/backend/webAuth";
+import { hasResume } from "@/lib/accountDeletion";
 import type { AuthStatus } from "@/lib/ipc";
 import { useNavStore } from "@/state/nav";
 
@@ -51,6 +55,11 @@ export function ProfileView() {
   const setView = useNavStore((s) => s.setView);
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  // The delete-account dialog. It keeps its own snapshot of who is being
+  // deleted, so it survives the session ending underneath it (step 3).
+  const [deleting, setDeleting] = useState<{ status: AuthStatus; startAt: 1 | 2 } | null>(null);
+  const [deleted, setDeleted] = useState(false);
+  const resumedRef = useRef(false);
 
   const refresh = useCallback(() => {
     void backend.auth
@@ -76,6 +85,33 @@ export function ProfileView() {
   }, [backend, refresh]);
 
   const web = !isTauriRuntime();
+
+  // The web's sign-in leaves the page and comes back: reopen the dialog at the
+  // confirm step if a deletion was in progress (a short-lived tab-only marker).
+  useEffect(() => {
+    if (resumedRef.current || !status?.signed_in || !web) return;
+    if (hasResume(Date.now())) {
+      resumedRef.current = true;
+      setDeleting({ status, startAt: 2 });
+    }
+  }, [status, web]);
+
+  const closeDelete = () => {
+    setDeleting(null);
+    if (deleted) setView("dashboard");
+  };
+  const deleteDialog = deleting && (
+    <DeleteAccountDialog
+      status={deleting.status}
+      web={web}
+      startAt={deleting.startAt}
+      onClose={closeDelete}
+      onDeleted={() => {
+        setDeleted(true);
+        refresh();
+      }}
+    />
+  );
   const provider = web ? webAuth.provider() : null;
   const beta = web ? webAuth.betaAccess() : null;
 
@@ -174,6 +210,7 @@ export function ProfileView() {
       const res = await backend.auth.avatarUpload(blob);
       if (res.ok) {
         setAvatarNonce((n) => n + 1); // re-triggers the avatarUrl() effect above
+        notifyAvatarChanged(); // and the rail / Home / Settings copies
         setEditingFile(null);
       } else {
         setAvatarError(AVATAR_ERROR_COPY[res.error ?? "unknown"] ?? "Couldn't upload that image — try again.");
@@ -189,6 +226,7 @@ export function ProfileView() {
     try {
       await backend.auth.avatarDelete();
       setAvatarNonce((n) => n + 1);
+      notifyAvatarChanged();
     } finally {
       setUploadingAvatar(false);
     }
@@ -206,6 +244,7 @@ export function ProfileView() {
 
   if (!status?.signed_in) {
     return (
+      <>
       <ViewShell
         icon="account"
         breadcrumb="Account"
@@ -228,10 +267,13 @@ export function ProfileView() {
           </div>
         </Section>
       </ViewShell>
+      {deleteDialog}
+      </>
     );
   }
 
   return (
+    <>
     <ViewShell
       icon="account"
       breadcrumb="Account"
@@ -368,6 +410,12 @@ export function ProfileView() {
         </div>
       </Section>
 
+      {web && (
+        <Section title="Your data on Conva">
+          <YourDataOnConva email={status.email} />
+        </Section>
+      )}
+
       <Section
         title="Danger zone"
         description="Sign out here, or permanently delete your account."
@@ -382,12 +430,13 @@ export function ProfileView() {
             >
               Sign out
             </button>
-            <span
-              className="rounded border border-rec/40 bg-rec/5 px-3 py-1.5 text-xs font-semibold text-rec/60"
-              title="Account deletion arrives with the platform endpoints."
+            <button
+              type="button"
+              onClick={() => setDeleting({ status, startAt: 1 })}
+              className="btn border-rec/40 bg-rec/10 text-rec"
             >
-              Delete account — coming soon
-            </span>
+              Delete account…
+            </button>
           </span>
         </Row>
       </Section>
@@ -400,5 +449,7 @@ export function ProfileView() {
         />
       )}
     </ViewShell>
+    {deleteDialog}
+    </>
   );
 }

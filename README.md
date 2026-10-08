@@ -1,6 +1,6 @@
 # conva
 
-A real-time AI conversation assistant: intercepts both sides of the host computer's audio (microphone + system output), transcribes them live into a dual-column chat UI, and lets a RAG-grounded AI agent process the conversation inline at any moment.
+A real-time AI conversation assistant: intercepts both sides of the host computer's audio (microphone + system output), transcribes them live into a dual-column chat UI, and lets a RAG-grounded AI agent process the conversation inline at any moment. Speech is transcribed on your computer by default. If you add an AI key, the conversation text is sent to that AI provider so it can answer; the offline switch in Settings → Ally stops that.
 
 **Design blueprint:** [`docs/phase-1-design-and-spec.md`](docs/phase-1-design-and-spec.md) is a pointer stub — the real doc (tech stack, module boundaries, latency budgets, milestones, and the resolved decision checklist) lives in `conva_core/docs/technical/phase-1-design-and-spec.md` (core is the single source of truth for design docs). Read it before touching code.
 
@@ -53,7 +53,7 @@ Condensed setup/run/test/lint/build reference: [`docs/development.md`](docs/deve
 Prereqs:
 
 1. **VS 2022 Build Tools** with the *Desktop development with C++* workload (MSVC + CMake — whisper.cpp needs both): `winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"`
-2. **Rust**: `winget install --id Rustlang.Rustup -e` (defaults: stable, MSVC host)
+2. **Rust**: `winget install --id Rustlang.Rustup -e` (defaults: stable, MSVC host). The repo pins its own Rust version in `rust-toolchain.toml`; the first `cargo` run in the repo downloads it automatically (if rustup says it is not installed, run `rustup toolchain install` inside the repo). CI uses the same pin.
 3. **CMake on PATH** — the VS-bundled CMake is not on PATH; install standalone: `winget install --id Kitware.CMake -e`
 4. **LLVM 18.x** — whisper-rs's bindgen needs `libclang.dll`, and LLVM 20+ generates broken bindings (compile-time layout assert). Install 18.1.8: https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe — then set `LIBCLANG_PATH` once: `[Environment]::SetEnvironmentVariable("LIBCLANG_PATH", "C:\Program Files\LLVM\bin", "User")` (new terminals inherit it)
 5. **Node 22.12+**

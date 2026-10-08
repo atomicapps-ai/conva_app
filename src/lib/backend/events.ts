@@ -17,9 +17,12 @@ import type {
   CaptureEvent,
   ClaimSnapshotEvent,
   ContextGenerateProgressEvent,
+  LiveAssistResult,
   ModelStatusEvent,
   PartnerLockEvent,
   PartnerPayload,
+  ViewAction,
+  ViewState,
   RadarEvent,
   RehearsalStateEvent,
   SessionStateEvent,
@@ -43,8 +46,12 @@ export interface EventMap {
   rehearsalState: RehearsalStateEvent;
   partnerTerm: PartnerPayload;
   partnerLock: PartnerLockEvent;
+  partnerViewState: ViewState;
+  partnerViewAction: ViewAction;
   splashProgress: SplashProgressEvent;
   contextGenerateProgress: ContextGenerateProgressEvent;
+  /** Progressive live-assist output; a higher `revision` of the same `result_id` replaces the last. */
+  liveAssist: LiveAssistResult;
   /** No adapter emits this yet (checkpoint A defines the contract only). */
   archiveProgress: ArchiveProgressEvent;
 }
@@ -71,7 +78,10 @@ export const EVENT_CHANNEL: Record<keyof EventMap, string> = {
   rehearsalState: "conva://rehearsal-state",
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
+  partnerViewState: "conva://partner-view-state",
+  partnerViewAction: "conva://partner-view-action",
   splashProgress: "conva://splash-progress",
   contextGenerateProgress: "conva://context-generate-progress",
+  liveAssist: "conva://live-assist",
   archiveProgress: "conva://archive-progress",
 };

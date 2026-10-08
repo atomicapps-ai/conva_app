@@ -112,7 +112,7 @@ describe("WebBackend — Ally over the live gateway (M2 cp3)", () => {
     expect(chunks).toEqual([
       { request_id: "ally-7", token: "**$120/mo**", done: false, error: null },
       { request_id: "ally-7", token: " — confirm term", done: false, error: null },
-      { request_id: "ally-7", token: "", done: true, error: null },
+      { request_id: "ally-7", token: "", done: true, error: null, stop_reason: "complete" },
     ]);
     offChunk();
     await b.ally.run("ally-8", "summarize", null, []);
@@ -166,6 +166,20 @@ describe("WebBackend — Ally over the live gateway (M2 cp3)", () => {
     await b.sessions.writeTextFile("report.md", "# analysis");
     expect(clicks).toEqual(["call.md", "report.md"]);
     vi.restoreAllMocks();
+  });
+
+  it("ally.run passes the hosted stop_reason through so a cut-off answer can be marked", async () => {
+    route(STATUS_ON, () =>
+      ndjson([
+        { type: "chunk", request_id: "r3", token: "- half a poi" },
+        { type: "done", request_id: "r3", stop_reason: "max_tokens", usage: null },
+      ]),
+    );
+    const b = new WebBackend(chromeWindows);
+    const chunks: AllyChunkEvent[] = [];
+    await b.subscribe("allyChunk", (e) => chunks.push(e));
+    await b.ally.run("r3", "question", "Why?", []);
+    expect(chunks.at(-1)).toEqual({ request_id: "r3", token: "", done: true, error: null, stop_reason: "truncated" });
   });
 
   it("a refusal before any line rejects with the server's code; a mid-stream error ends the card with a terminal error chunk", async () => {
@@ -702,5 +716,32 @@ describe("WebBackend — .cva archive (Checkpoint E: inspect + Context-scope exp
     const bytes = new Uint8Array([1, 2, 3]);
     await expect(b.archive.prepareLocalFile(bytes)).resolves.toBe("computed-digest");
     expect(archiveWasm.registerLocalArchiveFile).toHaveBeenCalledWith(bytes);
+  });
+});
+
+describe("WebBackend — live assist is honestly absent", () => {
+  it("answers a typed question with 'not mine' so it falls through to Ally, without any network call", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      const b = new WebBackend(chromeWindows);
+      await expect(b.liveAssist.submit("total amount per district")).resolves.toEqual({
+        handled: false,
+      });
+      expect(fetchSpy).not.toHaveBeenCalledWith(expect.stringContaining("live-assist"), expect.anything());
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("rejects a choice as not implemented, and says so in the capability snapshot", async () => {
+    const b = new WebBackend(chromeWindows);
+    await expect(b.liveAssist.choose("la-1", "1")).rejects.toMatchObject({
+      name: "UnimplementedOnWebError",
+    });
+    const ops = b.capabilityStore.snapshot().operations;
+    expect(ops["liveAssist.submit"].state).toBe("unimplemented");
+    expect(ops["liveAssist.choose"].state).toBe("unimplemented");
+    await expect(b.capabilities()).resolves.toMatchObject({ rag: { tableAggregation: false } });
   });
 });

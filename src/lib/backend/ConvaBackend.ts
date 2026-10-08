@@ -39,16 +39,27 @@ import type {
   ConversationContext,
   KnowledgeProfile,
   IngestReport,
+  LiveAssistAck,
   ModelInfo,
   PartnerPayload,
+  ViewAction,
+  ViewState,
   ProviderId,
   ProviderInfo,
   ProviderKeyStatus,
   RagDocument,
+  HighlightTerm,
   SecretsStatus,
   SessionSummary,
   StartRehearsalResult,
   TranscriptSegment,
+  TelemetryStatus,
+  DeleteAccountResult,
+  LocalDataSummary,
+  RecordingInfo,
+  DeleteRecordingsReport,
+  EraseOptions,
+  EraseReport,
   UsageSummary,
   WhisperModelInfo,
 } from "@/lib/ipc";
@@ -125,6 +136,21 @@ export interface ConvaBackend {
       question: string | null,
       segments: TranscriptSegment[],
     ): Promise<void>;
+  };
+
+  /**
+   * Live assist: answers that need real computation, starting with exact
+   * spreadsheet totals over CSV / XLSX documents attached to the active
+   * Context. Results stream back as `liveAssist` events (a holding response,
+   * then the finished grid, under one `result_id`). Desktop only for now: the
+   * web reports both operations as `unimplemented`.
+   */
+  liveAssist: {
+    /** Offer a typed question. `handled: false` means it is not a data
+     *  request for any attached table; ask Ally as usual. */
+    submit(text: string): Promise<LiveAssistAck>;
+    /** Answer a `needs_choice` result (which column, which file). */
+    choose(resultId: string, optionId: string): Promise<void>;
   };
 
   /** Audio devices + ASR models. Layer 4 (local) on desktop. */
@@ -207,8 +233,9 @@ export interface ConvaBackend {
     download(id: string, dest: string): Promise<void>;
     /** Desktop-only: copy library originals into the repo `library/` folder. */
     syncLibrary(): Promise<string>;
-    /** RAG-relevant phrases in a message, for transcript highlighting. */
-    analyzeTerms(text: string): Promise<string[]>;
+    /** Highlight terms in a message (with why each is shown), for transcript
+     *  highlighting. */
+    analyzeTerms(text: string): Promise<HighlightTerm[]>;
     /** Record 👍/👎 on a highlight term ("up"/"down"/null=clear) — Phase 4. */
     recordHighlightFeedback(
       term: string,
@@ -260,6 +287,16 @@ export interface ConvaBackend {
     avatarUrl(nonce: number): Promise<string | null>;
     avatarUpload(blob: Blob): Promise<{ ok: boolean; error?: string }>;
     avatarDelete(): Promise<boolean>;
+
+    /**
+     * Delete the account and everything Conva holds for it, then end the
+     * session. The caller must have asked for a FRESH sign-in first (the server
+     * refuses a stale one with `recent_sign_in_required`). Rejects with a stable
+     * code (`recent_sign_in_required`, `signed_out`, `quota_exceeded`,
+     * `unprovisioned`, `storage_cleanup_failed`, `upstream`, `network`).
+     * Data on this computer is not touched.
+     */
+    deleteAccount(): Promise<DeleteAccountResult>;
   };
 
   /** Named conversations with append semantics. Local on desktop; cloud on web. */
@@ -339,6 +376,26 @@ export interface ConvaBackend {
     summary(): Promise<UsageSummary>;
     /** Clear all counters; returns the emptied snapshot. */
     reset(): Promise<UsageSummary>;
+    /** Desktop-only: is usage-event collection on, and is the switch locked
+     *  by beta terms? (Settings → Privacy.) */
+    telemetryStatus(): Promise<TelemetryStatus>;
+  };
+
+  /**
+   * What the desktop app keeps on this computer, and removing it (Settings →
+   * Privacy → Your data on this computer). Desktop-only: the web build has no
+   * local store beyond the sign-in.
+   */
+  localData: {
+    summary(): Promise<LocalDataSummary>;
+    recordings(): Promise<RecordingInfo[]>;
+    deleteRecordings(ids: string[]): Promise<DeleteRecordingsReport>;
+    revealRecording(id: string): Promise<void>;
+    openDataFolder(): Promise<void>;
+    /** Queue the erase for the next start; the caller relaunches the app. */
+    erase(options: EraseOptions): Promise<void>;
+    /** The result of the last erase, once (read after the restart). */
+    takeEraseReport(): Promise<EraseReport | null>;
   };
 
   /** Auto-persisted session transcripts + export. */
@@ -413,6 +470,14 @@ export interface ConvaBackend {
     close(): Promise<void>;
     redock(): Promise<void>;
     payload(): Promise<PartnerPayload | null>;
+    /** Make sure View (4) is open beside the app — no retarget, no focus. */
+    ensureOpen(): Promise<void>;
+    /** Main window → partner window: the live View (4) state. */
+    publishView(state: ViewState): Promise<void>;
+    /** The latest pushed View (4) state (read on partner-window boot). */
+    viewState(): Promise<ViewState | null>;
+    /** Partner window → main window: something the user did in View (4). */
+    sendViewAction(action: ViewAction): Promise<void>;
     /** Lock (follow the app) / unlock (float free). Desktop-only. */
     setLocked(locked: boolean): Promise<void>;
     /** Current lock state; `false` where the window doesn't exist (web). */

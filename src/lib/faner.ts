@@ -42,5 +42,6 @@ export function fanerPrompt(capture: Capture, phrase: string): string {
  * grounded evidence hit already has useful Say-now content; a future
  * PreparedHit has a complete cached answer and must never spend a model call. */
 export function shouldAutoRefineRadar(event: RadarEvent): boolean {
-  return event.outcome === "miss";
+  // A computed answer (spreadsheet totals) is never handed to a model.
+  return event.outcome === "miss" && !event.computed;
 }

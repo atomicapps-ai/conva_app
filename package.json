@@ -40,7 +40,9 @@
     "env:print:dev": "node env/cli.mjs print dev",
     "env:print:prod": "node env/cli.mjs print prod",
     "certify:web": "node scripts/certify-web.mjs",
-    "rehearse:web": "node scripts/rehearse-web.mjs"
+    "rehearse:web": "node scripts/rehearse-web.mjs",
+    "demo:preview": "node scripts/demo-preview.mjs",
+    "scenarios:web": "node scripts/scenarios-web.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.13",
@@ -68,7 +70,7 @@
     "tailwindcss": "^4.1.16",
     "typescript": "^5.9.3",
     "vite": "^7.2.7",
-    "vitest": "^3.0.5"
+    "vitest": "^5.0.3"
   },
   "allowScripts": {
     "esbuild@0.28.1": true

@@ -67,7 +67,7 @@ export const FEATURES: Feature[] = [
     id: "recording",
     title: "Recordings, conversations & export",
     blurb:
-      "Save any call as a named conversation, re-open to append, and export a clean Markdown transcript. Optional stereo recording keeps you and them on separate channels.",
+      "Save any call as a named conversation, re-open to append, and export a clean Markdown transcript. On desktop, optional stereo recording keeps you and them on separate channels.",
     icon: "record",
     availability: "both",
   },

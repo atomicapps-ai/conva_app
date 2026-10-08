@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AllySettings } from "@/components/AllySettings";
+import { LocalDataSettings } from "@/components/privacy/LocalDataSettings";
+import { UsageDataSettings } from "@/components/UsageDataSettings";
 import { SubscriptionSettings } from "@/components/SubscriptionSettings";
+import { usageProblemTitle } from "@/lib/usageProblems";
 import {
   DEFAULT_SETTINGS_GROUP,
   groupForKey,
   SETTINGS_GROUPS,
+  toSettingsGroup,
   type SettingsGroup,
 } from "@/components/settingsNav";
 import { Notice, Section, ViewShell } from "@/components/studio/ViewShell";
@@ -88,6 +92,25 @@ function AboutSection() {
         className="btn mt-3"
       >
         About & extras →
+      </button>
+    </Section>
+  );
+}
+
+/** Entry to the model comparison view (Settings → Compare models). Shown on
+ *  desktop under the Ally group and on the hosted web app, where it is read-only. */
+function CompareModelsSection() {
+  return (
+    <Section
+      title="Compare models"
+      description="See how each model trades speed, quality and cost on Conva's own call types before you choose."
+    >
+      <button
+        type="button"
+        onClick={() => useNavStore.getState().setView("models")}
+        className="btn"
+      >
+        Compare models →
       </button>
     </Section>
   );
@@ -751,15 +774,20 @@ function UsageSettings() {
                     </td>
                     <td
                       className="py-1.5 pl-2 pr-3 text-right font-mono tabular-nums text-fg-muted"
-                      title={
-                        b.failed_requests > 0
-                          ? `${fmt(b.failed_requests)} failed (partial tokens still billed)`
-                          : undefined
-                      }
+                      title={usageProblemTitle(b)}
                     >
                       {fmt(b.requests)}
                       {b.failed_requests > 0 && (
                         <span className="text-rec"> ·{fmt(b.failed_requests)}✗</span>
+                      )}
+                      {(b.cut_off_requests ?? 0) > 0 && (
+                        <span className="text-notice"> ·{fmt(b.cut_off_requests ?? 0)}✂</span>
+                      )}
+                      {((b.refused_requests ?? 0) + (b.unusable_replies ?? 0)) > 0 && (
+                        <span className="text-notice">
+                          {" "}
+                          ·{fmt((b.refused_requests ?? 0) + (b.unusable_replies ?? 0))}!
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -1272,6 +1300,7 @@ export function SettingsPanel() {
             hosted backend. Manage your account on the website.
           </Notice>
         </Section>
+        <CompareModelsSection />
         <AboutSection />
       </ViewShell>
     );
@@ -1366,6 +1395,23 @@ export function SettingsPanel() {
       </Section>
       )}
 
+      {group === "ally" && <CompareModelsSection />}
+
+      {group === "privacy" && isTauri() && (
+      <Section
+        title="Usage data"
+        description="Counts and feature use only — never audio, transcripts or documents."
+      >
+        <UsageDataSettings />
+      </Section>
+      )}
+
+      {group === "privacy" && isTauri() && (
+      <Section title="Your data on this computer">
+        <LocalDataSettings />
+      </Section>
+      )}
+
       {group === "privacy" && (
       <Section
         title="Updates"
@@ -1442,7 +1488,15 @@ function SettingsShell({
 }: {
   children: (group: SettingsGroup) => React.ReactNode;
 }) {
-  const [group, setGroup] = useState<SettingsGroup>(DEFAULT_SETTINGS_GROUP);
+  // A sub-view (Recordings) sends the user back to the group it came from.
+  const [group, setGroup] = useState<SettingsGroup>(() =>
+    toSettingsGroup(useNavStore.getState().pendingSettingsGroup ?? DEFAULT_SETTINGS_GROUP),
+  );
+  useEffect(() => {
+    if (useNavStore.getState().pendingSettingsGroup !== null) {
+      useNavStore.setState({ pendingSettingsGroup: null });
+    }
+  }, []);
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   const label = SETTINGS_GROUPS.find((g) => g.id === group)?.label ?? "Settings";
 
@@ -1563,16 +1617,19 @@ function ProfileSettings() {
     >
       <div className="mb-4 flex items-center gap-4">
         <span
-          className="grid h-14 w-14 shrink-0 place-items-center rounded-full border-[1.5px] border-primary/50 bg-[radial-gradient(120%_120%_at_50%_25%,#1a2742,#0c1424)] text-lg font-extrabold text-fg-muted"
+          className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full border-[1.5px] border-primary/50 bg-[radial-gradient(120%_120%_at_50%_25%,#1a2742,#0c1424)] text-lg font-extrabold text-fg-muted"
           aria-hidden
         >
-          {account.initials}
+          {account.avatarUrl ? (
+            <img src={account.avatarUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            account.initials
+          )}
         </span>
-        <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-fg-muted">
-          Your initials are the avatar everywhere in the app — the rail, Home
-          and here. A photo isn&apos;t stored anywhere yet, so there&apos;s
-          nothing to upload; the monogram is the real avatar, not a placeholder
-          for one.
+        <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-fg-muted" data-testid="avatar-note">
+          {account.signedIn
+            ? "Your photo is your avatar everywhere in the app: the rail, Home and here. Change or remove it on your Profile page (account menu). Without a photo, your initials are used."
+            : "Sign in to use a profile photo. Until then your initials are your avatar."}
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">

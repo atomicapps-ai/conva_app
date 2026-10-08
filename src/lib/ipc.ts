@@ -6,6 +6,8 @@
  * mirror later in Phase 1).
  */
 
+import type { StopReason } from "./stopReason";
+
 /**
  * Legacy two-side model. The versioned capture/source/event contract (browser
  * product architecture M0) lives in `@/lib/capture/contract` — mirror of
@@ -28,8 +30,11 @@ export const EVENTS = {
   authChanged: "conva://auth-changed",
   partnerTerm: "conva://partner-term",
   partnerLock: "conva://partner-lock",
+  partnerViewState: "conva://partner-view-state",
+  partnerViewAction: "conva://partner-view-action",
   splashProgress: "conva://splash-progress",
   contextGenerateProgress: "conva://context-generate-progress",
+  liveAssist: "conva://live-assist",
 } as const;
 
 export interface TranscriptSegment {
@@ -82,6 +87,10 @@ export interface AllyChunkEvent {
   token: string;
   done: boolean;
   error: string | null;
+  /** Set with `done: true` on a stream that finished: why the model stopped.
+   *  Absent on token chunks, errors and older peers; a missing value is
+   *  treated as complete. Mirror of `AllyChunkEvent.stop_reason`. */
+  stop_reason?: StopReason | null;
 }
 
 /** Mirror of conva-core prompt::AllyKind. */
@@ -134,6 +143,18 @@ export interface RagDocument {
    *  ingested text length for pasted/generated. Format with
    *  `formatBytes()` (`@/lib/formatBytes`), never display the raw number. */
   size_bytes: number;
+  /** Present for CSV / XLSX documents that also carry a typed table, so
+   *  spreadsheet questions can be answered by exact arithmetic. */
+  table?: TableInfo;
+}
+
+/** Mirror of `rag::TableInfo`. */
+export interface TableInfo {
+  rows: number;
+  columns: number;
+  /** False when the sheet's structure can't be totalled safely (merged
+   *  cells, no header row, ...). It is still searchable as text. */
+  supported: boolean;
 }
 
 export interface IngestReport {
@@ -211,6 +232,9 @@ export interface RadarEvent {
   confidence: number;
   bridge: BridgeResponse;
   sources: ScoredChunk[];
+  /** True when live assist is computing an exact answer for this question, so
+   *  no model answer may be started for it. Absent on older emitters. */
+  computed?: boolean;
 }
 
 export interface TrackedEntity {
@@ -256,6 +280,119 @@ export interface Capture {
 /** The full deduped list of routed captures, re-emitted after each pass. */
 export interface CaptureEvent {
   captures: Capture[];
+}
+
+// ── FANER phrase resolution — DEV-ONLY debug surface ─────────────────────────
+// Mirrors `conva-core/src/phrase.rs` (trace), `phrase_eval.rs` (eval cases),
+// `capture.rs` (`ArgumentTrace`), and `src-tauri/src/faner_debug.rs` +
+// `capture.rs` (`ReplayOutcome`). Produced only by the `faner_debug_*` /
+// `faner_replay` commands; never part of a production payload.
+
+export interface SignalTrace {
+  /** `context term` | `boost` | `document phrase` | `document overlap` |
+   *  `entity/acronym` | `rarity` | `domain lexicon (core)` |
+   *  `domain lexicon (extended)` */
+  source: string;
+  weight: number;
+}
+
+export interface SpanTrace {
+  /** Char offsets into the analysed text. */
+  start: number;
+  end: number;
+  /** The transcript's own text (original casing). */
+  text: string;
+  status: "selected" | "contained";
+  /** The longer phrase that swallowed this occurrence, when `contained`. */
+  container: string | null;
+}
+
+/** Why a highlighted term is shown — drives its visual weight. Mirrors
+ *  `conva_core::phrase::HighlightOrigin` (snake_case). */
+export type HighlightOrigin =
+  "context" | "document" | "entity" | "domain" | "rarity";
+
+/** One highlighted term with its origin — the return of `analyze_terms`.
+ *  Mirrors `conva_core::ipc::HighlightTerm`. */
+export interface HighlightTerm {
+  term: string;
+  origin: HighlightOrigin;
+}
+
+export interface CandidateTrace {
+  term: string;
+  /** Normalized identity, e.g. `api gateway`. */
+  key: string;
+  score: number;
+  signals: SignalTrace[];
+  spans: SpanTrace[];
+  decision: "selected" | "rejected";
+  reason: string;
+  origin: HighlightOrigin;
+}
+
+export interface DebugHighlightRequest {
+  text: string;
+  terms: string[];
+  docText: string;
+  useActiveContext: boolean;
+  /** Bundled domain pack ids to apply in manual mode. */
+  lexiconPacks: string[];
+}
+
+export interface DebugHighlightResponse {
+  /** Exactly what `relevant_terms` returns — what a bubble would render. */
+  terms: string[];
+  /** Origin of each entry of `terms`, index for index. */
+  origins: HighlightOrigin[];
+  trace: CandidateTrace[];
+  source: "manual" | "active_context";
+  knownTerms: string[];
+  activeContextTerms: string[];
+  activeScopeDocCount: number;
+  /** Domain packs this run used. */
+  packs: string[];
+  /** Packs the app's active Context has selected right now. */
+  activePacks: string[];
+}
+
+export interface FanerEvalCase {
+  id: string;
+  seed: number;
+  transcript: string;
+  known_terms: string[];
+  expected_terms: string[];
+  forbidden_terms: string[];
+}
+
+export interface FanerEvalResult {
+  case: FanerEvalCase;
+  actual_terms: string[];
+  /** null when the case declares no expectations. */
+  passed: boolean | null;
+  failures: string[];
+  trace: CandidateTrace[];
+}
+
+export type ArgumentOutcome =
+  "kept" | "canonicalized" | "rewritten" | "unverified" | "dropped";
+
+export interface ArgumentTrace {
+  capture_index: number;
+  raw: string;
+  resolved: string;
+  outcome: ArgumentOutcome;
+  reason: string;
+  container: string | null;
+  matched_text: string | null;
+}
+
+/** `faner_replay` result: raw model captures vs. the deterministic
+ *  phrase-resolved captures the live path emits, plus the per-argument trace. */
+export interface ReplayOutcome {
+  raw: Capture[];
+  resolved: Capture[];
+  trace: ArgumentTrace[];
 }
 
 // ── FANER claim snapshot — mirrors claim/evidence/source_policy + ipc.rs ────
@@ -486,6 +623,291 @@ export interface PartnerPayload {
   /** Complete typed claim state for a Tracking evidence view. `null` for
    *  terms, answers, and documents. Mirrors the Rust optional field. */
   claim: ClaimRecord | null;
+}
+
+/** Mirror of `ipc.rs::ViewFact` — one labelled fact row under a View item. */
+export interface ViewFact {
+  label: string;
+  value: string;
+}
+
+/** Mirror of `ipc.rs::ViewItem` — one item in View (4); the wire form of the
+ *  UI's `AllyFocusItem` (`viewMirror.ts` converts). */
+export interface ViewItem {
+  id: string;
+  group: "question" | "prep" | "term" | "commitment" | "mention";
+  question: string;
+  answer: string;
+  source_label: string;
+  source_files: string[];
+  status: "instant" | "streaming" | "ready" | "error";
+  card_id: string | null;
+  found_id: string | null;
+  tier: "field" | "specialized" | null;
+  kind: "concept" | "problem" | null;
+  facts: ViewFact[];
+  /** A structured grid answer (spreadsheet totals); `answer` still carries
+   *  the speakable Say-now line. */
+  table?: GridPayload | null;
+  /** A question waiting on the user's pick (ambiguous column or file). */
+  choice?: ViewChoice | null;
+  /** True when a newer question replaced this live-assist result. */
+  stale?: boolean;
+}
+
+/** Mirror of `ipc.rs::ViewChoice`. */
+export interface ViewChoice {
+  question: string;
+  options: ChoiceOption[];
+}
+
+/** Mirror of `ipc.rs::ViewState` — everything View (4) shows. The main
+ *  window owns the truth; the partner window mirrors it. */
+export interface ViewState {
+  items: ViewItem[];
+  active_id: string | null;
+  pinned_ids: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Table datasets (mirror of `crates/conva-core/src/table.rs`,
+// `table_aggregate.rs`, `table_query.rs`). Numbers travel as plain decimal
+// strings ("1234.50"): exact, and safe for JavaScript. The UI never does
+// arithmetic on them.
+// ---------------------------------------------------------------------------
+
+export const TABLE_SCHEMA_VERSION = 1;
+
+export type RawKind =
+  | "text"
+  | "number"
+  | "formula_value"
+  | "formula_no_value"
+  | "error";
+export type CellKind = "blank" | "number" | "text" | "unusable";
+export type ColumnKind = "number" | "text" | "empty";
+
+export interface TableCell {
+  raw: string;
+  kind: CellKind;
+  /** Exact decimal string when `kind === "number"`. */
+  number?: string;
+}
+
+export interface TableColumn {
+  index: number;
+  header: string;
+  kind: ColumnKind;
+  currency?: string;
+  percent: boolean;
+  scale: number;
+}
+
+export interface TableRow {
+  /** One-based row number in the source sheet. */
+  source_row: number;
+  cells: TableCell[];
+  /** Source row of the earlier row this one exactly repeats. */
+  duplicate_of?: number;
+  /** A "Total" line inside the data; never aggregated. */
+  subtotal: boolean;
+}
+
+export type IssueCode =
+  | "blank_values"
+  | "malformed_numbers"
+  | "formula_without_value"
+  | "duplicate_rows"
+  | "ragged_rows"
+  | "duplicate_headers"
+  | "blank_header"
+  | "subtotal_row_skipped"
+  | "group_variants_merged"
+  | "blank_group"
+  | "mixed_currency"
+  | "other_sheets_ignored";
+
+export interface TableIssue {
+  code: IssueCode;
+  column?: number;
+  /** First 20 affected source rows. */
+  rows: number[];
+  /** True number of affected rows. */
+  count: number;
+  message: string;
+}
+
+export type UnsupportedReason =
+  | "merged_cells"
+  | "no_header_row"
+  | "no_data_rows"
+  | "too_many_rows"
+  | "empty_sheet";
+
+export interface TableDataset {
+  schema_version: number;
+  doc_id: string;
+  file_name: string;
+  sheet?: string;
+  columns: TableColumn[];
+  rows: TableRow[];
+  issues: TableIssue[];
+  /** Empty when the sheet can be aggregated safely. */
+  unsupported: UnsupportedReason[];
+}
+
+export type AggFunc = "sum" | "count" | "average" | "min" | "max";
+export type DuplicatePolicy = "keep_all" | "exclude_exact";
+
+export interface ColumnRef {
+  index: number;
+  header: string;
+}
+
+/** Mirror of `table_aggregate::AggregatePlan`. */
+export interface AggregatePlan {
+  schema_version: number;
+  doc_id: string;
+  func: AggFunc;
+  /** `null` only for `count`. */
+  measure: ColumnRef | null;
+  group_by: ColumnRef[];
+  duplicates: DuplicatePolicy;
+}
+
+/** Mirror of `table_query::ChoiceOption`. */
+export interface ChoiceOption {
+  /** Column index or document id, as text. */
+  id: string;
+  label: string;
+  detail?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Live assist (mirror of `ipc.rs`). Progressive answers that need real
+// computation: a holding response, then the finished source-linked grid,
+// under one `result_id` with a rising `revision`.
+// ---------------------------------------------------------------------------
+
+export const LIVE_ASSIST_CONTRACT_VERSION = 1;
+
+export type LiveAssistKind = "table_aggregate";
+
+export type LiveAssistLifecycle =
+  | "provisional"
+  | "needs_choice"
+  | "complete"
+  | "declined"
+  | "failed"
+  | "superseded";
+
+/** Where a figure came from: the file, the column and the rows. */
+export interface SourceRef {
+  doc_id: string;
+  file_name: string;
+  sheet?: string;
+  column?: string;
+  /** First source rows that contributed (capped at 20). */
+  rows: number[];
+  /** True number of rows that contributed. */
+  row_count: number;
+}
+
+export type GridAlign = "left" | "right";
+
+export interface GridColumn {
+  key: string;
+  label: string;
+  align: GridAlign;
+}
+
+export interface GridCell {
+  /** Display text, e.g. `$439,519.85`. */
+  text: string;
+  /** Exact machine value as a plain decimal string, for number cells. */
+  value?: string;
+  /** Provenance; absent for labels. */
+  sources?: SourceRef[];
+}
+
+export type GridRowKind = "body" | "total";
+
+export interface GridRow {
+  kind: GridRowKind;
+  cells: GridCell[];
+}
+
+export type NoticeLevel = "info" | "caution";
+
+export interface GridNotice {
+  level: NoticeLevel;
+  text: string;
+  rows?: number[];
+}
+
+export interface GridPayload {
+  title: string;
+  columns: GridColumn[];
+  rows: GridRow[];
+  notices: GridNotice[];
+  source_files: string[];
+}
+
+export type LiveAssistPayload =
+  | { type: "text"; text: string }
+  | ({ type: "grid" } & GridPayload)
+  | { type: "choice"; question: string; options: ChoiceOption[] };
+
+/** Milliseconds measured from `enqueued_at_unix_ms`. */
+export interface LiveAssistTiming {
+  enqueued_at_unix_ms: number;
+  /** Enqueue to holding response emitted. */
+  holding_ms?: number | null;
+  /** Enqueue to this revision emitted. */
+  emitted_ms?: number | null;
+  /** Time spent computing (excludes queueing). */
+  compute_ms?: number | null;
+}
+
+export interface LiveAssistResult {
+  contract_version: number;
+  result_id: string;
+  /** Ties the result to its turn: `{session}:them:{seq}` or `ask:ask:{n}`. */
+  correlation_id: string;
+  session_id: string;
+  context_id?: string | null;
+  /** Rises with every emission of the same `result_id`. */
+  revision: number;
+  kind: LiveAssistKind;
+  lifecycle: LiveAssistLifecycle;
+  question: string;
+  say_now?: string | null;
+  payload?: LiveAssistPayload | null;
+  timing: LiveAssistTiming;
+  /** Set when `lifecycle === "superseded"`: the newer result's id. */
+  superseded_by?: string | null;
+}
+
+/** Return value of `live_assist_submit`. */
+export interface LiveAssistAck {
+  /** False when the text is not a data request; hand it to Ally as usual. */
+  handled: boolean;
+  result_id?: string | null;
+}
+
+/** True once no further revision of a result is expected. */
+export function isFinalLifecycle(l: LiveAssistLifecycle): boolean {
+  return l !== "provisional" && l !== "needs_choice";
+}
+
+/** Mirror of `ipc.rs::ViewActionKind`. */
+export type ViewActionKind = "select" | "pin" | "elaborate" | "ask" | "choose";
+
+/** Mirror of `ipc.rs::ViewAction` — what the user did in View (4). */
+export interface ViewAction {
+  kind: ViewActionKind;
+  id: string;
+  text?: string | null;
 }
 
 /** Mirror of `ipc.rs::PartnerLockEvent` — sent when the shell changes the
@@ -809,6 +1231,12 @@ export interface LlmFeatureUsage {
   output_tokens: number;
   requests: number;
   failed_requests: number;
+  /** Replies that hit the output cap (successful stream, cut-off text). */
+  cut_off_requests?: number;
+  /** Replies the provider declined or filtered. */
+  refused_requests?: number;
+  /** Replies that streamed but could not be used (unparseable JSON). */
+  unusable_replies?: number;
 }
 
 /** Usage snapshot with cross-provider running totals. */
@@ -862,6 +1290,8 @@ export interface AppConfig {
   llm_quality: ModelSelection;
   llm_fast: ModelSelection | null;
   consent_acknowledged: boolean;
+  /** The first-run "How should Ally think?" choice was made or skipped. */
+  ai_setup_completed: boolean;
   input_device: string | null;
   loopback_device: string | null;
   tracker_enabled: boolean;
@@ -887,7 +1317,89 @@ export interface AppConfig {
    *  and finalizes any recording instead of burning resources unattended.
    *  `null` disables it. Settings → Devices offers presets + a custom value. */
   idle_stop_minutes: number | null;
+  /** "Send nothing to an AI provider": no conversation or library content
+   *  goes to a remote provider (LLM, cloud transcription, cloud speech, web
+   *  research). Local providers stay allowed. Default off. */
+  offline_mode: boolean;
+  /** Content-free usage events (counts and feature use, never audio,
+   *  transcripts or documents). Default on; off stops collection and deletes
+   *  the unsent queue, unless the server marks the account as a beta
+   *  participant (`TelemetryStatus.required`). */
+  telemetry_enabled: boolean;
 }
+
+/** Count and total size for one kind of data kept on this computer. */
+export interface LocalDataCategory {
+  count: number;
+  bytes: number;
+}
+
+/** Mirror of conva-core `ipc::LocalDataSummary` (Settings → Privacy → Your data on this computer). */
+export interface LocalDataSummary {
+  data_dir: string | null;
+  recordings: LocalDataCategory;
+  conversations: LocalDataCategory;
+  session_logs: LocalDataCategory;
+  /** `count` is documents; `bytes` includes the originals. */
+  library: LocalDataCategory;
+  contexts: LocalDataCategory;
+  /** Usage counts and the diagnostics log; `count` is files. */
+  diagnostics: LocalDataCategory;
+  /** Downloaded speech and embedding models. Not personal; kept on erase. */
+  models: LocalDataCategory;
+}
+
+/** One call recording. `id` is the file name (`call-<epoch ms>.wav`). */
+export interface RecordingInfo {
+  id: string;
+  started_unix_ms: number;
+  duration_ms: number | null;
+  size_bytes: number;
+}
+
+export interface DeleteRecordingsReport {
+  deleted: number;
+  freed_bytes: number;
+  /** Ids that could not be deleted (invalid, already gone, or in use). */
+  failed: string[];
+}
+
+export interface EraseOptions {
+  /** Also remove API keys from the OS credential store. Off by default. */
+  include_keys: boolean;
+}
+
+/** What an erase did; read once after the app restarts. */
+export interface EraseReport {
+  removed_files: number;
+  removed_bytes: number;
+  /** Paths (relative to the app-data folder) that could not be removed. */
+  failed: string[];
+  keys_removed: boolean;
+  finished_unix_ms: number;
+}
+
+/** Result of a successful account deletion; `reference` is the short code
+ *  (`DEL-XXXX-XXXX`) the person can quote. */
+export interface DeleteAccountResult {
+  reference: string | null;
+}
+
+/** Mirror of the shell's `telemetry_status` command. */
+export interface TelemetryStatus {
+  /** The user's setting. */
+  enabled: boolean;
+  /** The server says this account's beta terms require usage data; the
+   *  switch is locked on. */
+  required: boolean;
+  /** What is actually happening: `enabled || required`. */
+  collecting: boolean;
+  /** Absolute path of the local, inspectable event log, when known. */
+  log_path: string | null;
+}
+
+/** Error string a remote call refused by `offline_mode` carries. */
+export const OFFLINE_MODE_ERROR = "offline_mode";
 
 /** Mirror of conva-core audio::AudioDevice. */
 export interface AudioDevice {

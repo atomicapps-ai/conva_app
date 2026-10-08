@@ -1368,6 +1368,31 @@ pub fn orphaned_generated_doc_ids(
         .collect()
 }
 
+/// The highlight terms an active Context contributes to live transcript
+/// highlighting: its key terms, then its digest glossary, then — when a job
+/// description is present — the interviewer's own vocabulary (spec
+/// 2026-08-26, part 2) that the two lists don't already cover
+/// (case-insensitive). One builder for every place that (re)applies an
+/// active Context, so activation and a later save of the same Context can
+/// never disagree about which terms are live.
+pub fn active_highlight_terms(
+    key_terms: &[String],
+    glossary: &[String],
+    job_description: Option<&str>,
+) -> Vec<String> {
+    let mut terms: Vec<String> = key_terms.iter().chain(glossary).cloned().collect();
+    if let Some(jd) = job_description {
+        let have: std::collections::HashSet<String> =
+            terms.iter().map(|t| t.to_lowercase()).collect();
+        terms.extend(
+            crate::highlight::interviewer_terms(jd, 16)
+                .into_iter()
+                .filter(|t| !have.contains(&t.to_lowercase())),
+        );
+    }
+    terms
+}
+
 /// The live retrieval scope for a grounded Context: its own attached source
 /// documents PLUS whatever the prepared `KnowledgeProfile` adds. Union, never
 /// a replacement — once a dossier compiles, `profile.doc_ids` narrows to just
@@ -1903,6 +1928,7 @@ mod tests {
             source: DocSource::Generated,
             context_ids,
             size_bytes: 1024,
+            table: None,
         }
     }
 
@@ -1933,6 +1959,7 @@ mod tests {
                 source: DocSource::File,
                 context_ids: vec!["s1".into()],
                 size_bytes: 51200,
+                table: None,
             },
             // No context_ids at all — out of scope, left alone.
             generated_doc("doc-untagged", vec![]),
@@ -1949,6 +1976,27 @@ mod tests {
         ctx.dossier_doc_id = Some("doc-1".into());
         let docs = vec![generated_doc("doc-1", vec!["s1".into()])];
         assert!(orphaned_generated_doc_ids(&[ctx], &docs).is_empty());
+    }
+
+    #[test]
+    fn active_highlight_terms_orders_key_terms_then_glossary_then_new_jd_vocabulary() {
+        let key = vec!["API Gateway".to_string()];
+        let glossary = vec!["Terraform".to_string()];
+        let terms = active_highlight_terms(&key, &glossary, None);
+        assert_eq!(terms, vec!["API Gateway", "Terraform"]);
+
+        // JD vocabulary is appended only when not already covered.
+        let jd = "We need deep Kubernetes and Terraform experience.";
+        let with_jd = active_highlight_terms(&key, &glossary, Some(jd));
+        assert_eq!(&with_jd[..2], ["API Gateway", "Terraform"]);
+        assert_eq!(
+            with_jd
+                .iter()
+                .filter(|t| t.eq_ignore_ascii_case("terraform"))
+                .count(),
+            1,
+            "{with_jd:?}"
+        );
     }
 
     #[test]

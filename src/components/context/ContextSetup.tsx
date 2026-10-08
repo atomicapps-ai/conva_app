@@ -30,6 +30,7 @@ import {
 } from "@/components/context/generationStatus";
 import { useGenerationProgress } from "@/components/context/useGenerationProgress";
 import { DOC_DRAG_MIME } from "@/components/contexts/LibraryPane";
+import { TableBadge } from "@/components/contexts/TableBadge";
 import { DocumentTypeIcon } from "@/components/ui/DocumentTypeIcon";
 import { useBackend } from "@/lib/backend";
 import { useCapabilities } from "@/lib/backend/context";
@@ -167,6 +168,7 @@ function ResourceIntake({
               <li key={doc.id} className="flex items-center gap-2 py-2">
                 <DocumentTypeIcon doc={doc} size={15} />
                 <span className="min-w-0 flex-1 truncate text-sm text-fg">{doc.file_name}</span>
+                <TableBadge doc={doc} />
                 {doc.source === "pasted" && (
                   <span className="shrink-0 rounded-full bg-panel-raised px-1.5 py-0.5 text-[10px] text-fg-faint">
                     From clipboard
@@ -229,7 +231,7 @@ function ResourceIntake({
 }
 
 const DOC_EXTENSIONS = [
-  "pdf", "docx", "md", "txt", "html",
+  "pdf", "docx", "md", "txt", "html", "csv", "tsv", "xlsx", "xlsm",
   "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tif", "tiff", "heic",
 ];
 const STEP_LABEL = ["the basics", "context & documents", "review"];
@@ -523,7 +525,7 @@ export function ContextSetup({
       const { open } = await import("@tauri-apps/plugin-dialog");
       const picked = await open({
         multiple: true,
-        filters: [{ name: "Documents and images", extensions: DOC_EXTENSIONS }],
+        filters: [{ name: "Documents, spreadsheets and images", extensions: DOC_EXTENSIONS }],
       });
       const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
       if (paths.length === 0) return;

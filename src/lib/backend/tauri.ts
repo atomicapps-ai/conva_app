@@ -131,6 +131,11 @@ export class TauriBackend implements ConvaBackend {
     run: cmd.ally,
   };
 
+  liveAssist = {
+    submit: cmd.liveAssistSubmit,
+    choose: cmd.liveAssistChoose,
+  };
+
   audio = {
     listDevices: cmd.listAudioDevices,
     listWhisperModels: cmd.listWhisperModels,
@@ -203,6 +208,7 @@ export class TauriBackend implements ConvaBackend {
     signupPassword: cmd.authSignupPassword,
     status: cmd.authStatus,
     signout: cmd.authSignout,
+    deleteAccount: cmd.authDeleteAccount,
     openUrl: cmd.openUrl,
     // The one real exception to this file's "no new behavior" rule: the
     // Tauri IPC boundary needs base64 (avatar_upload/download's wire
@@ -264,9 +270,20 @@ export class TauriBackend implements ConvaBackend {
       provider === "firecrawl" ? cmd.firecrawlKeyStatus() : cmd.tavilyKeyStatus(),
   };
 
+  localData = {
+    summary: cmd.localDataSummary,
+    recordings: cmd.listRecordings,
+    deleteRecordings: cmd.deleteRecordings,
+    revealRecording: cmd.revealRecording,
+    openDataFolder: cmd.openDataFolder,
+    erase: cmd.eraseLocalData,
+    takeEraseReport: cmd.takeEraseReport,
+  };
+
   usage = {
     summary: cmd.usageSummary,
     reset: cmd.usageReset,
+    telemetryStatus: cmd.telemetryStatus,
   };
 
   sessions = {
@@ -301,6 +318,10 @@ export class TauriBackend implements ConvaBackend {
     close: cmd.closePartner,
     redock: cmd.redockPartner,
     payload: cmd.getPartnerPayload,
+    ensureOpen: cmd.ensurePartnerOpen,
+    publishView: cmd.publishViewState,
+    viewState: cmd.getViewState,
+    sendViewAction: cmd.sendViewAction,
     setLocked: cmd.setPartnerLocked,
     locked: cmd.getPartnerLocked,
   };

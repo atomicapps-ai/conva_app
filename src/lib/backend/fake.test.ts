@@ -254,3 +254,23 @@ describe("FakeBackend — capture group", () => {
     await expect(b.capture.recover(id, "op4")).rejects.toThrow(/no live session/);
   });
 });
+
+describe("FakeBackend — live assist", () => {
+  it("is unconfigured by default, like every operation it does not really implement", async () => {
+    const b = new FakeBackend();
+    expect(FAKE_IMPLEMENTED).not.toContain("liveAssist.submit");
+    await expect(b.liveAssist.submit("total per district")).rejects.toBeInstanceOf(
+      FakeBackendNotConfiguredError,
+    );
+  });
+
+  it("replays a scripted holding-to-grid sequence to a subscriber, in order", async () => {
+    const { assistResult, completedResult } = await import("@/test/liveAssistFixtures");
+    const b = new FakeBackend();
+    const seen: number[] = [];
+    await b.subscribe("liveAssist", (r) => seen.push(r.revision));
+    b.emit("liveAssist", assistResult());
+    b.emit("liveAssist", completedResult());
+    expect(seen).toEqual([1, 2]);
+  });
+});

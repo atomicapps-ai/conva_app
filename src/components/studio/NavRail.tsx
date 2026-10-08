@@ -417,13 +417,16 @@ function Avatar({
   account: ReturnType<typeof useAccount>["account"];
   size: number;
 }) {
-  if (account.avatarUrl) {
+  // A photo that fails to load (deleted, stale web URL) falls back to the monogram.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  if (account.avatarUrl && account.avatarUrl !== failedUrl) {
     return (
       <img
         src={account.avatarUrl}
         alt=""
         aria-hidden
         className="h-full w-full object-cover"
+        onError={() => setFailedUrl(account.avatarUrl)}
       />
     );
   }

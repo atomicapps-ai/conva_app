@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Icon } from "@/components/ui/Icon";
 import type { AssignmentStatus, SpeakerKind } from "@/state/speakers";
@@ -11,6 +12,11 @@ export interface SpeakerHeaderInfo {
   id: string;
   label: string;
   kind: SpeakerKind;
+  /** This voice's accent color (`state/speakers.ts`'s `colorForOrdinal`) —
+   *  optional so a caller not yet passing per-voice color (or the
+   *  placeholder "…" stand-in before a real profile resolves) still renders
+   *  with the previous tone-based fallback. */
+  color?: string;
 }
 
 interface TranscriptBubbleHeaderProps {
@@ -65,6 +71,7 @@ interface TranscriptBubbleHeaderProps {
  * persistence this build doesn't have.
  */
 function NameVoiceEditor({
+  anchor,
   speaker,
   otherSpeakers,
   onRename,
@@ -73,6 +80,9 @@ function NameVoiceEditor({
   onForget,
   onClose,
 }: {
+  /** The label button the editor hangs from — it is positioned from this
+   *  element's rect, not from the DOM position it was rendered at. */
+  anchor: HTMLElement | null;
   speaker: SpeakerHeaderInfo;
   otherSpeakers: SpeakerHeaderInfo[];
   onRename: (label: string) => void;
@@ -88,6 +98,25 @@ function NameVoiceEditor({
   const [value, setValue] = useState(speaker.kind === "named" ? speaker.label : "");
   const [mergeOpen, setMergeOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+
+  // Rendered in a portal on purpose: the transcript list absolutely positions
+  // (and transforms) every turn, so each turn is its own stacking context and
+  // a popover left inside its turn is painted UNDER every later turn — see
+  // scenario R9. Fixed-positioned from the label's rect, flipped above the
+  // label or clamped when it would leave the window.
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!anchor || !box) return;
+    const a = anchor.getBoundingClientRect();
+    const w = box.offsetWidth;
+    const h = box.offsetHeight;
+    const left = Math.max(8, Math.min(a.left, window.innerWidth - w - 8));
+    const below = a.bottom + 4;
+    const top = below + h > window.innerHeight - 8 ? Math.max(8, a.top - h - 4) : below;
+    setPos({ left, top });
+  }, [anchor]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -100,9 +129,14 @@ function NameVoiceEditor({
     const onClickAway = () => onClose();
     window.addEventListener("keydown", onKey);
     window.addEventListener("click", onClickAway);
+    // A fixed popover would stay behind as the list scrolls under it.
+    window.addEventListener("scroll", onClickAway, true);
+    window.addEventListener("resize", onClickAway);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("click", onClickAway);
+      window.removeEventListener("scroll", onClickAway, true);
+      window.removeEventListener("resize", onClickAway);
     };
   }, [onClose]);
 
@@ -112,13 +146,23 @@ function NameVoiceEditor({
     onClose();
   };
 
-  return (
+  return createPortal(
     <div
+      ref={boxRef}
       role="dialog"
       aria-label={`Name this voice — currently ${speaker.label}`}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
-      className="glass-raised absolute left-0 top-full z-50 mt-1 w-[236px] rounded-lg border border-border p-2.5 shadow-[var(--shadow-lg)]"
+      style={{
+        position: "fixed",
+        left: pos?.left ?? 0,
+        top: pos?.top ?? 0,
+        visibility: pos ? "visible" : "hidden",
+        zIndex: 60,
+        // Opaque: it sits over transcript text, which must not show through.
+        background: "var(--color-panel-raised)",
+      }}
+      className="glass-raised w-[236px] rounded-lg border border-border p-2.5 shadow-[var(--shadow-lg)]"
     >
       <p className="mb-1.5 font-mono text-[9.5px] font-bold uppercase tracking-wider text-fg-faint">
         Name this voice
@@ -229,7 +273,8 @@ function NameVoiceEditor({
           )}
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -267,6 +312,7 @@ export function TranscriptBubbleHeader({
   onForget,
 }: TranscriptBubbleHeaderProps) {
   const [editing, setEditing] = useState(false);
+  const labelRef = useRef<HTMLButtonElement>(null);
   // Editable only once the turn is final (matches collapse/Ask Ally's own
   // isFinal gate — a still-streaming turn's grouping can still shift) AND a
   // real voice + save handler were supplied.
@@ -274,6 +320,13 @@ export function TranscriptBubbleHeader({
   const uncertain = status === "uncertain";
   const speakerClass =
     speakerTone === "inbound" ? "text-inbound" : "text-[var(--voice-you-text)]";
+  // Per-voice color (owner: each new voice defaults to its own color) —
+  // falls back to the plain inbound/outbound class above when no speaker
+  // object (or no color on it yet) is supplied, so nothing regresses for a
+  // caller that isn't speaker-aware. An "uncertain" turn still shows no
+  // confident color, matching doc §1's "no identity claim" rule.
+  const speakerStyle =
+    speaker?.color && !uncertain ? { color: speaker.color } : undefined;
 
   const accessibleName = speaker
     ? `${speaker.label}${speaker.kind === "anonymous" ? ", unnamed" : ""} — name or correct speaker`
@@ -283,6 +336,7 @@ export function TranscriptBubbleHeader({
     <div className="relative mb-0.5 flex min-h-5 select-none items-center gap-1.5 border-b border-border/55 pb-0.5">
       {editable ? (
         <button
+          ref={labelRef}
           type="button"
           onClick={(e) => {
             e.stopPropagation();
@@ -292,6 +346,7 @@ export function TranscriptBubbleHeader({
           aria-expanded={editing}
           aria-label={accessibleName}
           title={speakerLabel}
+          style={speakerStyle}
           className={[
             "min-w-0 truncate rounded font-mono text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors hover:bg-inbound/10",
             uncertain
@@ -309,6 +364,7 @@ export function TranscriptBubbleHeader({
           className={`min-w-0 truncate font-mono text-[9px] font-semibold uppercase tracking-[0.12em] ${
             uncertain ? "italic text-fg-faint" : speakerClass
           }`}
+          style={speakerStyle}
           title={speakerLabel}
         >
           {speakerLabel}
@@ -317,6 +373,7 @@ export function TranscriptBubbleHeader({
 
       {editable && editing && speaker && onRename && (
         <NameVoiceEditor
+          anchor={labelRef.current}
           speaker={speaker}
           otherSpeakers={otherSpeakers}
           onRename={onRename}

@@ -45,8 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.99.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
@@ -78,8 +79,9 @@ jobs:
       # `npm run build:web` needs the wasm32 target (Checkpoint E: the .cva
       # archive WASM module, scripts/build-wasm.mjs) — same toolchain as the
       # `core` job, plus the extra target.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.99.0
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
@@ -127,8 +129,9 @@ jobs:
       # `npm run build:web` needs the wasm32 target (Checkpoint E: the .cva
       # archive WASM module, scripts/build-wasm.mjs) — same toolchain as the
       # `core` job, plus the extra target.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.99.0
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
@@ -149,16 +152,40 @@ jobs:
       # real web build against the certification gateway + the in-memory cloud stub
       # (M2 cp19). Gating: a step that stops working here would stop the owner's run.
       - name: Rehearse — mic
-        run: npm run rehearse:web -- --duration 13 --out rehearsal-ci
+        run: npm run rehearse:web -- --duration 13 --out rehearsal-ci --record
       # Informational: the same with "Share call audio" (step 7) through the auto-accept flags.
       - name: Rehearse — mic+share (informational)
         continue-on-error: true
-        run: npm run rehearse:web -- --duration 13 --share --out rehearsal-ci
+        run: npm run rehearse:web -- --duration 13 --share --out rehearsal-ci --record
+      # The recorded app flows (R1-R8: Library, Contexts, Conversations, Settings, product
+      # pages, cockpit layout, live fallbacks) against the demo workspace. Gating: an
+      # unexpected failure, or a known failure that now passes (remove its marker). Each
+      # scenario is recorded but a clean pass keeps nothing; failures keep video (and a
+      # trace only when unexpected). See scripts/scenarios/lib.mjs.
+      - name: Scenarios — recorded app flows
+        run: npm run scenarios:web -- --out scenario-ci
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-scenarios
+          path: scenario-ci/
+          retention-days: 14
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: web-rehearsal-rows
           path: rehearsal-ci/*.json
+          if-no-files-found: warn
+      # The watchable evidence: per run a video, a Playwright trace (npx playwright
+      # show-trace trace.zip) and one screenshot per checklist step. Synthetic fixtures
+      # only — see scripts/certify/recorder.mjs. Kept 14 days, not committed.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-rehearsal-recordings
+          path: rehearsal-ci/*/
+          retention-days: 14
           if-no-files-found: warn
 
   shell-windows:
@@ -166,8 +193,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.99.0
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4

@@ -44,8 +44,18 @@ pub mod events {
     /// The partner window's lock-to-app state changed shell-side (e.g. a
     /// manual drag released it) — the window updates its toggle icon.
     pub const PARTNER_LOCK: &str = "conva://partner-lock";
+    /// Payload: [`super::ViewState`] — the main window's live View (4)
+    /// content, pushed to the partner window that renders it.
+    pub const PARTNER_VIEW_STATE: &str = "conva://partner-view-state";
+    /// Payload: [`super::ViewAction`] — something the user did in View (4)
+    /// (select a tab, pin, elaborate, ask), sent back to the main window.
+    pub const PARTNER_VIEW_ACTION: &str = "conva://partner-view-action";
     /// Payload: [`super::SplashProgressEvent`]
     pub const SPLASH_PROGRESS: &str = "conva://splash-progress";
+    /// Payload: [`super::LiveAssistResult`] — progressive live-assist output
+    /// (holding response, then the completed grid), correlated by
+    /// `result_id`. A newer `revision` of the same `result_id` replaces it.
+    pub const LIVE_ASSIST: &str = "conva://live-assist";
     /// Payload: [`super::ContextGenerateProgressEvent`]
     pub const CONTEXT_GENERATE_PROGRESS: &str = "conva://context-generate-progress";
     /// Payload: [`super::ArchiveProgressEvent`]. No adapter emits this yet
@@ -129,6 +139,11 @@ pub struct RadarEvent {
     /// Stable, immediately speakable content while refinement continues.
     pub bridge: crate::bridge::BridgeResponse,
     pub sources: Vec<crate::rag::ScoredChunk>,
+    /// True when live assist is computing an exact answer for this question
+    /// (a total over an attached spreadsheet). The UI must not also start a
+    /// model answer for it: a language model must never produce the figures.
+    #[serde(default)]
+    pub computed: bool,
 }
 
 /// Cumulative tracker state for the live session (§6.3) — the full deduped
@@ -191,6 +206,318 @@ pub struct PartnerPayload {
     /// remain valid. The viewer presents this record without starting research.
     #[serde(default)]
     pub claim: Option<crate::claim::ClaimRecord>,
+}
+
+/// One highlighted term with why it is highlighted — the return of
+/// `analyze_terms`. `origin` drives visual weight in transcript bubbles (a term
+/// surfaced only by a domain lexicon pack renders quieter). Mirrored in
+/// `src/lib/ipc.ts`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HighlightTerm {
+    /// The transcript's own text for the term (original casing).
+    pub term: String,
+    pub origin: crate::phrase::HighlightOrigin,
+}
+
+impl HighlightTerm {
+    /// Pair each selected term of an evaluation with its origin.
+    pub fn from_evaluation(eval: &crate::phrase::HighlightEvaluation) -> Vec<HighlightTerm> {
+        eval.terms
+            .iter()
+            .zip(&eval.origins)
+            .map(|(term, origin)| HighlightTerm {
+                term: term.clone(),
+                origin: *origin,
+            })
+            .collect()
+    }
+}
+
+/// One labelled fact row shown under a View (4) item ("Who · You").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewFact {
+    pub label: String,
+    pub value: String,
+}
+
+/// One item in View (4) — mirrors the UI's `AllyFocusItem`
+/// (`src/components/transcript/allyFocus.ts`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewItem {
+    pub id: String,
+    /// `question` | `prep` | `term` | `commitment` | `mention`.
+    pub group: String,
+    pub question: String,
+    pub answer: String,
+    pub source_label: String,
+    #[serde(default)]
+    pub source_files: Vec<String>,
+    /// `instant` | `streaming` | `ready` | `error`.
+    pub status: String,
+    #[serde(default)]
+    pub card_id: Option<String>,
+    #[serde(default)]
+    pub found_id: Option<String>,
+    /// `field` | `specialized` (captured terms).
+    #[serde(default)]
+    pub tier: Option<String>,
+    /// `concept` | `problem` (captured terms).
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub facts: Vec<ViewFact>,
+    /// A structured grid answer (spreadsheet totals). `answer` still carries
+    /// the speakable Say-now line so older readers degrade to text.
+    #[serde(default)]
+    pub table: Option<GridPayload>,
+    /// A question waiting on the user's pick (ambiguous column or file).
+    #[serde(default)]
+    pub choice: Option<ViewChoice>,
+    /// True when a newer question replaced this live-assist result.
+    #[serde(default)]
+    pub stale: bool,
+}
+
+/// A question shown inside a View item with tappable options.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewChoice {
+    pub question: String,
+    pub options: Vec<crate::table_query::ChoiceOption>,
+}
+
+/// Everything View (4) shows. The main window owns the truth (it has the
+/// radar, tracker, captures and Ally cards); the partner window is a live
+/// mirror of this state, pushed over [`events::PARTNER_VIEW_STATE`].
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ViewState {
+    pub items: Vec<ViewItem>,
+    #[serde(default)]
+    pub active_id: Option<String>,
+    #[serde(default)]
+    pub pinned_ids: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Live assist — progressive, source-linked answers that need real computation
+// (today: exact spreadsheet totals). Mirrored in `src/lib/ipc.ts`.
+// ---------------------------------------------------------------------------
+
+/// Bump when the serialized shape of [`LiveAssistResult`] changes incompatibly.
+pub const LIVE_ASSIST_CONTRACT_VERSION: u32 = 1;
+
+/// What kind of computation produced a result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveAssistKind {
+    /// Grouped or overall arithmetic over a CSV / XLSX table.
+    TableAggregate,
+}
+
+/// Where a result is in its life. Results only move forward, except that a
+/// new `revision` of the same `result_id` replaces the previous one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LiveAssistLifecycle {
+    /// A holding response: work is under way.
+    Provisional,
+    /// Waiting on the user to pick a column or file.
+    NeedsChoice,
+    /// The finished, source-linked answer.
+    Complete,
+    /// Final, but there is no computed answer (unsupported sheet, unknown
+    /// column, too complex). `payload` explains why.
+    Declined,
+    /// Something went wrong while computing.
+    Failed,
+    /// A newer question replaced this one before it finished.
+    Superseded,
+}
+
+impl LiveAssistLifecycle {
+    /// True once no further revision is expected.
+    pub fn is_final(self) -> bool {
+        !matches!(self, Self::Provisional | Self::NeedsChoice)
+    }
+}
+
+/// Where a figure came from: the file, the column, and the rows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceRef {
+    pub doc_id: String,
+    pub file_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<String>,
+    /// First source rows that contributed (capped for size).
+    pub rows: Vec<u32>,
+    /// True number of rows that contributed.
+    pub row_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GridAlign {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridColumn {
+    pub key: String,
+    pub label: String,
+    pub align: GridAlign,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridCell {
+    /// Display text (`$439,519.85`).
+    pub text: String,
+    /// Exact machine value as a plain decimal string, when the cell is a number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// Provenance; empty for labels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<SourceRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GridRowKind {
+    Body,
+    Total,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridRow {
+    pub kind: GridRowKind,
+    pub cells: Vec<GridCell>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeLevel {
+    Info,
+    Caution,
+}
+
+/// A note under a grid: what was skipped, repeated, or worth checking.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridNotice {
+    pub level: NoticeLevel,
+    pub text: String,
+    /// Source rows the note is about (capped).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<u32>,
+}
+
+/// A table answer, ready to draw.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GridPayload {
+    /// `Total Amount by District`.
+    pub title: String,
+    pub columns: Vec<GridColumn>,
+    pub rows: Vec<GridRow>,
+    #[serde(default)]
+    pub notices: Vec<GridNotice>,
+    /// Files the figures came from, for the "From your documents" list.
+    #[serde(default)]
+    pub source_files: Vec<String>,
+}
+
+/// What a live-assist result shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum LiveAssistPayload {
+    Text {
+        text: String,
+    },
+    Grid(GridPayload),
+    Choice {
+        question: String,
+        options: Vec<crate::table_query::ChoiceOption>,
+    },
+}
+
+/// Timing for one result, all measured from the moment the finalized turn was
+/// handed to the coordinator (`enqueued_at_unix_ms`). Durations are `None`
+/// until that stage happens.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveAssistTiming {
+    pub enqueued_at_unix_ms: u64,
+    /// Enqueue → holding response emitted.
+    #[serde(default)]
+    pub holding_ms: Option<u64>,
+    /// Enqueue → this revision emitted.
+    #[serde(default)]
+    pub emitted_ms: Option<u64>,
+    /// Time spent parsing the file and computing (excludes queueing).
+    #[serde(default)]
+    pub compute_ms: Option<u64>,
+}
+
+/// One live-assist result. The same `result_id` is emitted several times as it
+/// progresses (`revision` 1 = holding, higher = later); consumers keep only
+/// the highest revision they have seen for each `result_id`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveAssistResult {
+    pub contract_version: u32,
+    pub result_id: String,
+    /// Ties the result to the turn that caused it (`{session}:them:{seq}` for
+    /// heard speech, `{session}:ask:{n}` for typed questions). Radar uses the
+    /// same turn ids, so the UI can link the two.
+    pub correlation_id: String,
+    pub session_id: String,
+    #[serde(default)]
+    pub context_id: Option<String>,
+    pub revision: u32,
+    pub kind: LiveAssistKind,
+    pub lifecycle: LiveAssistLifecycle,
+    /// The sentence that prompted this.
+    pub question: String,
+    /// A line the user can say right now.
+    #[serde(default)]
+    pub say_now: Option<String>,
+    #[serde(default)]
+    pub payload: Option<LiveAssistPayload>,
+    pub timing: LiveAssistTiming,
+    /// Set when `lifecycle` is `superseded`: the newer result's id.
+    #[serde(default)]
+    pub superseded_by: Option<String>,
+}
+
+/// Return value of the live-assist submit / choose commands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveAssistAck {
+    /// False when the text is not a data request; the caller should hand it to
+    /// Ally as usual.
+    pub handled: bool,
+    #[serde(default)]
+    pub result_id: Option<String>,
+}
+
+/// What the user can do in View (4). The main window performs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewActionKind {
+    /// Focus the item `id` (its tab was clicked).
+    Select,
+    /// Toggle the pin on `id`.
+    Pin,
+    /// Ask Ally for a fuller pass on `id`.
+    Elaborate,
+    /// Ask a follow-up `text` about `id`.
+    Ask,
+    /// Answer the choice shown on `id`; `text` is the chosen option id.
+    Choose,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ViewAction {
+    pub kind: ViewActionKind,
+    pub id: String,
+    #[serde(default)]
+    pub text: Option<String>,
 }
 
 /// Payload of [`events::PARTNER_LOCK`] — whether the partner window is
@@ -321,6 +648,12 @@ pub struct AllyChunkEvent {
     pub done: bool,
     /// Set (with `done: true`) when the request failed mid-stream.
     pub error: Option<String>,
+    /// Set with `done: true` on a stream that finished: why the model
+    /// stopped (`complete`, `truncated`, `refused`, `other`, `unknown` — see
+    /// `stop_reason::StopReason`). `None` on token chunks and on errors, and
+    /// from older peers; the UI treats a missing value as complete.
+    #[serde(default)]
+    pub stop_reason: Option<crate::stop_reason::StopReason>,
 }
 
 // ── `.cva` archive operation contract (checkpoint A) ────────────────────────
@@ -527,6 +860,28 @@ mod tests {
     }
 
     #[test]
+    fn highlight_term_serializes_origin_in_snake_case() {
+        use crate::phrase::HighlightOrigin;
+        let t = HighlightTerm {
+            term: "modeling data".into(),
+            origin: HighlightOrigin::Domain,
+        };
+        let json = serde_json::to_value(&t).unwrap();
+        assert_eq!(json["term"], "modeling data");
+        assert_eq!(json["origin"], "domain");
+        let back: HighlightTerm = serde_json::from_value(json).unwrap();
+        assert_eq!(back, t);
+        for (origin, wire) in [
+            (HighlightOrigin::Context, "context"),
+            (HighlightOrigin::Document, "document"),
+            (HighlightOrigin::Entity, "entity"),
+            (HighlightOrigin::Rarity, "rarity"),
+        ] {
+            assert_eq!(serde_json::to_value(origin).unwrap(), wire);
+        }
+    }
+
+    #[test]
     fn event_names_are_namespaced() {
         for name in [
             events::TRANSCRIPT_SEGMENT,
@@ -535,6 +890,7 @@ mod tests {
             events::ALLY_CHUNK,
             events::RADAR,
             events::CLAIM_SNAPSHOT,
+            events::LIVE_ASSIST,
             events::AUTH_CHANGED,
             events::SPLASH_PROGRESS,
             events::CONTEXT_GENERATE_PROGRESS,
@@ -577,6 +933,137 @@ mod tests {
     }
 
     #[test]
+    fn view_state_and_actions_round_trip_with_stable_wire_names() {
+        let state = ViewState {
+            items: vec![ViewItem {
+                id: "card:a1".into(),
+                group: "question".into(),
+                question: "Q".into(),
+                answer: "A".into(),
+                source_label: "A1".into(),
+                source_files: vec!["brief.md".into()],
+                status: "ready".into(),
+                card_id: Some("a1".into()),
+                found_id: None,
+                tier: None,
+                kind: None,
+                facts: vec![ViewFact {
+                    label: "Who".into(),
+                    value: "You".into(),
+                }],
+                table: None,
+                choice: None,
+                stale: false,
+            }],
+            active_id: Some("card:a1".into()),
+            pinned_ids: vec!["card:a1".into()],
+        };
+        let json = serde_json::to_value(&state).unwrap();
+        assert_eq!(json["items"][0]["source_files"][0], "brief.md");
+        assert_eq!(json["active_id"], "card:a1");
+        assert_eq!(serde_json::from_value::<ViewState>(json).unwrap(), state);
+
+        let action = ViewAction {
+            kind: ViewActionKind::Elaborate,
+            id: "card:a1".into(),
+            text: None,
+        };
+        let json = serde_json::to_value(&action).unwrap();
+        assert_eq!(json["kind"], "elaborate");
+        assert_eq!(serde_json::from_value::<ViewAction>(json).unwrap(), action);
+    }
+
+    #[test]
+    fn older_view_items_default_to_no_table_choice_or_stale() {
+        let item: ViewItem = serde_json::from_value(serde_json::json!({
+            "id": "card:a1", "group": "question", "question": "Q", "answer": "A",
+            "source_label": "A1", "status": "ready"
+        }))
+        .unwrap();
+        assert!(item.table.is_none() && item.choice.is_none() && !item.stale);
+    }
+
+    #[test]
+    fn live_assist_result_wire_contract_is_stable() {
+        let result = LiveAssistResult {
+            contract_version: LIVE_ASSIST_CONTRACT_VERSION,
+            result_id: "r1".into(),
+            correlation_id: "s1:them:4".into(),
+            session_id: "s1".into(),
+            context_id: Some("c1".into()),
+            revision: 2,
+            kind: LiveAssistKind::TableAggregate,
+            lifecycle: LiveAssistLifecycle::Complete,
+            question: "total per district?".into(),
+            say_now: Some("The total is $10.00.".into()),
+            payload: Some(LiveAssistPayload::Grid(GridPayload {
+                title: "Total Amount by District".into(),
+                columns: vec![GridColumn {
+                    key: "district".into(),
+                    label: "District".into(),
+                    align: GridAlign::Left,
+                }],
+                rows: vec![GridRow {
+                    kind: GridRowKind::Total,
+                    cells: vec![GridCell {
+                        text: "$10.00".into(),
+                        value: Some("10.00".into()),
+                        sources: vec![SourceRef {
+                            doc_id: "d1".into(),
+                            file_name: "sales.csv".into(),
+                            sheet: None,
+                            column: Some("Amount".into()),
+                            rows: vec![2, 3],
+                            row_count: 2,
+                        }],
+                    }],
+                }],
+                notices: vec![GridNotice {
+                    level: NoticeLevel::Caution,
+                    text: "2 blank".into(),
+                    rows: vec![14],
+                }],
+                source_files: vec!["sales.csv".into()],
+            })),
+            timing: LiveAssistTiming {
+                enqueued_at_unix_ms: 1,
+                holding_ms: Some(3),
+                emitted_ms: Some(12),
+                compute_ms: Some(8),
+            },
+            superseded_by: None,
+        };
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(events::LIVE_ASSIST, "conva://live-assist");
+        assert_eq!(json["contract_version"], 1);
+        assert_eq!(json["lifecycle"], "complete");
+        assert_eq!(json["kind"], "table_aggregate");
+        assert_eq!(json["payload"]["type"], "grid");
+        assert_eq!(json["payload"]["rows"][0]["kind"], "total");
+        assert_eq!(json["payload"]["rows"][0]["cells"][0]["value"], "10.00");
+        assert_eq!(json["timing"]["emitted_ms"], 12);
+        assert_eq!(
+            serde_json::from_value::<LiveAssistResult>(json).unwrap(),
+            result
+        );
+    }
+
+    #[test]
+    fn live_assist_lifecycle_finality() {
+        use LiveAssistLifecycle::*;
+        for (l, fin) in [
+            (Provisional, false),
+            (NeedsChoice, false),
+            (Complete, true),
+            (Declined, true),
+            (Failed, true),
+            (Superseded, true),
+        ] {
+            assert_eq!(l.is_final(), fin, "{l:?}");
+        }
+    }
+
+    #[test]
     fn older_partner_payloads_default_to_no_claim() {
         let payload: PartnerPayload = serde_json::from_value(serde_json::json!({
             "term": "API Gateway",
@@ -604,8 +1091,10 @@ mod tests {
                 text: "Define it first.".into(),
             },
             sources: Vec::new(),
+            computed: false,
         };
         let json = serde_json::to_value(event).unwrap();
+        assert_eq!(json["computed"], false);
         assert_eq!(json["turn_id"], "session-1:them:7");
         assert_eq!(json["source_key"], "inbound-7");
         assert_eq!(json["outcome"], "miss");
@@ -712,4 +1201,90 @@ mod tests {
         assert!(options.reuse_exact_document_ids.is_empty());
         assert_eq!(options.include_document_ids, ["doc-1"]);
     }
+}
+
+/// Settings → Privacy: whether usage events are being collected, and why.
+/// Mirrored in `src/lib/ipc.ts` as `TelemetryStatus`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TelemetryStatus {
+    /// The user's setting (`AppConfig::telemetry_enabled`).
+    pub enabled: bool,
+    /// The server says this account's beta terms require usage data, so the
+    /// setting cannot switch collection off.
+    pub required: bool,
+    /// What is actually happening: `enabled || required`.
+    pub collecting: bool,
+    /// The local, inspectable event log, when the app-data dir is known.
+    pub log_path: Option<String>,
+}
+
+/// A count and total size for one kind of data kept on this computer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalDataCategory {
+    pub count: u32,
+    pub bytes: u64,
+}
+
+/// Settings → Privacy → Your data on this computer. Mirrored in
+/// `src/lib/ipc.ts` as `LocalDataSummary`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalDataSummary {
+    /// The app-data folder, when known (shown so the user can open it).
+    pub data_dir: Option<String>,
+    pub recordings: LocalDataCategory,
+    pub conversations: LocalDataCategory,
+    pub session_logs: LocalDataCategory,
+    /// Library documents: `count` is documents, `bytes` includes the originals.
+    pub library: LocalDataCategory,
+    pub contexts: LocalDataCategory,
+    /// Usage counts and the diagnostics log: `count` is files.
+    pub diagnostics: LocalDataCategory,
+    /// Downloaded speech and embedding models. Not personal; kept on erase.
+    pub models: LocalDataCategory,
+}
+
+/// One call recording. `id` is the file name (`call-<epoch ms>.wav`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordingInfo {
+    pub id: String,
+    pub started_unix_ms: u64,
+    pub duration_ms: Option<u64>,
+    pub size_bytes: u64,
+}
+
+/// Result of deleting recordings.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteRecordingsReport {
+    pub deleted: u32,
+    pub freed_bytes: u64,
+    /// Ids that could not be deleted (invalid, already gone, or in use).
+    pub failed: Vec<String>,
+}
+
+/// What the user asked "Erase everything on this computer" to include
+/// beyond the always-erased data.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EraseOptions {
+    /// Also remove the API keys held in the OS credential store. Off by
+    /// default: erasing data should not make someone re-enter their keys.
+    pub include_keys: bool,
+}
+
+/// What an erase did, shown once after the app restarts.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EraseReport {
+    pub removed_files: u64,
+    pub removed_bytes: u64,
+    /// Paths (relative to the app-data folder) that could not be removed.
+    pub failed: Vec<String>,
+    pub keys_removed: bool,
+    pub finished_unix_ms: u64,
+}
+
+/// Result of a successful account deletion. `reference` is the short code
+/// (`DEL-XXXX-XXXX`) the person can quote. Mirrored in `src/lib/ipc.ts`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeleteAccountResult {
+    pub reference: Option<String>,
 }

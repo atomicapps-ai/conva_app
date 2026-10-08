@@ -135,6 +135,8 @@ export const ALL_OPERATIONS = [
   "providers.test",
   "providers.listModels",
   "ally.run",
+  "liveAssist.submit",
+  "liveAssist.choose",
   "audio.listDevices",
   "audio.listWhisperModels",
   "audio.setDeepgramKey",
@@ -180,6 +182,7 @@ export const ALL_OPERATIONS = [
   "auth.avatarUrl",
   "auth.avatarUpload",
   "auth.avatarDelete",
+  "auth.deleteAccount",
   "conversations.save",
   "conversations.list",
   "conversations.load",
@@ -205,6 +208,14 @@ export const ALL_OPERATIONS = [
   "context.researchKeyStatus",
   "usage.summary",
   "usage.reset",
+  "usage.telemetryStatus",
+  "localData.summary",
+  "localData.recordings",
+  "localData.deleteRecordings",
+  "localData.revealRecording",
+  "localData.openDataFolder",
+  "localData.erase",
+  "localData.takeEraseReport",
   "sessions.list",
   "sessions.load",
   "sessions.delete",
@@ -224,6 +235,10 @@ export const ALL_OPERATIONS = [
   "partner.close",
   "partner.redock",
   "partner.payload",
+  "partner.ensureOpen",
+  "partner.publishView",
+  "partner.viewState",
+  "partner.sendViewAction",
   "partner.setLocked",
   "partner.locked",
   "archive.estimateExport",
@@ -353,6 +368,8 @@ const FILE_PATHS = "Takes a desktop file path; a browser-safe download/upload de
 const NO_KEYRING = "BYO keys need the OS keyring — the web uses hosted inference.";
 const NO_OS_WINDOW = "A browser tab cannot spawn or control an OS window.";
 const NO_FS = "No local file system in a browser tab.";
+const NO_TABLES =
+  "Spreadsheet totals need the typed-table pipeline, which only the desktop app has so far. The file's text is still searchable.";
 const NO_LOCAL_ASR = "Local whisper checkpoints are a desktop capability.";
 
 /**
@@ -437,6 +454,10 @@ export function webOperations(): OperationAvailability {
     "providers.listModels": unimplemented(M1),
     // Flipped at runtime by WebBackend from GET /api/live/status `ally` (M2 cp3).
     "ally.run": unimplemented(M1),
+    // Spreadsheet totals need the typed-table pipeline; the web library only
+    // stores text so far, so both operations say so instead of half-working.
+    "liveAssist.submit": unimplemented(NO_TABLES),
+    "liveAssist.choose": unimplemented(NO_TABLES),
     "audio.listDevices": unimplemented(M2),
     "audio.listWhisperModels": unsupported(NO_LOCAL_ASR),
     "audio.setDeepgramKey": unsupported("ASR keys are held server-side on the web."),
@@ -493,6 +514,7 @@ export function webOperations(): OperationAvailability {
     "auth.avatarUrl": AVAILABLE,
     "auth.avatarUpload": AVAILABLE,
     "auth.avatarDelete": AVAILABLE,
+    "auth.deleteAccount": AVAILABLE,
     // Cloud Conversations (M2 cp8): WebBackend flips these to `available` once
     // the gateway's session backend answers; an unapplied migration 0006 is a
     // per-call `unprovisioned` error, not a probe-time guess.
@@ -525,6 +547,14 @@ export function webOperations(): OperationAvailability {
     // Flipped at runtime by WebBackend when the gateway's session backend answers (M2 cp4).
     "usage.summary": unimplemented(M1),
     "usage.reset": unsupported("The hosted usage ledger is server-side and resets every UTC day; there is nothing to clear locally."),
+    "usage.telemetryStatus": unsupported("The desktop app's local usage-event queue has no web counterpart."),
+    "localData.summary": unsupported("The browser app keeps nothing on this computer beyond the sign-in."),
+    "localData.recordings": unsupported("The browser app keeps nothing on this computer beyond the sign-in."),
+    "localData.deleteRecordings": unsupported("The browser app keeps nothing on this computer beyond the sign-in."),
+    "localData.revealRecording": unsupported("The browser app keeps nothing on this computer beyond the sign-in."),
+    "localData.openDataFolder": unsupported("The browser app keeps nothing on this computer beyond the sign-in."),
+    "localData.erase": unsupported("The browser app keeps nothing on this computer beyond the sign-in."),
+    "localData.takeEraseReport": unsupported("The browser app keeps nothing on this computer beyond the sign-in."),
     "sessions.list": unimplemented(M1),
     "sessions.load": unimplemented(M1),
     "sessions.delete": unimplemented(M1),
@@ -545,6 +575,10 @@ export function webOperations(): OperationAvailability {
     "partner.close": unsupported(NO_OS_WINDOW),
     "partner.redock": unsupported(NO_OS_WINDOW),
     "partner.payload": unsupported(NO_OS_WINDOW),
+    "partner.ensureOpen": unsupported(NO_OS_WINDOW),
+    "partner.publishView": unsupported(NO_OS_WINDOW),
+    "partner.viewState": unsupported(NO_OS_WINDOW),
+    "partner.sendViewAction": unsupported(NO_OS_WINDOW),
     "partner.setLocked": unsupported(NO_OS_WINDOW),
     "partner.locked": unsupported(NO_OS_WINDOW),
     "archive.estimateExport": unimplemented(ARCHIVE_WEB_NOT_IMPLEMENTED),

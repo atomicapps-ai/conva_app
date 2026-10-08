@@ -18,20 +18,28 @@ import type {
   AudioDevice,
   AuthStatus,
   AvatarBytes,
-  Capture,
   ClaimRecord,
   ClaimSnapshotEvent,
   Conversation,
   ConversationSummary,
+  DebugHighlightRequest,
+  DebugHighlightResponse,
+  HighlightTerm,
+  FanerEvalCase,
+  FanerEvalResult,
   ContextSummary,
   ConversationContext,
   KnowledgeProfile,
   IngestReport,
+  LiveAssistAck,
   ModelInfo,
   PartnerPayload,
   ProviderId,
   ProviderInfo,
   ProviderKeyStatus,
+  ReplayOutcome,
+  ViewAction,
+  ViewState,
   RagDocument,
   SecretsStatus,
   SessionSummary,
@@ -39,6 +47,13 @@ import type {
   StartRehearsalResult,
   TelemetryEvent,
   TranscriptSegment,
+  TelemetryStatus,
+  DeleteAccountResult,
+  LocalDataSummary,
+  RecordingInfo,
+  DeleteRecordingsReport,
+  EraseOptions,
+  EraseReport,
   UsageSummary,
   WhisperModelInfo,
 } from "@/lib/ipc";
@@ -151,15 +166,72 @@ export interface FanerReplayLine {
 
 /**
  * Route a scripted transcript (the golden conversations) through the FANER
- * capture rubric and return the routed captures — the in-app validation path,
- * no speaking required. Uses the fast-slot model, exactly as the live worker.
+ * capture rubric — the in-app validation path, no speaking required. Uses the
+ * fast-slot model, exactly as the live worker. Returns the model's raw
+ * captures, the deterministic phrase-resolved captures (what the live path
+ * emits), and the per-argument trace.
  */
 export function fanerReplay(
   role: string,
   terms: string[],
   lines: FanerReplayLine[],
-): Promise<Capture[]> {
+): Promise<ReplayOutcome> {
   return invoke("faner_replay", { role, terms, lines });
+}
+
+/** DEV-ONLY: run the deterministic highlighter (no LLM) and explain every
+ *  candidate. Rejects in release builds. */
+export function fanerDebugHighlight(
+  request: DebugHighlightRequest,
+): Promise<DebugHighlightResponse> {
+  return invoke("faner_debug_highlight", {
+    request: {
+      text: request.text,
+      terms: request.terms,
+      doc_text: request.docText,
+      use_active_context: request.useActiveContext,
+      lexicon_packs: request.lexiconPacks,
+    },
+  }).then((r) => {
+    const raw = r as {
+      terms: string[];
+      origins: DebugHighlightResponse["origins"];
+      packs: string[];
+      active_packs: string[];
+      trace: DebugHighlightResponse["trace"];
+      source: DebugHighlightResponse["source"];
+      known_terms: string[];
+      active_context_terms: string[];
+      active_scope_doc_count: number;
+    };
+    return {
+      terms: raw.terms,
+      origins: raw.origins,
+      packs: raw.packs,
+      activePacks: raw.active_packs,
+      trace: raw.trace,
+      source: raw.source,
+      knownTerms: raw.known_terms,
+      activeContextTerms: raw.active_context_terms,
+      activeScopeDocCount: raw.active_scope_doc_count,
+    };
+  });
+}
+
+/** DEV-ONLY: reproducible seeded cases from known terms. */
+export function fanerDebugGenerateCases(
+  seed: number,
+  count: number,
+  terms: string[],
+): Promise<FanerEvalCase[]> {
+  return invoke("faner_debug_generate_cases", { seed, count, terms });
+}
+
+/** DEV-ONLY: evaluate cases against the real highlighter. */
+export function fanerDebugEvaluate(
+  cases: FanerEvalCase[],
+): Promise<FanerEvalResult[]> {
+  return invoke("faner_debug_evaluate", { cases });
 }
 
 export function ragIngest(paths: string[]): Promise<IngestReport[]> {
@@ -253,8 +325,8 @@ export function openUrl(url: string): Promise<void> {
 }
 
 /** RAG-grounded relevant phrases in a transcript message, for highlighting. */
-export function analyzeTerms(text: string): Promise<string[]> {
-  return invoke<string[]>("analyze_terms", { text });
+export function analyzeTerms(text: string): Promise<HighlightTerm[]> {
+  return invoke<HighlightTerm[]>("analyze_terms", { text });
 }
 
 /** Record 👍/👎 on a highlight term: "up" boosts, "down" suppresses, null
@@ -463,6 +535,27 @@ export function ragDocumentText(id: string): Promise<string | null> {
   return invoke<string | null>("rag_document_text", { id });
 }
 
+/**
+ * Offer a typed question to the live-assist coordinator. `handled: false`
+ * means it is not a data request for a spreadsheet attached to the active
+ * Context, so the caller asks Ally as usual. The answer arrives as
+ * `conva://live-assist` events, not as this command's result.
+ */
+export function liveAssistSubmit(text: string): Promise<LiveAssistAck> {
+  return invoke<LiveAssistAck>("live_assist_submit", { text });
+}
+
+/** Answer a live-assist question (which column, which file). */
+export function liveAssistChoose(
+  resultId: string,
+  optionId: string,
+): Promise<void> {
+  return invoke<void>("live_assist_choose", {
+    resultId,
+    optionId,
+  });
+}
+
 /** Generate 3 counterparty personas with the configured LLM. */
 export function contextGeneratePersonas(
   id: string,
@@ -533,6 +626,47 @@ export function firecrawlKeyStatus(): Promise<boolean> {
 /** Usage snapshot (LLM tokens per provider + research-provider searches) for Settings. */
 export function usageSummary(): Promise<UsageSummary> {
   return invoke<UsageSummary>("usage_summary");
+}
+
+/** Delete the account on Conva's servers, then clear the local sign-in. Rejects with a stable code. */
+export function authDeleteAccount(): Promise<DeleteAccountResult> {
+  return invoke<DeleteAccountResult>("auth_delete_account");
+}
+
+/** Settings → Privacy → Your data on this computer. */
+export function localDataSummary(): Promise<LocalDataSummary> {
+  return invoke<LocalDataSummary>("local_data_summary");
+}
+
+export function listRecordings(): Promise<RecordingInfo[]> {
+  return invoke<RecordingInfo[]>("list_recordings");
+}
+
+export function deleteRecordings(ids: string[]): Promise<DeleteRecordingsReport> {
+  return invoke<DeleteRecordingsReport>("delete_recordings", { ids });
+}
+
+export function revealRecording(id: string): Promise<void> {
+  return invoke("reveal_recording", { id });
+}
+
+export function openDataFolder(): Promise<void> {
+  return invoke("open_data_folder");
+}
+
+/** Queue "Erase everything on this computer" for the next start. The caller relaunches the app. */
+export function eraseLocalData(options: EraseOptions): Promise<void> {
+  return invoke("erase_local_data", { options });
+}
+
+/** The result of the last erase, once. */
+export function takeEraseReport(): Promise<EraseReport | null> {
+  return invoke<EraseReport | null>("take_erase_report");
+}
+
+/** Settings → Privacy: is usage-event collection on, and is it locked on by beta terms? */
+export function telemetryStatus(): Promise<TelemetryStatus> {
+  return invoke<TelemetryStatus>("telemetry_status");
 }
 
 /** Clear all usage counters; returns the emptied snapshot. */
@@ -695,6 +829,27 @@ export function redockPartner(): Promise<void> {
 /** The payload the partner view should render (read on partner-window boot). */
 export function getPartnerPayload(): Promise<PartnerPayload | null> {
   return invoke<PartnerPayload | null>("get_partner_payload");
+}
+
+/** Make sure View (4) — the partner window — is open beside the app,
+ *  without retargeting it or taking focus. */
+export function ensurePartnerOpen(): Promise<void> {
+  return invoke("ensure_partner_open");
+}
+
+/** The main window pushes its live View (4) state to the partner window. */
+export function publishViewState(state: ViewState): Promise<void> {
+  return invoke("publish_view_state", { state });
+}
+
+/** The latest pushed View (4) state (read on partner-window boot). */
+export function getViewState(): Promise<ViewState | null> {
+  return invoke<ViewState | null>("get_view_state");
+}
+
+/** The partner window reports something the user did in View (4). */
+export function sendViewAction(action: ViewAction): Promise<void> {
+  return invoke("send_view_action", { action });
 }
 
 /** Lock (follow the main window, snapping flush to its right edge) or

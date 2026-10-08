@@ -70,21 +70,52 @@ export function tokensOf(answer) {
   return answer.match(/\S+\s*/g) ?? [];
 }
 
+const STOP = new Set(["the", "a", "an", "is", "are", "was", "were", "do", "does", "did", "we", "you", "our", "of", "to", "in", "on", "for", "and", "what", "how", "when", "why", "which", "me", "us", "it", "that", "this", "there"]);
+const wordsOf = (s) => (String(s).toLowerCase().match(/[a-z0-9']+/g) ?? []).filter((w) => !STOP.has(w));
+
+/** Pick the demo dataset's canned answer for a typed question: the best word overlap against each answer's example questions, among answers for this Context (or any Context when none is active). Null when nothing matches well — the stub then says it cannot find it, which is itself a demo-able behaviour. */
+export function matchDemoAnswer(question, contextKey, answers) {
+  const q = new Set(wordsOf(question));
+  if (q.size === 0) return null;
+  let best = null;
+  let bestScore = 0;
+  for (const a of answers) {
+    if (contextKey && a.context && a.context !== contextKey) continue;
+    for (const example of a.questions) {
+      const e = new Set(wordsOf(example));
+      if (e.size === 0) continue;
+      let hit = 0;
+      for (const w of q) if (e.has(w)) hit += 1;
+      const score = hit / Math.max(q.size, e.size);
+      if (score > bestScore) {
+        bestScore = score;
+        best = a;
+      }
+    }
+  }
+  return bestScore >= 0.6 ? best : null;
+}
+
 const ok = (body, status = 200) => ({ status, body });
 const refuse = (status, error, reason) => ({ status, body: reason ? { error, reason } : { error } });
 
 /**
  * Create one stub. `seed` (default true) plants {@link REHEARSAL_DOC} and
  * {@link REHEARSAL_CONTEXT} (ready, the document attached) so an ask has
- * something to cite. `handle` takes a request already parsed by the gateway
+ * something to cite. `dataset` (from `demoDataset.mjs`) plants the whole demo
+ * workspace instead and replaces that seed: many documents, Contexts and saved
+ * conversations, and canned cited answers matched to the typed question.
+ * `handle` takes a request already parsed by the gateway
  * and answers `{ status, body }` — or, for `/ally`, `{ status, lines }` with
  * the NDJSON lines in order (`sources`, `chunk`s, `done`).
  */
-export function createCloudStub({ now = () => Date.now(), seed = true } = {}) {
+export function createCloudStub({ now = () => Date.now(), seed = true, dataset = null } = {}) {
   const documents = new Map(); // id → { record, text, deleted }
   const contexts = new Map(); // id → record
   const conversations = new Map(); // id → record
   const answered = new Set(); // request ids (idempotency)
+  const demoAnswers = dataset ? dataset.answers : null;
+  const contextKeyById = new Map(); // demo Context id -> its dataset key
   const stats = { ops: [], ally: [] };
   let counter = 0;
   const mint = (prefix) => `${prefix}_${String(++counter).padStart(3, "0")}`;
@@ -152,7 +183,81 @@ export function createCloudStub({ now = () => Date.now(), seed = true } = {}) {
     return ok({ context: record }, existing ? 200 : 201);
   }
 
-  if (seed) {
+  /** Plant the demo workspace: documents first (spread over recent weeks), then Contexts that point at them, then the saved conversations. */
+  function plantDataset(ds) {
+    const DAY = 86_400_000;
+    const t0 = now();
+    const idByName = new Map();
+    ds.documents.forEach((d, i) => {
+      const rec = ingest(d.name, d.text, [], "file");
+      rec.ingested_at_unix_ms = t0 - (30 - (i % 28)) * DAY;
+      idByName.set(d.name, rec.id);
+    });
+    const need = (name) => {
+      const id = idByName.get(name);
+      if (!id) throw new Error(`demo dataset names a document that is not in library/: ${name}`);
+      return id;
+    };
+    for (const c of ds.contexts) {
+      const id = mint("ctx");
+      contextKeyById.set(id, c.key);
+      const when = t0 - c.days_ago * DAY;
+      const slotDocs = {};
+      const sourceIds = [];
+      for (const d of c.docs) {
+        const did = need(d.file);
+        sourceIds.push(did);
+        if (d.slot) (slotDocs[d.slot] ??= []).push(did);
+        documents.get(did).record.context_ids.push(id);
+      }
+      const dossier = need(c.briefing);
+      documents.get(dossier).record.context_ids.push(id);
+      documents.get(dossier).record.source = "generated";
+      const personas = c.personas.map((p, i) => ({ id: `${c.key}-persona-${i + 1}`, title: p.title, summary: p.summary, style_tags: [...p.style_tags], recommended: p.recommended === true, gender: p.gender ?? null, favorite: p.favorite === true }));
+      contexts.set(id, {
+        id,
+        title: c.title,
+        purpose: c.purpose,
+        job_description: c.job_description ?? null,
+        category: c.category,
+        participation_lens: c.participation_lens ?? null,
+        status: "ready",
+        created_at_unix_ms: when,
+        updated_at_unix_ms: when + DAY,
+        source_doc_ids: sourceIds,
+        slot_doc_ids: slotDocs,
+        auto_generate_context: false,
+        research_enabled: c.research_enabled === true,
+        key_terms: [...c.key_terms],
+        glossary: Object.keys(c.glossary_definitions ?? {}),
+        glossary_definitions: { ...(c.glossary_definitions ?? {}) },
+        knowledge_profile_id: null,
+        personas,
+        chosen_persona_id: personas.find((p) => p.recommended)?.id ?? null,
+        conversation_id: null,
+        dossier_doc_id: dossier,
+        research_doc_id: null,
+        deep_qa_enabled: false,
+        qa_doc_id: null,
+        resources_stale: false,
+        resources_generated_at_unix_ms: when + 3_600_000,
+        suggestion_decisions: {},
+      });
+    }
+    const idByKey = new Map([...contextKeyById].map(([id, key]) => [key, id]));
+    for (const cv of ds.conversations) {
+      const id = mint("conv");
+      const when = t0 - cv.days_ago * DAY;
+      const ctxId = cv.context ? idByKey.get(cv.context) : null;
+      if (cv.context && !ctxId) throw new Error(`demo conversation ${cv.key} names an unknown context: ${cv.context}`);
+      const linked = ctxId ? contexts.get(ctxId).source_doc_ids.slice(0, 2) : [];
+      const last = cv.segments[cv.segments.length - 1];
+      conversations.set(id, { id, title: cv.title, created_at_unix_ms: when, updated_at_unix_ms: when + (last ? last.end_ms : 0), segments: cv.segments, linked_docs: linked, linked_context_id: ctxId });
+    }
+  }
+
+  if (dataset) plantDataset(dataset);
+  else if (seed) {
     const t = now();
     const ctxId = mint("ctx");
     contexts.set(ctxId, {
@@ -179,7 +284,7 @@ export function createCloudStub({ now = () => Date.now(), seed = true } = {}) {
   /** The cited chunks for an ask: the Context's documents when it names any, else the whole enabled library. */
   function retrieve(contextId) {
     const ctx = contextId ? contexts.get(contextId) : null;
-    const scope = ctx && ctx.source_doc_ids.length ? new Set(ctx.source_doc_ids) : null;
+    const scope = ctx && ctx.source_doc_ids.length ? new Set([...ctx.source_doc_ids, ...(ctx.dossier_doc_id ? [ctx.dossier_doc_id] : [])]) : null;
     return liveDocs()
       .filter((d) => d.record.enabled && (!scope || scope.has(d.record.id)))
       .map((d) => ({ file_name: d.record.file_name, location: locationOf(d.text) }));
@@ -192,9 +297,19 @@ export function createCloudStub({ now = () => Date.now(), seed = true } = {}) {
     answered.add(body.request_id);
     const segments = Array.isArray(body.segments) ? body.segments : [];
     const contextId = typeof body.context_id === "string" ? body.context_id : null;
-    const sources = retrieve(contextId);
+    let sources = retrieve(contextId);
     const question = typeof body.question === "string" ? body.question : null;
-    const answer = sources.length ? REHEARSAL_ANSWER : "No documents to cite on this deployment.";
+    let answer = sources.length ? REHEARSAL_ANSWER : "No documents to cite on this deployment.";
+    if (demoAnswers) {
+      const hit = question ? matchDemoAnswer(question, contextId ? contextKeyById.get(contextId) ?? null : null, demoAnswers) : null;
+      if (hit) {
+        answer = hit.answer;
+        sources = hit.docs.map((n) => liveDocs().find((d) => d.record.file_name === n)).filter(Boolean).map((d) => ({ file_name: d.record.file_name, location: locationOf(d.text) }));
+      } else {
+        answer = "I could not find that in the documents attached to this Context.";
+        sources = [];
+      }
+    }
     const tokens = tokensOf(answer);
     stats.ally.push({ kind: body.kind, question_chars: question ? question.length : 0, segments: segments.length, finals: segments.filter((s) => s && s.is_final === true).length, context_id: contextId !== null, context_known: contextId !== null && contexts.has(contextId), sources: sources.length, tokens: tokens.length });
     const rid = body.request_id;
@@ -236,7 +351,8 @@ export function createCloudStub({ now = () => Date.now(), seed = true } = {}) {
       const d = id ? documents.get(id) : null;
       if (!d || d.deleted) return finish(refuse(404, "not_found", "That document no longer exists."));
       if (method === "GET" && sub === "text") return finish(ok({ text: d.text }));
-      if (method === "GET" && sub === "original") return finish(ok({ text: d.text }));
+      // Like the Worker: the original's bytes with a Content-Disposition, not JSON. `raw` tells the gateway to send it as-is.
+      if (method === "GET" && sub === "original") return finish({ status: 200, raw: d.text, file_name: d.record.file_name });
       if (method === "PATCH" && !sub) {
         if (!body || typeof body !== "object") return finish(refuse(400, "invalid_json"));
         if (typeof body.enabled === "boolean") d.record.enabled = body.enabled;

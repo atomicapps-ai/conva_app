@@ -49,7 +49,7 @@ pub fn provider_registry() -> Vec<ProviderInfo> {
         ProviderInfo {
             id: ProviderId::Anthropic,
             name: "Anthropic Claude",
-            default_quality_model: "claude-sonnet-5",
+            default_quality_model: "claude-sonnet-5-5",
             default_fast_model: "claude-haiku-4-5",
             requires_api_key: true,
             is_local: false,
@@ -107,6 +107,22 @@ pub struct ModelSelection {
     pub model: String,
 }
 
+/// The `thinking` request field Conva must send for an Anthropic model, if any.
+///
+/// Conva streams short live-call answers inside a 300-600 ms first-token budget,
+/// and its tracker caps output at 700 tokens. Claude Sonnet 5.5 thinks adaptively
+/// when `thinking` is omitted (and rejects `{"type":"disabled"}` with a 400), so
+/// left alone it would spend that budget reasoning before the first visible word
+/// and could be cut off mid-JSON. `between_tools` is its documented way to turn
+/// thinking off. Exact id match only: other models reject this field (Haiku 4.5
+/// takes `enabled`/`disabled`, never `between_tools`), so they get nothing.
+pub fn anthropic_thinking_override(model: &str) -> Option<serde_json::Value> {
+    match model {
+        "claude-sonnet-5-5" => Some(serde_json::json!({ "type": "between_tools" })),
+        _ => None,
+    }
+}
+
 /// A chat-style request assembled by the context builder (§4.5 O1).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmRequest {
@@ -147,6 +163,9 @@ impl TokenUsage {
 
 /// A streaming LLM provider. Implementations live in `src-tauri` (one file
 /// per provider) and normalize each provider's SSE schema into `LlmChunk`s.
+// async_trait boxes each method's future and tags it `#[must_use]`; Rust 1.99's
+// clippy::double_must_use now flags that on the generated code. Not ours to fix.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     fn id(&self) -> ProviderId;
@@ -203,5 +222,33 @@ mod tests {
             serde_json::to_string(&ProviderId::OllamaLocal).unwrap(),
             "\"ollama_local\""
         );
+    }
+}
+
+#[cfg(test)]
+mod thinking_override_tests {
+    use super::*;
+
+    #[test]
+    fn sonnet_5_5_gets_thinking_switched_off_between_tools() {
+        assert_eq!(
+            anthropic_thinking_override("claude-sonnet-5-5"),
+            Some(serde_json::json!({ "type": "between_tools" }))
+        );
+    }
+
+    #[test]
+    fn other_models_get_no_thinking_field() {
+        // Haiku 4.5 would 400 on `between_tools`; the rest keep their own defaults.
+        for model in [
+            "claude-haiku-4-5",
+            "claude-sonnet-5",
+            "claude-opus-5-5",
+            "claude-fable-5-1",
+            "claude-sonnet-5-5-20260101",
+            "",
+        ] {
+            assert_eq!(anthropic_thinking_override(model), None, "{model}");
+        }
     }
 }

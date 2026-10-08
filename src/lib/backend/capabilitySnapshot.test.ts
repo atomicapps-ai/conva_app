@@ -73,6 +73,7 @@ describe("available vs unsupported vs unimplemented", () => {
     expect(ops["ally.run"].state).toBe("unimplemented");
     expect(ops["usage.summary"].state).toBe("unimplemented");
     expect(ops["usage.reset"].state).toBe("unsupported");
+    expect(ops["usage.telemetryStatus"].state).toBe("unsupported");
     expect(ops["capture.recover"].state).toBe("unimplemented");
     expect(ops["sessions.exportTranscript"].state).toBe("available"); // browser download (M2 cp6)
     expect(ops["sessions.writeTextFile"].state).toBe("available");
@@ -81,6 +82,7 @@ describe("available vs unsupported vs unimplemented", () => {
     expect(ops["partner.open"].state).toBe("unsupported");
     expect(ops["providers.setKey"].state).toBe("unsupported");
     expect(ops["auth.signinPassword"].state).toBe("available");
+    expect(ops["auth.deleteAccount"].state).toBe("available");
     expect(ops["auth.status"].state).toBe("available");
     // the audit's "misleading scaffold successes" are NOT available
     expect(ops["rag.analyzeTerms"].state).toBe("unimplemented");
@@ -141,5 +143,30 @@ describe("available vs unsupported vs unimplemented", () => {
     expect(s.revision).toBe(7);
     expect(s.sources).toEqual([]);
     expect(Object.values(s.operations).some((a) => isUsable(a))).toBe(false);
+  });
+});
+
+describe("live assist (spreadsheet totals) capability", () => {
+  it("desktop reports table aggregation available, in the coarse descriptor and per operation", () => {
+    expect(DESKTOP_CAPABILITIES.rag.tableAggregation).toBe(true);
+    const ops = desktopSnapshot(DESKTOP_CAPABILITIES, chromeWindows).operations;
+    expect(ops["liveAssist.submit"].state).toBe("available");
+    expect(ops["liveAssist.choose"].state).toBe("available");
+  });
+
+  it("web reports it honestly as unimplemented, with a reason a person can read", () => {
+    expect(WEB_CAPABILITIES.rag.tableAggregation).toBe(false);
+    const ops = webOperations();
+    for (const op of ["liveAssist.submit", "liveAssist.choose"] as const) {
+      const a = ops[op];
+      expect(a.state).toBe("unimplemented");
+      expect("reason" in a && a.reason).toMatch(/desktop app/i);
+      expect(isUsable(a)).toBe(false);
+    }
+  });
+
+  it("both operations are in the completeness table", () => {
+    expect(ALL_OPERATIONS).toContain("liveAssist.submit");
+    expect(ALL_OPERATIONS).toContain("liveAssist.choose");
   });
 });

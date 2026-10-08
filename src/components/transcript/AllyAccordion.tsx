@@ -4,38 +4,37 @@ import {
   SECTION_META,
   SECTION_ORDER,
   selectSection,
-  togglePin,
   type PanelSectionId,
   type PanelState,
 } from "@/components/transcript/panelSections";
 import { Icon } from "@/components/ui/Icon";
 
 /**
- * The spine-icon accordion (spec 2026-08-26). Each section renders its own
- * spine icon chip absolutely positioned ON the panel's left border
+ * Active (3) — the spine-icon accordion (spec 2026-08-26; Answers dock
+ * retired 2026-09-28, its content now lives in View). Each section renders
+ * its own spine icon chip absolutely positioned ON the panel's left border
  * (`left-0 -translate-x-1/2`) at the section's top edge — icons slide with
  * their sections while the stacking order stays fixed. Exactly one content
- * section is expanded. The legacy Answers dock remains behind an explicit
- * compatibility flag; the live cockpit disables it in favor of Focus.
+ * section is expanded. A section with unseen finds shows a NEW badge next
+ * to its count, cleared the moment it's opened.
  */
 export function AllyAccordion({
   state,
   onState,
   counts,
-  splitRatio,
-  onSplitRatio,
+  newCounts = {},
   renderSection,
   questionsMode = "live",
   onQuestionsMode = () => {},
   prepCount = 0,
   liveUnseen = false,
-  answersDockEnabled = true,
 }: {
   state: PanelState;
   onState: (next: PanelState) => void;
   counts: Record<PanelSectionId, number>;
-  splitRatio: number;
-  onSplitRatio: (r: number) => void;
+  /** Unseen-item count per section (owner, 2026-09-28) — a section with a
+   *  positive count here shows a NEW badge on its header. */
+  newCounts?: Partial<Record<PanelSectionId, number>>;
   renderSection: (id: PanelSectionId) => ReactNode;
   /** Questions sub-mode (split-source spec 2026-08-27): "live" = the radar
    *  feed (counts.questions), "prep" = the prepared Q&A bank (prepCount).
@@ -47,31 +46,17 @@ export function AllyAccordion({
   /** Live questions arrived while in prep mode — a dot on the ◉ chip;
    *  never auto-switches. */
   liveUnseen?: boolean;
-  /** Legacy bottom Answers dock. The Focus canvas disables it so Answers
-   *  becomes the fourth archive section instead of competing for height. */
-  answersDockEnabled?: boolean;
 }) {
-  const effectiveState = answersDockEnabled
-    ? state
-    : { ...state, answersPinned: false };
   const select = (id: PanelSectionId) => {
-    const next = selectSection(effectiveState, id);
-    if (
-      next.open !== state.open ||
-      next.answersPinned !== state.answersPinned
-    )
-      onState(next);
+    const next = selectSection(state, id);
+    if (next.open !== state.open) onState(next);
   };
-
-  const contentIds = SECTION_ORDER.filter(
-    (id) => id !== "answers" || !effectiveState.answersPinned,
-  );
 
   const sectionShell = (id: PanelSectionId) => {
     const meta = SECTION_META[id];
     const open = state.open === id;
-    const lit = open || (id === "answers" && effectiveState.answersPinned);
     const count = counts[id];
+    const isNew = (newCounts[id] ?? 0) > 0;
     return (
       <div
         key={id}
@@ -88,7 +73,7 @@ export function AllyAccordion({
           onClick={() => select(id)}
           className={[
             "absolute left-0 top-1 z-40 grid h-[26px] w-[26px] -translate-x-1/2 place-items-center rounded-full border shadow-sm transition",
-            lit
+            open
               ? meta.tone === "ai"
                 ? "border-ai/60 bg-bg-2 text-ai"
                 : "border-primary/60 bg-bg-2 text-primary"
@@ -114,10 +99,17 @@ export function AllyAccordion({
               {count}
             </span>
           )}
+          {isNew && (
+            <span
+              aria-label="New"
+              className="rounded-full border border-ai/60 bg-ai/15 px-1.5 font-mono text-[9px] font-bold uppercase text-ai"
+            >
+              New
+            </span>
+          )}
           {/* Questions mode chips (split-source spec 2026-08-27): ◉ Live
               (azure, the radar feed) · ◈ Prep (gold, the prepared bank).
-              In-header controls like Answers' pin — they switch what this
-              ONE section shows, never which section is open (though
+              In-header controls, never which section is open (though
               picking a mode does open Questions if it wasn't). */}
           {id === "questions" && (
             <span className="ml-auto flex items-center gap-1">
@@ -174,32 +166,6 @@ export function AllyAccordion({
               })}
             </span>
           )}
-          {id === "answers" && answersDockEnabled && (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-pressed={effectiveState.answersPinned}
-              aria-label="Pin Answers"
-              title={effectiveState.answersPinned ? "Unpin Answers" : "Pin Answers"}
-              onClick={(e) => {
-                e.stopPropagation();
-                onState(togglePin(effectiveState));
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.stopPropagation();
-                  onState(togglePin(effectiveState));
-                }
-              }}
-              className={`ml-auto grid h-6 w-6 place-items-center rounded ${
-                effectiveState.answersPinned
-                  ? "text-ai"
-                  : "text-fg-faint hover:text-fg"
-              }`}
-            >
-              <Icon name="pin" size={13} />
-            </span>
-          )}
         </button>
         {open && (
           <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
@@ -212,81 +178,7 @@ export function AllyAccordion({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        style={
-          effectiveState.answersPinned
-            ? { flexBasis: `${splitRatio * 100}%` }
-            : undefined
-        }
-        className={[
-          "flex min-h-0 flex-col",
-          effectiveState.answersPinned ? "shrink-0 grow-0" : "min-h-0 flex-1",
-        ].join(" ")}
-      >
-        {contentIds.map(sectionShell)}
-      </div>
-
-      {effectiveState.answersPinned && (
-        <>
-          <div
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="Resize Answers"
-            onPointerDown={(e) => {
-              const host = e.currentTarget.parentElement;
-              if (!host) return;
-              const rect = host.getBoundingClientRect();
-              const move = (ev: PointerEvent) =>
-                onSplitRatio((ev.clientY - rect.top) / rect.height);
-              const up = () => {
-                window.removeEventListener("pointermove", move);
-                window.removeEventListener("pointerup", up);
-              };
-              window.addEventListener("pointermove", move);
-              window.addEventListener("pointerup", up);
-            }}
-            className="h-[5px] shrink-0 cursor-row-resize border-y border-border bg-bg-2 hover:bg-panel-raised"
-          />
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {(() => {
-              const meta = SECTION_META.answers;
-              return (
-                <>
-                  <span
-                    aria-hidden
-                    className="absolute left-0 top-1 z-40 grid h-[26px] w-[26px] -translate-x-1/2 place-items-center rounded-full border border-ai/60 bg-bg-2 text-ai shadow-sm"
-                  >
-                    <Icon name={meta.icon} size={14} />
-                  </span>
-                  <div className="flex h-8 shrink-0 items-center gap-2 pl-5 pr-2.5">
-                    <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-fg">
-                      {meta.label}
-                    </span>
-                    {counts.answers > 0 && (
-                      <span className="rounded-full border border-border px-1.5 text-[10px] text-fg-faint">
-                        {counts.answers}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      aria-pressed
-                      aria-label="Pin Answers"
-                      title="Unpin Answers"
-                      onClick={() => onState(togglePin(effectiveState))}
-                      className="ml-auto grid h-6 w-6 place-items-center rounded text-ai"
-                    >
-                      <Icon name="pin" size={13} />
-                    </button>
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
-                    {renderSection("answers")}
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        </>
-      )}
+      {SECTION_ORDER.map(sectionShell)}
     </div>
   );
 }

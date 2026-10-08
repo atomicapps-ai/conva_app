@@ -217,5 +217,42 @@ describe("webAuth — BFF session client", () => {
       fetchMock.mockRejectedValueOnce(new TypeError("offline"));
       expect(await webAuth.deleteAvatar()).toBe(false);
     });
+
+    describe("deleteAccount", () => {
+      it("DELETEs the same-origin live route; success flips the local view to signed out and returns the reference", async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(SIGNED_IN));
+        await webAuth.load();
+        expect(webAuth.status().signed_in).toBe(true);
+        fetchMock.mockResolvedValueOnce(jsonResponse({ deleted: true, reference: "DEL-ABCD-2345" }));
+        const r = await webAuth.deleteAccount();
+        expect(r).toEqual({ reference: "DEL-ABCD-2345" });
+        const [url, init] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+        expect(url).toBe("/api/live/account");
+        expect(init).toMatchObject({ method: "DELETE", credentials: "same-origin" });
+        expect(webAuth.status().signed_in).toBe(false);
+      });
+
+      it("maps refusals to stable codes, never a raw body, and stays signed in", async () => {
+        fetchMock.mockResolvedValueOnce(jsonResponse(SIGNED_IN));
+        await webAuth.load();
+        const refuse = async (res: Response) => {
+          fetchMock.mockResolvedValueOnce(res);
+          return webAuth.deleteAccount().then(
+            () => "resolved",
+            (e: Error) => e.message,
+          );
+        };
+        expect(await refuse(jsonResponse({ error: "recent_sign_in_required", reason: "Sign in again" }, 403))).toBe("recent_sign_in_required");
+        expect(await refuse(jsonResponse({ error: "storage_cleanup_failed" }, 502))).toBe("storage_cleanup_failed");
+        expect(await refuse(jsonResponse({ error: "relation hbxftjyooblxiiapaeei.documents missing" }, 500))).toBe("upstream");
+        expect(await refuse(jsonResponse({}, 401))).toBe("signed_out");
+        expect(await refuse(jsonResponse({}, 403))).toBe("recent_sign_in_required");
+        expect(await refuse(jsonResponse({}, 429))).toBe("quota_exceeded");
+        expect(await refuse(jsonResponse({ deleted: false }, 200))).toBe("upstream");
+        fetchMock.mockRejectedValueOnce(new TypeError("offline"));
+        await expect(webAuth.deleteAccount()).rejects.toThrow("network");
+        expect(webAuth.status().signed_in).toBe(true);
+      });
+    });
   });
 });

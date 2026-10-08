@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { AllySource } from "@/lib/ipc";
+import type { AllyChunkEvent, AllySource } from "@/lib/ipc";
 import {
   friendlyAllyError,
   groupSourcesByFile,
@@ -121,6 +121,12 @@ describe("friendlyAllyError", () => {
     );
   });
 
+  it("explains offline_mode refusals instead of showing the raw code", () => {
+    expect(friendlyAllyError("offline_mode")).toBe(
+      "Offline mode is on, so nothing is sent to an AI provider. Turn it off in Settings → Ally to use this.",
+    );
+  });
+
   it("passes unrecognized errors through unchanged", () => {
     expect(friendlyAllyError("stream read: connection reset")).toBe(
       "stream read: connection reset",
@@ -144,3 +150,38 @@ describe("friendlyAllyError", () => {
     );
   });
 });
+
+describe("applyChunk: how a finished answer ended", () => {
+  const card = (): AllyCard => ({ id: "q1", text: "", done: false, error: null }) as unknown as AllyCard;
+  const finish = (token: string, stop_reason: AllyChunkEvent["stop_reason"]) => {
+    useAllyStore.setState({ busy: true, cards: [card()] });
+    const apply = useAllyStore.getState().applyChunk;
+    if (token) apply({ request_id: "q1", token, done: false, error: null });
+    apply({ request_id: "q1", token: "", done: true, error: null, stop_reason });
+    return useAllyStore.getState().cards[0]!;
+  };
+
+  it("marks an answer that hit the length limit instead of passing it off as whole", () => {
+    const c = finish("- first\n- second poi", "truncated");
+    expect(c.error).toBeNull();
+    expect(c.done).toBe(true);
+    expect(c.text).toContain("- second poi");
+    expect(c.text).toContain("Cut off");
+  });
+
+  it("shows a plain message, not a blank card, when nothing came back", () => {
+    expect(finish("", "complete").error).toMatch(/no answer/i);
+    expect(finish("", undefined).error).toMatch(/no answer/i);
+  });
+
+  it("shows a plain message when the model declined", () => {
+    expect(finish("", "refused").error).toMatch(/declined/i);
+  });
+
+  it("leaves a normal answer, and one with no stop reason, untouched", () => {
+    expect(finish("- all of it", "complete").text).toBe("- all of it");
+    expect(finish("- all of it", undefined)).toMatchObject({ text: "- all of it", error: null });
+    expect(finish("- all of it", "unknown").error).toBeNull();
+  });
+});
+

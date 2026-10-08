@@ -380,6 +380,10 @@ export class FakeBackend implements ConvaBackend {
     listModels: nc("providers.listModels"),
   };
   ally = { run: nc("ally.run") };
+  liveAssist = {
+    submit: nc("liveAssist.submit"),
+    choose: nc("liveAssist.choose"),
+  };
   audio = {
     listDevices: nc("audio.listDevices"),
     listWhisperModels: nc("audio.listWhisperModels"),
@@ -423,6 +427,7 @@ export class FakeBackend implements ConvaBackend {
     avatarUrl: nc("auth.avatarUrl"),
     avatarUpload: nc("auth.avatarUpload"),
     avatarDelete: nc("auth.avatarDelete"),
+    deleteAccount: nc("auth.deleteAccount"),
   };
   context = {
     save: nc("context.save"),
@@ -445,7 +450,20 @@ export class FakeBackend implements ConvaBackend {
     setResearchKey: nc("context.setResearchKey"),
     researchKeyStatus: nc("context.researchKeyStatus"),
   };
-  usage = { summary: nc("usage.summary"), reset: nc("usage.reset") };
+  localData = {
+    summary: nc("localData.summary"),
+    recordings: nc("localData.recordings"),
+    deleteRecordings: nc("localData.deleteRecordings"),
+    revealRecording: nc("localData.revealRecording"),
+    openDataFolder: nc("localData.openDataFolder"),
+    erase: nc("localData.erase"),
+    takeEraseReport: nc("localData.takeEraseReport"),
+  };
+  usage = {
+    summary: nc("usage.summary"),
+    reset: nc("usage.reset"),
+    telemetryStatus: nc("usage.telemetryStatus"),
+  };
   sessions = {
     list: nc("sessions.list"),
     load: nc("sessions.load"),
@@ -470,6 +488,10 @@ export class FakeBackend implements ConvaBackend {
     close: nc("partner.close"),
     redock: nc("partner.redock"),
     payload: nc("partner.payload"),
+    ensureOpen: nc("partner.ensureOpen"),
+    publishView: nc("partner.publishView"),
+    viewState: nc("partner.viewState"),
+    sendViewAction: nc("partner.sendViewAction"),
     setLocked: nc("partner.setLocked"),
     locked: nc("partner.locked"),
   };

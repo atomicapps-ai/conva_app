@@ -24,7 +24,8 @@ use tauri::{AppHandle, Emitter, State};
 use conva_core::asr::TranscriptSegment;
 use conva_core::audio::StreamSide;
 use conva_core::capture::{
-    build_capture_request, parse_capture_reply, Capture, CaptureState, PreparedContext,
+    build_capture_request, parse_capture_reply, resolve_capture_arguments, ArgumentTrace, Capture,
+    CaptureState, PreparedContext,
 };
 use conva_core::ipc::{events, CaptureEvent};
 use conva_core::llm::ModelSelection;
@@ -118,6 +119,9 @@ fn run_pass(
     state: &mut CaptureState,
 ) {
     let request = build_capture_request(buffer, ctx);
+    // Kept for deterministic argument resolution below (the buffer is cleared
+    // as soon as the request is built).
+    let lines = transcript_lines(buffer);
     buffer.clear();
     if request.user.trim().is_empty() {
         return;
@@ -134,9 +138,10 @@ fn run_pass(
         &request,
         &mut |token| reply.push_str(token),
     );
-    let Ok(usage) = result else {
+    let Ok(outcome) = result else {
         return; // best-effort: skip this pass
     };
+    let usage = outcome.usage;
     crate::trace::record(
         "llm",
         t0.elapsed().as_millis() as u64,
@@ -149,9 +154,31 @@ fn run_pass(
         }),
     );
     let Some(extraction) = parse_capture_reply(&reply) else {
+        // The pass was billed but produced nothing usable; count it so a
+        // silently skipped pass shows up in Settings → Usage.
+        crate::metering::record_unusable_reply(
+            app,
+            "capture",
+            selection.provider,
+            &selection.model,
+        );
         return;
     };
-    if state.merge(extraction) {
+    // The prompt asks for the longest complete term, but never trust it alone:
+    // widen/canonicalize arguments against the spoken text + known terms with
+    // the same phrase policy the highlighter uses.
+    let resolution = resolve_capture_arguments(extraction, &lines, &ctx.terms);
+    for t in resolution
+        .trace
+        .iter()
+        .filter(|t| matches!(t.outcome.as_str(), "rewritten" | "canonicalized"))
+    {
+        eprintln!(
+            "[faner] capture argument {:?} -> {:?} ({})",
+            t.raw, t.resolved, t.outcome
+        );
+    }
+    if state.merge(resolution.extraction) {
         let _ = app.emit(
             events::CAPTURE,
             CaptureEvent {
@@ -159,6 +186,27 @@ fn run_pass(
             },
         );
     }
+}
+
+/// Final segment texts in order — the transcript the model was shown.
+fn transcript_lines(segments: &[TranscriptSegment]) -> Vec<String> {
+    segments
+        .iter()
+        .filter(|s| s.is_final)
+        .map(|s| s.text.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+/// `faner_replay` result: what the model said, what the deterministic
+/// resolver made of it, and why (dev/validation path).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReplayOutcome {
+    /// The model's captures, verbatim.
+    pub raw: Vec<Capture>,
+    /// After deterministic phrase resolution — what the live path emits.
+    pub resolved: Vec<Capture>,
+    pub trace: Vec<ArgumentTrace>,
 }
 
 /// One scripted transcript line for `faner_replay`.
@@ -199,7 +247,7 @@ pub async fn faner_replay(
     role: String,
     terms: Vec<String>,
     lines: Vec<ReplayLine>,
-) -> Result<Vec<Capture>, String> {
+) -> Result<ReplayOutcome, String> {
     let selection = state
         .config
         .lock()
@@ -207,10 +255,16 @@ pub async fn faner_replay(
         .fast_selection()
         .clone();
     let key = crate::llm::resolve_key(selection.provider).map_err(|e| e.to_string())?;
-    let ctx = PreparedContext { role, terms };
+    let known_terms = terms.clone();
+    let ctx = PreparedContext {
+        role,
+        terms,
+        ..PreparedContext::default()
+    };
     let segments: Vec<TranscriptSegment> =
         lines.into_iter().map(ReplayLine::into_segment).collect();
     let request = build_capture_request(&segments, &ctx);
+    let lines = transcript_lines(&segments);
 
     tauri::async_runtime::spawn_blocking(move || {
         let mut reply = String::new();
@@ -232,7 +286,15 @@ pub async fn faner_replay(
         // problems (e.g. a truncated reply from too low a max_tokens). Surface
         // it.
         match parse_capture_reply(&reply) {
-            Some(extraction) => Ok(extraction.captures),
+            Some(extraction) => {
+                let raw = extraction.captures.clone();
+                let resolution = resolve_capture_arguments(extraction, &lines, &known_terms);
+                Ok(ReplayOutcome {
+                    raw,
+                    resolved: resolution.extraction.captures,
+                    trace: resolution.trace,
+                })
+            }
             None => {
                 let snippet: String = reply.chars().take(500).collect();
                 Err(format!(

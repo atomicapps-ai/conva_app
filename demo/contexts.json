@@ -1,0 +1,147 @@
+{
+  "contexts": [
+    {
+      "key": "larkspur",
+      "title": "Larkspur Foods renewal",
+      "category": "sales_call",
+      "participation_lens": "seller",
+      "days_ago": 12,
+      "purpose": "Renew Larkspur's 300 seats, win the 120-seat expansion to Spokane and Boise, and hold price against Quill Analytics.",
+      "job_description": null,
+      "research_enabled": false,
+      "docs": [
+        { "file": "larkspur-account-overview.md", "slot": "account" },
+        { "file": "larkspur-usage-2026.csv", "slot": "account" },
+        { "file": "larkspur-renewal-quote.csv", "slot": "account" },
+        { "file": "master-services-terms.md" },
+        { "file": "quill-analytics-battle-card.md" },
+        { "file": "marlow-cold-storage-case-study.md" },
+        { "file": "larkspur-call-qa.md" }
+      ],
+      "briefing": "larkspur-renewal-briefing.md",
+      "key_terms": ["renewal", "Audit Pack", "mis-pick rate", "volume discount", "Quill Analytics", "60-day notice"],
+      "glossary_definitions": {
+        "mis-pick rate": "The share of orders shipped with a wrong item because a handoff note was missed. Larkspur: 5.8% in January, 3.4% in September.",
+        "Audit Pack": "Add-on that extends audit log retention from 90 to 400 days and adds exportable audit reports. $18,000 a year.",
+        "volume discount": "12% off Business seats for the 120 new Spokane and Boise seats.",
+        "60-day notice": "The master services terms require written notice 60 days before 30 November to change or end the agreement, so the deadline is 1 October."
+      },
+      "personas": [
+        { "title": "The cost-focused buyer", "summary": "Tomás Becker in procurement: polite, numbers first, will cite Quill's $31 quote and ask for a three-year term.", "style_tags": ["analytical", "price-sensitive", "direct"], "recommended": true, "gender": "male", "favorite": true },
+        { "title": "The outcome sponsor", "summary": "Priya Raman, VP Operations: cares about the mis-pick rate and the two new sites; wants proof it keeps improving.", "style_tags": ["strategic", "warm", "metrics-led"], "recommended": false, "gender": "female", "favorite": false },
+        { "title": "The sceptical operator", "summary": "Jun Park, warehouse systems: worried about retraining and offline reliability; asks for specifics.", "style_tags": ["practical", "cautious", "detail-oriented"], "recommended": false, "gender": "male", "favorite": false }
+      ]
+    },
+    {
+      "key": "designer",
+      "title": "Senior Product Designer interview",
+      "category": "interview",
+      "participation_lens": "interviewer",
+      "days_ago": 8,
+      "purpose": "Assess Elena Voss for the Senior Product Designer role: problem framing, offline design depth, collaboration and compensation fit.",
+      "job_description": "Senior Product Designer, Brightwater Flow. Own the handoff and task-tracking experience for warehouse and operations teams on tablets and phones, often offline. Six or more years of shipped B2B or operational software; accessibility on touch devices; comfortable with data. Base $148,000 to $176,000.",
+      "research_enabled": false,
+      "docs": [
+        { "file": "senior-product-designer-job-description.md" },
+        { "file": "elena-voss-resume.md", "slot": "resume" },
+        { "file": "take-home-brief.md", "slot": "interview_test" },
+        { "file": "design-interview-rubric.md" },
+        { "file": "brightwater-values.md" }
+      ],
+      "briefing": "interview-elena-briefing.md",
+      "key_terms": ["offline-first", "design system", "rubric", "take-home", "contextual interview"],
+      "glossary_definitions": {
+        "offline-first": "Designing so the product works without a connection and syncs later, with sync states and conflicts shown to the user.",
+        "rubric": "The six scored dimensions in the design interview: problem framing, offline and edge cases, accessibility, collaboration, use of data, craft."
+      },
+      "personas": [
+        { "title": "The detail-driven candidate", "summary": "Elena answers with specific numbers and project names; strong on edge cases, less on business trade-offs.", "style_tags": ["thorough", "structured", "calm"], "recommended": true, "gender": "female", "favorite": false },
+        { "title": "The portfolio-first candidate", "summary": "Leads with visuals and defers questions about process; needs a nudge to explain reasoning.", "style_tags": ["visual", "enthusiastic"], "recommended": false, "gender": "female", "favorite": false },
+        { "title": "The cautious negotiator", "summary": "Answers compensation questions with ranges and asks about equity and learning budget.", "style_tags": ["measured", "pragmatic"], "recommended": false, "gender": "male", "favorite": false }
+      ]
+    },
+    {
+      "key": "q4",
+      "title": "Q4 planning sync",
+      "category": "company_meeting",
+      "participation_lens": "meeting_lead",
+      "days_ago": 3,
+      "purpose": "Agree the Q4 plan and owners for the three risks; decide whether to protect the 78% gross-margin target.",
+      "job_description": null,
+      "research_enabled": false,
+      "docs": [
+        { "file": "q3-results-summary.md" },
+        { "file": "q3-financials.csv", "slot": "financials" },
+        { "file": "q4-okrs.md", "slot": "decks" },
+        { "file": "roadmap-q4.md", "slot": "decks" },
+        { "file": "prior-minutes-sept-leadership.md", "slot": "minutes" }
+      ],
+      "briefing": "q4-planning-briefing.md",
+      "key_terms": ["net revenue retention", "gross margin", "runway", "Audit Pack", "enterprise cycle", "status page"],
+      "glossary_definitions": {
+        "net revenue retention": "Revenue from existing customers this period as a share of the same customers a year ago, including upsell and churn. Q3: 117%.",
+        "runway": "How long the company can operate at the current burn rate. About 31 months.",
+        "enterprise cycle": "Days from first meeting to signed contract for Enterprise deals: 118 in Q3, target 100."
+      },
+      "personas": [
+        { "title": "The margin guardian", "summary": "COO focused on keeping gross margin at 78% and on hosting costs.", "style_tags": ["disciplined", "numbers-led"], "recommended": true, "gender": "female", "favorite": false },
+        { "title": "The growth advocate", "summary": "VP Sales pushing to hire ahead of plan to shorten the enterprise cycle.", "style_tags": ["ambitious", "persuasive"], "recommended": false, "gender": "male", "favorite": false },
+        { "title": "The delivery realist", "summary": "VP Engineering warning that the status page and 3.0 share the same people.", "style_tags": ["candid", "practical"], "recommended": false, "gender": "male", "favorite": false }
+      ]
+    },
+    {
+      "key": "launch",
+      "title": "Brightwater Flow 3.0 launch stream",
+      "category": "live_stream",
+      "participation_lens": "live_host",
+      "days_ago": 5,
+      "purpose": "Host the 45-minute 3.0 launch: demo, the Marlow story, offline mode and audience questions.",
+      "job_description": null,
+      "research_enabled": false,
+      "docs": [
+        { "file": "show-rundown.md", "slot": "rundown" },
+        { "file": "guest-bio-dana-whitfield.md", "slot": "guest_bio" },
+        { "file": "talking-points-flow-3.md", "slot": "talking_points" },
+        { "file": "launch-faq.md" }
+      ],
+      "briefing": "livestream-briefing.md",
+      "key_terms": ["handoff templates", "offline mode", "Audit Pack", "Marlow", "availability"],
+      "glossary_definitions": {
+        "handoff templates": "Per-dock or per-zone checklists so every shift handoff has an owner and a status.",
+        "offline mode": "Work continues without a connection; changes sync later and conflicts are shown to the user."
+      },
+      "personas": [
+        { "title": "The practical guest", "summary": "Dana Whitfield: concrete, operations-minded, quotes numbers from Marlow.", "style_tags": ["grounded", "plain-spoken"], "recommended": true, "gender": "female", "favorite": false },
+        { "title": "The curious viewer", "summary": "Chat asks about price, migration and offline conflicts.", "style_tags": ["curious", "brief"], "recommended": false, "gender": "female", "favorite": false },
+        { "title": "The sceptical viewer", "summary": "Wants proof of the 41% claim and asks about lock-in.", "style_tags": ["sceptical", "direct"], "recommended": false, "gender": "male", "favorite": false }
+      ]
+    },
+    {
+      "key": "cedarline",
+      "title": "Cedarline outage follow-up",
+      "category": "other",
+      "participation_lens": "other_facilitator",
+      "days_ago": 2,
+      "purpose": "Explain the 2 October Cedarline incident to an affected customer, confirm no data was lost and agree what changes.",
+      "job_description": null,
+      "research_enabled": false,
+      "docs": [
+        { "file": "incident-timeline-oct-2.md", "slot": "files" },
+        { "file": "sla-terms-summary.md", "slot": "files" },
+        { "file": "support-runbook-escalations.md", "slot": "files" },
+        { "file": "status-page-updates.md", "slot": "files" }
+      ],
+      "briefing": "cedarline-escalation-briefing.md",
+      "key_terms": ["severity 1", "service credits", "token format", "status page", "99.9%"],
+      "glossary_definitions": {
+        "severity 1": "An outage: error rate above 10% for more than 15 minutes. First response within 1 hour, updates every 30 minutes.",
+        "service credits": "5% of the monthly fee for each full 0.1% below the 99.9% commitment, up to 25%. Partner outages are excluded."
+      },
+      "personas": [
+        { "title": "The worried operations lead", "summary": "Priya Raman: wants to know whether orders were affected and what stops a repeat.", "style_tags": ["concerned", "constructive"], "recommended": true, "gender": "female", "favorite": false },
+        { "title": "The contract-minded buyer", "summary": "Tomás Becker: asks about credits and the SLA wording.", "style_tags": ["formal", "precise"], "recommended": false, "gender": "male", "favorite": false },
+        { "title": "The hands-on engineer", "summary": "Jun Park: asks for the technical cause and the fix.", "style_tags": ["technical", "to-the-point"], "recommended": false, "gender": "male", "favorite": false }
+      ]
+    }
+  ]
+}

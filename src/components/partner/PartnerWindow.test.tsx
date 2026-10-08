@@ -15,6 +15,8 @@ const subscribers: Record<string, (p: unknown) => void> = {};
 const backend = {
   partner: {
     payload: vi.fn().mockResolvedValue(null),
+    viewState: vi.fn().mockResolvedValue(null),
+    sendViewAction: vi.fn().mockResolvedValue(undefined),
     redock: vi.fn().mockResolvedValue(undefined),
     locked: vi.fn().mockResolvedValue(true),
     setLocked: vi.fn().mockResolvedValue(undefined),
@@ -106,6 +108,7 @@ describe("PartnerWindow tabs", () => {
     for (const k of Object.keys(subscribers)) delete subscribers[k];
     vi.clearAllMocks();
     backend.partner.payload.mockResolvedValue(null);
+    backend.partner.viewState.mockResolvedValue(null);
     backend.partner.locked.mockResolvedValue(true);
     backend.rag.list.mockResolvedValue([]);
   });
@@ -153,7 +156,7 @@ describe("PartnerWindow tabs", () => {
     expect(screen.queryByText("Runs functions.")).toBeNull();
   });
 
-  it("closing the active tab activates its neighbor; closing the last shows the empty state", async () => {
+  it("closing the active tab activates its neighbor; closing the last falls back to View", async () => {
     await act(async () => {
       render(<PartnerWindow />);
     });
@@ -168,9 +171,12 @@ describe("PartnerWindow tabs", () => {
     fireEvent.click(
       screen.getByRole("button", { name: 'Close "API Gateway"' }),
     );
-    expect(
-      screen.getByText(/Open a term from the Terms tab/),
-    ).toBeInTheDocument();
+    // Nothing left open: the fixed View (4) tab takes over, empty.
+    expect(screen.getByRole("tab", { name: "View" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText(/Pick something in Ally/)).toBeInTheDocument();
   });
 
   it("researches a fresh term tagged to its tab, so another tab's answer never bleeds in", async () => {
@@ -250,7 +256,8 @@ describe("PartnerWindow tabs", () => {
     });
 
     expect(screen.getAllByText("One person died.")).toHaveLength(2);
-    expect(screen.getAllByRole("tab")).toHaveLength(1);
+    // The fixed View tab plus the one claim tab.
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
   });
 });
 
@@ -429,5 +436,221 @@ describe("PartnerWindow lock toggle", () => {
     expect(
       screen.getByRole("button", { name: /Floating/ }),
     ).toBeInTheDocument();
+  });
+});
+
+
+describe("PartnerWindow View (4) tab", () => {
+  const viewState = (over: Partial<import("@/lib/ipc").ViewState> = {}) => ({
+    items: [
+      {
+        id: "card:a1",
+        group: "question" as const,
+        question: "How do you handle partial failures?",
+        answer: "- Make each step idempotent\n- Retry with backoff",
+        source_label: "A1",
+        source_files: ["baseline briefing.txt"],
+        status: "ready" as const,
+        card_id: "a1",
+        found_id: null,
+        tier: null,
+        kind: null,
+        facts: [],
+      },
+    ],
+    active_id: "card:a1",
+    pinned_ids: [] as string[],
+    ...over,
+  });
+
+  beforeEach(() => {
+    useAllyStore.getState().clear();
+    for (const k of Object.keys(subscribers)) delete subscribers[k];
+    vi.clearAllMocks();
+    backend.partner.payload.mockResolvedValue(null);
+    backend.partner.viewState.mockResolvedValue(null);
+    backend.partner.locked.mockResolvedValue(true);
+    backend.rag.list.mockResolvedValue([]);
+  });
+
+  it("opens on the View tab, titled 'Ally — View'", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    expect(screen.getByRole("tab", { name: "View" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText(/Ally — View/)).toBeInTheDocument();
+  });
+
+  it("renders the state the main window last pushed (read on boot)", async () => {
+    backend.partner.viewState.mockResolvedValue(viewState());
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    expect(screen.getByText("Say now")).toBeInTheDocument();
+    expect(screen.getByText("Make each step idempotent")).toBeInTheDocument();
+    expect(screen.getByText("Retry with backoff")).toBeInTheDocument();
+  });
+
+  it("follows live pushes from the main window", async () => {
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    expect(screen.getByText(/Pick something in Ally/)).toBeInTheDocument();
+    await act(async () => {
+      subscribers["partnerViewState"]?.(viewState());
+    });
+    expect(screen.getByText("Make each step idempotent")).toBeInTheDocument();
+  });
+
+  it("sends select, pin, elaborate and ask back to the main window", async () => {
+    backend.partner.viewState.mockResolvedValue(
+      viewState({
+        items: [
+          ...viewState().items,
+          {
+            ...viewState().items[0]!,
+            id: "found:t-x",
+            group: "term" as const,
+            question: "Step Functions",
+            answer: "A workflow service.",
+          },
+        ],
+      }),
+    );
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    fireEvent.click(screen.getByRole("tab", { name: /Step Functions/ }));
+    expect(backend.partner.sendViewAction).toHaveBeenCalledWith({
+      kind: "select",
+      id: "found:t-x",
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Pin/ }));
+    expect(backend.partner.sendViewAction).toHaveBeenCalledWith({
+      kind: "pin",
+      id: "found:t-x",
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Elaborate/ }));
+    expect(backend.partner.sendViewAction).toHaveBeenCalledWith({
+      kind: "elaborate",
+      id: "found:t-x",
+    });
+    const input = screen.getByLabelText("Ask a follow-up");
+    fireEvent.change(input, { target: { value: "and retries?" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(backend.partner.sendViewAction).toHaveBeenCalledWith({
+      kind: "ask",
+      id: "found:t-x",
+      text: "and retries?",
+    });
+  });
+
+  it("opens a grounding file as a document tab next to View", async () => {
+    backend.rag.list.mockResolvedValue([
+      { id: "doc-1", file_name: "baseline briefing.txt" },
+    ]);
+    backend.partner.viewState.mockResolvedValue(viewState());
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: 'Open "baseline briefing.txt"' }),
+      );
+    });
+    expect(
+      screen.getByRole("tab", { name: /baseline briefing.txt/ }),
+    ).toHaveAttribute("aria-selected", "true");
+    // The View tab is still there to go back to.
+    expect(screen.getByRole("tab", { name: "View" })).toBeInTheDocument();
+  });
+});
+
+
+describe("PartnerWindow View (4) — live assist grid", () => {
+  const wireItem = (over: Partial<import("@/lib/ipc").ViewItem> = {}) => ({
+    id: "found:q-s1:them:4",
+    group: "question" as const,
+    question: "What's the total amount per district?",
+    answer: "The total amount is $439,519.85.",
+    source_label: "Table answer",
+    source_files: ["Q3-district-sales.csv"],
+    status: "ready" as const,
+    card_id: null,
+    found_id: "q-s1:them:4",
+    tier: null,
+    kind: null,
+    facts: [],
+    ...over,
+  });
+  const state = (item: ReturnType<typeof wireItem>) => ({
+    items: [item],
+    active_id: item.id,
+    pinned_ids: [] as string[],
+  });
+
+  beforeEach(() => {
+    useAllyStore.getState().clear();
+    for (const k of Object.keys(subscribers)) delete subscribers[k];
+    vi.clearAllMocks();
+    backend.partner.payload.mockResolvedValue(null);
+    backend.partner.locked.mockResolvedValue(true);
+    backend.rag.list.mockResolvedValue([]);
+  });
+
+  it("shows the holding response, then the grid when the main window pushes the finished result", async () => {
+    backend.partner.viewState.mockResolvedValue(
+      state(
+        wireItem({
+          answer: "One moment, I'm working that out from Q3-district-sales.csv.",
+          status: "streaming",
+        }),
+      ),
+    );
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Answering…");
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+
+    const { DISTRICT_GRID } = await import("@/test/liveAssistFixtures");
+    await act(async () => {
+      subscribers["partnerViewState"]?.(state(wireItem({ table: DISTRICT_GRID })));
+    });
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getAllByText("$439,519.85").length).toBeGreaterThan(0);
+    expect(screen.getByRole("status")).toHaveTextContent("Ready");
+  });
+
+  it("sends a tapped choice back to the main window as a 'choose' action", async () => {
+    backend.partner.viewState.mockResolvedValue(
+      state(
+        wireItem({
+          id: "assist:la-2",
+          found_id: null,
+          answer: "Let me check which one you mean.",
+          status: "instant",
+          choice: {
+            question: "Which column do you want to add up?",
+            options: [
+              { id: "1", label: "Amount", detail: "column 2" },
+              { id: "2", label: "Net amount", detail: "column 3" },
+            ],
+          },
+        }),
+      ),
+    );
+    await act(async () => {
+      render(<PartnerWindow />);
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Net amount/ }));
+    expect(backend.partner.sendViewAction).toHaveBeenCalledWith({
+      kind: "choose",
+      id: "assist:la-2",
+      text: "2",
+    });
   });
 });

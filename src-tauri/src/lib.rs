@@ -15,11 +15,16 @@ mod context;
 mod conversations;
 mod embed;
 mod events_flush;
+mod faner_debug;
 mod feedback;
+mod generation;
 mod hud;
+mod live_assist;
 mod llm;
+mod local_data;
 mod metering;
 mod models;
+mod offline;
 mod partner;
 mod radar_worker;
 mod rag;
@@ -30,6 +35,8 @@ mod secrets;
 mod semantic;
 mod session;
 mod splash;
+mod table_import;
+mod tables;
 mod telemetry_events;
 mod trace;
 mod tracker;
@@ -90,10 +97,25 @@ struct AppState {
     /// worker at Start. `None` means the worker uses an honest General
     /// conversation fallback rather than inventing Context knowledge.
     active_context_snapshot: Mutex<Option<ContextSnapshot>>,
+    /// Id of the Context whose terms/scope are currently applied (set by
+    /// `activate_context`, cleared with the rest of the active state). Lets
+    /// `context_save` refresh the live terms when the *active* Context is
+    /// edited — without it, a key term added after activation showed in the
+    /// Terms panel (which reloads from disk) but never reached
+    /// `analyze_terms`.
+    active_context_id: Mutex<Option<String>>,
+    /// Domain lexicon for the active Context: the bundled packs its own text
+    /// selects (`conva_core::lexicon::select_packs`), compiled once when the
+    /// Context is applied. `None` = no pack applies (no Context, or no pack
+    /// matches) — a casual call never lights up technical terms.
+    active_lexicon: Mutex<Option<Arc<conva_core::lexicon::Lexicon>>>,
     /// `.cva` archive operation ids the UI has asked to cancel (checked
     /// between documents by `archive::export_*`/`import_*`; see
     /// `archive_cancel`/the `archive_*` commands below).
     archive_cancelled: Mutex<HashSet<String>>,
+    /// Live Intelligence Coordinator: spreadsheet totals and other computed
+    /// answers, run off the audio and UI paths (see `live_assist.rs`).
+    live_assist: live_assist::LiveAssist,
 }
 
 fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -172,7 +194,10 @@ fn import_config(
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let config: AppConfig = serde_json::from_str(&content).map_err(|e| e.to_string())?;
     persist_config(&app, &config)?;
+    offline::set(config.offline_mode);
+    let was_enabled = state.config.lock().expect("config lock").telemetry_enabled;
     *state.config.lock().expect("config lock") = config.clone();
+    on_telemetry_setting(&app, was_enabled, config.telemetry_enabled);
     Ok(config)
 }
 
@@ -193,8 +218,94 @@ fn get_config(state: State<AppState>) -> AppConfig {
 #[tauri::command]
 fn save_config(app: AppHandle, state: State<AppState>, config: AppConfig) -> Result<(), String> {
     persist_config(&app, &config)?;
+    offline::set(config.offline_mode);
+    let was_enabled = state.config.lock().expect("config lock").telemetry_enabled;
+    let now_enabled = config.telemetry_enabled;
     *state.config.lock().expect("config lock") = config;
+    on_telemetry_setting(&app, was_enabled, now_enabled);
     Ok(())
+}
+
+/// Switching usage events off deletes the unsent queue, unless the server has
+/// marked this account as bound by beta terms (then collection continues and
+/// the queue is kept).
+fn on_telemetry_setting(app: &AppHandle, was_enabled: bool, now_enabled: bool) {
+    if was_enabled && !now_enabled && !telemetry_events::required(app) {
+        telemetry_events::purge(app);
+    }
+}
+
+/// Settings → Privacy → Your data on this computer: what is stored here.
+#[tauri::command]
+async fn local_data_summary(app: AppHandle) -> Result<conva_core::ipc::LocalDataSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || local_data::summary(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn list_recordings(app: AppHandle) -> Result<Vec<conva_core::ipc::RecordingInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || local_data::list_recordings(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Delete call recordings by id. Refused while a recording is being written.
+#[tauri::command]
+async fn delete_recordings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> Result<conva_core::ipc::DeleteRecordingsReport, String> {
+    if state.session.is_recording() {
+        return Err("Stop recording before deleting recordings.".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || local_data::delete_recordings(&app, &ids))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn reveal_recording(app: AppHandle, id: String) -> Result<(), String> {
+    local_data::reveal_recording(&app, &id)
+}
+
+#[tauri::command]
+fn open_data_folder(app: AppHandle) -> Result<(), String> {
+    local_data::open_data_folder(&app)
+}
+
+/// Queue "Erase everything on this computer" for the next start; the UI
+/// relaunches the app right after. Refused while a session is live.
+#[tauri::command]
+fn erase_local_data(
+    app: AppHandle,
+    state: State<AppState>,
+    options: conva_core::ipc::EraseOptions,
+) -> Result<(), String> {
+    if state.session.is_active() {
+        return Err("Stop listening before erasing.".into());
+    }
+    local_data::request_erase(&app, options)
+}
+
+/// The result of the last erase, once (read after the restart).
+#[tauri::command]
+fn take_erase_report(app: AppHandle) -> Option<conva_core::ipc::EraseReport> {
+    local_data::take_erase_report(&app)
+}
+
+/// Settings → Privacy: is usage data being collected, and is the switch locked?
+#[tauri::command]
+fn telemetry_status(app: AppHandle, state: State<AppState>) -> conva_core::ipc::TelemetryStatus {
+    let enabled = state.config.lock().expect("config lock").telemetry_enabled;
+    let required = telemetry_events::required(&app);
+    conva_core::ipc::TelemetryStatus {
+        enabled,
+        required,
+        collecting: conva_core::config::telemetry_may_collect(enabled, required),
+        log_path: telemetry_events::log_path(&app),
+    }
 }
 
 #[tauri::command]
@@ -335,21 +446,17 @@ fn analyze_conversation(
         .llm_quality
         .clone();
     let key = resolve_key(selection.provider)?;
-    let mut buf = String::new();
-    metering::metered_stream(
-        &app,
-        "analyze_conversation",
-        &selection,
-        &key,
-        &request,
-        &mut |t| buf.push_str(t),
-    )
-    .map_err(|e| e.to_string())?;
-    let text = buf.trim().to_string();
-    if text.is_empty() {
+    let generated =
+        generation::generate_document(&app, "analyze_conversation", &selection, &key, &request)
+            .map_err(|e| e.to_string())?;
+    if generated.text.is_empty() {
         return Err("Ally returned an empty analysis.".into());
     }
-    Ok(text)
+    Ok(if generated.truncated {
+        conva_core::stop_reason::mark_incomplete(&generated.text)
+    } else {
+        generated.text
+    })
 }
 
 #[tauri::command]
@@ -425,7 +532,11 @@ fn provider_key_status() -> Vec<ProviderKeyStatus> {
 
 fn resolve_key(provider: ProviderId) -> Result<String, String> {
     llm::resolve_key(provider).map_err(|e| match e {
-        conva_core::CoreError::Llm(msg) if msg == "api_key_missing" => msg,
+        conva_core::CoreError::Llm(msg)
+            if msg == "api_key_missing" || msg == conva_core::config::OFFLINE_MODE_ERROR =>
+        {
+            msg
+        }
         other => other.to_string(),
     })
 }
@@ -446,7 +557,17 @@ async fn test_provider(provider: ProviderId, model: String) -> Result<u32, Strin
 async fn list_provider_models(provider: ProviderId) -> Result<Vec<ModelInfo>, String> {
     let key = resolve_key(provider)?;
     tauri::async_runtime::spawn_blocking(move || {
-        llm::list_models(provider, &key).map_err(|e| e.to_string())
+        let live = llm::list_models(provider, &key).map_err(|e| e.to_string())?;
+        // Chat models only, with the curated default first (so the pickers
+        // always preselect it, e.g. Sonnet 5.5 for Anthropic).
+        let default = provider_registry()
+            .into_iter()
+            .find(|p| p.id == provider)
+            .map(|p| p.default_quality_model)
+            .unwrap_or_default();
+        Ok(conva_core::model_catalog::build_catalog(
+            provider, default, live,
+        ))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -498,9 +619,25 @@ fn rag_list(state: State<AppState>) -> Vec<RagDocument> {
 /// RAG-grounded term detection for transcript highlighting: retrieve the
 /// library context for `text`, then return the phrases in `text` that overlap
 /// it — the words worth offering an Ally action (definition / how-to /
-/// elaborate) on. Empty when the library is empty or nothing overlaps.
+/// elaborate) on. Context, entity, rarity, and feedback signals remain active
+/// when retrieval finds no chunks; only the document-overlap signal is empty.
 #[tauri::command]
-fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<String> {
+fn analyze_terms(
+    app: AppHandle,
+    state: State<AppState>,
+    text: String,
+) -> Vec<conva_core::ipc::HighlightTerm> {
+    conva_core::ipc::HighlightTerm::from_evaluation(&evaluate_live_terms(&app, &state, &text))
+}
+
+/// The live highlighting pipeline behind [`analyze_terms`], returning the
+/// per-candidate trace too. Shared with the dev-only `faner_debug_highlight`
+/// so the FANER panel validates exactly what transcript bubbles run.
+pub(crate) fn evaluate_live_terms(
+    app: &AppHandle,
+    state: &AppState,
+    text: &str,
+) -> conva_core::phrase::HighlightEvaluation {
     // With a context active, its own documents are the relevance prior — an
     // "Amazon interview" context's AWS docs should drive what gets underlined,
     // not whatever else happens to live in the library (owner, 2026-08-21:
@@ -513,13 +650,10 @@ fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<St
         .expect("ctx lock")
         .clone();
     let chunks = if scope.is_empty() {
-        state.rag.retrieve(&text, 4)
+        state.rag.retrieve(text, 4)
     } else {
-        state.rag.retrieve_scoped(&text, 4, &scope)
+        state.rag.retrieve_scoped(text, 4, &scope)
     };
-    if chunks.is_empty() {
-        return Vec::new();
-    }
     let context = chunks
         .iter()
         .map(|c| c.text.as_str())
@@ -534,15 +668,19 @@ fn analyze_terms(app: AppHandle, state: State<AppState>, text: String) -> Vec<St
     let context_terms = state.active_context_terms.lock().expect("ctx lock").clone();
     // Phase 4: the user's on-device 👍/👎 — an explicit signal always wins
     // (boost surfaces, suppress drops), whatever the heuristics scored.
-    let (boost, suppress) = feedback::sets(&app);
+    let (boost, suppress) = feedback::sets(app);
+    // The active Context's domain lexicon (bundled packs selected for it) —
+    // vocabulary any LLM already knows, without the user supplying it.
+    let lexicon = state.active_lexicon.lock().expect("ctx lock").clone();
     let ctx = conva_core::highlight::HighlightContext {
         context_terms: &context_terms,
+        lexicon: lexicon.as_deref(),
         rarity: Some(&idf),
         boost: Some(&boost),
         suppress: Some(&suppress),
         ..conva_core::highlight::HighlightContext::from_doc_text(&context)
     };
-    conva_core::highlight::relevant_terms(&text, &ctx)
+    conva_core::highlight::evaluate_terms(text, &ctx, conva_core::highlight::MAX_TERMS)
 }
 
 /// Record the user's 👍/👎 on a highlight term (Phase 4). `signal` is "up"
@@ -786,6 +924,8 @@ fn handle_auth_deep_link(handle: AppHandle, url: String) {
         let payload = match auth::complete_sign_in(&url, &dir) {
             Ok(Some(status)) => {
                 eprintln!("[auth] sign-in completed via deep link");
+                // Learn the beta usage-data lock now, not from the first events reply.
+                events_flush::sync_required_in_background(&handle);
                 auth::AuthChangedEvent {
                     status: Some(status),
                     error: None,
@@ -843,7 +983,10 @@ async fn auth_signin_password(
 ) -> Result<auth::AuthStatus, String> {
     let dir = auth_dir(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        auth::sign_in_password(email.trim(), &password, &dir)
+        let status = auth::sign_in_password(email.trim(), &password, &dir)?;
+        // Learn the beta usage-data lock now, not from the first events reply.
+        events_flush::sync_required_in_background(&app);
+        Ok(status)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -859,7 +1002,10 @@ async fn auth_signup_password(
 ) -> Result<auth::AuthStatus, String> {
     let dir = auth_dir(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        auth::sign_up_password(email.trim(), &password, &dir)
+        let status = auth::sign_up_password(email.trim(), &password, &dir)?;
+        // Learn the beta usage-data lock now, not from the first events reply.
+        events_flush::sync_required_in_background(&app);
+        Ok(status)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -869,6 +1015,20 @@ async fn auth_signup_password(
 #[tauri::command]
 fn auth_status(app: AppHandle) -> Result<auth::AuthStatus, String> {
     Ok(auth::status(&auth_dir(&app)?))
+}
+
+/// Delete the account on Conva's servers (the UI has already asked for a fresh
+/// sign-in and a typed confirmation), then clear the local sign-in.
+#[tauri::command]
+async fn auth_delete_account(
+    app: AppHandle,
+) -> Result<conva_core::ipc::DeleteAccountResult, String> {
+    let dir = auth_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        auth::delete_account(&dir, &events_flush::web_api_base())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Revoke server-side (best-effort) and clear local tokens + metadata.
@@ -1147,9 +1307,19 @@ fn conversation_delete(app: AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 fn context_save(
     app: AppHandle,
+    state: State<AppState>,
     session: ConversationContext,
 ) -> Result<ConversationContext, String> {
-    context::save(&app, session).map_err(|e| e.to_string())
+    let saved = context::save(&app, session).map_err(|e| e.to_string())?;
+    // Editing the ACTIVE Context (e.g. adding a key term) must reach live
+    // highlighting now — the Terms panel reloads from disk, so without this
+    // it could show a term `analyze_terms` never received.
+    let is_active =
+        state.active_context_id.lock().expect("ctx lock").as_deref() == Some(saved.id.as_str());
+    if is_active {
+        apply_active_context(&app, &state, &saved);
+    }
+    Ok(saved)
 }
 
 #[tauri::command]
@@ -1565,12 +1735,14 @@ fn archive_cancel(state: State<AppState>, operation_id: String) -> Result<(), St
 /// `deactivate_context` (the picker's explicit clear).
 fn clear_active_context(state: &AppState) {
     state.active_context_terms.lock().expect("ctx lock").clear();
+    *state.active_lexicon.lock().expect("ctx lock") = None;
     state
         .active_context_doc_ids
         .lock()
         .expect("ctx lock")
         .clear();
     *state.active_context_snapshot.lock().expect("ctx lock") = None;
+    *state.active_context_id.lock().expect("ctx lock") = None;
 }
 
 /// Assemble the bounded, versioned semantic context that FANER may send to
@@ -1631,6 +1803,60 @@ fn semantic_snapshot_for_context(session: &ConversationContext, rag: &RagStore) 
     summary.push(format!("Purpose: {}", session.purpose));
     snapshot.rolling_summary = summary.join("\n");
     snapshot.bounded()
+}
+
+/// Recompute the active domain lexicon from `session`'s own text (title,
+/// purpose, job description, key terms, glossary): select the bundled packs
+/// whose anchors it contains and compile them once. Called wherever the active
+/// Context's highlight terms are set, so packs never drift from the Context.
+fn refresh_active_lexicon(state: &AppState, session: &ConversationContext) {
+    let input = conva_core::lexicon::SelectionInput {
+        title: &session.title,
+        purpose: &session.purpose,
+        job_description: session.job_description.as_deref(),
+        key_terms: &session.key_terms,
+        glossary: &session.glossary,
+    };
+    let packs = conva_core::lexicon::select_packs(&input);
+    let lexicon = conva_core::lexicon::Lexicon::from_pack_ids(&packs);
+    *state.active_lexicon.lock().expect("ctx lock") = if lexicon.is_empty() {
+        None
+    } else {
+        Some(Arc::new(lexicon))
+    };
+}
+
+/// Apply `session` as the active Context: its highlight terms, retrieval
+/// scope, semantic snapshot, and id. Shared by `activate_context` and by
+/// `context_save` when the saved Context is the active one, so an edit made
+/// while active goes live immediately instead of on the next activation.
+fn apply_active_context(app: &AppHandle, state: &AppState, session: &ConversationContext) {
+    // The profile's doc_ids (docs + any generated dossier) is the same
+    // grounding scope rehearsal's persona prompt already uses. A context with
+    // no profile yet (never prepared) activates with highlight terms only —
+    // still useful, just not retrieval-scoped.
+    let profile_doc_ids = session
+        .knowledge_profile_id
+        .as_deref()
+        .and_then(|pid| context::load_profile(app, pid).ok())
+        .map(|p| p.doc_ids)
+        .unwrap_or_default();
+    // Union with the Context's own source documents (not just the compiled
+    // pack) — see `conva_core::context::grounding_scope` doc comment.
+    let grounding_doc_ids =
+        conva_core::context::grounding_scope(&session.source_doc_ids, &profile_doc_ids);
+
+    *state.active_context_terms.lock().expect("ctx lock") =
+        conva_core::context::active_highlight_terms(
+            &session.key_terms,
+            &session.glossary,
+            session.job_description.as_deref(),
+        );
+    refresh_active_lexicon(state, session);
+    *state.active_context_doc_ids.lock().expect("ctx lock") = grounding_doc_ids;
+    *state.active_context_snapshot.lock().expect("ctx lock") =
+        Some(semantic_snapshot_for_context(session, &state.rag));
+    *state.active_context_id.lock().expect("ctx lock") = Some(session.id.clone());
 }
 
 /// Activate a conversation context for the **next** live session (session
@@ -1723,42 +1949,7 @@ fn activate_context(
         }
     }
 
-    // The profile's doc_ids (docs + any generated dossier) is the same
-    // grounding scope rehearsal's persona prompt already uses. A context with
-    // no profile yet (never prepared) activates with highlight terms only —
-    // still useful, just not retrieval-scoped.
-    let profile_doc_ids = session
-        .knowledge_profile_id
-        .as_deref()
-        .and_then(|pid| context::load_profile(&app, pid).ok())
-        .map(|p| p.doc_ids)
-        .unwrap_or_default();
-    // Union with the Context's own source documents (not just the compiled
-    // pack) — see `conva_core::context::grounding_scope` doc comment.
-    let grounding_doc_ids =
-        conva_core::context::grounding_scope(&session.source_doc_ids, &profile_doc_ids);
-
-    {
-        let mut terms = state.active_context_terms.lock().expect("ctx lock");
-        terms.clear();
-        terms.extend(session.key_terms.iter().cloned());
-        terms.extend(session.glossary.iter().cloned());
-        // The interviewer's own vocabulary always rides along (spec
-        // 2026-08-26, part 2) — in-memory only, so live highlighting is
-        // never hostage to a stale or truncated digest.
-        if let Some(jd) = session.job_description.as_deref() {
-            let have: std::collections::HashSet<String> =
-                terms.iter().map(|t| t.to_lowercase()).collect();
-            terms.extend(
-                conva_core::highlight::interviewer_terms(jd, 16)
-                    .into_iter()
-                    .filter(|t| !have.contains(&t.to_lowercase())),
-            );
-        }
-    }
-    *state.active_context_doc_ids.lock().expect("ctx lock") = grounding_doc_ids;
-    *state.active_context_snapshot.lock().expect("ctx lock") =
-        Some(semantic_snapshot_for_context(&session, &state.rag));
+    apply_active_context(&app, &state, &session);
 
     Ok(session)
 }
@@ -1902,23 +2093,24 @@ fn context_generate_dossier_blocking(
         if !research_sources.is_empty() {
             let request =
                 conva_core::context::research_findings_prompt(&session, &research_sources);
-            let mut buffer = String::new();
-            metering::metered_stream(
+            let generated = generation::generate_document(
                 app,
                 "context_research_findings",
                 &selection,
                 &key,
                 &request,
-                &mut |text| buffer.push_str(text),
             )
             .map_err(|e| format!("Research was found, but Ally could not summarize it: {e}"))?;
-            let text = buffer.trim().to_string();
-            if text.is_empty() {
+            if generated.text.is_empty() {
                 return Err(
                     "Research was found, but Ally returned an empty research brief.".into(),
                 );
             }
-            research_text = Some(text);
+            research_text = Some(if generated.truncated {
+                conva_core::stop_reason::mark_incomplete(&generated.text)
+            } else {
+                generated.text
+            });
         }
     }
     // Stage 2 — category-aware prepared Q&A. Every Context receives this.
@@ -1961,20 +2153,26 @@ fn context_generate_dossier_blocking(
         session.deep_qa_enabled
             && session.category == conva_core::context::ContextCategory::Interview,
     );
-    let mut qa_buffer = String::new();
-    metering::metered_stream(
-        app,
-        "context_qa",
-        &selection,
-        &key,
-        &qa_request,
-        &mut |text| qa_buffer.push_str(text),
-    )
-    .map_err(|e| format!("Ally could not generate prepared Q&A: {e}"))?;
-    let qa_text = qa_buffer.trim().to_string();
-    if qa_text.is_empty() {
+    let qa_generated =
+        generation::generate_document(app, "context_qa", &selection, &key, &qa_request)
+            .map_err(|e| format!("Ally could not generate prepared Q&A: {e}"))?;
+    if qa_generated.text.is_empty() {
         return Err("Ally returned an empty prepared Q&A resource.".into());
     }
+    let qa_text = if qa_generated.truncated {
+        // Still cut off after the retry: the last pair is a question with a
+        // half-written answer, which the zero-LLM prepared-answer path would
+        // serve verbatim. Drop it, then say the document is incomplete.
+        let trimmed = conva_core::stop_reason::drop_cut_off_qa_tail(&qa_generated.text);
+        let base = if trimmed.trim().is_empty() {
+            qa_generated.text.as_str()
+        } else {
+            trimmed.as_str()
+        };
+        conva_core::stop_reason::mark_incomplete(base)
+    } else {
+        qa_generated.text
+    };
 
     // Stage 3 — synthesize the briefing, then compile it with the exact Q&A
     // and provenance into one indexed Context Intelligence Pack.
@@ -1987,20 +2185,22 @@ fn context_generate_dossier_blocking(
     );
     let knowledge_request =
         conva_core::context::knowledge_prompt(&session, &qa_sources, &chunks, 3000);
-    let mut knowledge_buffer = String::new();
-    metering::metered_stream(
+    let knowledge_generated = generation::generate_document(
         app,
         "context_knowledge",
         &selection,
         &key,
         &knowledge_request,
-        &mut |text| knowledge_buffer.push_str(text),
     )
     .map_err(|e| format!("Ally could not generate Context Intelligence: {e}"))?;
-    let knowledge_text = knowledge_buffer.trim().to_string();
-    if knowledge_text.is_empty() {
+    if knowledge_generated.text.is_empty() {
         return Err("Ally returned an empty Context Intelligence briefing.".into());
     }
+    let knowledge_text = if knowledge_generated.truncated {
+        conva_core::stop_reason::mark_incomplete(&knowledge_generated.text)
+    } else {
+        knowledge_generated.text
+    };
     let pack_text = conva_core::context::compile_intelligence_pack(
         &session,
         &knowledge_text,
@@ -2099,6 +2299,8 @@ fn context_generate_dossier_blocking(
         terms.clear();
         terms.extend(saved.key_terms.iter().cloned());
         terms.extend(saved.glossary.iter().cloned());
+        drop(terms);
+        refresh_active_lexicon(&state, &saved);
         *state.active_context_snapshot.lock().expect("ctx lock") =
             Some(semantic_snapshot_for_context(&saved, &state.rag));
     }
@@ -2119,6 +2321,32 @@ fn context_generate_dossier_blocking(
 #[tauri::command]
 fn rag_document_text(state: State<AppState>, id: String) -> Option<String> {
     state.rag.document_text(&id)
+}
+
+/// Answer a typed question with a computed grid when it is a data request for
+/// a spreadsheet attached to the active Context. `handled: false` means it is
+/// not one and the caller should ask Ally as usual. Never blocks the UI: the
+/// table lookup runs on a blocking thread and the work itself on the
+/// live-assist worker.
+#[tauri::command]
+async fn live_assist_submit(
+    app: AppHandle,
+    text: String,
+) -> Result<conva_core::ipc::LiveAssistAck, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        state.live_assist.submit(&app, &text)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The user picked one option of a live-assist question (which column, which
+/// file). Fire-and-forget: the continued result arrives as a new revision of
+/// the same result id on `conva://live-assist`.
+#[tauri::command]
+fn live_assist_choose(state: State<AppState>, result_id: String, option_id: String) {
+    state.live_assist.choose(result_id, option_id);
 }
 
 /// Generate 3 counterparty personas (Step 3) with the configured LLM, grounded
@@ -2235,7 +2463,7 @@ async fn context_start_rehearsal(
     let selection = config.llm_quality.clone();
     let llm_key = resolve_key(selection.provider)?;
     // Aura reuses the Deepgram key; without one the rehearsal is text-only.
-    let tts_key = asr_deepgram::load_api_key();
+    let tts_key = asr_deepgram::load_api_key().filter(|_| offline::remote_allowed());
     let voice_enabled = tts_key.is_some();
 
     // Activate this context's highlight terms for the rehearsal (Phase 3c):
@@ -2246,6 +2474,7 @@ async fn context_start_rehearsal(
         active.extend(session.key_terms.iter().cloned());
         active.extend(session.glossary.iter().cloned());
     }
+    refresh_active_lexicon(&state, &session);
     *state.active_context_snapshot.lock().expect("ctx lock") =
         Some(semantic_snapshot_for_context(&session, &state.rag));
 
@@ -2557,6 +2786,33 @@ fn get_partner_payload() -> Option<conva_core::ipc::PartnerPayload> {
     partner::payload()
 }
 
+/// Make sure View (4) — the partner window — is open beside the app, without
+/// retargeting it or taking focus. `async` for the same Windows reason as
+/// `open_partner` (it may build the window).
+#[tauri::command]
+async fn ensure_partner_open(app: AppHandle) -> Result<(), String> {
+    partner::ensure_open(&app)
+}
+
+/// The main window pushes its live View (4) state; the partner window mirrors it.
+#[tauri::command]
+fn publish_view_state(app: AppHandle, state: conva_core::ipc::ViewState) {
+    partner::publish_view(&app, state);
+}
+
+/// The latest pushed View (4) state (read on partner-window boot).
+#[tauri::command]
+fn get_view_state() -> Option<conva_core::ipc::ViewState> {
+    partner::view_state()
+}
+
+/// The partner window reports something the user did in View (4); the main
+/// window performs it.
+#[tauri::command]
+fn send_view_action(app: AppHandle, action: conva_core::ipc::ViewAction) {
+    partner::send_view_action(&app, action);
+}
+
 /// Lock (follow the main window) / unlock (float free) the partner window.
 /// Locking snaps it flush to the app's right edge, keeping its size.
 #[tauri::command]
@@ -2622,6 +2878,9 @@ fn run_web_tool(app: &AppHandle, name: &str, input: &serde_json::Value) -> Strin
         .trim();
     if query.is_empty() {
         return "No query provided.".into();
+    }
+    if !offline::remote_allowed() {
+        return "Web search is off: offline mode is on.".into();
     }
     let Some(key) = context::load_tavily_key() else {
         return "Web search is unavailable: no Tavily key is configured.".into();
@@ -2727,17 +2986,22 @@ fn ally(
     std::thread::Builder::new()
         .name("ally".into())
         .spawn(move || {
-            let emit = |token: &str, done: bool, error: Option<String>| {
-                let _ = app.emit(
-                    events::ALLY_CHUNK,
-                    AllyChunkEvent {
-                        request_id: request_id.clone(),
-                        token: token.to_string(),
-                        done,
-                        error,
-                    },
-                );
-            };
+            let emit =
+                |token: &str,
+                 done: bool,
+                 error: Option<String>,
+                 stop_reason: Option<conva_core::stop_reason::StopReason>| {
+                    let _ = app.emit(
+                        events::ALLY_CHUNK,
+                        AllyChunkEvent {
+                            request_id: request_id.clone(),
+                            token: token.to_string(),
+                            done,
+                            error,
+                            stop_reason,
+                        },
+                    );
+                };
             // Web search is offered to Ally only when the default provider
             // (Anthropic) is active AND a Tavily key exists AND the active
             // Context's source policy allows open-web research. The model
@@ -2764,7 +3028,7 @@ fn ally(
                     &tools,
                     &mut |token| {
                         first_ms.get_or_insert_with(|| t0.elapsed().as_millis() as u64);
-                        emit(token, false, None);
+                        emit(token, false, None, None);
                     },
                     &mut run_tool,
                     2,
@@ -2778,7 +3042,7 @@ fn ally(
                     &request,
                     &mut |token| {
                         first_ms.get_or_insert_with(|| t0.elapsed().as_millis() as u64);
-                        emit(token, false, None);
+                        emit(token, false, None, None);
                     },
                     &mut usage,
                 )
@@ -2794,10 +3058,11 @@ fn ally(
                 &selection.model,
                 usage,
                 result.is_ok(),
+                result.as_ref().ok().copied(),
                 t0.elapsed().as_millis() as u64,
             );
             match result {
-                Ok(()) => {
+                Ok(stop) => {
                     let total_ms = t0.elapsed().as_millis() as u64;
                     trace::record(
                         "llm",
@@ -2811,9 +3076,9 @@ fn ally(
                             "out": usage.output_tokens,
                         }),
                     );
-                    emit("", true, None)
+                    emit("", true, None, Some(stop))
                 }
-                Err(e) => emit("", true, Some(e.to_string())),
+                Err(e) => emit("", true, Some(e.to_string()), None),
             }
         })
         .map_err(|e| e.to_string())?;
@@ -2950,7 +3215,11 @@ pub fn run() {
                                 let data_dir = handle.path().app_data_dir().map_err(|e| {
                                     format!("could not resolve app data directory: {e}")
                                 })?;
+                                // A queued "Erase everything on this computer" runs
+                                // here, before any store, ledger or log is opened.
+                                local_data::run_pending_erase(&handle);
                                 let config = load_config(&handle);
+                                offline::set(config.offline_mode);
                                 trace::init(data_dir.join("perf.jsonl"));
 
                                 let rag = Arc::new(
@@ -2989,10 +3258,14 @@ pub fn run() {
                                     active_context_terms: Mutex::new(Vec::new()),
                                     active_context_doc_ids: Mutex::new(Vec::new()),
                                     active_context_snapshot: Mutex::new(None),
+                                    active_context_id: Mutex::new(None),
+                                    active_lexicon: Mutex::new(None),
                                     archive_cancelled: Mutex::new(HashSet::new()),
+                                    live_assist: live_assist::LiveAssist::new(),
                                 }) {
                                     return Err("application state was already managed".into());
                                 }
+                                handle.state::<AppState>().live_assist.start(handle.clone());
 
                                 let cache_dir = data_dir.join("models");
                                 let _ = std::thread::Builder::new()
@@ -3086,6 +3359,9 @@ pub fn run() {
             record_highlight_feedback,
             record_term_pick,
             capture::faner_replay,
+            faner_debug::faner_debug_highlight,
+            faner_debug::faner_debug_generate_cases,
+            faner_debug::faner_debug_evaluate,
             debug_inject_segment,
             rag_download,
             secrets_status,
@@ -3101,6 +3377,7 @@ pub fn run() {
             avatar_upload,
             avatar_download,
             avatar_delete,
+            auth_delete_account,
             save_debug_log,
             screenshot_trace,
             save_screenshot,
@@ -3133,6 +3410,8 @@ pub fn run() {
             context_load_profile,
             context_generate_dossier,
             rag_document_text,
+            live_assist_submit,
+            live_assist_choose,
             context_generate_personas,
             context_choose_persona,
             context_toggle_favorite_persona,
@@ -3146,6 +3425,14 @@ pub fn run() {
             usage_summary,
             usage_reset,
             telemetry_device_id,
+            telemetry_status,
+            local_data_summary,
+            list_recordings,
+            delete_recordings,
+            reveal_recording,
+            open_data_folder,
+            erase_local_data,
+            take_erase_report,
             telemetry_append_event,
             telemetry_read_batch,
             telemetry_advance_cursor,
@@ -3157,6 +3444,10 @@ pub fn run() {
             open_partner,
             close_partner,
             redock_partner,
+            ensure_partner_open,
+            publish_view_state,
+            get_view_state,
+            send_view_action,
             get_partner_payload,
             wait_for_startup,
             get_splash_progress,

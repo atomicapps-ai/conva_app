@@ -17,12 +17,19 @@ export type View =
   | "whatsnew"
   | "releases"
   | "about"
+  | "models"
   | "settings"
-  | "profile";
+  | "profile"
+  | "recordings";
 
 interface NavState {
   view: View;
   setView: (view: View) => void;
+  /** A Settings group to open on arrival (a sub-view's back button returns to
+   *  the group it came from, not the default). Read once by the Settings
+   *  shell, which clears it. */
+  pendingSettingsGroup: string | null;
+  openSettingsGroup: (group: string) => void;
 
   /** ⌘K command palette visibility. */
   paletteOpen: boolean;
@@ -34,6 +41,8 @@ interface NavState {
 export const useNavStore = create<NavState>((set) => ({
   view: "dashboard",
   setView: (view) => set({ view, paletteOpen: false }),
+  pendingSettingsGroup: null,
+  openSettingsGroup: (group) => set({ view: "settings", pendingSettingsGroup: group, paletteOpen: false }),
 
   paletteOpen: false,
   openPalette: () => set({ paletteOpen: true }),

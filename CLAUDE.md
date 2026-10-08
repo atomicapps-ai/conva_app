@@ -86,7 +86,11 @@ swap a layer without asking the owner.**
 7. **RAG is best-effort hybrid.** Retrieval fuses BM25 + cosine (RRF) and
    **degrades to BM25-only** when the embedder isn't ready — hybrid is an
    upgrade, never a hard dependency. Text ingestion supports pdf/docx/md/txt/html
-   plus pasted text (stored as `.txt`). Common image formats are retained as
+   plus pasted text (stored as `.txt`) and CSV/TSV/XLSX/XLSM spreadsheets, which
+   are stored twice: as prose chunks (normal search) AND as a typed table
+   (`rag/tables/<id>.table`, `tables.rs`) so totals are computed by exact decimal
+   arithmetic in `conva-core` — **never by a language model, and never in f64**
+   (see `conva_core/docs/technical/faner-table-answers.md`). Common image formats are retained as
    visual Library assets with explicit non-searchable status until OCR/vision
    indexing is configured — never fake an image into text retrieval.
 8. **In-app HTML5 drag-and-drop (Library row → Contexts row) needs
@@ -154,68 +158,78 @@ swap a layer without asking the owner.**
      `aria-label`/`title` say "stays in your Library" so this is never
      ambiguous; don't quietly turn remove into a hard delete without an
      explicit owner decision.
-10. **Live cockpit: conversation column is conversation text ONLY; everything
-    Ally lives in the right Ally panel — a SPINE-ICON ACCORDION.** (Owner,
-    2026-08-26 — supersedes the 2026-08-22 Found/View split + control-bar
-    Details/Terms tabs model, which itself superseded the 2026-08-17 dock.)
-    Ally answers never render in the transcript stream (V4.0's inline-cards
-    layout was explicitly reversed). The right `AllyPanel`
-    (`TranscriptView.tsx`) stacks FOUR sections in a FIXED order —
-    **Questions** (`question` icon; TWO SOURCES behind in-header mode chips,
-    owner 2026-08-27: ◉ Live = the radar feed, azure — exactly the old
-    behavior; ◈ Prep = the prepared Q&A bank, gold — pairs parsed by
-    `qaPairs.ts` from the context's generated Q&A doc + any attached doc
-    with Q/A lines + the setup wizard's "Import Q&A" paste (`question|answer`
-    per line, stored as an attached doc). The chips are an in-header control,
-    NOT a panel switching pattern; a live question while
-    in Prep lights a dot, never auto-switches. Tapping a prep pair shows its
-    written answer in the Question–Answer Focus canvas instantly — Elaborate
-    is the deeper dig.) ·
-    **Tracking** (`target`; commitments + mentions) · **Terms** (`book`; live
-    + doc term chips, azure dot = detected live, gold = doc) · **Answers**
-    (`ally`, gold; the archive of prior selected items and Ally cards). Each
-    section's icon chip overlays the CENTER DIVIDER at that
-    section's top edge and slides with it as sections expand/collapse —
-    stacking order never changes. Exactly ONE content section is open
-    (exclusive accordion; `panelSections.ts` is the pure model). **Owner
-    update 2026-09-07:** the old pinned bottom Answers dock is retired in the
-    live cockpit. A Question–Answer **Focus canvas** sits above the accordion,
-    keeps the active question and untruncated streaming answer together, and
-    uses question-labeled tabs when several threads are active. Answers stays
-    the fourth accordion section as history/archive. Clicking a term opens a
-    local **Term Peek** (cached Context definition or a dedicated definition
-    stream); definition requests never enter Focus or Answers. Ask-more/how-to
-    actions may create a normal Focus answer. The control bar has NO tabs — in
-    drawer mode (<640px) it shows one right-edge Ally button that opens
-    the panel as an overlay drawer (same accordion inside). The **Ask
-    box** lives at the conversation column's foot (compact: h-8,
-    12px text) at EVERY width — never in the panel. Live summary is the
-    3-dot "Summarize the call" (lands in Focus and the Answers archive);
-    Grounding is a 3-dot
-    line; TrackerRail/AllyDock stay retired. The A−/A+ pref (3-dot menu)
-    scales ALL panel content, not just answer cards. **FANER inline
-    transcript marks are retired** (owner, 2026-08-26 — "keep FANER's
-    Highlighter, retire the inline live-transcript marks"):
-    `HighlightedText`'s clickable term underlines REMAIN, capture chips
-    remain in Terms, but no `FanerMark`-style inline capture underlines/
-    popovers in bubbles — don't reintroduce them. The **partner window**
-    (`src-tauri/src/partner.rs` + `PartnerWindow.tsx`, `?partner=1`) is a
-    real, ordinary OS window for one term's deep-dive — draggable custom
-    title bar, resizable, defaults docked flush to the app's right edge, ⇥
-    re-docks; gated on `capabilities().system.partnerWindow`. **It IS the
-    viewer** (owner, 2026-08-22 — an earlier round left "Open in viewer" on
-    answer cards pointing at an internal drawer left over from before the
-    partner-window spec; every "open in viewer" affordance — the card's
-    expand icon, its right-click menu, the meta panel's thread rows — must
-    route to `openThread` in `TranscriptView.tsx`, which opens the partner
-    window on desktop (`PartnerPayload.answer`/`source_lines` carry the
-    already-answered card so it's shown directly, no re-research) and falls
-    back to the internal drawer ONLY when `partnerWindow` is unsupported
-    (web). Don't reintroduce a second internal "viewer" surface on desktop.
-    Don't invent a second switching pattern for the panel either — the
-    spine-icon accordion IS the sanctioned pattern here, the way the rail
-    is for navigation; "section" in owner feedback means this exclusive
-    accordion, never on/off toggles or a tab strip.
+10. **Live cockpit: conversation column is conversation text ONLY; the cockpit
+    is four numbered panels and View (4) is a separate attached window.**
+    (Owner, 2026-09-29 — after two misreadings of the 2026-09-28 mockup, the
+    numbering is fixed here; use these numbers and names.)
+    - **1 · Nav rail** — the icon column on the far left.
+    - **2 · Conversation** — the transcript (conversation text ONLY; Ally
+      answers never render in the transcript stream).
+    - **3 · Ally** — the spine-icon accordion (`AllyAccordion.tsx`,
+      `panelSections.ts`): **Questions** (◉ Live/◈ Prep chips) · **Tracking**
+      (commitments + mentions) · **Terms** (azure dot = detected live, gold =
+      doc), exactly ONE section open at a time, NEW badge per header
+      (`unseenItems.ts`). It only LISTS what FANER found and holds NO answer
+      text. Header: "ALLY · N docs indexed" + the ⋮ menu (text size,
+      Summarize the call, grounding, Clear).
+    - **4 · View** — the **separate attached window** (the partner window,
+      `partner.rs` + `PartnerWindow.tsx`, `?partner=1`): a real OS window
+      docked flush to the app's right edge, lock 🔒 / re-dock ⇥ / Aa. It is
+      where EVERYTHING selected is written. Its fixed first tab, "View",
+      renders `ViewPanel.tsx` (approved mockup): ONE tab strip of open items
+      (type icon + colour, pinned first, a NEW dot for an item that arrived
+      while you read another — never a silent switch); a fixed top row
+      (source icon with tooltip, status, tier/kind, Pin · Copy · Elaborate);
+      then **Say now** (the line you can read aloud; a problem term leads
+      with **The fix**) → the rest of the answer in full → facts (a
+      commitment's who/when) → "From your documents" (open ›) → follow-up
+      box. Nothing is collapsed. Documents and claim evidence open as further
+      tabs beside it.
+    - **There is NO View pane inside the main window.** Never put one next to
+      3 (that was #353's mistake, then #363's). The one exception is the
+      **web fallback**: where `capabilities().system.partnerWindow` is
+      unsupported there is no second window, so `ViewPanel` renders embedded
+      beside 3 (`embeddedView` in `AllyPanel`).
+    - **The 2 → 3 → 4 relationship**: selecting anything — a row in 3, or a
+      highlighted term in 2 (TermMenu's "Explain the term") — rings it in 3,
+      marks it seen, and writes it into 4 (`selectItem`/`askTerm` in
+      `TranscriptView.tsx`). Mechanism: the main window OWNS the state
+      (radar, tracker, captures and Ally cards live there) and pushes a
+      `ViewState` snapshot (throttled) via `partner.publishView` →
+      `conva://partner-view-state`; window 4 mirrors it and sends
+      `ViewAction`s (select · pin · elaborate · ask) back over
+      `conva://partner-view-action`, which the main window performs. Window 4
+      is opened (no retarget, no focus steal) the moment something lands in
+      it (`ensureAllyVisible` → `partner.ensureOpen`). A new item takes the
+      view unless the open one is pinned. `viewMirror.ts` is the pure
+      UI⇄wire conversion; `viewContent.ts` the Say-now/points split.
+    - The control bar has NO tabs — in drawer mode (<640px) it shows one
+      right-edge Ally button that opens 3 as an overlay drawer. The **Ask
+      box** lives at the conversation column's foot (compact: h-8, 12px text)
+      at EVERY width — never in a panel. Live summary is the 3-dot
+      "Summarize the call"; TrackerRail/AllyDock/the old ViewHistory archive
+      stay retired. The A−/A+ pref (3-dot menu) scales ALL panel-3 content;
+      window 4 has its own Aa.
+    - **FANER inline transcript marks are retired** (owner, 2026-08-26 —
+      "keep FANER's Highlighter, retire the inline live-transcript marks"):
+      `HighlightedText`'s clickable term underlines REMAIN, capture chips
+      remain in Terms, but no `FanerMark`-style inline capture underlines/
+      popovers in bubbles — don't reintroduce them.
+    - **Computed answers (spreadsheet totals) also land in 4.** The
+      live-assist coordinator (`live_assist.rs`, `conva://live-assist`) emits a
+      holding response, then a source-linked grid under the same result id;
+      `itemFromLiveAssist` turns it into a View item (a heard question takes
+      its Questions row's identity, `found:q-<turn>`), `ViewPanel` draws it with
+      `GridAnswer`, and a which-column question is answered with a `choose`
+      `ViewAction`. The radar never also asks a model for the figures
+      (`RadarEvent.computed`).
+    - The partner window IS the viewer (owner, 2026-08-22, restated
+      2026-09-29): every "open in viewer" affordance routes to it
+      (`openThread` focuses the item in View; `backend.partner.open(...)`
+      opens a document/claim tab). Don't reintroduce a second internal
+      "viewer" surface on desktop, and don't invent a third switching
+      pattern: 3's exclusive accordion and 4's one tab strip ARE the
+      sanctioned patterns, the way the rail is for navigation.
 
 ## Build & run
 
@@ -308,7 +322,10 @@ then on the other machine set the same env var and the keys load on startup.
 | Shell tests + lint (Windows) | `cargo test -p conva-app` · `cargo clippy -p conva-app --all-targets` |
 | UI typecheck + build | `npm run build` |
 | Browser certification (web build, any OS with Chrome/Edge/Chromium) | `npm run build:web` · `npm run certify:web` (`-- --browser chrome` / `msedge` on Windows; writes a support-matrix row to `certification/`, see `conva_core/docs/technical/browser-support-matrix.md`) |
-| First-run rehearsal (web build; the checklist's app steps against a stubbed cloud slice) | `npm run build:web` · `npm run rehearse:web` (same browser flags; `--share` adds step 7; writes a row to `rehearsal/`, see `conva_core/docs/technical/2026-09-beta-first-run-checklist.md` "Rehearsal") |
+| First-run rehearsal (web build; the checklist's app steps against a stubbed cloud slice) | `npm run build:web` · `npm run rehearse:web` (same browser flags; `--share` adds step 7; `--record` also writes a video, a Playwright trace and a screenshot per step beside the row — CI uploads them as `web-rehearsal-recordings`; writes a row to `rehearsal/`, see `conva_core/docs/technical/2026-09-beta-first-run-checklist.md` "Rehearsal") |
+| Demo workspace preview (web build; the fictional `demo/` dataset planted in the cloud stub, screenshots of Home, Contexts, Library, Conversations) | `npm run build:web` · `npm run demo:preview` (writes `demo-preview/`, git-ignored; `-- --list` prints control names). The dataset is `demo/` + `scripts/certify/demoDataset.mjs`; `demoDataset.test.mjs` enforces fictional-only content and cross-file consistency |
+| Recorded app flows (web build; nine scenarios R1–R9 against the demo workspace: Library, Contexts, Conversations, Settings, product pages, cockpit layout, live fallbacks, voices) | `npm run build:web` · `npm run scenarios:web` (`-- --only R1,R4`, `--keep` keeps every recording, `--browser chrome`). Every run writes `report.html` beside the JSON: open it to watch each kept video with its step results. A clean pass keeps nothing; a failure keeps video + screenshots (+ trace when unexpected). A step marked `{ known: "#N: …" }` documents an open problem and turns red when it unexpectedly passes — remove the marker then. CI uploads `web-scenarios` (14 days). Runner: `scripts/scenarios/` |
+| Secret scan + dependency audit (CI runs both; the binaries are pinned by version and checksum in the workflows) | `gitleaks git . --config .gitleaks.toml --redact=100` · `osv-scanner scan source --config osv-scanner.toml --lockfile package-lock.json --lockfile Cargo.lock`. `.gitleaks.toml` allows only the public Supabase anon keys; every ignore in `osv-scanner.toml` needs a reason and an expiry date, after which the scan fails again. The weekly run catches newly published advisories. Why and what remains open: `conva_core/docs/technical/2026-10-pre-release-security-audit.md` |
 
 CI (`.github/workflows/ci.yml`) runs core lint+test on ubuntu, UI typecheck+build
 on ubuntu, and the shell clippy `-D warnings` on windows-latest. Clippy runs with

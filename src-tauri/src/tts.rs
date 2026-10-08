@@ -36,6 +36,8 @@ pub fn speak(api_key: &str, text: &str, cancel: &Arc<AtomicBool>) -> Result<(), 
         return Ok(());
     }
 
+    crate::offline::guard_remote()?;
+
     // 1. Fetch raw PCM (mono s16le @ AURA_RATE).
     let synth_started = Instant::now();
     let url = format!(
