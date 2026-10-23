@@ -1,0 +1,35 @@
+name: Temporary Cargo dependency investigation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+      - name: Update compatible lockfile dependencies and inspect zip parents
+        run: |
+          set +e
+          cargo update > dependency-report.txt 2>&1
+          echo "cargo update exit: $?" >> dependency-report.txt
+          for version in 2.4.2 4.6.1 8.6.0; do
+            echo "--- zip $version reverse dependency tree ---" >> dependency-report.txt
+            cargo tree -i "zip@$version" >> dependency-report.txt 2>&1
+          done
+          echo "--- resulting zip versions ---" >> dependency-report.txt
+          cargo tree -i zip >> dependency-report.txt 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cargo-dependency-investigation
+          path: |
+            Cargo.lock
+            dependency-report.txt
+          if-no-files-found: warn
