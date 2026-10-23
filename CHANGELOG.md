@@ -9,7 +9,7 @@ entries, only the `[Unreleased]` section between releases.
 
 ## [Unreleased]
 
-No user-facing changes recorded yet.
+The upcoming 0.7.0 release adds domain-aware Live answers, exact spreadsheet totals, a redesigned Active/View workspace, model selection and comparison, privacy controls, browser Context creation, and reliability and security fixes. Curated public notes: [`release-notes/v0.7.0.md`](release-notes/v0.7.0.md).
 
 ## [0.6.0] — 2026-09-23
 

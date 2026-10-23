@@ -31,6 +31,41 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "0.7.0",
+    date: "2026-10-23",
+    summary:
+      "A more capable Live workspace, clearer control over privacy, and better tools for choosing how Ally works.",
+    sections: [
+      {
+        title: "Highlights",
+        items: [
+          "The Live workspace separates Active findings from View, which can open in its own attached window. Context documents stay scoped to the selected Context, and highlighted terms resolve against a domain lexicon with better phrase matching.",
+          "Ally can calculate exact spreadsheet totals progressively and link them to their source cells.",
+          "Choose how Ally should think during setup, compare supported models by measured speed and quality, and select quality and fast models with clearer cost guidance.",
+          "Create a Context in the browser, attach Library documents, and finish setup successfully.",
+        ],
+      },
+      {
+        title: "Privacy and control",
+        items: [
+          "Turn off calls to hosted AI providers with offline mode; local Ollama remains available.",
+          "Review and remove local recordings or other local data, erase local app data, and request account deletion from Profile.",
+          "Manage usage telemetry in Settings. Accounts covered by beta terms see the setting locked on, with the reason learned at sign-in.",
+          "The app explains when content leaves the computer and adds an answer-check reminder, first-run key guidance, and bundled open-source licence notices.",
+        ],
+      },
+      {
+        title: "Reliability",
+        items: [
+          "Long transcripts use a windowed view to prevent memory growth; idle Live sessions can stop automatically, and model, transcription, and account errors are clearer.",
+          "The first run rehearsal now creates its Library documents and Context through the browser UI and verifies original-file downloads.",
+          "Fixed the Distil-small English model download, improved term and speaker presentation, and refined Context, Library, setup, and account flows.",
+          "Updated vulnerable dependencies and added secret and dependency scanning to CI.",
+        ],
+      },
+    ],
+  },
+  {
     version: "0.6.0",
     date: "2026-09-23",
     summary:

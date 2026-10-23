@@ -1,0 +1,33 @@
+name: Temporary targeted Cargo dependency investigation
+
+on:
+  push:
+    branches: [release-prep/v0.7.0]
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.0
+      - name: Refresh only advised crates and inspect the graph
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin dev
+          git show origin/dev:Cargo.lock > Cargo.lock
+          cargo update -p rustls -p rustls-webpki -p tokio -p webpki-root-certs -p webpki-roots@1.0.9
+          cargo tree -i ort-sys > dependency-report.txt
+          cargo tree -i zip >> dependency-report.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: targeted-cargo-lock
+          path: |
+            Cargo.lock
+            dependency-report.txt
+          if-no-files-found: warn

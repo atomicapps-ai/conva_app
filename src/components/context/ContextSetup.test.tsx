@@ -698,6 +698,38 @@ describe("ContextSetup wizard", () => {
     expect(payload.slot_doc_ids).toEqual({});
   });
 
+  it("keeps the Library picker open while attaching multiple documents", async () => {
+    const docs = [ragDoc("d1", "vendor-brief.md"), ragDoc("d2", "onboarding-steps.md")];
+    renderSetup({ rag: { list: vi.fn().mockResolvedValue(docs) } as unknown as ConvaBackend["rag"] });
+    await gotoStepTwo();
+
+    const openPicker = await screen.findByRole("button", { name: "Add from library…" });
+    await waitFor(() => expect(openPicker).not.toBeDisabled());
+    fireEvent.change(screen.getByRole("combobox", { name: "Resource destination" }), {
+      target: { value: "__other__" },
+    });
+    fireEvent.click(openPicker);
+
+    const picker = await screen.findByRole("dialog", {
+      name: "Add an existing document to Other documents",
+    });
+    fireEvent.click(within(picker).getByRole("button", { name: "Add vendor-brief.md to Other documents" }));
+    expect(picker).toBeInTheDocument();
+    fireEvent.click(within(picker).getByRole("button", { name: "Add onboarding-steps.md to Other documents" }));
+
+    expect(picker).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Remove vendor-brief.md from Other documents — stays in your Library",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Remove onboarding-steps.md from Other documents — stays in your Library",
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("keeps step navigation visible in both the fixed header and workflow footer", async () => {
     renderSetup();
     fireEvent.change(await screen.findByPlaceholderText(/Senior Accountant interview/i), {

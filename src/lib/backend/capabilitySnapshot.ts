@@ -533,6 +533,9 @@ export function webOperations(): OperationAvailability {
     "context.deactivateContext": unimplemented("Grounding needs the hosted gateway (architecture M2 cp7); flipped at runtime by WebBackend."),
     "context.storeDocs": unsupported("Copies local file paths — desktop only; browser uploads land with the hosted library."),
     "context.storeDocFile": unsupported("Writes into the local Context folder — desktop only; on web a dropped or pasted file goes to the hosted library via rag.upload."),
+    // Flipped at runtime by WebBackend with the session backend (M2 cp20):
+    // a web-appropriate no-op (mark ready; no local KnowledgeProfile, no web
+    // research) so the setup wizard's Finish can complete on web.
     "context.prepare": unimplemented(M1),
     "context.loadProfile": unimplemented(M1),
     "context.generateDossier": unimplemented(M1),
