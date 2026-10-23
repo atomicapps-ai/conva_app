@@ -46,10 +46,16 @@ import { REHEARSAL_CONTEXT, REHEARSAL_DOC, REHEARSAL_FACT, REHEARSAL_QUESTION, R
 import { createRecorder } from "./certify/recorder.mjs";
 import { DEFAULT_CHROMIUM, acknowledgeNotice, attachListeners, cliOptions, launchOptions, probeEnvironment, summarizeTelemetry, waitFor } from "./certify/driver.mjs";
 
-/** The "Other documents" attach checkbox — exact, so it doesn't also match
- *  the same file's per-slot "Attach <name> to <slot>" checkboxes (a category
- *  with slots, e.g. "interview", shows one of those per slot in addition). */
-const attachCheckbox = (scope, name) => scope.getByRole("checkbox", { name: `Attach ${name}`, exact: true });
+/** Attach an existing Library document through the same destination picker
+ *  shown in the Context editor. */
+const attachLibraryDocument = async (page, name) => {
+  const library = page.getByRole("complementary", { name: "Context Library" }).first();
+  await library.getByLabel("Resource destination").selectOption("__other__");
+  await library.getByRole("button", { name: "Add from library…" }).click();
+  const picker = page.getByRole("dialog", { name: "Add an existing document to Other documents" });
+  await picker.getByRole("button", { name: `Add ${name} to Other documents` }).click();
+  return page.getByRole("button", { name: `Remove ${name} from Other documents — stays in your Library` });
+};
 
 const require = createRequire(import.meta.url);
 const { opt, flag } = cliOptions(process.argv.slice(2));
@@ -165,9 +171,11 @@ try {
     await page.getByLabel(/^goal/i).fill(REHEARSAL_CONTEXT.purpose);
     await page.getByRole("button", { name: /^next$/i }).click();
     // Step 2: attach the two documents just created above, and the key terms.
-    await attachCheckbox(page, REHEARSAL_DOC.name).check();
-    await attachCheckbox(page, REHEARSAL_UPLOAD.name).check();
-    attachedBoth = (await attachCheckbox(page, REHEARSAL_DOC.name).isChecked()) && (await attachCheckbox(page, REHEARSAL_UPLOAD.name).isChecked());
+    // ContextSetup uses a destination picker and Add buttons; the previous
+    // rehearsal targeted checkboxes from an older version of this screen.
+    const pastedAttachment = await attachLibraryDocument(page, REHEARSAL_DOC.name);
+    const uploadedAttachment = await attachLibraryDocument(page, REHEARSAL_UPLOAD.name);
+    attachedBoth = await pastedAttachment.isVisible() && await uploadedAttachment.isVisible();
     await page.getByPlaceholder(/pensive theory/).fill(REHEARSAL_CONTEXT.key_terms.join("\n"));
     await page.getByRole("button", { name: /^next$/i }).click();
     // Step 3: Finish. On web this awaits `context.prepare` (M2 cp20 — a
@@ -181,7 +189,9 @@ try {
       const nameBack = await page.getByLabel(/^name$/i).inputValue();
       const goalBack = await page.getByLabel(/^goal/i).inputValue();
       await page.getByRole("button", { name: /^next$/i }).click();
-      const docsAttached = (await attachCheckbox(page, REHEARSAL_DOC.name).isChecked()) && (await attachCheckbox(page, REHEARSAL_UPLOAD.name).isChecked());
+      const docsAttached =
+        await page.getByRole("button", { name: `Remove ${REHEARSAL_DOC.name} from Other documents — stays in your Library` }).isVisible() &&
+        await page.getByRole("button", { name: `Remove ${REHEARSAL_UPLOAD.name} from Other documents — stays in your Library` }).isVisible();
       reopenedSame = nameBack === REHEARSAL_CONTEXT.title && goalBack === REHEARSAL_CONTEXT.purpose && docsAttached;
       await page.getByRole("button", { name: /^back$/i }).first().click().catch(() => page.keyboard.press("Escape"));
     }
