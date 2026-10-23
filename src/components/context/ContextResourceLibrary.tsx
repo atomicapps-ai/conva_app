@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ContextFileSlot } from "@/components/context/categoryTemplates";
 import { isImageDocument } from "@/components/contexts/documentVisual";
@@ -88,10 +88,14 @@ export function ContextResourceLibrary({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerPos, setPickerPos] = useState<{ x: number; y: number } | null>(null);
   const [pickerSearch, setPickerSearch] = useState("");
+  const pickerContainer = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!pickerOpen) return;
-    const close = () => setPickerOpen(false);
+    const close = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Node) || !pickerContainer.current?.contains(target)) setPickerOpen(false);
+    };
     window.addEventListener("click", close);
     window.addEventListener("resize", close);
     window.addEventListener("scroll", close, true);
@@ -228,70 +232,72 @@ export function ContextResourceLibrary({
       {/* Existing Library documents — a button-triggered popover, scoped to
           `target`, rather than a permanent wall of every unattached document
           (owner, 2026-09-23). */}
-      <button
-        type="button"
-        className="btn mt-1.5 w-full px-2 py-1.5 text-[10px]"
-        disabled={available.length === 0 && pickerSearch.trim().length === 0}
-        onClick={(event) => {
-          event.stopPropagation();
-          const r = event.currentTarget.getBoundingClientRect();
-          setPickerPos({ x: r.left, y: r.bottom + 4 });
-          setPickerOpen((open) => !open);
-        }}
-      >
-        <Icon name="library" size={12} />
-        Add from library…
-      </button>
-
-      {pickerOpen && pickerPos && (
-        <div
-          role="dialog"
-          aria-label={`Add an existing document to ${targetLabel}`}
-          onClick={(event) => event.stopPropagation()}
-          style={{ position: "fixed", left: pickerPos.x, top: pickerPos.y, zIndex: 60 }}
-          className="glass-raised flex max-h-[320px] w-[260px] flex-col overflow-hidden rounded-lg border border-border shadow-[var(--shadow-lg)]"
+      <div ref={pickerContainer}>
+        <button
+          type="button"
+          className="btn mt-1.5 w-full px-2 py-1.5 text-[10px]"
+          disabled={available.length === 0 && pickerSearch.trim().length === 0}
+          onClick={(event) => {
+            event.stopPropagation();
+            const r = event.currentTarget.getBoundingClientRect();
+            setPickerPos({ x: r.left, y: r.bottom + 4 });
+            setPickerOpen((open) => !open);
+          }}
         >
-          <input
-            value={pickerSearch}
-            onChange={(event) => setPickerSearch(event.target.value)}
-            // eslint-disable-next-line jsx-a11y/no-autofocus
-            autoFocus
-            className="input m-1.5 h-7 text-[11px]"
-            aria-label="Search Library"
-            placeholder={`Search Library to add to ${targetLabel}`}
-          />
-          <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
-            {available.length ? (
-              <ul>
-                {available.map((doc) => (
-                  <ResourceRow
-                    key={doc.id}
-                    doc={doc}
-                    draggable
-                    action={
-                      <button
-                        type="button"
-                        onClick={() => onAssign(target, doc.id)}
-                        aria-label={`Add ${doc.file_name} to ${targetLabel}`}
-                        title={`Add to ${targetLabel}`}
-                        className="shrink-0 rounded-sm p-1 text-primary transition hover:bg-primary/10"
-                      >
-                        <Icon name="add" size={14} />
-                      </button>
-                    }
-                  />
-                ))}
-              </ul>
-            ) : (
-              <p className="px-1 py-4 text-center text-[10px] text-fg-faint">
-                {attachable.length === selectedIds.length
-                  ? "All Library resources are in this Context."
-                  : "No resources match."}
-              </p>
-            )}
+          <Icon name="library" size={12} />
+          Add from library…
+        </button>
+
+        {pickerOpen && pickerPos && (
+          <div
+            role="dialog"
+            aria-label={`Add an existing document to ${targetLabel}`}
+            onClick={(event) => event.stopPropagation()}
+            style={{ position: "fixed", left: pickerPos.x, top: pickerPos.y, zIndex: 60 }}
+            className="glass-raised flex max-h-[320px] w-[260px] flex-col overflow-hidden rounded-lg border border-border shadow-[var(--shadow-lg)]"
+          >
+            <input
+              value={pickerSearch}
+              onChange={(event) => setPickerSearch(event.target.value)}
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              className="input m-1.5 h-7 text-[11px]"
+              aria-label="Search Library"
+              placeholder={`Search Library to add to ${targetLabel}`}
+            />
+            <div className="min-h-0 flex-1 overflow-y-auto px-1 pb-1">
+              {available.length ? (
+                <ul>
+                  {available.map((doc) => (
+                    <ResourceRow
+                      key={doc.id}
+                      doc={doc}
+                      draggable
+                      action={
+                        <button
+                          type="button"
+                          onClick={() => onAssign(target, doc.id)}
+                          aria-label={`Add ${doc.file_name} to ${targetLabel}`}
+                          title={`Add to ${targetLabel}`}
+                          className="shrink-0 rounded-sm p-1 text-primary transition hover:bg-primary/10"
+                        >
+                          <Icon name="add" size={14} />
+                        </button>
+                      }
+                    />
+                  ))}
+                </ul>
+              ) : (
+                <p className="px-1 py-4 text-center text-[10px] text-fg-faint">
+                  {attachable.length === selectedIds.length
+                    ? "All Library resources are in this Context."
+                    : "No resources match."}
+                </p>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {pasteOpen && (
         <div className="mt-2 rounded-md border border-border p-2">
