@@ -48,13 +48,17 @@ import { DEFAULT_CHROMIUM, acknowledgeNotice, attachListeners, cliOptions, launc
 
 /** Attach an existing Library document through the same destination picker
  *  shown in the Context editor. */
-const attachLibraryDocument = async (page, name) => {
+const attachLibraryDocuments = async (page, names) => {
   const library = page.getByRole("complementary", { name: "Context Library" }).first();
   await library.getByLabel("Resource destination").selectOption("__other__");
   await library.getByRole("button", { name: "Add from library…" }).click();
   const picker = page.getByRole("dialog", { name: "Add an existing document to Other documents" });
-  await picker.getByRole("button", { name: `Add ${name} to Other documents` }).click();
-  return page.getByRole("button", { name: `Remove ${name} from Other documents — stays in your Library` });
+  for (const name of names) {
+    await picker.getByRole("button", { name: `Add ${name} to Other documents` }).click();
+  }
+  return names.map((name) =>
+    page.getByRole("button", { name: `Remove ${name} from Other documents — stays in your Library` }),
+  );
 };
 
 const require = createRequire(import.meta.url);
@@ -173,9 +177,8 @@ try {
     // Step 2: attach the two documents just created above, and the key terms.
     // ContextSetup uses a destination picker and Add buttons; the previous
     // rehearsal targeted checkboxes from an older version of this screen.
-    const pastedAttachment = await attachLibraryDocument(page, REHEARSAL_DOC.name);
-    const uploadedAttachment = await attachLibraryDocument(page, REHEARSAL_UPLOAD.name);
-    attachedBoth = await pastedAttachment.isVisible() && await uploadedAttachment.isVisible();
+    const attachments = await attachLibraryDocuments(page, [REHEARSAL_DOC.name, REHEARSAL_UPLOAD.name]);
+    attachedBoth = await attachments[0].isVisible() && await attachments[1].isVisible();
     await page.getByPlaceholder(/pensive theory/).fill(REHEARSAL_CONTEXT.key_terms.join("\n"));
     await page.getByRole("button", { name: /^next$/i }).click();
     // Step 3: Finish. On web this awaits `context.prepare` (M2 cp20 — a
