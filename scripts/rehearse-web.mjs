@@ -185,7 +185,7 @@ try {
     // no-op that marks the record ready; before this checkpoint it always
     // rejected and no Context could ever be created through the web wizard).
     await page.getByRole("button", { name: /^finish$/i }).click();
-    const editContext = page.getByRole("button", { name: `Edit setup for ${REHEARSAL_CONTEXT.title}` }).first();
+    const editContext = page.getByRole("button", { name: /^edit setup$/i }).first();
     contextSaved = await editContext.waitFor({ state: "visible", timeout: 8000 }).then(() => true).catch(() => false);
     if (contextSaved) {
       // Reopen: the same fields and attachments come back.
