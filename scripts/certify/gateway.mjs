@@ -91,8 +91,13 @@ export function startGateway({ distDir, port = 0, sessionId = "live_certify", lo
       const raw = await readBody(req);
       const isUpload = p === "/api/live/library/upload";
       const r = cloud.handle({ method: req.method, path: p.slice("/api/live".length), body: isUpload ? raw : raw.length ? parseJson(raw) : null, headers: req.headers });
+      // The download route answers raw bytes as an attachment, not JSON.
       if (typeof r.raw === "string") {
-        res.writeHead(r.status, { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(r.file_name ?? "document")}` });
+        res.writeHead(r.status, {
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(r.file_name ?? "document")}`,
+          "Cache-Control": "no-store",
+        });
         return res.end(r.raw);
       }
       return json(res, r.status, r.body);
