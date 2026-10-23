@@ -1,4 +1,4 @@
-/* R3 — Contexts on the web: the five demo Contexts are listed and open with their documents and vocabulary; a new Context goes through the three-step wizard and survives a reload; deleting it persists. Finishing a Context on the web is a known failure until the web path is built. */
+/* R3 — Contexts on the web: the five demo Contexts are listed and open with their documents and vocabulary; a new Context goes through the three-step wizard and survives a reload; deleting it persists. */
 import { check } from "../lib.mjs";
 import { nav, openApp, press, seeText, waitVisible } from "../ui.mjs";
 
@@ -46,7 +46,7 @@ export default {
       await page.waitForTimeout(1200);
       const text = await page.evaluate(() => document.body.innerText);
       check(!/couldn.t save|runs on the desktop/i.test(text), "Finish reported that it could not save (Context runs on the desktop app)");
-    }, { known: "PR 249: web Finish saves the Context and then reports a failure; the fix is open draft PR 249" });
+    });
     await step("After a reload the new Context is listed with its name, goal and key terms", async () => {
       await toContexts(page, origin);
       await seeText(page, NAME, 6000);
