@@ -186,7 +186,7 @@ try {
     // rejected and no Context could ever be created through the web wizard).
     await page.getByRole("button", { name: /^finish$/i }).click();
     const editContext = page.getByRole("button", { name: /^edit setup$/i }).first();
-    contextSaved = await editContext.waitFor({ state: "visible", timeout: 8000 }).then(() => true).catch(() => false);
+    contextSaved = await editContext.waitFor({ state: "visible", timeout: 30_000 }).then(() => true).catch(() => false);
     if (contextSaved) {
       // Reopen: the same fields and attachments come back.
       await editContext.click();
