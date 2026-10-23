@@ -20,7 +20,7 @@ jobs:
           set -euo pipefail
           git fetch --depth=1 origin dev
           git show origin/dev:Cargo.lock > Cargo.lock
-          cargo update -p rustls -p rustls-webpki -p tokio -p webpki-root-certs -p webpki-roots
+          cargo update -p rustls -p rustls-webpki -p tokio -p webpki-root-certs -p webpki-roots@1.0.9
           cargo tree -i ort-sys > dependency-report.txt
           cargo tree -i zip >> dependency-report.txt
       - uses: actions/upload-artifact@v4
